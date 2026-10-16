@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WhatsApp Sender</title>
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%2314181c'/><path d='M10 23l1.1-3.4A6.6 6.6 0 1 1 13.6 22z' fill='white'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script>
+    // Resolve the theme before first paint. "auto" follows the OS setting.
+    (function () {
+      var root = document.documentElement, pref = 'light';
+      try { pref = localStorage.getItem('theme') || 'light'; } catch (e) { }
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      window.applyTheme = function (p) {
+        root.dataset.theme = p;
+        root.dataset.mode = p === 'auto' ? (mq.matches ? 'dark' : 'light') : p;
+      };
+      mq.addEventListener('change', function () { window.applyTheme(root.dataset.theme); });
+      window.applyTheme(pref);
+    })();
+  </script>
+</head>
+
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="logo"></span><span class="brand-name">WhatsApp Sender</span></div>
+    <nav id="tabs" class="seg side-nav" aria-label="Pages">
+      <button data-icon="layout-grid" data-icon-size="16" data-tab="overview" title="Overview" class="active"><span class="nav-label">Overview</span></button>
+      <button data-icon="message-circle" data-icon-size="16" data-tab="inbox" title="Inbox"><span class="nav-label">Inbox</span><span class="nav-badge hidden" id="inboxBadge"></span></button>
+      <button data-icon="send" data-icon-size="16" data-tab="send" title="Send"><span class="nav-label">Send</span></button>
+      <button data-icon="chart-column-increasing" data-icon-size="16" data-tab="campaigns" title="Campaigns"><span class="nav-label">Campaigns</span></button>
+      <button data-icon="phone" data-icon-size="16" data-tab="numbers" title="Numbers"><span class="nav-label">Numbers</span></button>
+      <button data-icon="file-text" data-icon-size="16" data-tab="templates" title="Templates"><span class="nav-label">Templates</span></button>
+      <button data-icon="settings" data-icon-size="16" data-tab="settings" title="Settings"><span class="nav-label">Settings</span></button>
+    </nav>
+    <div class="side-foot">
+      <button id="modeBadge" class="badge" data-goto="settings" title="Change in Settings"></button>
+      <div class="seg seg-icons" id="themeSeg" title="Theme">
+        <button data-theme-set="light" title="Light" data-icon="sun" data-icon-size="15"></button>
+        <button data-theme-set="auto" title="Match system" data-icon="sun-moon" data-icon-size="15"></button>
+        <button data-theme-set="dark" title="Dark" data-icon="moon" data-icon-size="15"></button>
+      </div>
+    </div>
+  </aside>
+
+  <div id="demoBanner" class="banner hidden">
+    <span class="dot"></span>
+    <span><strong>Demo mode</strong> — sending is simulated. Turn it off in <a href="#"
+        data-goto="settings">Settings</a> once your API key and templates are approved.</span>
+  </div>
+
+  <main>
+    <!-- OVERVIEW ---------------------------------------------------------->
+    <section id="tab-overview" class="tab">
+      <div class="section-head">
+        <div>
+          <h1 id="ovTitle">Overview</h1>
+          <p class="sub" id="ovSub">Your messaging at a glance.</p>
+        </div>
+        <div class="row tight">
+          <button class="btn quiet hidden" id="seedBtn" data-icon="layout-grid">Load demo workspace</button>
+          <button class="btn quiet danger hidden" id="unseedBtn" data-icon="delete">Remove demo data</button>
+          <button class="btn primary" data-goto="send" data-icon="plus">New campaign</button>
+        </div>
+      </div>
+
+      <div id="setupCard"></div>
+
+      <div class="filter-bar" id="ovFilters">
+        <span class="filter-label" data-icon="sliders-horizontal" data-icon-size="15">Showing</span>
+        <div class="seg" id="rangeSeg">
+          <button data-range="7">7 days</button>
+          <button data-range="14" class="active">14 days</button>
+          <button data-range="30">30 days</button>
+          <button data-range="90">90 days</button>
+        </div>
+        <label class="inline">Number <select id="fSender">
+            <option value="">All numbers</option>
+          </select></label>
+        <label class="inline">Template <select id="fTemplate">
+            <option value="">All templates</option>
+          </select></label>
+        <button class="btn quiet sm hidden" id="fReset">Reset filters</button>
+        <span class="filter-note" id="fNote"></span>
+      </div>
+
+      <div class="kpis" id="kpis"></div>
+
+      <div class="grid-ov">
+        <div class="card chart-card" id="chartCard">
+          <div class="card-head">
+            <div>
+              <h2 id="chartTitle" data-icon="chart-column-increasing">Messages sent</h2>
+              <p class="sub" id="chartSub">Per day, last 14 days</p>
+            </div>
+            <div class="row tight">
+              <button class="btn quiet sm" id="chartTableBtn">Table</button>
+              <button class="btn sm" id="chartExpandBtn" data-icon="maximize-2" data-icon-size="14">Expand</button>
+            </div>
+          </div>
+          <div class="seg seg-metric" id="metricSeg">
+            <button data-metric="sent" class="active">Sent</button>
+            <button data-metric="deliveryRate">Delivery rate</button>
+            <button data-metric="readRate">Read rate</button>
+            <button data-metric="failed">Failed</button>
+          </div>
+          <div id="dayChart" class="chart"></div>
+          <div id="dayTable" class="table-wrap chart-table hidden"></div>
+        </div>
+        <div class="card la-host">
+          <h2 data-icon="users">Delivery funnel</h2>
+          <p class="sub" id="funnelSub" style="margin:-10px 0 18px">How far your messages got</p>
+          <div id="funnel"></div>
+        </div>
+      </div>
+
+      <div class="grid-ov">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h2 data-icon="phone">Number health</h2>
+              <p class="sub">Today's usage against each number's daily limit</p>
+            </div>
+            <a href="#" class="btn quiet sm" data-goto="numbers" data-icon="settings">Manage numbers</a>
+          </div>
+          <div id="senderHealth"></div>
+        </div>
+        <div class="stack">
+          <div class="card la-host">
+            <h2 data-icon="calendar-days">Upcoming</h2>
+            <div id="upcoming"></div>
+          </div>
+          <div class="card">
+            <div class="card-head" style="margin-bottom:10px">
+              <h2 data-icon="history">Recent campaigns</h2>
+              <a href="#" class="btn quiet sm" data-goto="campaigns" data-icon="history">View all</a>
+            </div>
+            <div id="recent"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEND -------------------------------------------------------------->
+    <!-- INBOX ------------------------------------------------------------->
+    <section id="tab-inbox" class="tab hidden">
+      <div class="inbox" id="inbox">
+        <aside class="ib-side">
+          <div class="ib-side-head">
+            <h1>Inbox</h1>
+            <button class="icon-btn la-host" id="ibNew" title="New chat" aria-label="New chat" data-icon="square-pen" data-icon-size="18"></button>
+          </div>
+          <div class="ib-tools">
+            <div class="search-wrap" data-icon="search" data-icon-size="15">
+              <input id="ibSearch" class="search" type="search" placeholder="Search name, number or message" autocomplete="off" />
+            </div>
+            <div class="ib-filters">
+              <div class="seg" id="ibFilter">
+                <button data-f="all" class="active">All</button>
+                <button data-f="unread">Unread</button>
+                <button data-f="open">Can reply</button>
+              </div>
+              <select id="ibSender" class="hidden" aria-label="Number"></select>
+            </div>
+          </div>
+          <div class="ib-convs" id="ibConvs" role="list"></div>
+        </aside>
+        <div class="ib-chat" id="ibChat"></div>
+      </div>
+    </section>
+
+    <section id="tab-send" class="tab hidden">
+      <div class="card" id="recipientsCard">
+        <div class="card-head">
+          <div>
+            <h2><span class="step">1</span> Recipients</h2>
+            <p class="sub">Upload your contact list, then pick who gets the message.</p>
+          </div>
+          <div class="row tight">
+            <button class="btn quiet hidden" id="splitBtn" data-icon="panel-right-open" aria-pressed="false">Split
+              view</button>
+            <button class="btn quiet" id="sampleCsv" data-icon="users">Try sample data</button>
+            <button class="btn quiet" id="togglePaste" data-icon="copy">Paste rows</button>
+            <button class="btn quiet hidden" id="clearCsv" data-icon="delete">Remove file</button>
+            <label class="btn file" data-icon="upload">Upload file<input type="file" class="fileInput"
+                accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" /></label>
+          </div>
+        </div>
+
+        <div id="dropzone" class="dropzone">
+          <div class="dz-icon" data-icon="cloud-upload" data-icon-size="26"></div>
+          <div class="dz-title">Drop a CSV or Excel file here</div>
+          <div class="sub">or <label class="link">browse your computer<input type="file" class="fileInput"
+                accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" hidden /></label> · .csv .xlsx .xls .tsv · first row can be
+            column names</div>
+        </div>
+
+        <div id="pasteWrap" class="hidden">
+          <textarea id="csvText" rows="6"
+            placeholder="phone,name,city&#10;9876543210,Ravi,Pune&#10;919812345678,Priya,Delhi"></textarea>
+        </div>
+
+        <div id="tableArea" class="hidden">
+          <div class="table-tools">
+            <div class="file-info" id="fileInfo"></div>
+            <div class="tools-right">
+              <label class="inline">Phone column <select id="phoneColumn"></select></label>
+              <div class="search-wrap" data-icon="search" data-icon-size="15">
+                <input id="tableSearch" class="search" placeholder="Search all columns" />
+              </div>
+            </div>
+          </div>
+          <div class="sel-bar">
+            <span id="selInfo" class="sel-count"></span>
+            <span class="sel-actions">
+              <button class="btn quiet sm" id="selFiltered">Select all shown</button>
+              <button class="btn quiet sm" id="unselFiltered">Unselect shown</button>
+              <button class="btn quiet sm" id="selNone">Clear selection</button>
+              <button class="btn quiet sm" id="clearFilters">Reset filters &amp; sort</button>
+            </span>
+            <span class="hint"><kbd>Shift</kbd> + click selects a range</span>
+          </div>
+          <div class="table-scroll" id="tableScroll">
+            <table class="data-table" id="dataTable">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="table-foot" id="tableFoot"></div>
+        </div>
+      </div>
+
+      <div class="split-handle" id="splitHandle" role="separator" aria-orientation="vertical" aria-label="Resize panels"
+        tabindex="0" title="Drag to resize"><span></span></div>
+
+      <div class="grid-2">
+        <div class="pane-head">
+          <div>
+            <div class="pane-title">Message setup</div>
+            <div class="sub">Template, numbers and personalisation</div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <h2><span class="step">2</span> Template &amp; numbers</h2>
+            <label>Template
+              <select id="templateSelect"></select>
+            </label>
+            <label>Campaign name <span class="opt">optional</span>
+              <input id="campaignName" placeholder="e.g. Diwali offer — Oct 2026" />
+            </label>
+            <div class="field-label">Send from <span class="opt">messages are split evenly across the numbers you turn
+                on</span></div>
+            <div id="senderChecks" class="toggle-list"></div>
+          </div>
+
+          <div class="card" id="mappingCard">
+            <h2><span class="step">3</span> Personalise</h2>
+            <div id="mapping">
+              <p class="sub">Pick a template to see its variables.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack sticky">
+          <div class="card">
+            <h2 data-icon="eye">Preview</h2>
+            <div class="phone">
+              <div class="bubble" id="preview"><span class="muted">Select a template</span></div>
+            </div>
+            <div class="sub" id="previewNote"></div>
+          </div>
+
+          <div class="card">
+            <h2 data-icon="zap">Send a test</h2>
+            <div class="row">
+              <input id="testPhone" placeholder="Your number, e.g. 9876543210" />
+              <button class="btn" id="testSend" data-icon="send">Send test</button>
+            </div>
+            <div class="sub">Uses the first number you turned on and the first selected row.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sendbar">
+        <div id="sendSummary" class="send-summary">—</div>
+        <div class="send-controls">
+          <div class="seg" id="sendMode">
+            <button data-mode="now" class="active" data-icon="zap" data-icon-size="15">Now</button>
+            <button data-mode="schedule" data-icon="clock" data-icon-size="15">Later</button>
+          </div>
+          <input type="datetime-local" id="scheduleAt" class="hidden" />
+          <button class="btn primary big" id="sendAll">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CAMPAIGNS --------------------------------------------------------->
+    <section id="tab-campaigns" class="tab hidden">
+      <div id="campaignDetail" class="hidden"></div>
+      <div id="campaignList"></div>
+    </section>
+
+    <!-- NUMBERS ----------------------------------------------------------->
+    <section id="tab-numbers" class="tab hidden">
+      <div class="section-head">
+        <div>
+          <h1>Sender numbers</h1>
+          <p class="sub">Each WhatsApp number from your Meta Business account. Add as many as you have.</p>
+        </div>
+        <button class="btn primary" id="addSender" data-icon="plus">Add number</button>
+      </div>
+      <div id="senderList" class="cards"></div>
+    </section>
+
+    <!-- TEMPLATES --------------------------------------------------------->
+    <section id="tab-templates" class="tab hidden">
+      <div class="section-head">
+        <div>
+          <h1>Templates</h1>
+          <p class="sub">Sync approved templates from Meta, or add one by hand while you wait for approval.</p>
+        </div>
+        <div class="row tight">
+          <button class="btn" id="syncTemplates" data-icon="refresh-cw">Sync from Meta</button>
+          <button class="btn primary" id="addTemplate" data-icon="plus">Add manually</button>
+        </div>
+      </div>
+      <div id="templateList" class="cards"></div>
+    </section>
+
+    <!-- SETTINGS ---------------------------------------------------------->
+    <section id="tab-settings" class="tab hidden">
+      <div class="grid-2">
+        <div class="card la-host">
+          <h2 data-icon="settings">General</h2>
+          <div class="setting-row">
+            <div>
+              <div class="setting-title">Demo mode</div>
+              <div class="sub">Simulate sending. Switch off to send real WhatsApp messages.</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setDemo" />
+              <span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span
+                  class="knob"></span></span>
+            </label>
+          </div>
+          <label>Default country code <span class="opt">added to 10-digit numbers</span>
+            <input id="setCC" placeholder="91" />
+          </label>
+          <label>Graph API version
+            <input id="setGraph" placeholder="v21.0" />
+          </label>
+          <div class="row">
+            <label>Parallel sends per number
+              <input id="setConc" type="number" min="1" max="50" />
+            </label>
+            <label>Delay between sends (ms)
+              <input id="setDelay" type="number" min="0" />
+            </label>
+          </div>
+          <div class="card-actions"><button class="btn primary" id="saveSettings" data-icon="circle-check">Save
+              settings</button></div>
+        </div>
+
+        <div class="card la-host">
+          <h2 data-icon="zap">Webhook (delivery status and Inbox)</h2>
+          <p class="sub">To see <em>delivered</em>, <em>read</em> and <em>failed</em>, and to receive replies in the Inbox, add this in Meta App Dashboard →
+            WhatsApp → Configuration → Webhook and subscribe to the <code>messages</code> field. It must be a public
+            HTTPS address (deploy the app, or use ngrok while testing).</p>
+          <label>Callback URL
+            <div class="input-group"><input id="webhookUrl" readonly /><button class="btn sm copy"
+                data-copy="webhookUrl" data-icon="copy" data-icon-size="14">Copy</button></div>
+          </label>
+          <label>Verify token
+            <div class="input-group"><input id="setVerify" /><button class="btn sm copy" data-copy="setVerify"
+                data-icon="copy" data-icon-size="14">Copy</button></div>
+          </label>
+        </div>
+
+        <div class="card span-2 la-host">
+          <h2 data-icon="rocket">Getting your API credentials</h2>
+          <ol class="guide">
+            <li>Go to <a href="https://developers.facebook.com/apps" target="_blank"
+                rel="noopener">developers.facebook.com/apps</a>, create an app of type <strong>Business</strong> and add
+              the <strong>WhatsApp</strong> product.</li>
+            <li>In <strong>WhatsApp → API Setup</strong>, add and verify each business phone number. Copy each number's
+              <strong>Phone number ID</strong> and the <strong>WhatsApp Business Account ID</strong>.
+            </li>
+            <li>Create a <strong>permanent token</strong>: Business Settings → Users → System users → add an Admin
+              system user → assign your app and WhatsApp account → Generate token with
+              <code>whatsapp_business_messaging</code> and <code>whatsapp_business_management</code>.
+            </li>
+            <li>Create message templates in <strong>WhatsApp Manager → Message templates</strong> and wait for approval.
+            </li>
+            <li>Here: <strong>Numbers → Add number</strong> for each phone, <strong>Templates → Sync from Meta</strong>,
+              then switch Demo mode off.</li>
+          </ol>
+          <p class="sub">New numbers start with a daily limit on unique recipients (as low as 250/day) that rises while
+            your quality stays high. Only message people who opted in. Blocks and reports lower your quality rating and
+            can get numbers restricted.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="modalTitle"></h2><button class="icon-btn" id="modalClose" aria-label="Close">✕</button>
+      </div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Confirm dialog -->
+  <div id="confirm" class="modal hidden">
+    <div class="modal-box confirm-box">
+      <h2 id="confirmTitle"></h2>
+      <div id="confirmMsg" class="confirm-msg"></div>
+      <div class="modal-actions">
+        <button class="btn quiet" id="confirmNo">Cancel</button>
+        <button class="btn primary" id="confirmYes">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Expanded chart -->
+  <div id="chartModal" class="modal hidden">
+    <div class="modal-box chart-box" role="dialog" aria-modal="true" aria-labelledby="xTitle">
+      <div class="modal-head">
+        <div>
+          <h2 id="xTitle">Messages sent</h2>
+          <p class="sub" id="xSub"></p>
+        </div>
+        <button class="icon-btn la-host" id="xClose" aria-label="Close" data-icon="x" data-icon-size="18"></button>
+      </div>
+      <div class="x-controls">
+        <div class="seg" id="xRangeSeg">
+          <button data-range="7">7 days</button>
+          <button data-range="14">14 days</button>
+          <button data-range="30">30 days</button>
+          <button data-range="90">90 days</button>
+        </div>
+        <div class="seg seg-metric" id="xMetricSeg">
+          <button data-metric="sent">Sent</button>
+          <button data-metric="deliveryRate">Delivery rate</button>
+          <button data-metric="readRate">Read rate</button>
+          <button data-metric="failed">Failed</button>
+        </div>
+      </div>
+      <div id="xChart" class="chart chart-lg"></div>
+      <div id="xTable" class="table-wrap chart-table"></div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+  <div id="chartTip" class="chart-tip hidden" role="tooltip"></div>
+  <script src="vendor/d3.min.js"></script>
+  <script src="icons.js"></script>
+  <script src="motion.js"></script>
+  <script src="app.js"></script>
+  <script src="inbox.js"></script>
+</body>
+
+</html>
