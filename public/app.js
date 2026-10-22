@@ -266,6 +266,9 @@ function renderSettings() {
   renderAiSettings();
   const la = s.leadAgent || {};
   $('#laEnabled').checked = Boolean(la.enabled);
+  $('#laAuto').checked = Boolean(la.autoReply);
+  $('#laAuto').disabled = !la.enabled;
+  $('#laAutoRow').classList.toggle('dim', !la.enabled);
   if (document.activeElement !== $('#laBusiness')) $('#laBusiness').value = la.business || '';
   if (document.activeElement !== $('#laQualified')) $('#laQualified').value = la.qualified || '';
   renderMode();
@@ -307,11 +310,18 @@ $('#setDemo').addEventListener('change', () =>
 
 // Inbox lead assistant: on/off, what it knows about the business, what counts as qualified.
 async function saveLeadAgent(note) {
-  state.settings = await api('/settings', { method: 'PUT', body: { leadAgent: { enabled: $('#laEnabled').checked, business: $('#laBusiness').value, qualified: $('#laQualified').value } } });
+  state.settings = await api('/settings', { method: 'PUT', body: { leadAgent: { enabled: $('#laEnabled').checked, autoReply: $('#laAuto').checked, business: $('#laBusiness').value, qualified: $('#laQualified').value } } });
   renderSettings();
   if (note) toast(note);
 }
 $('#laSave').addEventListener('click', (e) => guard(() => saveLeadAgent('Lead assistant saved'), e.target));
+$('#laAuto').addEventListener('change', async (e) => {
+  if (e.target.checked && !state.settings.demoMode) {
+    const ok = await confirmDialog({ title: 'Let the AI reply on its own?', message: 'Live mode: the AI will send real WhatsApp messages to your customers without anyone approving them. It holds back when a person is needed, after an opt-out, when your team is active in the chat, and after 5 auto-replies in an hour. Make sure “About your business” is filled in.', confirmText: 'Turn on auto-reply' });
+    if (!ok) { e.target.checked = false; return; }
+  }
+  guard(() => saveLeadAgent(e.target.checked ? 'Auto-reply on' : 'Auto-reply off: the AI only drafts'));
+});
 $('#laEnabled').addEventListener('change', () =>
   guard(async () => {
     if ($('#laEnabled').checked && !$('#laBusiness').value.trim()) toast('Tip: write about your business first, so drafts can answer questions', 'error');

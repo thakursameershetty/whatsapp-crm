@@ -2848,3 +2848,28 @@ button.fp-hint:hover { filter: brightness(0.96); }
 body.send-open main { max-width: none; padding-left: 24px; padding-right: 24px; }
 body.send-open .banner { max-width: none; width: auto; margin-left: 24px; margin-right: 24px; }
 @media (min-width: 1800px) { #tab-send.pane-wide:not(.panel-off) .sp-body { grid-template-columns: minmax(0, 1fr) 720px; } #tab-send:not(.pane-wide):not(.panel-off) .sp-body { grid-template-columns: minmax(0, 1fr) 400px; } }
+
+/* Lead assistant auto-reply */
+.setting-row.dim { opacity: 0.5; }
+.ib-label.ib-auto { color: var(--violet); }
+.ib-label.ib-auto svg { margin-right: 2px; }
+.ib-held { margin-left: auto; font-size: 11.5px; color: var(--warn); font-weight: 500; }
+
+/* Inbox demo: write as the customer */
+.ib-sim { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: color-mix(in srgb, var(--warn-soft) 70%, var(--surface)); box-shadow: inset 0 1px 0 var(--hair); }
+.ib-sim-tag { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; color: var(--warn); text-transform: uppercase; letter-spacing: 0.05em; }
+.ib-sim-tag svg.la { margin: 0; }
+.ib-sim input { flex: 1; min-width: 0; height: 34px; margin: 0; font-size: 13.5px; }
+.ib-ai { padding-bottom: 12px; } /* breathing room above the reply box */
+
+/* "AI is typing…" in the chat and the chat list */
+.ib-typing { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-right: max(0px, calc(6% - 16px)); animation: ib-rise-out 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.ib-typing-bubble { display: inline-flex; gap: 5px; padding: 12px 16px; border-radius: 14px 14px 4px 14px; background: var(--bubble-out); box-shadow: 0 1px 1px rgba(0,0,0,0.08); }
+.ib-typing-bubble i { width: 7px; height: 7px; border-radius: 50%; background: color-mix(in srgb, var(--text) 45%, transparent); animation: ib-dot 1.2s ease-in-out infinite; }
+.ib-typing-bubble i:nth-child(2) { animation-delay: 0.15s; }
+.ib-typing-bubble i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes ib-dot { 0%, 60%, 100% { transform: translateY(0); opacity: 0.45; } 30% { transform: translateY(-4px); opacity: 1; } }
+.ib-typing-label { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
+.ib-typing-label svg { width: 14px; height: 14px; }
+.ib-prev-typing { color: var(--good-text); font-weight: 600; font-style: italic; }
+@media (prefers-reduced-motion: reduce) { .ib-typing-bubble i { animation: none; } }

@@ -157,7 +157,7 @@
             <span class="ib-conv-main">
               <span class="ib-conv-top"><b>${esc(displayName(c))}</b>${c.ai?.handover ? '<span class="ib-flag need">Needs you</span>' : c.ai?.hasDraft ? '<span class="ib-flag draft">Draft</span>' : ''}<time>${listTime(c.lastAt)}</time></span>
               <span class="ib-conv-bot">
-                <span class="ib-prev">${l.dir === 'out' ? ticks(l.status) : ''}<span>${esc(previewText(l))}</span></span>
+                <span class="ib-prev">${c.ai?.busy ? '<span class="ib-prev-typing">AI is typing…</span>' : `${l.dir === 'out' ? ticks(l.status) : ''}<span>${esc(previewText(l))}</span>`}</span>
                 ${c.unread ? `<span class="ib-count">${c.unread}</span>` : ''}
               </span>
               ${multi ? `<span class="ib-via">via ${esc(c.senderLabel)}</span>` : ''}
@@ -342,7 +342,7 @@
       ${ct ? (ct.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS_PILL[ct.status] || ''}">${esc(STATUS_LABEL[ct.status] || ct.status)}</span>`) : ''}
       ${ct ? ct.tags.map(tagOf).filter(Boolean).slice(0, 3).map((x) => `<span class="tag-chip tag-${esc(x.color)}">${esc(x.name)}</span>`).join('') : ''}
       ${ct ? `<button class="btn sm quiet" data-ai="contact" title="Open contact">${icon('users', 14)}Contact</button>` : ''}
-      ${ai ? `<button class="ib-ai-toggle ${ai.on ? 'on' : ''}" data-ai="toggle" title="${ai.on ? 'The AI drafts a reply when they write. Click to stop for this chat.' : ai.off ? 'AI drafts are off for this chat. Click to turn on.' : 'Turn on the lead assistant in Settings to draft replies automatically.'}" aria-pressed="${ai.on}"><svg class="orb-icon" data-orb-icon="14"></svg>AI ${ai.on ? 'on' : 'off'}</button>` : ''}` : '';
+      ${ai ? `<button class="ib-ai-toggle ${ai.on ? 'on' : ''}" data-ai="toggle" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Click to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Click to stop for this chat.' : ai.off ? 'AI is off for this chat. Click to turn on.' : 'Turn on the lead assistant in Settings to draft replies automatically.'}" aria-pressed="${ai.on}"><svg class="orb-icon" data-orb-icon="14"></svg>AI ${ai.auto ? 'auto-reply' : ai.on ? 'on' : 'off'}</button>` : ''}` : '';
     Orb.hydrate(hx);
     const lead = ct?.lead || {};
     const bits = [['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v);
@@ -364,16 +364,19 @@
     const last = (t.messages || []).filter((m) => m.type !== 'reaction').at(-1);
     let html = '';
     if (ai.handover) html += `<div class="ib-handover">${icon('badge-alert', 16)}<div><b>Needs you</b><span>${esc(ai.handover.reason)}</span></div><button class="btn sm quiet" data-ai="clear-handover">Done</button></div>`;
-    if (ai.busy) html += `<div class="ib-draft busy"><svg class="orb" id="ibAiOrb"></svg><span>Drafting a reply…</span></div>`;
+    // While the AI writes: a typing bubble on the reply side, like WhatsApp's "typing…".
+    if (ai.busy) html += `<div class="ib-typing" role="status" aria-label="AI is typing"><span class="ib-typing-bubble"><i></i><i></i><i></i></span><span class="ib-typing-label"><svg class="orb" id="ibAiOrb"></svg>AI is typing…</span></div>`;
     else if (ai.draft) html += `<div class="ib-draft">
-        <div class="ib-draft-head"><svg class="orb-icon" data-orb-icon="14"></svg><span>Suggested reply</span>${ai.draft.stale ? '<span class="warn-text">They wrote again since this. Regenerate?</span>' : ''}</div>
+        <div class="ib-draft-head"><svg class="orb-icon" data-orb-icon="14"></svg><span>Suggested reply</span>${ai.draft.stale ? '<span class="warn-text">They wrote again since this. Regenerate?</span>' : ai.autoHeld ? `<span class="ib-held" title="Auto-reply is on, but this one waits for you">Not sent automatically: ${esc(ai.autoHeld)}</span>` : ''}</div>
         <div class="ib-draft-text">${fmtText(ai.draft.text)}</div>
         <div class="ib-draft-actions">
           ${w.open ? `<button class="btn sm primary" data-ai="send" data-icon="send" data-icon-size="13">Send</button><button class="btn sm" data-ai="edit">Edit</button>` : '<span class="sub">The reply window has closed, so only a template can be sent.</span>'}
           <button class="btn sm quiet" data-ai="regen">Regenerate</button><button class="btn sm quiet" data-ai="dismiss">Dismiss</button>
         </div>
       </div>`;
-    else if (w.open && last?.dir === 'in' && !t.contact?.optOut) html += `<button class="ib-ai-ask" data-ai="regen"><svg class="orb-icon" data-orb-icon="14"></svg>Draft a reply with AI</button>`;
+    else if (w.open && last?.dir === 'in' && !t.contact?.optOut) html += ai.auto
+      ? `<button class="ib-ai-ask" data-ai="reply" title="The AI writes and sends a reply now"><svg class="orb-icon" data-orb-icon="14"></svg>Let AI reply</button>`
+      : `<button class="ib-ai-ask" data-ai="regen"><svg class="orb-icon" data-orb-icon="14"></svg>Draft a reply with AI</button>`;
     if (ai.error && !ai.busy && !ai.draft) html += `<div class="ib-ai-err">${esc(ai.error)}</div>`;
     const sig = `${Boolean(ai.handover)}|${ai.busy ? 'busy' : ai.draft ? 'draft:' + ai.draft.text : ''}`;
     el.innerHTML = html;
@@ -402,9 +405,9 @@
       return;
     }
     await guard(async () => {
-      if (act === 'regen') {
+      if (act === 'regen' || act === 'reply') {
         setAi({ ...ib.thread.ai, busy: true, error: null });
-        setAi(await api(`/inbox/${enc(key)}/draft`, { method: 'POST' }));
+        setAi(await api(`/inbox/${enc(key)}/draft`, { method: 'POST', body: { send: act === 'reply' } }));
         await loadThread();
       }
       if (act === 'dismiss') setAi(await api(`/inbox/${enc(key)}/draft`, { method: 'DELETE' }));
@@ -415,7 +418,7 @@
       }
       loadList().catch(() => {});
     }, b).catch(() => {});
-    if (act === 'regen' && ib.thread?.ai?.busy) { ib.thread.ai.busy = false; renderAi(); }
+    if ((act === 'regen' || act === 'reply') && ib.thread?.ai?.busy) { ib.thread.ai.busy = false; renderAi(); }
   });
 
   function emptyPane() {
@@ -512,6 +515,7 @@
     }
     const src = m.media?.id ? `/api/media/${enc(m.media.id)}` : '';
     let textInside = true;
+    if (m.auto) h += `<div class="ib-label ib-auto">${icon('sparkles', 11)}Auto-reply · AI</div>`;
     switch (m.type) {
       case 'template': {
         const t = state.templates.find((x) => x.id === m.templateId);
@@ -574,14 +578,32 @@
 
   // ---------- Composer ----------
 
+  // Demo mode: a box to write as the customer, so replies and auto-reply can be tried without WhatsApp.
+  function simBar() {
+    if (!state.settings.demoMode || !ib.key) return '';
+    return `<form class="ib-sim" id="ibSim" autocomplete="off">
+      <span class="ib-sim-tag">${icon('users', 13)} Demo</span>
+      <input id="ibSimText" placeholder="Write as ${esc(displayName(current() || {}))} (the customer)…" aria-label="Write as the customer" />
+      <button class="btn sm" id="ibSimSend">Send as customer</button>
+    </form>`;
+  }
+  $('#ibChat').addEventListener('submit', (e) => {
+    if (e.target.id !== 'ibSim') return;
+    e.preventDefault();
+    const inp = $('#ibSimText'), text = inp.value.trim();
+    if (!text) return;
+    inp.value = '';
+    guard(() => api('/demo/inbound', { method: 'POST', body: { key: ib.key, text } }), $('#ibSimSend'));
+  });
+
   function renderFoot(open) {
     const foot = $('#ibFoot');
-    const mode = open ? 'open' : 'closed';
+    const mode = (open ? 'open' : 'closed') + (state.settings.demoMode ? ':sim' : '');
     if (foot.dataset.mode === mode && foot.dataset.key === ib.key) return renderReplyBar();
     foot.dataset.mode = mode;
     foot.dataset.key = ib.key;
     if (!open) {
-      foot.innerHTML = `<div class="ib-closed">
+      foot.innerHTML = simBar() + `<div class="ib-closed">
         <div><b>Reply window closed</b><span>WhatsApp only allows free-form replies within 24 hours of the customer's last message. Send an approved template to restart the conversation.</span></div>
         <button class="btn primary sm" id="ibTplBtn" data-icon="file-text" data-icon-size="14">Send template</button>
       </div>`;
@@ -589,7 +611,7 @@
       $('#ibTplBtn').onclick = templateModal;
       return;
     }
-    foot.innerHTML = `<div class="ib-compose">
+    foot.innerHTML = simBar() + `<div class="ib-compose">
       <div class="ib-replybar hidden" id="ibReplyBar"></div>
       <div class="ib-compose-row">
         <button class="icon-btn la-host" id="ibTplBtn" title="Send a template" aria-label="Send a template">${icon('file-text', 18)}</button>

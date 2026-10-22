@@ -10,7 +10,7 @@ const MAX = 500;
 const CATEGORY = {
   message: 'messages', optout: 'messages', reply_failed: 'messages',
   campaign_done: 'campaigns', campaign_started: 'campaigns', delivery_failed: 'campaigns',
-  ai_draft: 'ai', ai_handover: 'ai', ai_qualified: 'ai', ai_error: 'ai',
+  ai_draft: 'ai', ai_auto: 'ai', ai_handover: 'ai', ai_qualified: 'ai', ai_error: 'ai',
 };
 
 module.exports = function mountNotifications(app, ctx) {
@@ -107,9 +107,10 @@ module.exports = function mountNotifications(app, ctx) {
   const optout = ({ name, phone, key, demo }) => add({ kind: 'optout', title: `${name} opted out`, body: 'They asked to stop messages. They won’t be included in future sends.', link: key ? { tab: 'inbox', key } : { tab: 'contacts' }, demo, group: 'optout:' + phone });
   const replyFailed = ({ key, name, error, demo }) => add({ kind: 'reply_failed', title: `Your message to ${name} failed`, body: error || 'WhatsApp didn’t deliver it.', link: { tab: 'inbox', key }, demo, group: 'replyfail:' + key });
   const aiDraft = ({ key, name, text, demo }) => add({ kind: 'ai_draft', group: 'draft:' + key, title: `AI drafted a reply to ${name}`, body: text.slice(0, 160), link: { tab: 'inbox', key }, demo });
+  const aiAuto = ({ key, name, text, demo }) => add({ kind: 'ai_auto', group: 'auto:' + key, title: `AI replied to ${name}`, body: text.slice(0, 160), link: { tab: 'inbox', key }, demo });
   const aiHandover = ({ key, name, reason, demo }) => add({ kind: 'ai_handover', group: 'handover:' + key, title: `${name} needs a person`, body: reason, link: { tab: 'inbox', key }, demo });
   const aiQualified = ({ key, name, summary, demo }) => add({ kind: 'ai_qualified', group: 'qualified:' + key, title: `${name} is a qualified lead`, body: summary || '', link: { tab: 'inbox', key }, demo });
   const aiError = ({ key, name, error, demo }) => add({ kind: 'ai_error', group: 'aierror', title: `The lead assistant couldn’t draft a reply${name ? ` to ${name}` : ''}`, body: error, link: key ? { tab: 'inbox', key } : { tab: 'settings' }, demo });
 
-  return { add, campaignStarted, campaignDone, deliveryFailed, message, optout, replyFailed, aiDraft, aiHandover, aiQualified, aiError };
+  return { add, campaignStarted, campaignDone, deliveryFailed, message, optout, replyFailed, aiDraft, aiAuto, aiHandover, aiQualified, aiError };
 };

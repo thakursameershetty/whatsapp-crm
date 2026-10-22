@@ -441,6 +441,7 @@ app.put('/api/settings', (req, res) => {
     const l = req.body.leadAgent;
     db.settings.leadAgent = {
       enabled: Boolean(l.enabled),
+      autoReply: Boolean(l.enabled && l.autoReply),
       business: String(l.business ?? db.settings.leadAgent?.business ?? '').slice(0, 20000),
       qualified: String(l.qualified ?? db.settings.leadAgent?.qualified ?? '').slice(0, 4000),
     };
@@ -964,21 +965,64 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
     if (empty) throw fail(`Fill in ${empty.where} ${empty.name}`);
     const wamid = await sendTemplate(sender, template, wa, values, demo);
     msg = { type: 'template', templateId, templateName: template.name, values, wamid };
+    res.json(recordOut(key, msg));
   } else {
-    const body = String(text || '').trim();
-    if (!body) throw fail('Type a message');
-    const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in').at(-1);
-    if (!lastIn || Date.now() - new Date(lastIn.ts) > WINDOW_MS) throw fail('The 24-hour reply window is closed. Send a template to restart the conversation.');
-    let wamid;
-    if (demo) wamid = 'wamid.DEMO' + id();
-    else {
-      const payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to: wa, type: 'text', text: { body, preview_url: true } };
-      if (replyTo) payload.context = { message_id: replyTo };
-      wamid = (await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify(payload) })).messages?.[0]?.id;
-    }
-    msg = { type: 'text', text: body, wamid, context: replyTo || undefined };
+    res.json(await sendInboxText(key, text, { replyTo }));
   }
+}));
 
+// Demo mode only: pretend the customer in a conversation wrote a message, so the Inbox and
+// the lead assistant (drafts and auto-reply) can be tried without WhatsApp. It goes through the
+// same steps as a real incoming message; everything it creates is demo data.
+app.post('/api/demo/inbound', wrap((req, res) => {
+  if (!db.settings.demoMode) throw fail('Only available in Demo mode');
+  const key = String(req.body.key || '');
+  const { senderId, wa } = splitKey(key);
+  if (!db.senders.some((s) => s.id === senderId) || !/^\d{6,15}$/.test(wa)) throw fail('Pick a conversation first');
+  const text = String(req.body.text || '').trim().slice(0, 4000);
+  if (!text) throw fail('Type what the customer says');
+  const chat = (db.chats[key] ||= { lastReadAt: null, seed: true });
+  const msg = { id: id(), wamid: 'wamid.DEMO' + id(), key, senderId, wa, dir: 'in', type: 'text', text, ts: new Date().toISOString(), demo: true, seed: true };
+  db.messages.push(msg);
+  inboxIndex.set(msg.wamid, msg);
+  const had = Boolean(contactsApi.byPhone(wa));
+  const contact = contactsApi.onInbound(wa, { name: chat.name, text, ts: msg.ts });
+  if (!had && contact) contact.seed = true; // removed with the rest of the demo data
+  const who = chat.name || contact?.name || '+' + wa;
+  if (contact?.optOut && contact.optOutAt && Date.now() - Date.parse(contact.optOutAt) < 5000) notes?.optout({ name: who, phone: contact.phone, key, demo: true });
+  else notes?.message({ key, name: who, text, type: 'text', demo: true });
+  leadApi.onInbound(key);
+  save();
+  broadcast({ kind: 'message', key, dir: 'in' });
+  res.json(msg);
+}));
+
+// A free-form text reply in a conversation (only inside WhatsApp's 24-hour window). Used by the
+// Inbox and by the lead assistant's auto-reply (auto: true marks the message as sent by the AI).
+async function sendInboxText(key, text, { replyTo, auto = false } = {}) {
+  const { senderId, wa } = splitKey(key);
+  const sender = db.senders.find((s) => s.id === senderId);
+  if (!sender) throw fail('This WhatsApp number is no longer connected');
+  const demo = db.settings.demoMode;
+  if (!demo && !sender.accessToken) throw fail(`"${sender.label}" has no access token`);
+  const body = String(text || '').trim();
+  if (!body) throw fail('Type a message');
+  const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in').at(-1);
+  if (!lastIn || Date.now() - new Date(lastIn.ts) > WINDOW_MS) throw fail('The 24-hour reply window is closed. Send a template to restart the conversation.');
+  let wamid;
+  if (demo) wamid = 'wamid.DEMO' + id();
+  else {
+    const payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to: wa, type: 'text', text: { body, preview_url: true } };
+    if (replyTo) payload.context = { message_id: replyTo };
+    wamid = (await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify(payload) })).messages?.[0]?.id;
+  }
+  return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : {}) });
+}
+
+// Store an outgoing Inbox message and tell open dashboards.
+function recordOut(key, msg) {
+  const { senderId, wa } = splitKey(key);
+  const demo = db.settings.demoMode;
   Object.assign(msg, { id: id(), key, senderId, wa, dir: 'out', ts: new Date().toISOString(), status: 'sent', ...(demo ? { demo: true } : {}) });
   db.messages.push(msg);
   if (msg.wamid) inboxIndex.set(msg.wamid, msg);
@@ -991,8 +1035,8 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
     setTimeout(() => { applyStatus(msg, { status: 'delivered' }); save(); broadcast({ kind: 'status', key }); }, 700 + Math.random() * 800);
     setTimeout(() => { applyStatus(msg, { status: 'read' }); save(); broadcast({ kind: 'status', key }); }, 2500 + Math.random() * 3000);
   }
-  res.json(msg);
-}));
+  return msg;
+}
 
 // Media people send arrives as an ID; download it once with the number's token and cache it.
 app.get('/api/media/:mid', wrap(async (req, res) => {
@@ -1329,7 +1373,7 @@ app.delete('/api/demo/seed', wrap((req, res) => {
 
 notes = require('./notifications')(app, { db, save, id, wrap, broadcast });
 const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, broadcast });
-const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, broadcast, contacts: contactsApi, notes });
+const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, broadcast, contacts: contactsApi, notes, sendText: (key, text, opts) => sendInboxText(key, text, opts) });
 
 // --- AI assistant -------------------------------------------------------------
 

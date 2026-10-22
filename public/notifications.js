@@ -14,13 +14,14 @@
     campaign_done: { icon: 'circle-check', tone: 'good' },
     delivery_failed: { icon: 'badge-alert', tone: 'danger' },
     ai_draft: { icon: 'sparkles', tone: 'violet' },
+    ai_auto: { icon: 'send', tone: 'violet' },
     ai_handover: { icon: 'users', tone: 'warn' },
     ai_qualified: { icon: 'trending-up', tone: 'good' },
     ai_error: { icon: 'badge-alert', tone: 'warn' },
   };
   const FILTERS = [['all', 'All'], ['unread', 'Unread'], ['messages', 'Messages'], ['campaigns', 'Campaigns'], ['ai', 'AI assistant']];
   // Which new notifications also pop a toast. (Everything lands on the page either way.)
-  const TOAST = new Set(['message', 'optout', 'reply_failed', 'campaign_started', 'campaign_done', 'delivery_failed', 'ai_draft', 'ai_handover', 'ai_qualified', 'ai_error']);
+  const TOAST = new Set(['message', 'optout', 'reply_failed', 'campaign_started', 'campaign_done', 'delivery_failed', 'ai_draft', 'ai_auto', 'ai_handover', 'ai_qualified', 'ai_error']);
   const ERROR_KINDS = new Set(['reply_failed', 'delivery_failed', 'ai_error']);
 
   const visible = () => !$('#tab-notifications').classList.contains('hidden');

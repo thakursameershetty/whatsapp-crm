@@ -1,13 +1,16 @@
 // Inbox lead assistant. When someone writes in, the AI reads the conversation (including
 // the campaign message they're answering), drafts a reply that moves them toward a
-// qualified lead, and records what it learned on their contact. It only drafts: a person
-// sends every reply from the Inbox. It hands the chat over when a human should step in.
+// qualified lead, and records what it learned on their contact. By default it only drafts
+// and a person sends every reply. With Auto-reply on it sends the reply itself, within
+// guardrails (see autoSendBlocker). It hands the chat over when a human should step in.
 
 const { claudeProvider, geminiProvider, GeminiError, Anthropic } = require('./ai');
 
 const WINDOW_MS = 24 * 3600 * 1000;
 const DEBOUNCE_MS = 3500; // people often send several messages in a row
 const MAX_TURNS = 40;
+const HUMAN_PAUSE_MS = 30 * 60 * 1000; // a person replied recently: the AI only drafts
+const AUTO_PER_HOUR = 5; // auto-replies per chat per hour, a backstop against loops with other bots
 
 const SYSTEM = `You draft WhatsApp replies for a business's team. A person on the team reviews every draft before it is sent.
 
@@ -59,7 +62,7 @@ const TOOLS = [{
 }];
 
 module.exports = function mountLead(app, ctx) {
-  const { db, save, id, wrap, fail, aiConfig, broadcast, contacts, notes } = ctx;
+  const { db, save, id, wrap, fail, aiConfig, broadcast, contacts, notes, sendText } = ctx;
   const timers = new Map();
 
   const settings = () => db.settings.leadAgent || {};
@@ -137,7 +140,8 @@ Draft the next reply to the customer's latest message(s).`;
   }
 
   // Draft a reply for this conversation. `manual` = the person asked for one in the Inbox.
-  async function draft(key, { manual = false } = {}) {
+  // send: the person clicked "Let AI reply", so send the draft straight away (unless a person is needed).
+  async function draft(key, { manual = false, send = false } = {}) {
     const ai = aiOf(key);
     const { wa } = splitKey(key);
     const msgs = thread(key);
@@ -167,8 +171,24 @@ Draft the next reply to the customer's latest message(s).`;
       ai.draft = reply && !r.opt_out ? { text: reply, at: new Date().toISOString(), basedOn: lastIn.id || lastIn.ts } : null;
       ai.handover = r.handover?.needed ? { reason: String(r.handover.reason || 'A person should reply').slice(0, 200), at: new Date().toISOString() } : ai.handover && !manual ? ai.handover : null;
       ai.error = null;
+      ai.autoHeld = null;
       // Tell the team, unless they asked for this draft themselves and are looking at it.
       const who = { key, name: db.chats[key]?.name || updated?.name || '+' + wa, demo: Boolean(lastIn.demo) };
+      // Auto-reply: send it now unless a guardrail says a person should look first.
+      const blocker = !ai.draft ? 'off'
+        : send ? (r.handover?.needed ? 'needs a person' : updated?.optOut ? 'opted out' : null)
+        : !manual && settings().autoReply ? autoSendBlocker(key, { handover: r.handover?.needed, contact: updated, lastIn }) : 'off';
+      if (!blocker) {
+        const text = ai.draft.text;
+        try {
+          await sendText(key, text, { auto: true });
+          (ai.autoAt ||= []).push(Date.now());
+          ai.draft = null;
+          notes?.aiAuto?.({ ...who, text });
+        } catch (e) {
+          ai.error = `Auto-reply wasn't sent: ${e.message}`; // the draft stays for a person to send
+        }
+      } else if (blocker !== 'off') ai.autoHeld = blocker;
       if (!manual && ai.draft) notes?.aiDraft({ ...who, text: ai.draft.text });
       if (ai.handover && !hadHandover) notes?.aiHandover({ ...who, reason: ai.handover.reason });
       if (updated?.status === 'qualified' && !wasQualified) notes?.aiQualified({ ...who, summary: updated.lead?.summary });
@@ -185,6 +205,21 @@ Draft the next reply to the customer's latest message(s).`;
     return ai;
   }
 
+  // Why an auto-reply shouldn't go out now (a short reason), or null if it can.
+  function autoSendBlocker(key, { handover, contact, lastIn }) {
+    if (handover) return 'needs a person';
+    if (contact?.optOut) return 'opted out';
+    if (aiOf(key).off) return 'AI is off for this chat';
+    const latestIn = db.messages.filter((m) => m.key === key && m.dir === 'in').at(-1);
+    if (latestIn && (latestIn.id || latestIn.ts) !== (lastIn.id || lastIn.ts)) return 'they wrote again'; // a fresh draft is on its way
+    const humanOut = db.messages.filter((m) => m.key === key && m.dir === 'out' && !m.auto && m.type !== 'template').at(-1);
+    if (humanOut && Date.now() - new Date(humanOut.ts) < HUMAN_PAUSE_MS) return 'a person is in this chat';
+    const recent = (aiOf(key).autoAt || []).filter((t) => Date.now() - t < 3600000);
+    aiOf(key).autoAt = recent;
+    if (recent.length >= AUTO_PER_HOUR) return `${AUTO_PER_HOUR} auto-replies in the last hour`;
+    return null;
+  }
+
   // Called by the webhook for each conversation with new messages from the customer.
   function onInbound(key) {
     if (!settings().enabled || aiOf(key).off) return;
@@ -198,6 +233,8 @@ Draft the next reply to the customer's latest message(s).`;
     const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in').at(-1);
     return {
       on: Boolean(settings().enabled) && !ai.off,
+      auto: Boolean(settings().autoReply) && !ai.off,
+      autoHeld: ai.draft ? ai.autoHeld || null : null,
       off: Boolean(ai.off),
       busy: Boolean(ai.busy),
       draft: ai.draft ? { ...ai.draft, stale: Boolean(lastIn && ai.draft.basedOn !== (lastIn.id || lastIn.ts)) } : null,
@@ -215,7 +252,7 @@ Draft the next reply to the customer's latest message(s).`;
   // --- Routes --------------------------------------------------------------
 
   app.post('/api/inbox/:key/draft', wrap(async (req, res) => {
-    await draft(req.params.key, { manual: true });
+    await draft(req.params.key, { manual: true, send: Boolean(req.body?.send) });
     res.json(stateFor(req.params.key));
   }));
 
