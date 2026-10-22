@@ -20,6 +20,8 @@
     'cloud-upload': `<path d="M4.2 15.1A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.2"/><g class="a-arrow"><path d="M12 13v8"/><path d="m8 17 4-4 4 4"/></g>`,
     'refresh-cw': `<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>`,
     plus: `<path d="M5 12h14"/><path d="M12 5v14"/>`,
+    bell: `<g class="a-bell"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/></g><path class="a-clap" d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>`,
+    'bell-off': `<path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/>`,
     delete: `<g class="a-lid"><path d="M3 6h18"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></g><g class="a-bin"><path d="M19 8v12c0 1-1 2-2 2H7c-1 0-2-1-2-2V8"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></g>`,
     copy: `<rect class="a-front" height="14" rx="2" ry="2" width="14" x="8" y="8"/><path class="a-back" d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>`,
     clock: `<circle cx="12" cy="12" r="10"/><line class="a-hour" x1="12" x2="12" y1="12" y2="6"/><line class="a-min" x1="12" x2="16" y1="12" y2="12"/>`,
@@ -51,6 +53,19 @@
     'map-pin': `<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>`,
     'square-pen': `<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>`,
     download: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><g class="a-arrow"><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></g>`,
+    // Assistant
+    sparkles: `<path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0z"/><path class="a-twinkle" d="M20 3v4"/><path class="a-twinkle" d="M22 5h-4"/>`,
+    paperclip: `<path class="a-clip" d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>`,
+    'arrow-up': `<g class="a-arrow"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></g>`,
+    'panel-left': `<rect height="18" rx="2" width="18" x="3" y="3"/><path d="M9 3v18"/><path class="a-chev" d="m16 15-3-3 3-3"/>`,
+    'file-spreadsheet': `<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/>`,
+    'check-one': `<path class="draw" ${PL} d="M20 6 9 17l-5-5"/>`,
+    'chevron-down': `<path d="m6 9 6 6 6-6"/>`,
+    square: `<rect x="6" y="6" width="12" height="12" rx="2"/>`,
+    list: `<path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/>`,
+    // Spreadsheet
+    'undo-2': `<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>`,
+    'redo-2': `<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/>`,
   };
 
   // Names used before the animated set existed.

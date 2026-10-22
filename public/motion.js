@@ -51,11 +51,16 @@
 
   // --- Sliding thumb for .seg controls ---
 
+  // Where each control's thumb last sat (by id), so a control that's rebuilt by a
+  // re-render slides on from there instead of snapping.
+  const lastPos = new Map();
+
   function placeThumb(seg, instant) {
     const th = seg.__thumb;
     if (!th) return;
     const a = seg.querySelector(':scope > button.active');
     if (!a || !a.offsetWidth) { th.style.opacity = '0'; return; }
+    if (seg.id) lastPos.set(seg.id, { w: a.offsetWidth, h: a.offsetHeight, x: a.offsetLeft, y: a.offsetTop });
     // First placement (or after being hidden) snaps; later changes slide.
     if (th.style.opacity !== '1') instant = true;
     if (instant || reduce()) th.style.transition = 'none';
@@ -76,9 +81,17 @@
     seg.classList.add('has-thumb');
     new MutationObserver(() => placeThumb(seg)).observe(seg, { subtree: true, attributes: true, attributeFilter: ['class'] });
     // A control inside something hidden (e.g. the expanded chart dialog) has no size yet;
-    // place the thumb once it's shown or resized.
-    new ResizeObserver(() => placeThumb(seg, true)).observe(seg);
-    placeThumb(seg, true);
+    // place the thumb once it's shown or resized. (The first callback is just the initial size.)
+    let seen = false;
+    new ResizeObserver(() => { if (seen) placeThumb(seg, true); seen = true; }).observe(seg);
+    const last = seg.id && lastPos.get(seg.id);
+    if (last && !reduce()) {
+      th.style.transition = 'none';
+      Object.assign(th.style, { opacity: '1', width: last.w + 'px', height: last.h + 'px', transform: `translate(${last.x}px, ${last.y}px)` });
+      th.getBoundingClientRect();
+      th.style.transition = '';
+      requestAnimationFrame(() => placeThumb(seg));
+    } else placeThumb(seg, true);
   }
 
   function segs(root = document) {
@@ -117,5 +130,39 @@
     root.__themeT = setTimeout(() => root.classList.remove('theme-anim'), 450);
   }
 
-  window.Motion = { values, segs, enter, themeFade, reduce };
+  // Update a container's markup without replacing children that are still the same kind of
+  // element: their attributes (e.g. .active) change in place, so CSS transitions play.
+  function patch(el, html) {
+    if (el.__html === html) return;
+    el.__html = html;
+    const t = document.createElement('template');
+    t.innerHTML = html.trim();
+    const next = [...t.content.children];
+    const cur = [...el.children].filter((c) => !c.classList.contains('seg-thumb'));
+    if (next.length !== cur.length || next.some((n, i) => n.tagName !== cur[i].tagName)) {
+      cur.forEach((c) => c.remove());
+      el.append(...next);
+      return;
+    }
+    next.forEach((n, i) => {
+      const c = cur[i];
+      for (const a of [...c.attributes]) if (!n.hasAttribute(a.name)) c.removeAttribute(a.name);
+      for (const a of [...n.attributes]) if (c.getAttribute(a.name) !== a.value) c.setAttribute(a.name, a.value);
+      if (c.innerHTML !== n.innerHTML) c.innerHTML = n.innerHTML;
+    });
+  }
+
+  // Morph between two states of the page with a view transition. Elements that carry a
+  // view-transition-name while html.vt-<name> is set glide from their old place and size to
+  // the new one. Resolves once the DOM has been updated (callers can carry on from there).
+  function morph(swap, name) {
+    if (!document.startViewTransition || reduce()) { swap(); return Promise.resolve(); }
+    const root = document.documentElement;
+    root.classList.add('vt-' + name);
+    const vt = document.startViewTransition(swap);
+    vt.finished.finally(() => root.classList.remove('vt-' + name));
+    return vt.updateCallbackDone.catch(() => {});
+  }
+
+  window.Motion = { values, segs, enter, themeFade, reduce, patch, morph };
 })();

@@ -6,10 +6,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WhatsApp Sender</title>
   <link rel="icon"
-    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%2314181c'/><path d='M10 23l1.1-3.4A6.6 6.6 0 1 1 13.6 22z' fill='white'/></svg>" />
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><style>g{stroke:%2314181c}circle{fill:%2314181c}@media (prefers-color-scheme:dark){g{stroke:%23fff}circle{fill:%23fff}}</style><g fill='none' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M11.5 4.5h9a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8h-7.2L8 28.6v-5.1A8 8 0 0 1 3.5 16.5v-4a8 8 0 0 1 8-8z'/><path d='M10.4 12.4q1.6-2.2 3.2 0'/><path d='M10.6 17.2q2.4 2.4 4.8 1.4l5.6-4'/></g><circle cx='20.4' cy='11.6' r='1.4'/></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
   <script>
     // Resolve the theme before first paint. "auto" follows the OS setting.
@@ -29,15 +30,39 @@
 
 <body>
   <aside class="sidebar">
-    <div class="brand"><span class="logo"></span><span class="brand-name">WhatsApp Sender</span></div>
+    <div class="brand"><svg class="logo" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.3"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M11.5 4.5h9a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8h-7.2L8 28.6v-5.1A8 8 0 0 1 3.5 16.5v-4a8 8 0 0 1 8-8z" />
+        <path d="M10.4 12.4q1.6-2.2 3.2 0" />
+        <circle class="logo-eye" cx="20.4" cy="11.6" r="1.25" fill="currentColor" stroke="none" />
+        <path d="M10.6 17.2q2.4 2.4 4.8 1.4l5.6-4" />
+      </svg><span class="brand-name">WhatsApp Sender</span>
+      <button class="icon-btn nav-toggle la-host" id="navToggle" data-icon="panel-left" data-icon-size="17"
+        title="Collapse sidebar" aria-label="Collapse sidebar" aria-expanded="true"></button>
+    </div>
     <nav id="tabs" class="seg side-nav" aria-label="Pages">
-      <button data-icon="layout-grid" data-icon-size="16" data-tab="overview" title="Overview" class="active"><span class="nav-label">Overview</span></button>
-      <button data-icon="message-circle" data-icon-size="16" data-tab="inbox" title="Inbox"><span class="nav-label">Inbox</span><span class="nav-badge hidden" id="inboxBadge"></span></button>
-      <button data-icon="send" data-icon-size="16" data-tab="send" title="Send"><span class="nav-label">Send</span></button>
-      <button data-icon="chart-column-increasing" data-icon-size="16" data-tab="campaigns" title="Campaigns"><span class="nav-label">Campaigns</span></button>
-      <button data-icon="phone" data-icon-size="16" data-tab="numbers" title="Numbers"><span class="nav-label">Numbers</span></button>
-      <button data-icon="file-text" data-icon-size="16" data-tab="templates" title="Templates"><span class="nav-label">Templates</span></button>
-      <button data-icon="settings" data-icon-size="16" data-tab="settings" title="Settings"><span class="nav-label">Settings</span></button>
+      <button data-icon="layout-grid" data-icon-size="16" data-tab="overview" title="Overview" class="active"><span
+          class="nav-label">Overview</span></button>
+      <button data-tab="assistant" title="Assistant"><svg class="orb-icon" data-orb-icon="16"
+          aria-hidden="true"></svg><span class="nav-label">Assistant</span></button>
+      <button data-icon="message-circle" data-icon-size="16" data-tab="inbox" title="Inbox"><span
+          class="nav-label">Inbox</span><span class="nav-badge hidden" id="inboxBadge"></span></button>
+      <button data-icon="users" data-icon-size="16" data-tab="contacts" title="Contacts"><span
+          class="nav-label">Contacts</span></button>
+      <button data-icon="send" data-icon-size="16" data-tab="send" title="Send"><span
+          class="nav-label">Send</span></button>
+      <button data-icon="chart-column-increasing" data-icon-size="16" data-tab="campaigns" title="Campaigns"><span
+          class="nav-label">Campaigns</span></button>
+      <button data-icon="phone" data-icon-size="16" data-tab="numbers" title="Numbers"><span
+          class="nav-label">Numbers</span></button>
+      <button data-icon="file-text" data-icon-size="16" data-tab="templates" title="Templates"><span
+          class="nav-label">Templates</span></button>
+    </nav>
+    <nav id="tabsBottom" class="seg side-nav side-nav-bottom" aria-label="Notifications and settings">
+      <button data-icon="bell" data-icon-size="16" data-tab="notifications" title="Notifications"><span
+          class="nav-label">Notifications</span><span class="nav-badge hidden" id="notifBadge"></span></button>
+      <button data-icon="settings" data-icon-size="16" data-tab="settings" title="Settings"><span
+          class="nav-label">Settings</span></button>
     </nav>
     <div class="side-foot">
       <button id="modeBadge" class="badge" data-goto="settings" title="Change in Settings"></button>
@@ -46,6 +71,8 @@
         <button data-theme-set="auto" title="Match system" data-icon="sun-moon" data-icon-size="15"></button>
         <button data-theme-set="dark" title="Dark" data-icon="moon" data-icon-size="15"></button>
       </div>
+      <!-- Collapsed sidebar: one button that cycles the theme -->
+      <button class="icon-btn theme-cycle la-host" id="themeCycle" type="button"></button>
     </div>
   </aside>
 
@@ -66,6 +93,8 @@
         <div class="row tight">
           <button class="btn quiet hidden" id="seedBtn" data-icon="layout-grid">Load demo workspace</button>
           <button class="btn quiet danger hidden" id="unseedBtn" data-icon="delete">Remove demo data</button>
+          <button class="btn" data-goto="assistant"><svg class="orb-icon" data-orb-icon="16"
+              aria-hidden="true"></svg>Ask AI</button>
           <button class="btn primary" data-goto="send" data-icon="plus">New campaign</button>
         </div>
       </div>
@@ -90,7 +119,7 @@
         <span class="filter-note" id="fNote"></span>
       </div>
 
-      <div class="kpis" id="kpis"></div>
+      <div class="kpis" id="kpis" data-skel="kpi:4"></div>
 
       <div class="grid-ov">
         <div class="card chart-card" id="chartCard">
@@ -110,13 +139,13 @@
             <button data-metric="readRate">Read rate</button>
             <button data-metric="failed">Failed</button>
           </div>
-          <div id="dayChart" class="chart"></div>
+          <div id="dayChart" class="chart" data-skel="chart"></div>
           <div id="dayTable" class="table-wrap chart-table hidden"></div>
         </div>
         <div class="card la-host">
           <h2 data-icon="users">Delivery funnel</h2>
           <p class="sub" id="funnelSub" style="margin:-10px 0 18px">How far your messages got</p>
-          <div id="funnel"></div>
+          <div id="funnel" data-skel="bars:4"></div>
         </div>
       </div>
 
@@ -129,36 +158,93 @@
             </div>
             <a href="#" class="btn quiet sm" data-goto="numbers" data-icon="settings">Manage numbers</a>
           </div>
-          <div id="senderHealth"></div>
+          <div id="senderHealth" data-skel="bars:2"></div>
         </div>
         <div class="stack">
           <div class="card la-host">
             <h2 data-icon="calendar-days">Upcoming</h2>
-            <div id="upcoming"></div>
+            <div id="upcoming" data-skel="lines:3"></div>
           </div>
           <div class="card">
             <div class="card-head" style="margin-bottom:10px">
               <h2 data-icon="history">Recent campaigns</h2>
               <a href="#" class="btn quiet sm" data-goto="campaigns" data-icon="history">View all</a>
             </div>
-            <div id="recent"></div>
+            <div id="recent" data-skel="lines:4"></div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- SEND -------------------------------------------------------------->
+    <!-- ASSISTANT --------------------------------------------------------->
+    <section id="tab-assistant" class="tab hidden" aria-label="AI assistant">
+      <div class="as-layout">
+        <div class="as-main">
+          <div class="as-head" id="asHead">
+            <span class="as-title-bar muted" id="asTitle">New chat</span>
+            <span class="as-head-right">
+              <a href="#" class="as-provider" id="asProvider" data-goto="settings"
+                title="AI model · change in Settings → AI assistant"></a>
+              <button type="button" class="icon-btn as-head-btn la-host hidden" id="asNew" title="New chat"
+                aria-label="New chat" data-icon="square-pen" data-icon-size="18"></button>
+              <button type="button" class="icon-btn as-head-btn as-hist-toggle la-host" id="asHistToggle"
+                title="Chat history" aria-label="Chat history" aria-expanded="false" aria-controls="asHistory"
+                data-icon="history" data-icon-size="18"></button>
+            </span>
+          </div>
+          <div class="assistant" id="asPanel">
+            <div class="as-hero" id="asHero">
+              <h2 class="as-title"><svg class="as-hero-orb" id="asHeroOrb" aria-hidden="true"></svg><span
+                  id="asGreet">What can I help with?</span></h2>
+            </div>
+            <div class="as-thread hidden" id="asThread" aria-live="polite"></div>
+            <form class="composer" id="composer" autocomplete="off">
+              <div class="cmp-files hidden" id="cmpFiles"></div>
+              <textarea id="cmpInput" rows="1" aria-label="Message the assistant"
+                placeholder="How can I help you today?"></textarea>
+              <div class="cmp-bar">
+                <label class="cmp-icon la-host" title="Attach contacts (CSV or Excel)" aria-label="Attach contacts"
+                  data-icon="plus" data-icon-size="20">
+                  <input type="file" id="cmpFile" multiple hidden accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" /></label>
+                <label class="cmp-chip hidden" id="cmpSenderWrap" title="Number to send from" data-icon="phone"
+                  data-icon-size="14">
+                  <select id="cmpSender" aria-label="Number to send from"></select>
+                  <span class="cmp-chev" data-icon="chevron-down" data-icon-size="14"></span></label>
+                <button type="submit" class="cmp-send la-host" id="cmpSend" aria-label="Send" data-icon="arrow-up"
+                  data-icon-size="18"></button>
+              </div>
+            </form>
+            <p class="cmp-note"><span id="cmpHint" aria-live="polite"></span><span class="cmp-disclaimer">The assistant
+                can
+                make mistakes. Nothing is sent until you approve it.</span></p>
+          </div>
+        </div>
+        <aside class="as-history" id="asHistory" aria-label="Chat history">
+          <div class="ash-head">
+            <h1>Chats <span id="ashCount"></span></h1>
+            <button type="button" class="icon-btn la-host" id="ashNew" title="New chat" aria-label="New chat"
+              data-icon="square-pen" data-icon-size="18"></button>
+          </div>
+          <div class="ash-tools search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="ashSearch"
+              type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" /></div>
+          <div class="ash-list" id="ashList"></div>
+        </aside>
+      </div>
+    </section>
+
     <!-- INBOX ------------------------------------------------------------->
     <section id="tab-inbox" class="tab hidden">
       <div class="inbox" id="inbox">
         <aside class="ib-side">
           <div class="ib-side-head">
             <h1>Inbox</h1>
-            <button class="icon-btn la-host" id="ibNew" title="New chat" aria-label="New chat" data-icon="square-pen" data-icon-size="18"></button>
+            <button class="icon-btn la-host" id="ibNew" title="New chat" aria-label="New chat" data-icon="square-pen"
+              data-icon-size="18"></button>
           </div>
           <div class="ib-tools">
             <div class="search-wrap" data-icon="search" data-icon-size="15">
-              <input id="ibSearch" class="search" type="search" placeholder="Search name, number or message" autocomplete="off" />
+              <input id="ibSearch" class="search" type="search" placeholder="Search name, number or message"
+                autocomplete="off" />
             </div>
             <div class="ib-filters">
               <div class="seg" id="ibFilter">
@@ -168,124 +254,186 @@
               </div>
               <select id="ibSender" class="hidden" aria-label="Number"></select>
             </div>
+            <select id="ibTemplate" class="ib-tpl-filter hidden" aria-label="Template"></select>
           </div>
-          <div class="ib-convs" id="ibConvs" role="list"></div>
+          <div class="ib-convs" id="ibConvs" role="list" data-skel="rows:8"></div>
         </aside>
         <div class="ib-chat" id="ibChat"></div>
       </div>
     </section>
 
+    <!-- CONTACTS ---------------------------------------------------------->
+    <section id="tab-contacts" class="tab hidden">
+      <div class="section-head">
+        <div>
+          <h1>Contacts</h1>
+          <p class="sub" id="ctSub">Everyone you message, with tags.</p>
+        </div>
+        <div class="row tight">
+          <button class="btn quiet" id="ctExport" data-icon="download">Export</button>
+          <button class="btn" id="ctImport" data-icon="upload">Import</button>
+          <button class="btn primary" id="ctAdd" data-icon="plus">Add contact</button>
+        </div>
+      </div>
+      <div class="ct-stats" id="ctStats" role="toolbar" aria-label="Filter by status" data-skel="stat:7"></div>
+      <div class="ct-bar">
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="ctSearch"
+            placeholder="Search contacts" title="Search by name, phone, email or company"
+            aria-label="Search contacts" /></div>
+        <div class="ct-tags" id="ctTags" role="toolbar" aria-label="Filter by tag"></div>
+        <label class="inline ct-sortby">Sort <select id="ctSort" aria-label="Sort contacts"></select></label>
+        <button type="button" class="btn quiet ct-selall" id="ctSelAll"><input type="checkbox" class="cb" tabindex="-1"
+            aria-hidden="true" /><span>Select all</span></button>
+        <div class="seg seg-icons ct-view" id="ctView" role="radiogroup" aria-label="View"></div>
+      </div>
+      <div class="ct-sel hidden" id="ctSel"></div>
+      <div class="ct-layout" id="ctLayout">
+        <div class="card ct-card">
+          <div class="ct-scroll" id="ctList" data-skel="person:12"></div>
+          <div class="ct-foot" id="ctFoot"></div>
+        </div>
+        <aside class="card ct-panel hidden" id="ctPanel" aria-label="Contact"></aside>
+      </div>
+    </section>
+
+    <!-- NOTIFICATIONS ---------------------------------------------------->
+    <section id="tab-notifications" class="tab hidden">
+      <div class="section-head">
+        <div>
+          <h1>Notifications</h1>
+          <p class="sub" id="ntSub">Campaigns, deliveries, messages and the AI assistant, in one place.</p>
+        </div>
+        <div class="row tight">
+          <button class="btn quiet" id="ntReadAll" data-icon="check-check">Mark all as read</button>
+          <button class="btn quiet" id="ntClear" data-icon="delete">Clear</button>
+        </div>
+      </div>
+      <div class="nt-bar">
+        <div class="seg" id="ntFilter" role="tablist" aria-label="Show"></div>
+      </div>
+      <div id="ntList" class="nt-list" data-skel="notif:6"></div>
+    </section>
+
+    <!-- SEND -------------------------------------------------------------->
     <section id="tab-send" class="tab hidden">
-      <div class="card" id="recipientsCard">
-        <div class="card-head">
-          <div>
-            <h2><span class="step">1</span> Recipients</h2>
-            <p class="sub">Upload your contact list, then pick who gets the message.</p>
-          </div>
-          <div class="row tight">
-            <button class="btn quiet hidden" id="splitBtn" data-icon="panel-right-open" aria-pressed="false">Split
-              view</button>
-            <button class="btn quiet" id="sampleCsv" data-icon="users">Try sample data</button>
-            <button class="btn quiet" id="togglePaste" data-icon="copy">Paste rows</button>
-            <button class="btn quiet hidden" id="clearCsv" data-icon="delete">Remove file</button>
-            <label class="btn file" data-icon="upload">Upload file<input type="file" class="fileInput"
-                accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" /></label>
-          </div>
-        </div>
-
-        <div id="dropzone" class="dropzone">
-          <div class="dz-icon" data-icon="cloud-upload" data-icon-size="26"></div>
-          <div class="dz-title">Drop a CSV or Excel file here</div>
-          <div class="sub">or <label class="link">browse your computer<input type="file" class="fileInput"
-                accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" hidden /></label> · .csv .xlsx .xls .tsv · first row can be
-            column names</div>
-        </div>
-
-        <div id="pasteWrap" class="hidden">
-          <textarea id="csvText" rows="6"
-            placeholder="phone,name,city&#10;9876543210,Ravi,Pune&#10;919812345678,Priya,Delhi"></textarea>
-        </div>
-
-        <div id="tableArea" class="hidden">
-          <div class="table-tools">
-            <div class="file-info" id="fileInfo"></div>
-            <div class="tools-right">
-              <label class="inline">Phone column <select id="phoneColumn"></select></label>
-              <div class="search-wrap" data-icon="search" data-icon-size="15">
-                <input id="tableSearch" class="search" placeholder="Search all columns" />
-              </div>
-            </div>
-          </div>
-          <div class="sel-bar">
-            <span id="selInfo" class="sel-count"></span>
-            <span class="sel-actions">
-              <button class="btn quiet sm" id="selFiltered">Select all shown</button>
-              <button class="btn quiet sm" id="unselFiltered">Unselect shown</button>
-              <button class="btn quiet sm" id="selNone">Clear selection</button>
-              <button class="btn quiet sm" id="clearFilters">Reset filters &amp; sort</button>
-            </span>
-            <span class="hint"><kbd>Shift</kbd> + click selects a range</span>
-          </div>
-          <div class="table-scroll" id="tableScroll">
-            <table class="data-table" id="dataTable">
-              <thead></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <div class="table-foot" id="tableFoot"></div>
+      <div class="sp-bar" id="spBar">
+        <div class="sp-file"><span class="sp-title" id="spTitle">Send a campaign</span><span class="sp-meta"
+            id="spMeta">Open a contact
+            list to start</span></div>
+        <div class="sp-tools" id="spTools">
+          <button class="tool" id="spUndo" title="Undo (⌘Z)" aria-label="Undo" data-icon="undo-2"
+            data-icon-size="16"></button>
+          <button class="tool" id="spRedo" title="Redo (⇧⌘Z)" aria-label="Redo" data-icon="redo-2"
+            data-icon-size="16"></button>
+          <span class="sp-sep"></span>
+          <button class="tool" id="spAddRow" title="Insert a row below the selection" data-icon="plus"
+            data-icon-size="15">Row</button>
+          <button class="tool" id="spAddCol" title="Insert a column right of the selection" data-icon="plus"
+            data-icon-size="15">Column</button>
+          <button class="tool" id="spDelRows" title="Delete the selected rows" data-icon="delete"
+            data-icon-size="15">Delete</button>
+          <span class="sp-sep"></span>
+          <button class="tool" id="spFind" title="Find and replace (⌘F)" data-icon="search"
+            data-icon-size="15">Find</button>
+          <span class="sp-sep"></span>
+          <label class="inline sp-phone" title="The column with the WhatsApp numbers">Phone <select
+              id="spPhone"></select></label>
+          <button class="tool" id="spExport" title="Download this sheet, with your edits, as CSV" data-icon="download"
+            data-icon-size="15">Export</button>
+          <span class="sp-sep"></span>
+          <button class="tool sp-panel-btn" id="spPanelBtn" title="Show or hide the message panel" aria-pressed="true"
+            data-icon="panel-right-open" data-icon-size="16">Message</button>
         </div>
       </div>
 
-      <div class="split-handle" id="splitHandle" role="separator" aria-orientation="vertical" aria-label="Resize panels"
-        tabindex="0" title="Drag to resize"><span></span></div>
+      <div class="sp-find hidden" id="spFindBar">
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="spFindQ"
+            placeholder="Find in sheet" /></div>
+        <span class="sp-find-n" id="spFindN"></span>
+        <button class="tool" id="spFindPrev" title="Previous (⇧Enter)">↑</button>
+        <button class="tool" id="spFindNext" title="Next (Enter)">↓</button>
+        <input id="spRepQ" class="sp-rep" placeholder="Replace with" />
+        <button class="tool" id="spRepOne">Replace</button>
+        <button class="tool" id="spRepAll">Replace all</button>
+        <button class="tool" id="spFindClose" aria-label="Close find" data-icon="x" data-icon-size="15"></button>
+      </div>
 
-      <div class="grid-2">
-        <div class="pane-head">
-          <div>
-            <div class="pane-title">Message setup</div>
-            <div class="sub">Template, numbers and personalisation</div>
+      <div class="sp-body">
+        <div class="sp-main" id="spMain">
+          <div class="sp-empty" id="spEmpty">
+            <div class="dz-icon" data-icon="cloud-upload" data-icon-size="26"></div>
+            <div class="dz-title">Drop CSV or Excel files here</div>
+            <p class="sub">Open several files at once. Every sheet in an Excel workbook gets its own tab, and you can
+              combine them
+              into one send.</p>
+            <div class="row tight sp-empty-actions">
+              <label class="btn primary file" data-icon="upload">Upload files<input type="file" class="spFileInput"
+                  multiple accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" /></label>
+              <button class="btn" id="spFromContacts" data-icon="users">From contacts</button>
+              <button class="btn" id="spBlank" data-icon="file-spreadsheet">Blank sheet</button>
+              <button class="btn quiet" id="spSample" data-icon="users">Try sample data</button>
+            </div>
+            <p class="sub sp-empty-hint">Tip: start a blank sheet and paste straight from Excel or Google Sheets with
+              <kbd>⌘V</kbd>.
+            </p>
           </div>
+          <div class="sp-strip hidden" id="spStrip"></div>
+          <div class="sp-grid hidden" id="spGrid" aria-label="Contacts spreadsheet"></div>
+          <div class="sp-tabs hidden" id="spTabs" role="tablist" aria-label="Sheets"></div>
         </div>
-        <div class="stack">
-          <div class="card">
-            <h2><span class="step">2</span> Template &amp; numbers</h2>
-            <label>Template
-              <select id="templateSelect"></select>
-            </label>
-            <label>Campaign name <span class="opt">optional</span>
-              <input id="campaignName" placeholder="e.g. Diwali offer — Oct 2026" />
-            </label>
-            <div class="field-label">Send from <span class="opt">messages are split evenly across the numbers you turn
-                on</span></div>
-            <div id="senderChecks" class="toggle-list"></div>
-          </div>
 
-          <div class="card" id="mappingCard">
-            <h2><span class="step">3</span> Personalise</h2>
-            <div id="mapping">
-              <p class="sub">Pick a template to see its variables.</p>
+        <aside class="sp-panel" id="spPanel" aria-label="Message">
+          <div class="sp-panel-head">
+            <div class="seg sp-pane-seg" id="spPaneSeg" role="tablist" aria-label="Message panel">
+              <button data-pane="compose" class="active" role="tab" aria-selected="true">Setup</button>
+              <button data-pane="preview" role="tab" aria-selected="false">Personalise</button>
             </div>
           </div>
-        </div>
-
-        <div class="stack sticky">
-          <div class="card">
-            <h2 data-icon="eye">Preview</h2>
-            <div class="phone">
-              <div class="bubble" id="preview"><span class="muted">Select a template</span></div>
+          <div class="sp-pane" data-pane="compose">
+            <div class="sp-sec">
+              <label>Template
+                <select id="templateSelect"></select>
+              </label>
+              <label>Campaign name <span class="opt">optional</span>
+                <input id="campaignName" placeholder="e.g. Diwali offer — Oct 2026" />
+              </label>
             </div>
-            <div class="sub" id="previewNote"></div>
-          </div>
-
-          <div class="card">
-            <h2 data-icon="zap">Send a test</h2>
-            <div class="row">
-              <input id="testPhone" placeholder="Your number, e.g. 9876543210" />
-              <button class="btn" id="testSend" data-icon="send">Send test</button>
+            <div class="sp-sec">
+              <div class="field-label">Send from <span class="opt">split evenly across the numbers you turn on</span>
+              </div>
+              <div id="senderChecks" class="toggle-list"></div>
             </div>
-            <div class="sub">Uses the first number you turned on and the first selected row.</div>
+            <div class="sp-sec sp-tpl-sec hidden" id="spTplSec">
+              <div class="field-label">Message <span class="opt" id="spTplMeta"></span></div>
+              <div class="phone sp-tpl-phone"><div class="bubble" id="spTplPreview"></div></div>
+              <button type="button" class="btn primary sp-next" data-goto-pane="preview" id="spNext">Next: Personalise →</button>
+            </div>
           </div>
-        </div>
+          <div class="sp-pane hidden" data-pane="preview">
+            <div class="sp-duo">
+            <div class="sp-sec sp-duo-prev">
+              <div class="sp-prev-head">
+                <span class="field-label">Preview</span>
+                <span class="sp-stepper" id="spStepper">
+                  <button type="button" class="icon-btn" data-step="-1" aria-label="Previous recipient">‹</button>
+                  <span id="spStepN"></span>
+                  <button type="button" class="icon-btn" data-step="1" aria-label="Next recipient">›</button>
+                </span>
+              </div>
+              <div class="phone sp-phone-big">
+                <div class="bubble" id="preview"><span class="muted">Select a template</span></div>
+              </div>
+              <div class="sub" id="previewNote"></div>
+            </div>
+            <div class="sp-sec sp-duo-fields">
+              <div class="field-label">Fill in the variables <span class="opt">from a column, or the same text for everyone</span></div>
+              <div id="mapping">
+                <p class="sub">Pick a template to see what you can personalise.</p>
+              </div>
+            </div>
+            </div>
+          </div>
+        </aside>
       </div>
 
       <div class="sendbar">
@@ -294,6 +442,17 @@
           <div class="seg" id="sendMode">
             <button data-mode="now" class="active" data-icon="zap" data-icon-size="15">Now</button>
             <button data-mode="schedule" data-icon="clock" data-icon-size="15">Later</button>
+          </div>
+          <div class="sp-testwrap">
+            <button type="button" class="btn quiet" id="testOpen" data-icon="send" data-icon-size="15" aria-expanded="false">Send test</button>
+            <div class="sp-testpop hidden" id="testPop" role="dialog" aria-label="Send a test to yourself">
+              <b>Send a test to yourself</b>
+              <div class="row tight">
+                <input id="testPhone" placeholder="Your number, e.g. 9876543210" inputmode="tel" />
+                <button class="btn primary" id="testSend">Send</button>
+              </div>
+              <span class="sub" id="testNote">Uses the template and the recipient in the preview, from the first number you turned on.</span>
+            </div>
           </div>
           <input type="datetime-local" id="scheduleAt" class="hidden" />
           <button class="btn primary big" id="sendAll">Send</button>
@@ -304,7 +463,7 @@
     <!-- CAMPAIGNS --------------------------------------------------------->
     <section id="tab-campaigns" class="tab hidden">
       <div id="campaignDetail" class="hidden"></div>
-      <div id="campaignList"></div>
+      <div id="campaignList" data-skel="folder:8"></div>
     </section>
 
     <!-- NUMBERS ----------------------------------------------------------->
@@ -316,7 +475,7 @@
         </div>
         <button class="btn primary" id="addSender" data-icon="plus">Add number</button>
       </div>
-      <div id="senderList" class="cards"></div>
+      <div id="senderList" class="cards" data-skel="card:3"></div>
     </section>
 
     <!-- TEMPLATES --------------------------------------------------------->
@@ -331,7 +490,7 @@
           <button class="btn primary" id="addTemplate" data-icon="plus">Add manually</button>
         </div>
       </div>
-      <div id="templateList" class="cards"></div>
+      <div id="templateList" class="cards" data-skel="card:3"></div>
     </section>
 
     <!-- SETTINGS ---------------------------------------------------------->
@@ -370,7 +529,8 @@
 
         <div class="card la-host">
           <h2 data-icon="zap">Webhook (delivery status and Inbox)</h2>
-          <p class="sub">To see <em>delivered</em>, <em>read</em> and <em>failed</em>, and to receive replies in the Inbox, add this in Meta App Dashboard →
+          <p class="sub">To see <em>delivered</em>, <em>read</em> and <em>failed</em>, and to receive replies in the
+            Inbox, add this in Meta App Dashboard →
             WhatsApp → Configuration → Webhook and subscribe to the <code>messages</code> field. It must be a public
             HTTPS address (deploy the app, or use ngrok while testing).</p>
           <label>Callback URL
@@ -381,6 +541,106 @@
             <div class="input-group"><input id="setVerify" /><button class="btn sm copy" data-copy="setVerify"
                 data-icon="copy" data-icon-size="14">Copy</button></div>
           </label>
+        </div>
+
+        <div class="card span-2 la-host ai-settings">
+          <h2><svg class="orb-icon" data-orb-icon="16" aria-hidden="true"></svg>AI assistant</h2>
+          <div class="ai-set-grid">
+            <div>
+              <div class="ai-help" data-for="gemini">
+                <p class="sub">Gemini by Google has a free tier, which is enough for development and demos. To get a
+                  key:</p>
+                <ol class="guide ai-steps-list">
+                  <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank"
+                      rel="noopener">aistudio.google.com/apikey</a>
+                    and sign in with a Google account.</li>
+                  <li>Click <strong>Create API key</strong> and copy it.</li>
+                  <li>Paste it here, click <strong>Save</strong>, then <strong>Test</strong>.</li>
+                </ol>
+                <p class="sub">On the free tier Google may use what you send to improve its products, and there's a
+                  limit
+                  on requests per minute and per day. Avoid real customer data, or switch to Claude.</p>
+              </div>
+              <div class="ai-help hidden" data-for="claude">
+                <p class="sub">Claude by Anthropic is paid per use (a few cents per request) and isn't included in a
+                  Claude.ai subscription. To get a key:</p>
+                <ol class="guide ai-steps-list">
+                  <li>Sign in or sign up at <a href="https://console.anthropic.com" target="_blank"
+                      rel="noopener">console.anthropic.com</a>.</li>
+                  <li>Add credit under <strong>Settings → Billing</strong>; you can set a monthly limit there.</li>
+                  <li>Open <strong>Settings → API keys → Create key</strong> and copy it. It's only shown once.</li>
+                  <li>Paste it here, click <strong>Save</strong>, then <strong>Test</strong>.</li>
+                </ol>
+              </div>
+              <p class="sub">Either way, for an attached file the assistant only sees the column names, the first five
+                rows
+                (with phone numbers partly hidden) and summary counts. It can't send anything on its own: every
+                campaign it plans waits for your approval.</p>
+            </div>
+            <div>
+              <label>AI provider</label>
+              <div class="seg ai-provider" id="aiProviderSeg" role="radiogroup" aria-label="AI provider">
+                <button type="button" data-provider="gemini">Gemini <span class="opt">free tier</span></button>
+                <button type="button" data-provider="claude">Claude</button>
+              </div>
+              <div class="ai-fields" data-for="gemini">
+                <label>Gemini API key <span class="opt" id="geminiKeyState"></span>
+                  <input id="setGeminiKey" type="password" autocomplete="off" spellcheck="false"
+                    placeholder="Paste your key" />
+                </label>
+                <label>Model <span class="opt">from Google AI Studio</span>
+                  <input id="setGeminiModel" list="geminiModels" spellcheck="false" placeholder="gemini-3.8-flash" />
+                  <datalist id="geminiModels">
+                    <option value="gemini-3.8-flash"></option>
+                    <option value="gemini-3.6-flash"></option>
+                    <option value="gemini-3.5-flash-lite"></option>
+                    <option value="gemini-2.5-flash"></option>
+                  </datalist>
+                </label>
+              </div>
+              <div class="ai-fields hidden" data-for="claude">
+                <label>Anthropic API key <span class="opt" id="aiKeyState"></span>
+                  <input id="setAiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" />
+                </label>
+                <p class="sub">Uses Claude Opus 5.5.</p>
+              </div>
+              <div class="card-actions row tight"><button class="btn quiet danger sm hidden" id="removeAiKey">Remove
+                  key</button><button class="btn" id="testAiKey">Test</button><button class="btn primary" id="saveAiKey"
+                  data-icon="circle-check">Save</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card span-2 la-host lead-settings">
+          <h2><svg class="orb-icon" data-orb-icon="16" aria-hidden="true"></svg>Lead assistant (Inbox)</h2>
+          <div class="ai-set-grid">
+            <div>
+              <p class="sub">When someone writes to you, the AI drafts a reply that helps them and moves them toward
+                becoming a
+                lead. It saves what it learns (need, budget, timeline, status) to their contact, and flags the chat
+                when a person should take over. <strong>Every reply is a draft</strong>: you send or edit it in the
+                Inbox.
+                It uses the AI provider chosen above.</p>
+              <div class="setting-row lead-toggle">
+                <div>
+                  <div class="setting-title">Draft replies automatically</div>
+                  <div class="sub">When off, you can still ask for a draft in any chat.</div>
+                </div>
+                <label class="toggle"><input type="checkbox" id="laEnabled" /><span class="track"><span
+                      class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></label>
+              </div>
+            </div>
+            <div>
+              <label>About your business <span class="opt">the only facts it will use</span>
+                <textarea id="laBusiness" rows="9"
+                  placeholder="What you offer, prices, timings, FAQs, links (e.g. a booking link), and the tone to use.&#10;&#10;Example:&#10;Spotmies builds websites and apps for small businesses.&#10;Websites from ₹25,000 (2–3 weeks). Apps from ₹1.5 lakh.&#10;Free 20-minute call: https://cal.com/your-link&#10;Mon–Sat, 10am–7pm IST. Friendly, short replies."></textarea></label>
+              <label>What makes a qualified lead
+                <textarea id="laQualified" rows="3"
+                  placeholder="e.g. Needs a website or app, and has a budget over ₹20,000 or wants it within 2 months."></textarea></label>
+              <div class="card-actions"><button class="btn primary" id="laSave" data-icon="circle-check">Save</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="card span-2 la-host">
@@ -460,13 +720,49 @@
     </div>
   </div>
 
+  <!-- Assistant: preview of an attached contact file -->
+  <div id="filePreview" class="modal hidden">
+    <div class="modal-box fp-box" role="dialog" aria-modal="true" aria-labelledby="fpTitle">
+      <div class="modal-head">
+        <div>
+          <h2 id="fpTitle"></h2>
+          <p class="sub" id="fpSub"></p>
+        </div>
+        <button class="icon-btn la-host" id="fpClose" aria-label="Close" data-icon="x" data-icon-size="18"></button>
+      </div>
+      <div class="fp-tabs hidden" id="fpTabs"></div>
+      <div class="fp-stats" id="fpStats"></div>
+      <div class="fp-hints hidden" id="fpHints"></div>
+      <div class="fp-tools">
+        <div class="seg" id="fpFilter">
+          <button data-f="all">All <span class="n"></span></button>
+          <button data-f="valid">Valid <span class="n"></span></button>
+          <button data-f="invalid">Invalid <span class="n"></span></button>
+          <button data-f="duplicate">Duplicates <span class="n"></span></button>
+        </div>
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="fpSearch"
+            placeholder="Search rows" aria-label="Search rows" /></div>
+        <label class="inline">Phone column <select id="fpPhone"></select></label>
+      </div>
+      <div class="table-wrap fp-table" id="fpTable"></div>
+      <p class="sub" id="fpNote"></p>
+    </div>
+  </div>
+
   <div id="toasts"></div>
   <div id="chartTip" class="chart-tip hidden" role="tooltip"></div>
   <script src="vendor/d3.min.js"></script>
   <script src="icons.js"></script>
   <script src="motion.js"></script>
+  <script src="orb.js"></script>
   <script src="app.js"></script>
   <script src="inbox.js"></script>
+  <script src="sheet.js"></script>
+  <script src="send.js"></script>
+  <script src="contacts.js"></script>
+  <script src="campaigns.js"></script>
+  <script src="notifications.js"></script>
+  <script src="assistant.js"></script>
 </body>
 
 </html>

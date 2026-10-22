@@ -30,8 +30,11 @@ const DEFAULT_DB = {
   campaigns: [],
   // Inbox: every message people send us, plus replies sent from the inbox.
   messages: [],
-  // Per-conversation state keyed "senderId:waId": { name, lastReadAt }.
+  // Per-conversation state keyed "senderId:waId": { name, lastReadAt, ai: lead assistant state }.
   chats: {},
+  // Address book (contacts.js), keyed by phone number.
+  contacts: [],
+  tags: [],
 };
 
 function loadDb() {
@@ -196,6 +199,7 @@ const RETRYABLE = new Set([4, 80007, 130429, 131048, 131056]);
 // ---------------------------------------------------------------------------
 
 const running = new Map(); // campaignId -> { stop: boolean }
+let notes = null; // notifications (notifications.js), mounted further down
 
 async function runCampaign(campaign) {
   const control = { stop: false };
@@ -203,6 +207,7 @@ async function runCampaign(campaign) {
   campaign.status = 'running';
   campaign.startedAt ||= new Date().toISOString();
   save();
+  notes?.campaignStarted(campaign);
 
   const template = db.templates.find((t) => t.id === campaign.templateId);
   if (!template) {
@@ -263,6 +268,8 @@ async function runCampaign(campaign) {
   campaign.status = control.stop ? 'stopped' : 'completed';
   campaign.finishedAt = new Date().toISOString();
   save();
+  notes?.campaignDone(campaign, { stopped: control.stop });
+  notes?.deliveryFailed(campaign);
 }
 
 function recount(c) {
@@ -305,13 +312,16 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
   res.sendStatus(200);
   const rank = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 };
+  const failedIn = new Set(); // campaigns that got new delivery failures in this webhook
   for (const entry of req.body?.entry || []) {
     for (const change of entry.changes || []) {
       for (const st of change.value?.statuses || []) {
         const im = inboxIndex.get(st.id);
         if (im && im.dir === 'out') {
+          const was = im.status;
           applyStatus(im, st);
           broadcast({ kind: 'status', key: im.key });
+          if (im.status === 'failed' && was !== 'failed') notes?.replyFailed({ key: im.key, name: db.chats[im.key]?.name || '+' + im.wa, error: im.error, demo: im.demo });
           continue;
         }
         const ref = messageIndex.get(st.id);
@@ -320,6 +330,7 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
         const r = c?.recipients[ref.index];
         if (!r) continue;
         if (st.status === 'failed') {
+          if (r.status !== 'failed') failedIn.add(c);
           r.status = 'failed';
           r.failedAt = new Date(Number(st.timestamp) * 1000).toISOString();
           r.error = st.errors?.map((e) => `${e.code}: ${e.title}${e.error_data?.details ? ' — ' + e.error_data.details : ''}`).join('; ');
@@ -333,6 +344,8 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
     }
   }
   save();
+  // Failures that arrive after a campaign finished (or while it runs) update its notification.
+  for (const c of failedIn) if (!running.has(c.id)) notes?.deliveryFailed(c);
 });
 
 // Optional password protection for the dashboard + API: a login page that sets a
@@ -348,10 +361,10 @@ if (APP_PASSWORD) {
     return raw.slice(raw.indexOf(':') + 1);
   };
   const loginPage = (error = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · WhatsApp Sender</title><link rel="stylesheet" href="/style.css">
+<title>Sign in · WhatsApp Sender</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><style>g{stroke:%2314181c}circle{fill:%2314181c}@media (prefers-color-scheme:dark){g{stroke:%23fff}circle{fill:%23fff}}</style><g fill='none' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M11.5 4.5h9a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8h-7.2L8 28.6v-5.1A8 8 0 0 1 3.5 16.5v-4a8 8 0 0 1 8-8z'/><path d='M10.4 12.4q1.6-2.2 3.2 0'/><path d='M10.6 17.2q2.4 2.4 4.8 1.4l5.6-4'/></g><circle cx='20.4' cy='11.6' r='1.4'/></svg>"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css">
 <script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}</script></head>
 <body class="login-body"><form class="card login-card" method="post" action="/login">
-<div class="brand"><span class="logo"></span>WhatsApp Sender</div>
+<div class="brand"><svg class="logo" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 4.5h9a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8h-7.2L8 28.6v-5.1A8 8 0 0 1 3.5 16.5v-4a8 8 0 0 1 8-8z"/><path d="M10.4 12.4q1.6-2.2 3.2 0"/><circle class="logo-eye" cx="20.4" cy="11.6" r="1.25" fill="currentColor" stroke="none"/><path d="M10.6 17.2q2.4 2.4 4.8 1.4l5.6-4"/></svg><span class="brand-name">WhatsApp Sender</span></div>
 <label>Password<input type="password" name="password" autofocus autocomplete="current-password" required></label>
 ${error ? `<p class="login-error">${error}</p>` : ''}<button class="btn primary" type="submit">Sign in</button></form></body></html>`;
 
@@ -374,7 +387,8 @@ ${error ? `<p class="login-error">${error}</p>` : ''}<button class="btn primary"
 }
 
 app.use(express.json({ limit: '20mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// Browsers must check for a newer copy every time, so an update shows on a normal refresh.
+app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // D3 for the dashboard charts, served locally so it works offline.
 app.use('/vendor', express.static(path.join(__dirname, 'node_modules', 'd3', 'dist')));
 
@@ -386,15 +400,59 @@ const fail = (msg, httpStatus = 400) => Object.assign(new Error(msg), { httpStat
 
 // --- Settings ---------------------------------------------------------------
 
-app.get('/api/settings', (req, res) => res.json(db.settings));
+// AI assistant: Claude (Anthropic) or Gemini (Google). Keys are write-only from the browser, like sender access tokens.
+const AI_PROVIDERS = ['gemini', 'claude'];
+const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+function aiConfig() {
+  const keys = { claude: db.settings.anthropicApiKey || process.env.ANTHROPIC_API_KEY || '', gemini: db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '' };
+  // Until one is picked, use whichever has a key (Gemini first: it has a free tier).
+  const provider = AI_PROVIDERS.includes(db.settings.aiProvider) ? db.settings.aiProvider : keys.gemini || !keys.claude ? 'gemini' : 'claude';
+  return { provider, key: keys[provider], keys, geminiModel: db.settings.geminiModel || DEFAULT_GEMINI_MODEL };
+}
+function publicSettings() {
+  const { anthropicApiKey, geminiApiKey, ...rest } = db.settings;
+  const ai = aiConfig();
+  return {
+    ...rest,
+    aiProvider: ai.provider,
+    geminiModel: ai.geminiModel,
+    hasAiKey: Boolean(ai.key),
+    aiKeyMasked: maskToken(anthropicApiKey),
+    aiKeyFromEnv: !anthropicApiKey && Boolean(process.env.ANTHROPIC_API_KEY),
+    hasGeminiKey: Boolean(ai.keys.gemini),
+    geminiKeyMasked: maskToken(geminiApiKey),
+    geminiKeyFromEnv: !geminiApiKey && Boolean(process.env.GEMINI_API_KEY),
+  };
+}
+
+app.get('/api/settings', (req, res) => res.json(publicSettings()));
 
 app.put('/api/settings', (req, res) => {
   const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber'];
   for (const k of allowed) if (k in req.body) db.settings[k] = req.body[k];
   db.settings.concurrencyPerNumber = Math.min(50, Math.max(1, Number(db.settings.concurrencyPerNumber) || 1));
   db.settings.delayMsPerNumber = Math.max(0, Number(db.settings.delayMsPerNumber) || 0);
+  // Blank means "keep the saved key"; removing it is an explicit flag.
+  if (typeof req.body.anthropicApiKey === 'string' && req.body.anthropicApiKey.trim()) db.settings.anthropicApiKey = req.body.anthropicApiKey.trim();
+  if (req.body.removeAnthropicApiKey) delete db.settings.anthropicApiKey;
+  if (typeof req.body.geminiApiKey === 'string' && req.body.geminiApiKey.trim()) db.settings.geminiApiKey = req.body.geminiApiKey.trim();
+  if (req.body.removeGeminiApiKey) delete db.settings.geminiApiKey;
+  if (req.body.leadAgent && typeof req.body.leadAgent === 'object') {
+    const l = req.body.leadAgent;
+    db.settings.leadAgent = {
+      enabled: Boolean(l.enabled),
+      business: String(l.business ?? db.settings.leadAgent?.business ?? '').slice(0, 20000),
+      qualified: String(l.qualified ?? db.settings.leadAgent?.qualified ?? '').slice(0, 4000),
+    };
+  }
+  if (AI_PROVIDERS.includes(req.body.aiProvider)) db.settings.aiProvider = req.body.aiProvider;
+  if (typeof req.body.geminiModel === 'string') {
+    const m = req.body.geminiModel.trim().replace(/^models\//, '');
+    if (!m) delete db.settings.geminiModel;
+    else if (/^[\w.-]{1,80}$/.test(m)) db.settings.geminiModel = m;
+  }
   save();
-  res.json(db.settings);
+  res.json(publicSettings());
 });
 
 // --- Sender numbers ---------------------------------------------------------
@@ -512,6 +570,7 @@ function resolveRecipients(body, template) {
     const phone = normalizePhone(row[phoneColumn]);
     if (!phone) { skipped.push({ raw: row[phoneColumn], reason: 'Invalid number' }); continue; }
     if (seen.has(phone)) { skipped.push({ raw: row[phoneColumn], reason: 'Duplicate' }); continue; }
+    if (contactsApi.isOptedOut(phone)) { seen.add(phone); skipped.push({ raw: row[phoneColumn], reason: 'Opted out' }); continue; }
     seen.add(phone);
     const values = {};
     for (const v of vars) {
@@ -544,8 +603,10 @@ app.post('/api/send/test', wrap(async (req, res) => {
   res.json({ ok: true, messageId, to, demo });
 }));
 
-app.post('/api/campaigns', wrap((req, res) => {
-  const { name, templateId, senderIds = [] } = req.body;
+// Validates and starts (or schedules) a campaign. Used by the Send page and by
+// assistant plans once the person approves them.
+function createCampaign(body) {
+  const { name, templateId, senderIds = [] } = body;
   const template = db.templates.find((t) => t.id === templateId);
   if (!template) throw fail('Pick a template');
   const senders = db.senders.filter((s) => senderIds.includes(s.id) && s.enabled);
@@ -555,7 +616,7 @@ app.post('/api/campaigns', wrap((req, res) => {
     if (noToken) throw fail(`"${noToken.label}" has no access token (or turn on Demo mode)`);
   }
 
-  const { recipients, skipped, vars } = resolveRecipients(req.body, template);
+  const { recipients, skipped, vars } = resolveRecipients(body, template);
   if (!recipients.length) throw fail('No valid recipients');
   const missing = vars.find((v) => recipients.some((r) => !r.values[v.key]));
   if (missing) throw fail(`Variable "${missing.key}" is empty for some recipients — map it to a column or set a fixed value`);
@@ -564,8 +625,8 @@ app.post('/api/campaigns', wrap((req, res) => {
   recipients.forEach((r, i) => Object.assign(r, { senderId: senders[i % senders.length].id, status: 'pending' }));
 
   let scheduledAt = null;
-  if (req.body.scheduledAt) {
-    const when = new Date(req.body.scheduledAt);
+  if (body.scheduledAt) {
+    const when = new Date(body.scheduledAt);
     if (isNaN(when)) throw fail('Invalid schedule date');
     if (when < Date.now() - 60_000) throw fail('Scheduled time is in the past');
     scheduledAt = when.toISOString();
@@ -581,14 +642,20 @@ app.post('/api/campaigns', wrap((req, res) => {
     createdAt: new Date().toISOString(),
     scheduledAt,
     status: scheduledAt ? 'scheduled' : 'queued',
-    skipped,
+    skipped: [...(body.skipped || []), ...skipped],
     recipients,
+    ...(body.source ? { source: body.source } : {}),
   };
   recount(c);
   db.campaigns.unshift(c);
   save();
   if (!scheduledAt) runCampaign(c);
-  res.json(summary(c));
+  return c;
+}
+
+app.post('/api/campaigns', wrap((req, res) => {
+  const { skipped, source, ...body } = req.body;
+  res.json(summary(createCampaign(body)));
 }));
 
 // Start scheduled campaigns when their time comes. Campaigns whose time passed
@@ -614,12 +681,38 @@ const summary = (c) => {
   return { ...rest, total: recipients.length };
 };
 
-app.get('/api/campaigns', (req, res) => res.json(db.campaigns.map(summary)));
+// Replies and leads: a recipient "replied" if they wrote to the number that messaged them within
+// REPLY_DAYS of receiving it; a reply is a "lead" if their contact is now qualified or won.
+const REPLY_DAYS = 7;
+function inboundIndex() {
+  const idx = new Map();
+  for (const m of db.messages) if (m.dir === 'in' && m.type !== 'reaction') (idx.get(m.key) || idx.set(m.key, []).get(m.key)).push(new Date(m.ts).getTime());
+  return idx;
+}
+function outcome(c, idx) {
+  let replies = 0, leads = 0;
+  const per = c.recipients.map((r) => {
+    if (!r.sentAt) return null;
+    const t0 = new Date(r.sentAt).getTime();
+    const key = chatKey(r.senderId, r.phone);
+    const replied = (idx.get(key) || []).some((t) => t > t0 && t - t0 < REPLY_DAYS * 86400000);
+    const status = contactsApi.byPhone(r.phone)?.status;
+    if (replied) { replies++; if (status === 'qualified' || status === 'won') leads++; }
+    return { replied, key, contactStatus: status || null };
+  });
+  return { replies, leads, per };
+}
+
+app.get('/api/campaigns', (req, res) => {
+  const idx = inboundIndex();
+  res.json(db.campaigns.map((c) => { const o = outcome(c, idx); return { ...summary(c), replies: o.replies, leads: o.leads }; }));
+});
 
 app.get('/api/campaigns/:id', wrap((req, res) => {
   const c = db.campaigns.find((x) => x.id === req.params.id);
   if (!c) throw fail('Not found', 404);
-  res.json(c);
+  const o = outcome(c, inboundIndex());
+  res.json({ ...c, replies: o.replies, leads: o.leads, recipients: c.recipients.map((r, i) => (o.per[i] ? { ...r, replied: o.per[i].replied, chatKey: o.per[i].key, contactStatus: o.per[i].contactStatus } : r)) });
 }));
 
 app.post('/api/campaigns/:id/stop', wrap((req, res) => {
@@ -632,8 +725,10 @@ app.post('/api/campaigns/:id/resume', wrap((req, res) => {
   const c = db.campaigns.find((x) => x.id === req.params.id);
   if (!c) throw fail('Not found', 404);
   if (running.has(c.id)) throw fail('Already running');
-  // Also retry failures when asked.
-  if (req.body?.retryFailed) c.recipients.forEach((r) => r.status === 'failed' && Object.assign(r, { status: 'pending', error: undefined }));
+  // Also retry failures when asked: all of them, or only those with certain error codes / messages.
+  const codes = Array.isArray(req.body?.retryReasons) ? new Set(req.body.retryReasons.map(String)) : null;
+  const reasonOf = (r) => String(r.error || '').match(/^(\d{2,6}):/)?.[1] || String(r.error || '');
+  if (req.body?.retryFailed || codes) c.recipients.forEach((r) => r.status === 'failed' && (!codes || codes.has(reasonOf(r))) && Object.assign(r, { status: 'pending', error: undefined }));
   runCampaign(c);
   res.json(summary(c));
 }));
@@ -741,6 +836,12 @@ function ingestMessages(value) {
     const msg = { id: id(), wamid: m.id, key, senderId, wa: m.from, dir: 'in', ts: new Date(Number(m.timestamp) * 1000).toISOString(), context: m.context?.id, ...parseIncoming(m) };
     db.messages.push(msg);
     inboxIndex.set(m.id, msg);
+    // Everyone who writes in becomes a contact; STOP opts them out straight away.
+    const contact = contactsApi.onInbound(m.from, { name: names[m.from], text: msg.text, ts: msg.ts });
+    const who = chat.name || contact?.name || '+' + m.from;
+    if (contact?.optOut && contact.optOutAt && Date.now() - Date.parse(contact.optOutAt) < 5000) notes?.optout({ name: who, phone: contact.phone, key });
+    else if (msg.type !== 'reaction') notes?.message({ key, name: who, text: msg.text, type: msg.type });
+    if (msg.type !== 'reaction') leadApi.onInbound(key);
     broadcast({ kind: 'message', key, dir: 'in' });
   }
 }
@@ -771,6 +872,17 @@ function conversationInfo(key, msgs, names) {
     lastAt: last?.ts || null,
     unread: msgs.filter((m) => m.dir === 'in' && (!chat.lastReadAt || m.ts > chat.lastReadAt)).length,
     windowEndsAt: lastIn ? new Date(new Date(lastIn.ts).getTime() + WINDOW_MS).toISOString() : null,
+    ...conversationExtras(key, wa),
+  };
+}
+
+// Lead assistant and contact details shown on each conversation.
+function conversationExtras(key, wa) {
+  const ai = leadApi.stateFor(key);
+  const c = contactsApi.byPhone(wa);
+  return {
+    ai: { on: ai.on, busy: ai.busy, hasDraft: Boolean(ai.draft), handover: Boolean(ai.handover) },
+    contact: c ? { id: c.id, status: c.status, optOut: c.optOut, tags: c.tags } : null,
   };
 }
 
@@ -786,7 +898,15 @@ app.get('/api/inbox', (req, res) => {
   const byKey = new Map();
   for (const m of inboxMessages()) (byKey.get(m.key) || byKey.set(m.key, []).get(m.key)).push(m);
   const names = recipientNames();
-  const conversations = [...byKey].map(([key, msgs]) => conversationInfo(key, msgs.sort((a, b) => a.ts.localeCompare(b.ts)), names));
+  // Which templates each person was sent (campaigns and template messages from the Inbox), for the template filter.
+  const tpls = new Map();
+  const addTpl = (key, name) => { if (name) (tpls.get(key) || tpls.set(key, new Set()).get(key)).add(name); };
+  for (const c of db.campaigns) {
+    if (c.demo && !db.settings.demoMode) continue;
+    for (const r of c.recipients) if (r.sentAt || r.failedAt) addTpl(chatKey(r.senderId, r.phone), c.templateName);
+  }
+  for (const m of inboxMessages()) if (m.type === 'template') addTpl(m.key, m.templateName);
+  const conversations = [...byKey].map(([key, msgs]) => ({ ...conversationInfo(key, msgs.sort((a, b) => a.ts.localeCompare(b.ts)), names), templates: [...(tpls.get(key) || [])] }));
   conversations.sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
   res.json({ conversations, unread: conversations.reduce((n, c) => n + c.unread, 0) });
 });
@@ -806,7 +926,7 @@ app.get('/api/inbox/:key', wrap((req, res) => {
     }
   }
   const messages = [...own, ...sent].sort((a, b) => a.ts.localeCompare(b.ts));
-  res.json({ conversation: conversationInfo(key, own, recipientNames()), messages });
+  res.json({ conversation: conversationInfo(key, own, recipientNames()), messages, ai: leadApi.stateFor(key), contact: contactsApi.byPhone(wa) || null, tags: db.tags });
 }));
 
 // Mark a conversation read here, and (live) send blue ticks to the person.
@@ -863,6 +983,7 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
   db.messages.push(msg);
   if (msg.wamid) inboxIndex.set(msg.wamid, msg);
   db.chats[key] ||= { lastReadAt: new Date().toISOString() };
+  leadApi.onSent(key);
   save();
   broadcast({ kind: 'message', key, dir: 'out' });
   if (demo) {
@@ -901,12 +1022,12 @@ app.get('/api/media/:mid', wrap(async (req, res) => {
 const TIER_LIMITS = { TIER_50: 50, TIER_250: 250, TIER_1K: 1000, TIER_10K: 10000, TIER_100K: 100000, TIER_UNLIMITED: null };
 const dayKey = (d) => new Date(d).toLocaleDateString('en-CA'); // YYYY-MM-DD in server's local time
 
-app.get('/api/stats', (req, res) => {
+function computeStats(query = {}) {
   // Only count campaigns from the current mode, so demo runs never inflate live numbers.
   const demo = db.settings.demoMode;
-  const range = [7, 14, 30, 90].includes(Number(req.query.range)) ? Number(req.query.range) : 14;
-  const senderF = req.query.sender || '';
-  const templateF = req.query.template || '';
+  const range = [7, 14, 30, 90].includes(Number(query.range)) ? Number(query.range) : 14;
+  const senderF = query.sender || '';
+  const templateF = query.template || '';
   const all = db.campaigns.filter((c) => Boolean(c.demo) === demo);
   const camps = all.filter((c) => (!templateF || c.templateName === templateF) && (!senderF || c.senderIds.includes(senderF)));
 
@@ -971,7 +1092,7 @@ app.get('/api/stats', (req, res) => {
     ...perSender[s.id],
   }));
 
-  res.json({
+  return {
     demo,
     range,
     filters: { sender: senderF, template: templateF },
@@ -991,8 +1112,10 @@ app.get('/api/stats', (req, res) => {
       live: !demo,
     },
     hasSeed: db.senders.some((s) => s.seed) || db.templates.some((t) => t.seed) || db.campaigns.some((c) => c.seed),
-  });
-});
+  };
+}
+
+app.get('/api/stats', (req, res) => res.json(computeStats(req.query)));
 
 // --- Demo workspace -----------------------------------------------------------
 // Fills the app with realistic sample numbers, templates and two weeks of
@@ -1081,6 +1204,7 @@ app.post('/api/demo/seed', wrap((req, res) => {
   recount(upcoming);
   db.campaigns.unshift(upcoming, ...campaigns);
   seedConversations(campaigns);
+  seedNotifications(campaigns);
   save();
   res.json({ ok: true });
 }));
@@ -1140,6 +1264,46 @@ function seedConversations(campaigns) {
     }
     db.chats[key] = { name: r.name.replace(/ [A-Z]\.$/, '') + ' ' + ['Sharma', 'Iyer', 'Khan', 'Reddy', 'Patel', 'Nair', 'Gupta', 'Das'][used.size % 8], lastReadAt: sc.unread ? null : new Date(t + 60000).toISOString(), seed: true };
   }
+  seedContacts(campaigns);
+}
+
+// Sample contacts with tags: the people in the demo conversations plus some campaign recipients.
+function seedContacts(campaigns) {
+  const tagSpecs = [['Clients', 'green'], ['Leads', 'blue'], ['Developers', 'violet'], ['Designers', 'pink']];
+  const tags = tagSpecs.map(([name, color]) => db.tags.find((t) => t.name === name) || (db.tags.push({ id: id(), name, color, seed: true, createdAt: new Date().toISOString() }), db.tags.at(-1)));
+  const statuses = ['new', 'interested', 'qualified', 'won', 'new', 'interested'];
+  const people = new Map();
+  for (const [key, chat] of Object.entries(db.chats)) if (chat.seed) people.set(key.slice(key.lastIndexOf(':') + 1), chat.name);
+  for (const c of campaigns) for (const r of c.recipients) if (people.size < 60 && !people.has(r.phone)) people.set(r.phone, r.name.replace(/ [A-Z]\.$/, ''));
+  let i = 0;
+  for (const [phone, name] of people) {
+    if (db.contacts.some((x) => x.phone === phone)) continue;
+    const t = [tags[i % 2].id, ...(i % 3 === 0 ? [tags[2 + (i % 2)].id] : [])];
+    db.contacts.push({ id: id(), phone, name, email: '', company: ['Bright Clinic', 'Nova Studio', '', 'Kiran Traders', ''][i % 5], tags: t, status: statuses[i % statuses.length], optOut: false, notes: '', lead: {}, extra: {}, source: 'demo', seed: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    i++;
+  }
+}
+
+// A few sample notifications so the Notifications page has something to show in the demo.
+function seedNotifications(campaigns) {
+  const chats = Object.entries(db.chats).filter(([, c]) => c.seed);
+  const [k1, c1] = chats[0] || [], [k2, c2] = chats[1] || [], [k3, c3] = chats[2] || [];
+  const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
+  const withFails = campaigns.find((c) => c.stats?.failed) || campaigns[0];
+  const items = [
+    k1 && { kind: 'message', title: `New message from ${c1.name}`, body: 'Hi, do you ship to Pune? 🙂', link: { tab: 'inbox', key: k1 }, min: 4 },
+    k2 && { kind: 'ai_draft', title: `AI drafted a reply to ${c2.name}`, body: 'Yes, our morning slots open at 9. Shall I book you in for tomorrow?', link: { tab: 'inbox', key: k2 }, min: 18 },
+    k3 && { kind: 'ai_handover', title: `${c3.name} needs a person`, body: 'Asked about a refund for a damaged order', link: { tab: 'inbox', key: k3 }, min: 52 },
+    { kind: 'campaign_done', title: `“${campaigns[0].name}” finished`, body: `${(campaigns[0].stats.sent + campaigns[0].stats.delivered + campaigns[0].stats.read).toLocaleString()} messages sent, ${campaigns[0].stats.failed} failed.`, link: { tab: 'campaigns', id: campaigns[0].id }, min: 95, read: true },
+    { kind: 'delivery_failed', title: `${withFails.stats.failed} messages failed in “${withFails.name}”`, body: 'Most common reason: 131026: Message undeliverable', link: { tab: 'campaigns', id: withFails.id }, min: 100, count: withFails.stats.failed },
+    k1 && { kind: 'ai_qualified', title: `${c1.name} is a qualified lead`, body: 'Wants bulk delivery to Pune before Diwali, budget around ₹40k', link: { tab: 'inbox', key: k1 }, min: 60 * 26, read: true },
+    { kind: 'optout', title: 'Imran K. opted out', body: 'They asked to stop messages. They won’t be included in future sends.', link: { tab: 'contacts' }, min: 60 * 30, read: true },
+  ].filter(Boolean);
+  for (const it of items.reverse()) {
+    const n = notes.add({ ...it, demo: true, seed: true });
+    Object.assign(n, { ts: ago(it.min), read: Boolean(it.read) });
+  }
+  db.notifications.sort((a, b) => b.ts.localeCompare(a.ts));
 }
 
 app.delete('/api/demo/seed', wrap((req, res) => {
@@ -1150,11 +1314,26 @@ app.delete('/api/demo/seed', wrap((req, res) => {
   db.templates = db.templates.filter((t) => !t.seed);
   db.messages = db.messages.filter((m) => !m.seed);
   for (const [key, chat] of Object.entries(db.chats)) if (chat.seed) delete db.chats[key];
+  db.contacts = db.contacts.filter((c) => !c.seed);
+  db.notifications = (db.notifications || []).filter((n) => !n.seed);
+  const seedTags = new Set(db.tags.filter((t) => t.seed).map((t) => t.id));
+  db.tags = db.tags.filter((t) => !t.seed);
+  for (const c of db.contacts) c.tags = c.tags.filter((t) => !seedTags.has(t));
   inboxIndex.clear();
   for (const m of db.messages) if (m.wamid) inboxIndex.set(m.wamid, m);
   save();
   res.json({ ok: true });
 }));
+
+// --- Contacts and the Inbox lead assistant ------------------------------------
+
+notes = require('./notifications')(app, { db, save, id, wrap, broadcast });
+const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, broadcast });
+const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, broadcast, contacts: contactsApi, notes });
+
+// --- AI assistant -------------------------------------------------------------
+
+require('./ai')(app, { db, save, id, wrap, fail, aiConfig, contacts: contactsApi, normalizePhone, templateVariables, createCampaign, computeStats, summary, publicSender });
 
 app.listen(PORT, () => {
   console.log(`WhatsApp Sender running at http://localhost:${PORT}`);

@@ -5,15 +5,8 @@ const state = {
   senders: [],
   templates: [],
   campaigns: [],
-  csv: { headers: [], rows: [], fileName: '' },
-  // Per-row phone check, parallel to csv.rows: { phone, status: 'valid' | 'invalid' | 'duplicate' }
-  meta: [],
-  table: { sort: { col: null, dir: 1 }, filters: {}, search: '', page: 0, pageSize: 50, view: [], anchor: null },
-  selected: new Set(), // row indices
   sendMode: 'now',
-  mapping: {}, // variable key -> { type: 'column' | 'fixed', value }
   selectedSenders: new Set(),
-  detailId: null,
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -33,17 +26,33 @@ async function api(path, options = {}) {
   return json;
 }
 
-function toast(msg, type = '') {
+// A toast in the top-right corner. opts: { title, icon, onClick, duration }.
+// Every toast has a × to dismiss it, and hovering pauses its timer.
+function toast(msg, type = '', opts = {}) {
   const el = document.createElement('div');
-  el.className = 'toast ' + type;
-  el.innerHTML = icon(type === 'error' ? 'badge-alert' : 'circle-check', 16);
-  el.append(document.createTextNode(msg));
+  el.className = 'toast ' + type + (opts.onClick ? ' clickable' : '');
+  el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  el.innerHTML = `${icon(opts.icon || (type === 'error' ? 'badge-alert' : 'circle-check'), 16)}<div class="toast-text"></div><button type="button" class="toast-x" aria-label="Dismiss">${icon('x', 14)}</button>`;
+  const text = el.querySelector('.toast-text');
+  if (opts.title) { const b = document.createElement('b'); b.textContent = opts.title; text.append(b); }
+  const p = document.createElement('span');
+  p.textContent = msg;
+  text.append(p);
   $('#toasts').append(el);
   requestAnimationFrame(() => LA.play(el));
-  setTimeout(() => {
+  let left = opts.duration || (type === 'error' ? 6000 : opts.onClick ? 6000 : 3500), started = Date.now(), timer;
+  const dismiss = () => {
+    if (el.classList.contains('out')) return;
+    clearTimeout(timer);
     el.classList.add('out');
-    setTimeout(() => el.remove(), 250);
-  }, type === 'error' ? 6000 : 3500);
+    setTimeout(() => el.remove(), 280);
+  };
+  timer = setTimeout(dismiss, left);
+  el.addEventListener('mouseenter', () => { clearTimeout(timer); left -= Date.now() - started; });
+  el.addEventListener('mouseleave', () => { started = Date.now(); timer = setTimeout(dismiss, Math.max(left, 1200)); });
+  el.querySelector('.toast-x').addEventListener('click', (e) => { e.stopPropagation(); dismiss(); });
+  if (opts.onClick) el.addEventListener('click', () => { opts.onClick(); dismiss(); });
+  return { dismiss };
 }
 
 async function guard(fn, btn) {
@@ -62,16 +71,22 @@ async function guard(fn, btn) {
 // ---------------------------------------------------------------------------
 
 function showTab(name) {
-  $$('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+  $$('.side-nav button[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   const wasHidden = $('#tab-' + name)?.classList.contains('hidden');
   $$('.tab').forEach((t) => t.classList.toggle('hidden', t.id !== 'tab-' + name));
   if (wasHidden) Motion.enter($('#tab-' + name));
-  // The inbox needs the width: the sidebar shrinks to icons while it's open.
-  document.body.classList.toggle('nav-mini', name === 'inbox');
+  state.tab = name;
+  // The inbox fills the window and starts with the sidebar shrunk to icons.
+  document.body.classList.toggle('inbox-open', name === 'inbox');
+  document.body.classList.toggle('assistant-open', name === 'assistant');
+  syncNav();
+  if (name === 'assistant') window.Assistant?.show();
   if (name === 'inbox') window.Inbox?.show();
   Motion.segs();
-  syncSplitMode();
-  if (name === 'send') fitSplit();
+  document.body.classList.toggle('send-open', name === 'send');
+  if (name === 'send') window.SendPage?.show();
+  if (name === 'contacts') window.Contacts?.show();
+  if (name === 'notifications') window.Notifications?.show();
   if (name === 'campaigns') loadCampaigns();
   if (name !== 'campaigns') stopPolling();
   if (name === 'overview') loadOverview().catch((e) => toast(e.message, 'error'));
@@ -80,22 +95,63 @@ function showTab(name) {
   hideTip();
   history.replaceState(null, '', '#' + name);
 }
-$$('#tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+$$('.side-nav button[data-tab]').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
 window.addEventListener('hashchange', () => {
   const tab = location.hash.slice(1);
   if ($('#tab-' + tab)?.classList.contains('hidden')) showTab(tab);
 });
 
+// Sidebar: collapses to icons. Remembered per browser; on the Inbox it starts collapsed
+// and the toggle only opens it for that visit.
+state.navCollapsed = (() => { try { return localStorage.getItem('navCollapsed') === '1'; } catch { return false; } })();
+state.inboxNavOpen = false;
+function syncNav() {
+  const mini = state.tab === 'inbox' ? !state.inboxNavOpen : state.navCollapsed;
+  const was = document.body.classList.contains('nav-mini');
+  document.body.classList.toggle('nav-mini', mini);
+  const btn = $('#navToggle');
+  const label = mini ? 'Expand sidebar' : 'Collapse sidebar';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('aria-expanded', String(!mini));
+  // Thumbs, the Send split and the inbox measure their space: let them re-fit once the sidebar has moved.
+  if (was !== mini) setTimeout(() => dispatchEvent(new Event('resize')), Motion.reduce() ? 0 : 300);
+}
+$('#navToggle').addEventListener('click', () => {
+  if (state.tab === 'inbox') state.inboxNavOpen = !state.inboxNavOpen;
+  else {
+    state.navCollapsed = !state.navCollapsed;
+    try { localStorage.setItem('navCollapsed', state.navCollapsed ? '1' : '0'); } catch {}
+  }
+  syncNav();
+});
+
+const THEMES = [['light', 'Light', 'sun'], ['auto', 'Match system', 'sun-moon'], ['dark', 'Dark', 'moon']];
 function renderThemeSeg() {
-  $$('#themeSeg button').forEach((b) => b.classList.toggle('active', b.dataset.themeSet === document.documentElement.dataset.theme));
+  const cur = document.documentElement.dataset.theme;
+  $$('#themeSeg button').forEach((b) => b.classList.toggle('active', b.dataset.themeSet === cur));
+  // The collapsed sidebar's single button shows the current theme and names the next one.
+  const i = Math.max(0, THEMES.findIndex(([k]) => k === cur));
+  const next = THEMES[(i + 1) % THEMES.length];
+  const btn = $('#themeCycle');
+  btn.innerHTML = LA.icon(THEMES[i][2], 16); // runs before app.js defines icon()
+  btn.title = `Theme: ${THEMES[i][1]} (click for ${next[1]})`;
+  btn.setAttribute('aria-label', btn.title);
+  btn.dataset.next = next[0];
+}
+function setTheme(t) {
+  Motion.themeFade();
+  window.applyTheme(t);
+  try { localStorage.setItem('theme', t); } catch {}
+  renderThemeSeg();
 }
 $('#themeSeg').addEventListener('click', (e) => {
   const b = e.target.closest('[data-theme-set]');
-  if (!b) return;
-  Motion.themeFade();
-  window.applyTheme(b.dataset.themeSet);
-  try { localStorage.setItem('theme', b.dataset.themeSet); } catch {}
-  renderThemeSeg();
+  if (b) setTheme(b.dataset.themeSet);
+});
+$('#themeCycle').addEventListener('click', (e) => {
+  setTheme(e.currentTarget.dataset.next);
+  LA.play(e.currentTarget);
 });
 renderThemeSeg();
 document.addEventListener('click', (e) => {
@@ -150,6 +206,35 @@ function confirmDialog({ title, message = '', confirmText = 'OK', danger = false
 const toggleHtml = ({ checked, attrs = '', size = '' }) =>
   `<span class="toggle ${size}"><input type="checkbox" ${checked ? 'checked' : ''} ${attrs} /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span>`;
 
+// A person's avatar colour: a pastel hue from their number, the same everywhere they appear.
+function avatarStyle(seed) {
+  let h = 0;
+  for (const ch of String(seed || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `--av-h:${(h % 360)}`;
+}
+
+// Skeleton placeholders: shimmering shapes of what's loading. Static markup asks for one with
+// data-skel="kind:count"; the real render replaces it.
+const Skel = {
+  line: (w = 70, cls = '') => `<span class="sk sk-line ${cls}" style="width:${w}%"></span>`,
+  rows: (n = 6, avatar = true) => Array.from({ length: n }, (_, i) => `<div class="sk-row">${avatar ? '<span class="sk sk-circle"></span>' : ''}<span class="sk-col">${Skel.line(40 + ((i * 17) % 35))}${Skel.line(60 + ((i * 23) % 30), 'sm')}</span></div>`).join(''),
+  notif: (n = 5) => `<div class="card nt-card sk-pad">${Array.from({ length: n }, (_, i) => `<div class="sk-row"><span class="sk sk-square"></span><span class="sk-col">${Skel.line(45 + ((i * 13) % 30))}${Skel.line(75, 'sm')}${Skel.line(18, 'xs')}</span></div>`).join('')}</div>`,
+  kpi: (n = 4) => Array.from({ length: n }, () => `<div class="kpi sk-kpi">${Skel.line(45, 'sm')}${Skel.line(35, 'big')}${Skel.line(60, 'xs')}<span class="sk sk-block"></span></div>`).join(''),
+  card: (n = 3) => Array.from({ length: n }, () => `<div class="card sk-cardbox"><span class="sk-row tight"><span class="sk sk-square"></span><span class="sk-col">${Skel.line(55)}${Skel.line(35, 'sm')}</span></span>${Skel.line(90, 'sm')}${Skel.line(70, 'sm')}</div>`).join(''),
+  folder: (n = 8) => `<div class="cp-folders">${Array.from({ length: n }, () => `<div class="sk-folder"><span class="sk sk-tab"></span><span class="sk sk-body"></span></div>`).join('')}</div>`,
+  person: (n = 12) => `<div class="ct-grid sk-pad">${Array.from({ length: n }, (_, i) => `<div class="sk-person"><span class="sk sk-circle lg"></span>${Skel.line(55 + ((i * 11) % 25))}${Skel.line(40, 'sm')}</div>`).join('')}</div>`,
+  table: (n = 8) => `<div class="sk-pad">${Array.from({ length: n }, (_, i) => `<div class="sk-row tr"><span class="sk sk-circle sm"></span><span class="sk-col">${Skel.line(30 + ((i * 7) % 20))}${Skel.line(20, 'xs')}</span>${Skel.line(14)}${Skel.line(10)}${Skel.line(12)}</div>`).join('')}</div>`,
+  stat: (n = 4) => Array.from({ length: n }, () => `<div class="sk-stat">${Skel.line(55, 'xs')}${Skel.line(30, 'big')}</div>`).join(''),
+  chart: () => `<div class="sk-chart">${[38, 62, 45, 80, 55, 70, 30, 66, 50, 74, 42, 58, 85, 60].map((h) => `<span class="sk" style="height:${h}%"></span>`).join('')}</div>`,
+  bars: (n = 4) => `<div class="sk-bars">${Array.from({ length: n }, (_, i) => `<div>${Skel.line(25, 'sm')}<span class="sk sk-bar" style="width:${92 - i * 18}%"></span></div>`).join('')}</div>`,
+  lines: (n = 3) => `<div class="sk-lines">${Array.from({ length: n }, (_, i) => `<div class="sk-row tight">${Skel.line(50 + ((i * 19) % 35))}${Skel.line(18, 'sm')}</div>`).join('')}</div>`,
+  bubbles: () => `<div class="sk-bubbles">${[['in', 46], ['in', 30], ['out', 52], ['in', 38], ['out', 28], ['out', 44]].map(([d, w]) => `<span class="sk sk-bubble ${d}" style="width:${w}%"></span>`).join('')}</div>`,
+};
+document.querySelectorAll('[data-skel]').forEach((el) => {
+  const [kind, n] = el.dataset.skel.split(':');
+  if (!el.children.length && Skel[kind]) el.innerHTML = Skel[kind](Number(n) || undefined);
+});
+
 // Animated Lucide icons (see icons.js).
 const icon = (name, size = 18) => LA.icon(name, size);
 const emptyState = ({ icon: ic, title, text, actions = '' }) =>
@@ -178,6 +263,11 @@ function renderSettings() {
   $('#setDelay').value = s.delayMsPerNumber;
   $('#setVerify').value = s.webhookVerifyToken || '';
   $('#webhookUrl').value = location.origin + '/webhook';
+  renderAiSettings();
+  const la = s.leadAgent || {};
+  $('#laEnabled').checked = Boolean(la.enabled);
+  if (document.activeElement !== $('#laBusiness')) $('#laBusiness').value = la.business || '';
+  if (document.activeElement !== $('#laQualified')) $('#laQualified').value = la.qualified || '';
   renderMode();
 }
 
@@ -196,8 +286,7 @@ async function saveSettings(extra = {}) {
   });
   renderSettings();
   // Country code affects which numbers are valid.
-  if (state.csv.rows.length) { computeMeta(); renderTable(); }
-  renderSendSummary();
+  window.SendPage?.recheck();
 }
 
 $('#saveSettings').addEventListener('click', (e) => guard(async () => { await saveSettings(); toast('Settings saved'); }, e.target));
@@ -216,6 +305,85 @@ $('#setDemo').addEventListener('change', () =>
   })
 );
 
+// Inbox lead assistant: on/off, what it knows about the business, what counts as qualified.
+async function saveLeadAgent(note) {
+  state.settings = await api('/settings', { method: 'PUT', body: { leadAgent: { enabled: $('#laEnabled').checked, business: $('#laBusiness').value, qualified: $('#laQualified').value } } });
+  renderSettings();
+  if (note) toast(note);
+}
+$('#laSave').addEventListener('click', (e) => guard(() => saveLeadAgent('Lead assistant saved'), e.target));
+$('#laEnabled').addEventListener('change', () =>
+  guard(async () => {
+    if ($('#laEnabled').checked && !$('#laBusiness').value.trim()) toast('Tip: write about your business first, so drafts can answer questions', 'error');
+    await saveLeadAgent($('#laEnabled').checked ? 'The AI will draft replies to new messages. You send each one.' : 'Automatic drafts off');
+  })
+);
+
+// AI assistant: provider, keys and model, saved on their own so a half-typed key never rides along with other settings.
+state.aiTab = null; // provider shown in the card; starts as the active one
+function renderAiSettings() {
+  const s = state.settings;
+  const shown = state.aiTab || s.aiProvider;
+  $$('#aiProviderSeg button').forEach((b) => b.classList.toggle('active', b.dataset.provider === shown));
+  $$('.ai-settings [data-for]').forEach((el) => el.classList.toggle('hidden', el.dataset.for !== shown));
+  $('#geminiKeyState').textContent = s.hasGeminiKey ? (s.geminiKeyFromEnv ? 'set from the server environment' : `saved ${s.geminiKeyMasked}`) : 'not set';
+  $('#aiKeyState').textContent = s.aiKeyMasked ? `saved ${s.aiKeyMasked}` : s.aiKeyFromEnv ? 'set from the server environment' : 'not set';
+  $('#setGeminiKey').placeholder = s.geminiKeyMasked ? 'Paste a new key to replace it' : 'Paste your key';
+  $('#setAiKey').placeholder = s.aiKeyMasked ? 'Paste a new key to replace it' : 'sk-ant-…';
+  if (document.activeElement !== $('#setGeminiModel')) $('#setGeminiModel').value = s.geminiModel || '';
+  $('#removeAiKey').classList.toggle('hidden', !(shown === 'gemini' ? s.geminiKeyMasked : s.aiKeyMasked));
+  $('#saveAiKey').textContent = shown === s.aiProvider ? 'Save' : `Save and use ${shown === 'gemini' ? 'Gemini' : 'Claude'}`;
+  LA.hydrate($('.ai-settings'));
+  $('#asProvider') && ($('#asProvider').textContent = s.aiProvider === 'gemini' ? s.geminiModel : 'Claude Opus 5.5');
+}
+$('#aiProviderSeg').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-provider]');
+  if (!b) return;
+  state.aiTab = b.dataset.provider;
+  renderAiSettings();
+  Motion.segs($('.ai-settings'));
+});
+async function putAi(body) {
+  state.settings = await api('/settings', { method: 'PUT', body });
+  $('#setAiKey').value = $('#setGeminiKey').value = '';
+  renderSettings();
+}
+function aiFormBody() {
+  const shown = state.aiTab || state.settings.aiProvider;
+  const body = { aiProvider: shown };
+  if (shown === 'gemini') {
+    if ($('#setGeminiKey').value.trim()) body.geminiApiKey = $('#setGeminiKey').value.trim();
+    body.geminiModel = $('#setGeminiModel').value.trim();
+  } else if ($('#setAiKey').value.trim()) body.anthropicApiKey = $('#setAiKey').value.trim();
+  return body;
+}
+$('#saveAiKey').addEventListener('click', (e) =>
+  guard(async () => {
+    const before = state.settings.aiProvider;
+    await putAi(aiFormBody());
+    state.aiTab = null;
+    renderAiSettings();
+    toast(before !== state.settings.aiProvider ? `The assistant now uses ${state.settings.aiProvider === 'gemini' ? 'Gemini' : 'Claude'}. New chats will use it.` : 'AI settings saved');
+  }, e.target)
+);
+$('#testAiKey').addEventListener('click', (e) =>
+  guard(async () => {
+    await putAi(aiFormBody());
+    state.aiTab = null;
+    const r = await api('/ai/test', { method: 'POST' });
+    toast(`Key works · ${r.model}`);
+  }, e.target)
+);
+$('#removeAiKey').addEventListener('click', (e) =>
+  guard(async () => {
+    const gemini = (state.aiTab || state.settings.aiProvider) === 'gemini';
+    const ok = await confirmDialog({ title: `Remove the ${gemini ? 'Gemini' : 'Anthropic'} key?`, message: 'The assistant stops working with this provider until you add a key again.', confirmText: 'Remove', danger: true });
+    if (!ok) return;
+    await putAi(gemini ? { removeGeminiApiKey: true } : { removeAnthropicApiKey: true });
+    toast('API key removed');
+  }, e.target)
+);
+
 // ---------------------------------------------------------------------------
 // Sender numbers
 // ---------------------------------------------------------------------------
@@ -228,6 +396,7 @@ async function loadSenders() {
   else state.selectedSenders = new Set([...state.selectedSenders].filter((x) => ids.has(x)));
   renderSenders();
   renderSenderChecks();
+  window.Assistant?.senders();
 }
 
 // Usage strip on each number card (today vs daily limit, totals).
@@ -470,52 +639,8 @@ window.templateForm = templateForm;
 $('#addTemplate').addEventListener('click', () => templateForm());
 
 // ---------------------------------------------------------------------------
-// Send: template + senders
-// ---------------------------------------------------------------------------
-
-const currentTemplate = () => state.templates.find((t) => t.id === $('#templateSelect').value);
-
-function renderTemplateSelect() {
-  const sel = $('#templateSelect');
-  const prev = sel.value;
-  sel.innerHTML = state.templates.length
-    ? `<option value="">— Choose a template —</option>` +
-      state.templates.map((t) => `<option value="${t.id}" ${t.status !== 'APPROVED' && t.status !== 'MANUAL' ? 'disabled' : ''}>${esc(t.name)} (${esc(t.language)})${t.status !== 'APPROVED' ? ' · ' + esc(t.status) : ''}</option>`).join('')
-    : `<option value="">No templates — add one in the Templates tab</option>`;
-  if (state.templates.some((t) => t.id === prev)) sel.value = prev;
-  onTemplateChange();
-}
-
-function renderSenderChecks() {
-  const enabled = state.senders.filter((s) => s.enabled);
-  $('#senderChecks').innerHTML = enabled.length
-    ? enabled
-        .map((s) => `<label class="toggle-item"><span><span class="ti-name">${esc(s.label)}</span><br/><span class="ti-meta">${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</span></span>${toggleHtml({ checked: state.selectedSenders.has(s.id), attrs: `value="${s.id}"`, size: 'sm' })}</label>`)
-        .join('')
-    : `<div class="empty-note">No numbers yet. <a href="#" data-goto="numbers">Add one</a> to start sending.</div>`;
-  renderSendSummary();
-}
-
-$('#senderChecks').addEventListener('change', (e) => {
-  if (e.target.checked) state.selectedSenders.add(e.target.value);
-  else state.selectedSenders.delete(e.target.value);
-  renderSendSummary();
-});
-
-$('#templateSelect').addEventListener('change', onTemplateChange);
-
-function onTemplateChange() {
-  const t = currentTemplate();
-  const next = {};
-  for (const v of t?.variables || []) next[v.key] = state.mapping[v.key] || autoMap(v);
-  state.mapping = next;
-  renderMapping();
-  renderPreview();
-  renderSendSummary();
-}
-
-// ---------------------------------------------------------------------------
-// Send: recipients — file upload, data table, sort / filter / selection
+// Shared: reading contact files, phone numbers, template bubbles
+// (used by the Send page, the Assistant and the Inbox)
 // ---------------------------------------------------------------------------
 
 function parseCsv(text) {
@@ -556,136 +681,7 @@ function loadXlsxLib() {
   return xlsxLoading;
 }
 
-async function readFile(file) {
-  if (/\.xlsx?$/i.test(file.name)) {
-    const XLSX = await loadXlsxLib();
-    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    // raw: true keeps long phone numbers as digits instead of "9.19E+11".
-    const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
-    return grid.map((r) => r.map((c) => (c == null ? '' : String(c))));
-  }
-  return parseCsv(await file.text());
-}
-
 const looksLikePhone = (v) => /^\+?[\d\s\-().]{8,}$/.test(String(v).trim());
-
-function loadGrid(grid, fileName = '') {
-  const rows = grid.filter((r) => r.some((c) => String(c).trim()));
-  if (!rows.length) {
-    state.csv = { headers: [], rows: [], fileName: '' };
-  } else {
-    const hasHeader = !rows[0].some(looksLikePhone);
-    const width = Math.max(...rows.map((r) => r.length));
-    const headers = [];
-    for (let i = 0; i < width; i++) {
-      let h = (hasHeader ? String(rows[0][i] ?? '').trim() : '') || `Column ${i + 1}`;
-      while (headers.includes(h)) h += ' (2)';
-      headers.push(h);
-    }
-    const data = (hasHeader ? rows.slice(1) : rows).map((r) => Object.fromEntries(headers.map((h, i) => [h, String(r[i] ?? '').trim()])));
-    state.csv = { headers, rows: data, fileName };
-  }
-  state.table = { ...state.table, sort: { col: null, dir: 1 }, filters: {}, search: '', page: 0, anchor: null };
-  $('#tableSearch').value = '';
-  const { headers } = state.csv;
-  $('#phoneColumn').innerHTML = headers.map((h) => `<option>${esc(h)}</option>`).join('');
-  if (headers.length) $('#phoneColumn').value = guessPhoneColumn();
-  computeMeta();
-  // Start with every valid, non-duplicate number selected.
-  state.selected = new Set(state.meta.map((m, i) => (m.status === 'valid' ? i : -1)).filter((i) => i >= 0));
-  $('#dropzone').classList.toggle('hidden', Boolean(headers.length));
-  $('#clearCsv').classList.toggle('hidden', !headers.length);
-  $('#splitBtn').classList.toggle('hidden', !headers.length);
-  applySplit(Boolean(headers.length) && state.splitPref, { animate: false });
-  $('#tableArea').classList.toggle('hidden', !headers.length);
-  if (headers.length) $('#pasteWrap').classList.add('hidden');
-  renderTable();
-  onTemplateChange();
-}
-
-// --- Split view: contacts table on the left, message setup on the right ---
-state.splitPref = (() => { try { return localStorage.getItem('splitView') === '1'; } catch { return false; } })();
-
-function applySplit(on, { animate = true } = {}) {
-  const tab = $('#tab-send');
-  if (tab.classList.contains('split') === on) return;
-  const change = () => {
-    tab.classList.toggle('split', on);
-    $('#splitBtn').setAttribute('aria-pressed', on);
-    $('#splitBtn').lastChild.textContent = on ? 'Stacked view' : 'Split view';
-    syncSplitMode();
-    if (on) scrollTo({ top: 0 });
-    fitSplit();
-  };
-  // View Transitions morph every card from its old box to its new one.
-  if (animate && document.startViewTransition && !Motion.reduce() && !tab.classList.contains('hidden')) {
-    document.documentElement.classList.add('vt-split');
-    const vt = document.startViewTransition(change);
-    vt.finished.finally(() => document.documentElement.classList.remove('vt-split'));
-  } else change();
-}
-
-// Split view is a full-height workspace: sheet on the left, setup panel on the right.
-function syncSplitMode() {
-  const on = $('#tab-send').classList.contains('split') && !$('#tab-send').classList.contains('hidden');
-  document.body.classList.toggle('split-mode', on);
-}
-function fitSplit() {
-  const tab = $('#tab-send');
-  if (!tab.classList.contains('split')) return;
-  const top = tab.getBoundingClientRect().top + scrollY;
-  tab.style.setProperty('--split-h', Math.max(520, innerHeight - top - 16) + 'px');
-}
-addEventListener('resize', fitSplit);
-
-// Drag (or arrow-key) the divider to resize the setup panel; remembered per browser.
-(() => {
-  const handle = $('#splitHandle');
-  const tab = $('#tab-send');
-  const clamp = (w) => Math.round(Math.max(340, Math.min(tab.clientWidth * 0.6, w)));
-  const set = (w) => { tab.style.setProperty('--side-w', clamp(w) + 'px'); };
-  const save = () => { try { localStorage.setItem('splitSide', parseInt(getComputedStyle(tab).getPropertyValue('--side-w'))); } catch {} };
-  try { const w = Number(localStorage.getItem('splitSide')); if (w) tab.style.setProperty('--side-w', w + 'px'); } catch {}
-  handle.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    handle.setPointerCapture(e.pointerId);
-    document.body.classList.add('resizing');
-    const right = tab.getBoundingClientRect().right;
-    const move = (ev) => set(right - ev.clientX - 5);
-    const up = () => {
-      handle.removeEventListener('pointermove', move);
-      document.body.classList.remove('resizing');
-      save();
-    };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', up, { once: true });
-    handle.addEventListener('pointercancel', up, { once: true });
-  });
-  handle.addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    const cur = $('.grid-2', tab).getBoundingClientRect().width;
-    set(cur + (e.key === 'ArrowLeft' ? 24 : -24));
-    save();
-  });
-  handle.addEventListener('dblclick', () => { set(440); save(); });
-})();
-
-$('#splitBtn').addEventListener('click', () => {
-  state.splitPref = !$('#tab-send').classList.contains('split');
-  try { localStorage.setItem('splitView', state.splitPref ? '1' : '0'); } catch {}
-  applySplit(state.splitPref);
-});
-
-function guessPhoneColumn() {
-  const { headers, rows } = state.csv;
-  const sample = rows.slice(0, 50);
-  return (
-    headers.find((h) => /phone|mobile|whatsapp|number|contact|msisdn|cell/i.test(h)) ||
-    headers.slice().sort((a, b) => sample.filter((r) => looksLikePhone(r[b])).length - sample.filter((r) => looksLikePhone(r[a])).length)[0]
-  );
-}
 
 function normalizePhone(input) {
   let d = String(input || '').replace(/\D/g, '').replace(/^00/, '');
@@ -695,394 +691,128 @@ function normalizePhone(input) {
   return d.length >= 8 && d.length <= 15 ? d : null;
 }
 
-function computeMeta() {
-  const col = $('#phoneColumn').value;
-  const seen = new Set();
-  state.meta = state.csv.rows.map((r) => {
-    const phone = normalizePhone(r[col]);
-    if (!phone) return { phone, status: 'invalid' };
-    if (seen.has(phone)) return { phone, status: 'duplicate' };
-    seen.add(phone);
-    return { phone, status: 'valid' };
-  });
-  for (const i of [...state.selected]) if (state.meta[i]?.status === 'invalid') state.selected.delete(i);
+// A cell that is a phone number and nothing else: digits with the usual separators, optionally
+// "p:" / "tel:" in front (Meta lead exports) or a note like "(whatsapp)" after. Dates, IDs and
+// emails with long digit runs don't count.
+function phoneLike(v) {
+  const t = String(v ?? '').trim().replace(/^(p|tel|phone)\s*:\s*/i, '').replace(/\s*\(?[a-z][a-z .]*\)?$/i, '');
+  const digits = t.replace(/\D/g, '').length;
+  return /^\+?[\d\s\-().]{8,}$/.test(t) && digits >= 10 && digits <= 15;
 }
 
-const STATUS_COL = '__status';
-const cellValue = (i, col) => (col === STATUS_COL ? state.meta[i].status : state.csv.rows[i][col] ?? '');
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-
-// Filter syntax: plain text = contains · "!text" = doesn't contain · "=x" exact · ">10", "<=5" numeric.
-function matches(value, filter, exact) {
-  const v = String(value);
-  if (exact) return filter === '(empty)' ? v === '' : v === filter;
-  const f = filter.trim();
-  const num = f.match(/^(>=|<=|>|<|=)\s*(-?\d+(?:\.\d+)?)$/);
-  if (num) {
-    const n = parseFloat(v.replace(/,/g, ''));
-    if (isNaN(n)) return false;
-    const t = parseFloat(num[2]);
-    return { '>': n > t, '<': n < t, '>=': n >= t, '<=': n <= t, '=': n === t }[num[1]];
-  }
-  if (f.startsWith('!')) return !v.toLowerCase().includes(f.slice(1).toLowerCase());
-  if (f.startsWith('=')) return v.toLowerCase() === f.slice(1).toLowerCase();
-  return v.toLowerCase().includes(f.toLowerCase());
-}
-
-function computeView() {
-  const { rows, headers } = state.csv;
-  const { filters, search, sort } = state.table;
-  const active = Object.entries(filters).filter(([, f]) => f.value !== '');
-  const q = search.trim().toLowerCase();
-  let view = [];
-  for (let i = 0; i < rows.length; i++) {
-    if (q && !headers.some((h) => String(rows[i][h]).toLowerCase().includes(q))) continue;
-    if (!active.every(([col, f]) => matches(cellValue(i, col), f.value, f.exact))) continue;
-    view.push(i);
-  }
-  if (sort.col) view.sort((a, b) => sort.dir * collator.compare(String(cellValue(a, sort.col)), String(cellValue(b, sort.col))) || a - b);
-  state.table.view = view;
-  const pages = Math.max(1, Math.ceil(view.length / state.table.pageSize));
-  if (state.table.page >= pages) state.table.page = pages - 1;
-  return view;
-}
-
-// Columns with only a few different values get a dropdown filter instead of a text box.
-function distinctValues(col) {
-  const set = new Set();
-  for (let i = 0; i < state.csv.rows.length; i++) {
-    set.add(cellValue(i, col));
-    if (set.size > 15) return null;
-  }
-  return state.csv.rows.length > 5 ? [...set].sort(collator.compare) : null;
-}
-
-// Spreadsheet-style column letters: A, B, … Z, AA, AB, …
-function colLetter(i) {
-  let s = '';
-  for (i += 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s;
-  return s;
-}
-
-function renderTable() {
-  const { headers } = state.csv;
-  if (!headers.length) return;
-  const { sort, filters } = state.table;
-  const cols = [STATUS_COL, ...headers];
-  const label = (c) => (c === STATUS_COL ? 'Number check' : c);
-  const arrow = (c) => (sort.col === c ? (sort.dir > 0 ? '▲' : '▼') : '↕');
-
-  const filterCell = (c) => {
-    const f = filters[c]?.value ?? '';
-    const opts = c === STATUS_COL ? ['valid', 'duplicate', 'invalid'] : distinctValues(c);
-    if (opts) {
-      return `<select data-filter="${esc(c)}" data-exact="1" class="${f ? 'active' : ''}"><option value="">All</option>${opts
-        .map((o) => `<option value="${esc(o === '' ? '(empty)' : o)}" ${f === (o === '' ? '(empty)' : o) ? 'selected' : ''}>${esc(o === '' ? '(empty)' : o)}</option>`)
-        .join('')}</select>`;
+// Which column holds the phone numbers: the one whose cells actually are numbers, with the
+// column name only as a tie-breaker. ("Contact Name" mentions "contact" but holds names.)
+// `cell(row, i, header)` reads a cell, so it works for array rows and object rows alike.
+function guessPhoneColumn(headers, rows, cell = (r, i) => r[i]) {
+  const sample = rows.slice(0, 300);
+  // Score against every non-empty row, so a column filled in only a few rows can't win on a small sample.
+  const total = sample.filter((r) => headers.some((h, i) => String(cell(r, i, h) ?? '').trim())).length;
+  let best = '', bestScore = 0;
+  headers.forEach((h, i) => {
+    let filled = 0, phones = 0;
+    for (const r of sample) {
+      const v = String(cell(r, i, h) ?? '').trim();
+      if (!v) continue;
+      filled++;
+      if (phoneLike(v)) phones++;
     }
-    return `<input data-filter="${esc(c)}" value="${esc(f)}" class="${f ? 'active' : ''}" placeholder="Filter…" title="Text = contains · !text = not contains · =text exact · >10, <5, >=, <= for numbers" />`;
-  };
-
-  $('#dataTable thead').innerHTML = `
-    <tr class="heads">
-      <th class="sel"><input type="checkbox" class="cb" id="selPage" title="Select / unselect all filtered rows" /></th>
-      <th>#</th>
-      ${cols.map((c, i) => `<th class="sortable ${sort.col === c ? 'sorted' : ''}" data-sort="${esc(c)}"><span class="col-letter">${colLetter(i)}</span>${esc(label(c))}<span class="arrow">${arrow(c)}</span></th>`).join('')}
-    </tr>
-    <tr class="filters"><th></th><th></th>${cols.map((c) => `<th>${filterCell(c)}</th>`).join('')}</tr>`;
-  const headRow = $('#dataTable thead tr.heads');
-  $('#dataTable').style.setProperty('--head-h', headRow.offsetHeight + 'px');
-  renderBody();
-}
-
-function renderBody() {
-  const { headers, rows, fileName } = state.csv;
-  const view = computeView();
-  const { page, pageSize, anchor } = state.table;
-  const start = page * pageSize;
-  const slice = view.slice(start, start + pageSize);
-
-  $('#dataTable tbody').innerHTML = slice.length
-    ? slice
-        .map((i) => {
-          const m = state.meta[i];
-          const sel = state.selected.has(i);
-          const cls = [sel && 'selected', m.status === 'invalid' && 'invalid', anchor === i && 'anchor'].filter(Boolean).join(' ');
-          return `<tr data-i="${i}" class="${cls}">
-            <td class="sel"><input type="checkbox" class="cb" ${sel ? 'checked' : ''} ${m.status === 'invalid' ? 'disabled' : ''} tabindex="-1" /></td>
-            <td class="idx">${i + 1}</td>
-            <td><span class="pill ${m.status}" title="${m.phone ? '+' + m.phone : 'Not a valid phone number'}">${m.status}</span></td>
-            ${headers.map((h) => (rows[i][h] === '' ? '<td class="empty-cell">—</td>' : `<td>${esc(rows[i][h])}</td>`)).join('')}
-          </tr>`;
-        })
-        .join('')
-    : `<tr><td colspan="${headers.length + 3}" class="table-empty">No rows match these filters.</td></tr>`;
-
-  // Header checkbox reflects the filtered view.
-  const selectable = view.filter((i) => state.meta[i].status !== 'invalid');
-  const selInView = selectable.filter((i) => state.selected.has(i)).length;
-  const cb = $('#selPage');
-  cb.checked = selectable.length > 0 && selInView === selectable.length;
-  cb.indeterminate = selInView > 0 && selInView < selectable.length;
-
-  const pages = Math.max(1, Math.ceil(view.length / pageSize));
-  const filtered = view.length !== rows.length;
-  $('#tableFoot').innerHTML = `
-    <span>${view.length ? `Showing ${(start + 1).toLocaleString()}–${Math.min(start + pageSize, view.length).toLocaleString()} of ${view.length.toLocaleString()}` : '0 rows'}${filtered ? ` (filtered from ${rows.length.toLocaleString()})` : ''}</span>
-    <div class="foot-right">
-    <label class="inline">Rows per page <select id="pageSize">${[25, 50, 100, 250].map((n) => `<option ${n === pageSize ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-    <div class="seg">
-      <button data-page="first" ${page === 0 ? 'disabled' : ''} title="First page">«</button>
-      <button data-page="prev" ${page === 0 ? 'disabled' : ''} title="Previous page">‹</button>
-      <span>Page ${page + 1} / ${pages}</span>
-      <button data-page="next" ${page >= pages - 1 ? 'disabled' : ''} title="Next page">›</button>
-      <button data-page="last" ${page >= pages - 1 ? 'disabled' : ''} title="Last page">»</button>
-    </div>
-    </div>`;
-
-  const counts = state.meta.reduce((a, m) => ((a[m.status] = (a[m.status] || 0) + 1), a), {});
-  $('#fileInfo').innerHTML = `<span>${esc(fileName || 'Pasted data')}</span>
-    <span class="muted" style="font-weight:400">${rows.length.toLocaleString()} rows · ${headers.length} columns</span>
-    <span class="pill valid">${(counts.valid || 0).toLocaleString()} valid</span>
-    ${counts.invalid ? `<span class="pill invalid">${counts.invalid} invalid</span>` : ''}
-    ${counts.duplicate ? `<span class="pill duplicate">${counts.duplicate} duplicate</span>` : ''}`;
-  $('#selInfo').innerHTML = `<b>${state.selected.size.toLocaleString()}</b> of ${rows.length.toLocaleString()} selected`;
-  renderSendSummary();
-  renderPreview();
-}
-
-// --- table events ---
-
-$('#dataTable').addEventListener('click', (e) => {
-  const th = e.target.closest('th[data-sort]');
-  if (th) {
-    const col = th.dataset.sort;
-    const s = state.table.sort;
-    // Click cycles: ascending → descending → original order.
-    if (s.col !== col) state.table.sort = { col, dir: 1 };
-    else if (s.dir === 1) s.dir = -1;
-    else state.table.sort = { col: null, dir: 1 };
-    renderTable();
-    return;
-  }
-  if (e.target.id === 'selPage') {
-    const selectable = state.table.view.filter((i) => state.meta[i].status !== 'invalid');
-    const allOn = selectable.every((i) => state.selected.has(i));
-    selectable.forEach((i) => (allOn ? state.selected.delete(i) : state.selected.add(i)));
-    renderBody();
-    return;
-  }
-  const tr = e.target.closest('tbody tr[data-i]');
-  if (!tr) return;
-  const i = Number(tr.dataset.i);
-  if (state.meta[i].status === 'invalid') return;
-  const turnOn = !state.selected.has(i);
-  const { anchor, view } = state.table;
-  if (e.shiftKey && anchor !== null && view.includes(anchor)) {
-    // Shift-click: apply to every row between the last clicked row and this one, in the current sort/filter order.
-    const [a, b] = [view.indexOf(anchor), view.indexOf(i)].sort((x, y) => x - y);
-    for (let k = a; k <= b; k++) {
-      const idx = view[k];
-      if (state.meta[idx].status === 'invalid') continue;
-      turnOn ? state.selected.add(idx) : state.selected.delete(idx);
-    }
-  } else {
-    turnOn ? state.selected.add(i) : state.selected.delete(i);
-  }
-  state.table.anchor = i;
-  renderBody();
-});
-
-// Stop the browser from highlighting text on shift-click.
-$('#dataTable').addEventListener('mousedown', (e) => { if (e.shiftKey && e.target.closest('tbody')) e.preventDefault(); });
-
-let filterDebounce;
-$('#dataTable').addEventListener('input', (e) => {
-  const col = e.target.dataset.filter;
-  if (col === undefined) return;
-  state.table.filters[col] = { value: e.target.value, exact: e.target.dataset.exact === '1' };
-  e.target.classList.toggle('active', e.target.value !== '');
-  state.table.page = 0;
-  clearTimeout(filterDebounce);
-  filterDebounce = setTimeout(renderBody, e.target.tagName === 'SELECT' ? 0 : 150);
-});
-
-$('#tableSearch').addEventListener('input', (e) => {
-  state.table.search = e.target.value;
-  state.table.page = 0;
-  clearTimeout(filterDebounce);
-  filterDebounce = setTimeout(renderBody, 150);
-});
-
-$('#tableFoot').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-page]');
-  if (!b) return;
-  const pages = Math.ceil(state.table.view.length / state.table.pageSize);
-  const t = state.table;
-  t.page = { first: 0, prev: t.page - 1, next: t.page + 1, last: pages - 1 }[b.dataset.page];
-  renderBody();
-  $('#tableScroll').scrollTop = 0;
-});
-
-$('#tableFoot').addEventListener('change', (e) => {
-  if (e.target.id !== 'pageSize') return;
-  state.table.pageSize = Number(e.target.value);
-  state.table.page = 0;
-  renderBody();
-});
-$('#phoneColumn').addEventListener('change', () => { computeMeta(); renderTable(); });
-
-$('#selFiltered').addEventListener('click', () => {
-  state.table.view.forEach((i) => state.meta[i].status !== 'invalid' && state.selected.add(i));
-  renderBody();
-});
-$('#unselFiltered').addEventListener('click', () => {
-  state.table.view.forEach((i) => state.selected.delete(i));
-  renderBody();
-});
-$('#selNone').addEventListener('click', () => { state.selected.clear(); renderBody(); });
-$('#clearFilters').addEventListener('click', () => {
-  Object.assign(state.table, { filters: {}, search: '', page: 0, sort: { col: null, dir: 1 } });
-  $('#tableSearch').value = '';
-  renderTable();
-});
-
-// --- loading data ---
-
-async function handleFile(file) {
-  if (!file) return;
-  await guard(async () => {
-    const grid = await readFile(file);
-    loadGrid(grid, file.name);
-    $('#csvText').value = '';
-    toast(`Loaded ${state.csv.rows.length.toLocaleString()} rows from ${file.name}`);
+    if (!filled) return;
+    let score = phones / Math.max(1, total);
+    if (/phone|mobile|whats\s?app|cell|msisdn|\btel/i.test(h)) score += 0.3;
+    else if (/number|contact/i.test(h)) score += 0.1;
+    if (/name|mail|s\.?\s?no\b|serial|date|time|created|updated|\bid\b|pin|zip|amount|price/i.test(h)) score -= 0.4;
+    if (score > bestScore) { bestScore = score; best = h; }
   });
+  return bestScore >= 0.5 ? best : '';
 }
 
-$$('.fileInput').forEach((inp) => inp.addEventListener('change', (e) => { handleFile(e.target.files[0]); e.target.value = ''; }));
+// --- Shifted rows ---------------------------------------------------------------------
+// Exports that merge leads from different forms (Meta lead ads, for one) put a form's extra
+// answers in the middle of some rows, pushing the rest of those rows a few columns right.
+// Rows are arrays of cells. The Send page and Contacts import both use these.
 
-const dz = $('#dropzone');
-['dragenter', 'dragover'].forEach((t) => dz.addEventListener(t, (e) => { e.preventDefault(); dz.classList.add('over'); }));
-['dragleave', 'drop'].forEach((t) => dz.addEventListener(t, (e) => { e.preventDefault(); dz.classList.remove('over'); }));
-dz.addEventListener('drop', (e) => handleFile(e.dataTransfer.files[0]));
-// Dropping anywhere on the recipients card works too.
-$('#recipientsCard').addEventListener('dragover', (e) => e.preventDefault());
-$('#recipientsCard').addEventListener('drop', (e) => { if (!dz.contains(e.target)) { e.preventDefault(); handleFile(e.dataTransfer.files[0]); } });
+function cellKind(v) {
+  v = String(v ?? '').trim();
+  if (!v) return 'empty';
+  if (phoneLike(v)) return 'phone';
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'email';
+  if (/^[a-z]{1,3}:\S+$/i.test(v)) return 'id';
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return 'date';
+  if (/^(true|false|yes|no)$/i.test(v)) return 'bool';
+  if (/^-?\d+(\.\d+)?$/.test(v)) return 'num';
+  if (/^[A-Z][A-Z_]{2,}$/.test(v)) return 'code';
+  return 'text';
+}
 
-$('#togglePaste').addEventListener('click', () => {
-  $('#pasteWrap').classList.toggle('hidden');
-  if (!$('#pasteWrap').classList.contains('hidden')) $('#csvText').focus();
-});
-let csvDebounce;
-$('#csvText').addEventListener('input', () => {
-  clearTimeout(csvDebounce);
-  csvDebounce = setTimeout(() => {
-    loadGrid(parseCsv($('#csvText').value));
-    $('#pasteWrap').classList.remove('hidden');
-  }, 300);
-});
-$('#sampleCsv').addEventListener('click', () => {
-  const names = ['Ravi', 'Priya', 'Amit', 'Sneha', 'Karan', 'Pooja', 'Arjun', 'Neha', 'Vikram', 'Anjali', 'Rohit', 'Kavya'];
-  const cities = ['Pune', 'Delhi', 'Mumbai', 'Bengaluru', 'Hyderabad'];
-  const grid = [['phone', 'name', 'city', 'plan', 'orders']];
-  for (let k = 0; k < 120; k++) {
-    const n = names[k % names.length];
-    grid.push([String(9800000000 + k * 7919), `${n} ${String.fromCharCode(65 + (k % 26))}.`, cities[k % 5], ['Gold', 'Silver', 'Free'][k % 3], String((k * 37) % 50)]);
+// → [{ k: columns shifted right, start: first column that moved, idx: row indices }]. Rows whose
+// phone cell fails but which have a number 1–5 columns to the right are shifted; the shift starts at
+// the leftmost column where the moved values clearly fit that column's usual kind better than unmoved.
+function detectShiftedRows(headers, rows, pc) {
+  if (pc < 0) return [];
+  const blank = (r) => !r.some((v) => String(v ?? '').trim());
+  const good = rows.filter((r) => !blank(r) && normalizePhone(r[pc])).slice(0, 300);
+  if (good.length < 3) return [];
+  const share = (list, c, off, want) => list.filter((r) => cellKind(r[c + off]) === want).length / list.length;
+  const usual = headers.map((_, c) => {
+    const n = {};
+    for (const r of good) { const k = cellKind(r[c]); n[k] = (n[k] || 0) + 1; }
+    return Object.entries(n).sort((a, b) => b[1] - a[1])[0][0];
+  });
+  const byShift = new Map();
+  rows.forEach((r, i) => {
+    if (blank(r) || normalizePhone(r[pc])) return;
+    for (let k = 1; k <= 5; k++) {
+      if (cellKind(r[pc + k]) === 'phone' && normalizePhone(r[pc + k])) { (byShift.get(k) || byShift.set(k, []).get(k)).push(i); break; }
+    }
+  });
+  const groups = [];
+  for (const [k, idx] of byShift) {
+    const list = idx.map((i) => rows[i]);
+    let start = pc;
+    for (let c = pc - 1; c >= 0; c--) {
+      if (usual[c] === 'empty') continue;
+      const moved = share(list, c, k, usual[c]);
+      if (moved < 0.6) break;
+      if (moved > share(list, c, 0, usual[c])) start = c;
+    }
+    groups.push({ k, start, idx });
   }
-  grid.push(['12345', 'Bad number', 'Pune', 'Free', '0']);
-  grid.push([grid[1][0], 'Duplicate of row 1', 'Delhi', 'Gold', '3']);
-  loadGrid(grid, 'sample-contacts.csv');
-});
-$('#clearCsv').addEventListener('click', () => {
-  $('#csvText').value = '';
-  state.selected.clear();
-  loadGrid([]);
-});
+  return groups;
+}
 
-function validRecipients() {
-  const seen = new Set();
-  let dupes = 0;
-  for (const i of state.selected) {
-    const p = state.meta[i]?.phone;
-    if (!p) continue;
-    if (seen.has(p)) dupes++;
-    else seen.add(p);
+// Shifted rows moved back under the right headers. The answers that caused the shift go to new
+// "Extra answer" columns at the end (nothing is lost); unnamed columns left empty are dropped.
+function realignShiftedRows(headers, rows, groups) {
+  const extra = Math.max(0, ...groups.map((g) => g.k));
+  const H = headers.length;
+  const outHeaders = headers.slice();
+  for (let j = 1; j <= extra; j++) {
+    let name = `Extra answer ${j}`;
+    for (let n = 2; outHeaders.includes(name); n++) name = `Extra answer ${j} (${n})`;
+    outHeaders.push(name);
   }
-  return { count: seen.size, dupes };
-}
-
-// Row used for the preview and test message: first selected row in table order.
-function previewRow() {
-  const i = state.table.view.find((x) => state.selected.has(x)) ?? [...state.selected][0];
-  return state.csv.rows[i ?? 0];
-}
-
-// ---------------------------------------------------------------------------
-// Send: variable mapping + preview
-// ---------------------------------------------------------------------------
-
-function autoMap(v) {
-  const match = state.csv.headers.find((h) => h.toLowerCase() === v.name.toLowerCase());
-  return match ? { type: 'column', value: match } : { type: 'fixed', value: '' };
+  const shiftOf = new Map(groups.flatMap((g) => g.idx.map((i) => [i, g])));
+  let out = rows.map((cells, i) => {
+    const old = cells.concat(Array(Math.max(0, H - cells.length)).fill(''));
+    const g = shiftOf.get(i);
+    if (!g) return old.slice(0, H).concat(Array(extra).fill(''));
+    return [...old.slice(0, g.start), ...old.slice(g.start + g.k, H), ...Array(g.k).fill(''), ...old.slice(g.start, g.start + g.k), ...Array(extra - g.k).fill('')];
+  });
+  for (let c = H - 1; c >= 0; c--) {
+    if (!/^Column [A-Z]+$/.test(outHeaders[c]) || out.some((r) => String(r[c] ?? '').trim())) continue;
+    outHeaders.splice(c, 1);
+    out = out.map((r) => { r.splice(c, 1); return r; });
+  }
+  return { headers: outHeaders, rows: out };
 }
 
 const varLabel = (v) => (v.media ? `header ${v.media} URL` : `${v.where} {{${v.name}}}`);
 
-function renderMapping() {
-  const t = currentTemplate();
-  const el = $('#mapping');
-  if (!t) { el.innerHTML = '<p class="sub">Pick a template to see what you can personalise.</p>'; return; }
-  if (!t.variables.length) { el.innerHTML = '<p class="sub">This template has no variables, so everyone gets the same message.</p>'; return; }
-  const cols = state.csv.headers;
-  el.innerHTML =
-    `<p class="sub" style="margin-bottom:6px">Fill each placeholder from a column in your file, or type the same text for everyone.</p>` +
-    t.variables
-      .map((v) => {
-        const m = state.mapping[v.key];
-        const fixed = m.type !== 'column';
-        const where = v.media ? 'header media' : v.where.startsWith('button') ? 'button link' : v.where;
-        return `<div class="map-row" data-key="${esc(v.key)}">
-          <div class="var-key">${esc(v.media ? v.media + ' URL' : `{{${v.name}}}`)}<small>${esc(where)}</small></div>
-          <select class="m-src">
-            ${cols.length ? `<optgroup label="Column from your file">${cols.map((c, i) => `<option value="c:${i}" ${!fixed && c === m.value ? 'selected' : ''}>${esc(c)}</option>`).join('')}</optgroup>` : ''}
-            <option value="fixed" ${fixed ? 'selected' : ''}>Same text for everyone…</option>
-          </select>
-          ${fixed ? `<input class="m-input m-val" value="${esc(m.value)}" placeholder="${v.media ? 'https://…/image.jpg' : 'Type the text'}" />` : ''}
-        </div>`;
-      })
-      .join('');
-}
-
-$('#mapping').addEventListener('input', (e) => {
-  const row = e.target.closest('.map-row');
-  if (!row) return;
-  const key = row.dataset.key;
-  if (e.target.classList.contains('m-src')) {
-    const v = e.target.value;
-    state.mapping[key] = v === 'fixed' ? { type: 'fixed', value: '' } : { type: 'column', value: state.csv.headers[Number(v.slice(2))] };
-    renderMapping();
-    if (v === 'fixed') $(`.map-row[data-key="${CSS.escape(key)}"] .m-val`)?.focus();
-  } else {
-    state.mapping[key].value = e.target.value;
-  }
-  renderPreview();
-  renderSendSummary();
-});
-
-function valuesForRow(row) {
-  const t = currentTemplate();
-  const out = {};
-  for (const v of t?.variables || []) {
-    const m = state.mapping[v.key] || {};
-    out[v.key] = m.type === 'column' ? (row?.[m.value] ?? '') : m.value || '';
-  }
-  return out;
-}
-
 function fill(text, where, values, neutral = false) {
   return esc(text).replace(/{{\s*([\w]+)\s*}}/g, (_, name) => {
     const val = values[`${where}.${name}`];
-    return val ? `<span class="var">${esc(val)}</span>` : `<span class="var ${neutral ? '' : 'empty'}">{{${esc(name)}}}</span>`;
+    const key = `data-var="${esc(`${where}.${name}`)}"`;
+    return val ? `<span class="var" ${key}>${esc(val)}</span>` : `<span class="var ${neutral ? '' : 'empty'}" ${key}>{{${esc(name)}}}</span>`;
   });
 }
 
@@ -1104,316 +834,6 @@ function bubbleHtml(t, values, neutral = false) {
   const b = comp(t, 'BUTTONS');
   if (b?.buttons?.length) html += `<div class="btns">${b.buttons.map((x) => `<div>${x.type === 'URL' ? '↗ ' : x.type === 'PHONE_NUMBER' ? '✆ ' : '↩ '}${esc(x.text)}</div>`).join('')}</div>`;
   return html;
-}
-
-function renderPreview() {
-  const t = currentTemplate();
-  const el = $('#preview');
-  if (!t) { el.innerHTML = '<span class="muted">Select a template</span>'; $('#previewNote').textContent = ''; return; }
-  const row = previewRow();
-  el.innerHTML = bubbleHtml(t, valuesForRow(row));
-  $('#previewNote').textContent = row ? `Showing values for ${row[$('#phoneColumn').value] || 'first row'}` : 'Add recipients to preview personalised values.';
-}
-
-function renderSendSummary() {
-  const { count, dupes } = validRecipients();
-  const nums = state.selectedSenders.size;
-  const per = nums ? Math.ceil(count / nums) : 0;
-  const t = currentTemplate();
-  const emptyVar = t?.variables.find((v) => { const m = state.mapping[v.key]; return !m || (m.type !== 'column' && !String(m.value).trim()); });
-
-  // Tell the user exactly what's missing instead of just disabling the button.
-  const why =
-    !state.csv.rows.length ? 'Upload your contact list in step 1' :
-    !count ? 'Select at least one recipient' :
-    !t ? 'Choose a template in step 2' :
-    !nums ? 'Turn on at least one sender number' :
-    emptyVar ? `Fill in ${emptyVar.media ? 'the ' + emptyVar.media + ' URL' : `{{${emptyVar.name}}}`} in step 3` : '';
-
-  const detail = [
-    nums ? `${nums} number${nums === 1 ? '' : 's'} · ~${per.toLocaleString()} each` : '',
-    t ? `template ${esc(t.name)}` : '',
-    dupes ? `${dupes} duplicate${dupes === 1 ? '' : 's'} skipped` : '',
-  ].filter(Boolean).join(' · ');
-
-  $('#sendSummary').innerHTML = `<strong>${count.toLocaleString()} recipient${count === 1 ? '' : 's'}</strong>
-    <div>${why ? `<span class="why">${esc(why)}</span>` : detail}</div>`;
-  const scheduled = state.sendMode === 'schedule';
-  $('#sendAll').innerHTML = `${icon(scheduled ? 'clock' : 'send', 17)}${scheduled ? 'Schedule' : 'Send'}${count ? ' ' + count.toLocaleString() : ''} message${count === 1 ? '' : 's'}`;
-  $('#sendAll').disabled = Boolean(why);
-}
-
-// Default schedule time: the next quarter hour, at least 30 minutes from now.
-function defaultScheduleTime() {
-  const d = new Date(Date.now() + 30 * 60 * 1000);
-  d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
-  return toLocalInput(d);
-}
-const toLocalInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-
-$('#sendMode').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-mode]');
-  if (!b) return;
-  state.sendMode = b.dataset.mode;
-  $$('#sendMode button').forEach((x) => x.classList.toggle('active', x === b));
-  const input = $('#scheduleAt');
-  input.classList.toggle('hidden', state.sendMode !== 'schedule');
-  if (state.sendMode === 'schedule') {
-    input.min = toLocalInput(new Date());
-    if (!input.value) input.value = defaultScheduleTime();
-  }
-  renderSendSummary();
-});
-
-// ---------------------------------------------------------------------------
-// Send: actions
-// ---------------------------------------------------------------------------
-
-$('#testSend').addEventListener('click', (e) =>
-  guard(async () => {
-    const t = currentTemplate();
-    const senderId = [...state.selectedSenders][0];
-    if (!t) throw new Error('Choose a template first');
-    if (!senderId) throw new Error('Select a sender number first');
-    const values = valuesForRow(previewRow());
-    const empty = t.variables.find((v) => !values[v.key]);
-    if (empty) throw new Error(`Fill in ${varLabel(empty)} first`);
-    const r = await api('/send/test', { method: 'POST', body: { senderId, templateId: t.id, phone: $('#testPhone').value, values } });
-    toast(`${r.demo ? '(Demo) ' : ''}Test sent to +${r.to}`);
-  }, e.target)
-);
-
-$('#sendAll').addEventListener('click', (e) =>
-  guard(async () => {
-    const t = currentTemplate();
-    const { count } = validRecipients();
-    const nums = state.selectedSenders.size;
-    let scheduledAt = null;
-    if (state.sendMode === 'schedule') {
-      const when = new Date($('#scheduleAt').value);
-      if (isNaN(when)) throw new Error('Pick a date and time to schedule');
-      if (when < Date.now()) throw new Error('That time is in the past');
-      scheduledAt = when.toISOString();
-    }
-    const demo = state.settings.demoMode;
-    const ok = await confirmDialog({
-      title: scheduledAt ? `Schedule ${count.toLocaleString()} messages?` : `Send ${count.toLocaleString()} messages now?`,
-      message: `Template <strong>${esc(t.name)}</strong> from ${nums} number${nums === 1 ? '' : 's'}${scheduledAt ? `, on <strong>${esc(new Date(scheduledAt).toLocaleString())}</strong>` : ''}.\n\n${demo ? 'Demo mode: sending is simulated.' : '<strong>Live:</strong> real WhatsApp messages will be sent.'}`,
-      confirmText: scheduledAt ? 'Schedule' : 'Send now',
-    });
-    if (!ok) return;
-    const rows = [...state.selected].sort((a, b) => a - b).map((i) => state.csv.rows[i]);
-    const c = await api('/campaigns', {
-      method: 'POST',
-      body: {
-        name: $('#campaignName').value.trim(),
-        templateId: t.id,
-        senderIds: [...state.selectedSenders],
-        rows,
-        phoneColumn: $('#phoneColumn').value,
-        mapping: state.mapping,
-        scheduledAt,
-      },
-    });
-    toast(scheduledAt ? `Scheduled ${c.total} messages for ${new Date(scheduledAt).toLocaleString()}` : `Campaign started — ${c.total} messages queued`);
-    $('#campaignName').value = '';
-    showTab('campaigns');
-    openCampaign(c.id);
-  }, e.target)
-);
-
-// ---------------------------------------------------------------------------
-// Campaigns
-// ---------------------------------------------------------------------------
-
-let pollTimer = null;
-const stopPolling = () => { clearTimeout(pollTimer); pollTimer = null; };
-
-function progressBar(stats, total, key = '') {
-  const pct = (n) => (total ? (100 * (n || 0)) / total : 0);
-  const seg = (cls, v) => `<span class="${cls}" data-w="${pct(v).toFixed(2)}" data-k="${key}-${cls}"></span>`;
-  return `<div class="progress">${seg('p-read', stats.read)}${seg('p-delivered', stats.delivered)}${seg('p-sent', stats.sent)}${seg('p-failed', stats.failed)}</div>`;
-}
-
-async function loadCampaigns() {
-  state.campaigns = await api('/campaigns');
-  renderCampaignList();
-  if (state.detailId) openCampaign(state.detailId);
-  else if (state.campaigns.some((c) => c.status === 'running' || c.status === 'scheduled')) {
-    stopPolling();
-    pollTimer = setTimeout(loadCampaigns, state.campaigns.some((c) => c.status === 'running') ? 2000 : 10000);
-  }
-}
-
-const CAMP_FILTERS = [
-  ['all', 'All', () => true],
-  ['scheduled', 'Scheduled', (c) => c.status === 'scheduled'],
-  ['running', 'Sending', (c) => c.status === 'running' || c.status === 'queued'],
-  ['completed', 'Completed', (c) => c.status === 'completed'],
-  ['stopped', 'Stopped', (c) => c.status === 'stopped' || c.status === 'cancelled'],
-];
-state.campFilter = 'all';
-
-function renderCampaignList() {
-  const el = $('#campaignList');
-  el.classList.toggle('hidden', Boolean(state.detailId));
-  if (!state.campaigns.length) {
-    el.innerHTML = emptyState({
-      icon: 'send',
-      title: 'No campaigns yet',
-      text: 'Every bulk send shows up here with live progress: sent, delivered, read and failed, per recipient.',
-      actions: `<button class="btn primary" data-goto="send">${icon('plus', 16)}Create a campaign</button>`,
-    });
-    return;
-  }
-  const filter = CAMP_FILTERS.find((f) => f[0] === state.campFilter) || CAMP_FILTERS[0];
-  const list = state.campaigns.filter(filter[2]);
-  el.innerHTML =
-    `<div class="section-head"><div><h1>Campaigns</h1><p class="sub">Every bulk send, with live delivery progress.</p></div><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div>
-    <div class="seg camp-filters" id="campFilters">${CAMP_FILTERS.map(([k, label, fn]) => {
-      const n = state.campaigns.filter(fn).length;
-      return `<button data-filter="${k}" class="${k === filter[0] ? 'active' : ''}" ${n || k === 'all' ? '' : 'disabled'}>${label} <span class="opt">${n}</span></button>`;
-    }).join('')}</div>` +
-    (list.length
-      ? list
-          .map((c) => {
-            const s = c.stats || {};
-            const sent = (s.sent || 0) + (s.delivered || 0) + (s.read || 0);
-            const delivered = (s.delivered || 0) + (s.read || 0);
-            const when = c.status === 'scheduled' ? `<strong>Sends ${relTime(c.scheduledAt)}</strong> · ${fmtDate(c.scheduledAt)}` : fmtDate(c.startedAt || c.createdAt);
-            return `<div class="card list-item" data-open="${c.id}">
-              <div class="li-head">
-                <h3>${esc(c.name)} ${c.demo ? '<span class="pill demo">demo</span>' : ''}</h3>
-                <span class="pill ${c.status}">${c.status}</span>
-              </div>
-              <div class="li-meta">${when} · template <code>${esc(c.templateName)}</code> · ${c.senderIds.length} number${c.senderIds.length === 1 ? '' : 's'}</div>
-              ${progressBar(s, c.total, 'cl-' + c.id)}
-              <div class="camp-stats">
-                <span><b>${c.total.toLocaleString()}</b> recipients</span>
-                <span><b>${sent.toLocaleString()}</b> sent</span>
-                <span><b>${delivered.toLocaleString()}</b> delivered</span>
-                <span><b>${(s.read || 0).toLocaleString()}</b> read</span>
-                ${s.failed ? `<span><b>${s.failed.toLocaleString()}</b> failed</span>` : ''}
-                ${sent ? `<span class="rate"><b>${pct(delivered, sent)}%</b> delivered · <b>${pct(s.read || 0, delivered)}%</b> read</span>` : ''}
-              </div>
-            </div>`;
-          })
-          .join('')
-      : `<div class="empty-mini">${icon('send', 18)} Nothing here.</div>`);
-  Motion.values(el);
-}
-
-$('#campaignList').addEventListener('click', (e) => {
-  const f = e.target.closest('[data-filter]');
-  if (f && e.target.closest('#campFilters')) { state.campFilter = f.dataset.filter; renderCampaignList(); }
-});
-
-$('#campaignList').addEventListener('click', (e) => {
-  const item = e.target.closest('[data-open]');
-  if (item) openCampaign(item.dataset.open);
-});
-
-let detailFilter = 'all';
-
-async function openCampaign(cid) {
-  stopPolling();
-  state.detailId = cid;
-  let c;
-  try {
-    c = await api('/campaigns/' + cid);
-  } catch (e) {
-    state.detailId = null;
-    toast(e.message, 'error');
-    return renderCampaignList();
-  }
-  $('#campaignList').classList.add('hidden');
-  const el = $('#campaignDetail');
-  if (el.classList.contains('hidden') || el.dataset.cid !== cid) Motion.enter(el);
-  el.dataset.cid = cid;
-  el.classList.remove('hidden');
-  const s = c.stats;
-  const total = c.recipients.length;
-  const senders = Object.fromEntries(state.senders.map((x) => [x.id, x.label]));
-  const shown = c.recipients.filter((r) => detailFilter === 'all' || r.status === detailFilter);
-  const running = c.status === 'running' || c.status === 'queued';
-
-  el.innerHTML = `
-    <button class="btn ghost sm" id="backToList">${icon('history', 15)}All campaigns</button>
-    <div class="card" style="margin-top:14px">
-      <div class="li-head">
-        <div>
-          <h1>${esc(c.name)}</h1>
-          <div class="muted small">Template <code>${esc(c.templateName)}</code> · ${c.senderIds.length} number(s) · created ${fmtDate(c.createdAt)}${c.scheduledAt ? ` · scheduled for <strong>${fmtDate(c.scheduledAt)}</strong>` : ''} ${c.demo ? '· <strong>demo</strong>' : ''}</div>
-        </div>
-        <span class="pill ${c.status}">${c.status}</span>
-      </div>
-      <div class="stats">
-        <div class="stat"><b data-count="${total}" data-fmt="int" data-k="cd-${c.id}-total">0</b><span>Total</span></div>
-        <div class="stat"><b data-count="${(s.pending || 0)}" data-fmt="int" data-k="cd-${c.id}-pending">0</b><span>Pending</span></div>
-        <div class="stat"><b data-count="${(s.sent || 0)}" data-fmt="int" data-k="cd-${c.id}-sent">0</b><span>Sent</span></div>
-        <div class="stat"><b data-count="${(s.delivered || 0)}" data-fmt="int" data-k="cd-${c.id}-delivered">0</b><span>Delivered</span></div>
-        <div class="stat"><b data-count="${(s.read || 0)}" data-fmt="int" data-k="cd-${c.id}-read">0</b><span>Read</span></div>
-        <div class="stat"><b data-count="${(s.failed || 0)}" data-fmt="int" data-k="cd-${c.id}-failed">0</b><span>Failed</span></div>
-      </div>
-      ${progressBar(s, total, 'cd-' + c.id)}
-      ${c.skipped?.length ? `<div class="muted small">${c.skipped.length} row(s) skipped (invalid or duplicate numbers).</div>` : ''}
-      <div class="row" style="margin-top:14px">
-        ${running ? `<button class="btn danger" id="cStop">${icon('badge-alert', 16)}Stop</button>` : ''}
-        ${c.status === 'scheduled' ? `<button class="btn primary" id="cResume">${icon('send', 16)}Send now</button><button class="btn danger" id="cCancel">${icon('clock', 16)}Cancel schedule</button>` : ''}
-        ${!running && c.status !== 'scheduled' && s.pending ? `<button class="btn primary" id="cResume">${icon('send', 16)}${c.status === 'cancelled' ? 'Send now' : 'Resume'}</button>` : ''}
-        ${!running && s.failed ? `<button class="btn secondary" id="cRetry">${icon('refresh-cw', 16)}Retry failed (${s.failed})</button>` : ''}
-        <a class="btn ghost" href="/api/campaigns/${c.id}/export.csv">${icon('upload', 16)}Export CSV</a>
-        ${!running ? `<button class="btn danger" id="cDelete">${icon('delete', 16)}Delete</button>` : ''}
-      </div>
-    </div>
-    <div class="card" style="margin-top:16px">
-      <div class="li-head" style="margin-bottom:10px">
-        <h2 style="margin:0">Recipients</h2>
-        <select id="cFilter" style="width:auto;margin:0">
-          ${['all', 'pending', 'sent', 'delivered', 'read', 'failed'].map((f) => `<option value="${f}" ${f === detailFilter ? 'selected' : ''}>${f[0].toUpperCase() + f.slice(1)}${f === 'all' ? '' : ` (${s[f] || 0})`}</option>`).join('')}
-        </select>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Phone</th><th>Name</th><th>From</th><th>Status</th><th>Sent</th><th>Error</th></tr></thead>
-          <tbody>${shown
-            .slice(0, 500)
-            .map((r) => `<tr><td>+${esc(r.phone)}</td><td>${esc(r.name)}</td><td>${esc(senders[r.senderId] || '—')}</td><td><span class="pill ${r.status}">${r.status}</span></td><td>${r.sentAt ? new Date(r.sentAt).toLocaleTimeString() : ''}</td><td class="err">${esc(r.error || '')}</td></tr>`)
-            .join('')}</tbody>
-        </table>
-        ${shown.length > 500 ? `<div class="muted small" style="margin-top:8px">Showing 500 of ${shown.length}. Export CSV for the full list.</div>` : ''}
-        ${!shown.length ? '<div class="muted" style="padding:16px 0">Nothing here.</div>' : ''}
-      </div>
-    </div>`;
-
-  Motion.values(el);
-  $('#backToList').onclick = () => {
-    stopPolling();
-    state.detailId = null;
-    el.classList.add('hidden');
-    loadCampaigns();
-  };
-  $('#cFilter').onchange = (e) => { detailFilter = e.target.value; openCampaign(cid); };
-  const act = (sel, fn) => { const b = $(sel); if (b) b.onclick = () => guard(fn, b); };
-  act('#cStop', async () => { await api(`/campaigns/${cid}/stop`, { method: 'POST' }); toast('Stopping…'); });
-  act('#cResume', async () => { await api(`/campaigns/${cid}/resume`, { method: 'POST', body: {} }); openCampaign(cid); });
-  act('#cRetry', async () => { await api(`/campaigns/${cid}/resume`, { method: 'POST', body: { retryFailed: true } }); openCampaign(cid); });
-  act('#cCancel', async () => {
-    if (!(await confirmDialog({ title: 'Cancel the schedule?', message: "It won't send automatically. You can still send it manually later.", confirmText: 'Cancel schedule', danger: true }))) return;
-    await api(`/campaigns/${cid}/cancel`, { method: 'POST' });
-    openCampaign(cid);
-  });
-  act('#cDelete', async () => {
-    if (!(await confirmDialog({ title: 'Delete this campaign?', message: 'Its delivery log is removed too. Export it first if you need it.', confirmText: 'Delete', danger: true }))) return;
-    await api('/campaigns/' + cid, { method: 'DELETE' });
-    state.detailId = null;
-    el.classList.add('hidden');
-    loadCampaigns();
-  });
-
-  // Keep refreshing while sending, and for a while after so delivered/read updates show up.
-  const recent = c.finishedAt && Date.now() - new Date(c.finishedAt) < 5 * 60 * 1000;
-  if (running || recent || c.status === 'scheduled') pollTimer = setTimeout(() => state.detailId === cid && openCampaign(cid), running ? 1500 : 4000);
 }
 
 // ---------------------------------------------------------------------------

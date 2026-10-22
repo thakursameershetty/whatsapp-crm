@@ -5,6 +5,7 @@
 
 (function () {
   const ib = {
+    seen: new Set(), seenKey: null, freshAt: new Map(), sentAt: new Map(), enter: false, template: '',
     convs: [],
     unread: 0,
     key: null, // open conversation
@@ -115,6 +116,7 @@
       if (ib.filter === 'unread' && !c.unread) return false;
       if (ib.filter === 'open' && !(c.windowEndsAt && new Date(c.windowEndsAt) > now)) return false;
       if (ib.sender && c.senderId !== ib.sender) return false;
+      if (ib.template && !(c.templates || []).includes(ib.template)) return false;
       if (q && ![c.name, c.wa, fmtPhone(c.wa), c.last?.text].some((v) => String(v || '').toLowerCase().includes(q))) return false;
       return true;
     });
@@ -127,11 +129,22 @@
     sel.classList.toggle('hidden', senders.length < 2);
     sel.innerHTML = `<option value="">All numbers</option>` + senders.map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join('');
     sel.value = senders.some(([id]) => id === ib.sender) ? ib.sender : '';
+    // Template filter: people who were sent a given template (by a campaign or from here).
+    const tplNames = [...new Set(ib.convs.flatMap((c) => c.templates || []))].sort((a, b) => a.localeCompare(b));
+    const tsel = $('#ibTemplate');
+    tsel.classList.toggle('hidden', !tplNames.length);
+    if (ib.template && !tplNames.includes(ib.template)) ib.template = '';
+    tsel.innerHTML = `<option value="">All templates</option>` + tplNames.map((n) => `<option value="${esc(n)}">${esc(n)} (${ib.convs.filter((c) => (c.templates || []).includes(n)).length})</option>`).join('');
+    tsel.value = ib.template;
     const multi = senders.length > 1;
 
     const list = filtered();
-    const box = $('#ibConvs');
-    if (!ib.convs.length) {
+    const box = $('#ibConvItems');
+    // Where each row was, so rows that move (a new message lifts a chat to the top) can glide there.
+    const before = new Map($$('.ib-conv', box).map((el) => [el.dataset.key, el.getBoundingClientRect().top]));
+    if (!ib.loaded) {
+      box.innerHTML = Skel.rows(8);
+    } else if (!ib.convs.length) {
       box.innerHTML = `<div class="ib-none">No conversations yet.</div>`;
     } else if (!list.length) {
       box.innerHTML = `<div class="ib-none">No chats match.</div>`;
@@ -140,9 +153,9 @@
         .map((c) => {
           const l = c.last || {};
           return `<button class="ib-conv ${c.key === ib.key ? 'active' : ''} ${c.unread ? 'unread' : ''}" data-key="${esc(c.key)}" role="listitem">
-            <span class="ib-av">${initials(c)}</span>
+            <span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span>
             <span class="ib-conv-main">
-              <span class="ib-conv-top"><b>${esc(displayName(c))}</b><time>${listTime(c.lastAt)}</time></span>
+              <span class="ib-conv-top"><b>${esc(displayName(c))}</b>${c.ai?.handover ? '<span class="ib-flag need">Needs you</span>' : c.ai?.hasDraft ? '<span class="ib-flag draft">Draft</span>' : ''}<time>${listTime(c.lastAt)}</time></span>
               <span class="ib-conv-bot">
                 <span class="ib-prev">${l.dir === 'out' ? ticks(l.status) : ''}<span>${esc(previewText(l))}</span></span>
                 ${c.unread ? `<span class="ib-count">${c.unread}</span>` : ''}
@@ -153,20 +166,59 @@
         })
         .join('');
     }
+    animateList(before);
+    placeHighlight();
     if (!ib.key) renderChat();
   }
+
+  // Rows that moved glide from their old spot; new rows fade in. After a filter or search,
+  // the results cascade in instead.
+  const EASE = 'cubic-bezier(0.65, 0, 0.35, 1)', EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
+  function animateList(before) {
+    const rows = $$('#ibConvItems .ib-conv');
+    if (Motion.reduce() || !visible()) { ib.enter = false; return; }
+    if (ib.enter) {
+      ib.enter = false;
+      rows.slice(0, 14).forEach((el, i) => el.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 420, delay: i * 26, easing: EASE_OUT, fill: 'backwards' }));
+      return;
+    }
+    if (!before.size) return;
+    for (const el of rows) {
+      const was = before.get(el.dataset.key);
+      if (was == null) { el.animate([{ opacity: 0, transform: 'translateY(-8px)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: EASE_OUT }); continue; }
+      const dy = was - el.getBoundingClientRect().top;
+      if (Math.abs(dy) > 1) el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 480, easing: EASE });
+    }
+  }
+
+  // One highlight behind the list that slides to the open chat (rows are re-rendered, it isn't).
+  $('#ibConvs').innerHTML = `<i class="ib-hl" aria-hidden="true"></i><div id="ibConvItems">${Skel.rows(8)}</div>`;
+  function placeHighlight() {
+    const hl = $('#ibConvs .ib-hl'), on = $('#ibConvItems .ib-conv.active');
+    if (!on) { hl.style.opacity = '0'; return; }
+    const snap = hl.style.opacity !== '1' || Motion.reduce();
+    if (snap) hl.style.transition = 'none';
+    // Layout position (offsets), not the on-screen one: rows may be mid-slide when this runs.
+    hl.style.transform = `translateY(${on.offsetTop + $('#ibConvItems').offsetTop}px)`;
+    hl.style.height = on.offsetHeight + 'px';
+    hl.style.opacity = '1';
+    if (snap) { hl.getBoundingClientRect(); hl.style.transition = ''; }
+  }
+  new ResizeObserver(() => placeHighlight()).observe($('#ibConvItems'));
 
   $('#ibConvs').addEventListener('click', (e) => {
     const b = e.target.closest('.ib-conv');
     if (b) openConversation(b.dataset.key);
   });
-  $('#ibSearch').addEventListener('input', (e) => { ib.q = e.target.value.trim(); renderList(); });
-  $('#ibSender').addEventListener('change', (e) => { ib.sender = e.target.value; renderList(); });
+  $('#ibSearch').addEventListener('input', (e) => { ib.q = e.target.value.trim(); ib.enter = true; renderList(); });
+  $('#ibSender').addEventListener('change', (e) => { ib.sender = e.target.value; ib.enter = true; renderList(); });
+  $('#ibTemplate').addEventListener('change', (e) => { ib.template = e.target.value; ib.enter = true; renderList(); });
   $('#ibFilter').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-f]');
     if (!b) return;
     ib.filter = b.dataset.f;
     $$('#ibFilter button').forEach((x) => x.classList.toggle('active', x === b));
+    ib.enter = true;
     renderList();
   });
 
@@ -174,12 +226,16 @@
 
   async function openConversation(key) {
     if (ib.key && ib.key !== key) ib.drafts[ib.key] = $('#ibText')?.value || '';
+    if (key === ib.key) return;
     ib.key = key;
     ib.replyTo = null;
     ib.thread = null;
-    $('#inbox').classList.add('has-chat');
-    renderList();
-    renderChat();
+    // The old conversation slides out as this one slides in; the list highlight glides across.
+    await Motion.morph(() => {
+      $('#inbox').classList.add('has-chat');
+      renderList();
+      renderChat();
+    }, 'ib');
     await loadThread(true);
     markRead();
   }
@@ -188,9 +244,11 @@
     if (ib.key) ib.drafts[ib.key] = $('#ibText')?.value || '';
     ib.key = null;
     ib.thread = null;
-    $('#inbox').classList.remove('has-chat');
-    renderList();
-    renderChat();
+    Motion.morph(() => {
+      $('#inbox').classList.remove('has-chat');
+      renderList();
+      renderChat();
+    }, 'ib');
   }
 
   async function loadThread(toBottom = false) {
@@ -232,7 +290,7 @@
     }
     const c = current();
     if (!c) {
-      pane.innerHTML = `<div class="ib-empty"><div class="ib-loading">Loading…</div></div>`;
+      pane.innerHTML = Skel.bubbles();
       return;
     }
     const w = windowInfo(c);
@@ -242,11 +300,14 @@
       pane.innerHTML = `
         <header class="ib-head">
           <button class="icon-btn ib-back" id="ibBack" aria-label="Back to chats">${icon('arrow-left', 18)}</button>
-          <span class="ib-av">${initials(c)}</span>
+          <span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span>
           <div class="ib-who"><b id="ibName"></b><span id="ibSub"></span></div>
+          <div class="ib-headx" id="ibHeadX"></div>
           <span class="ib-window" id="ibWindow"></span>
         </header>
+        <div class="ib-lead hidden" id="ibLead"></div>
         <div class="ib-msgs" id="ibMsgs"></div>
+        <div id="ibAi" class="ib-ai"></div>
         <div id="ibFoot"></div>`;
       $('#ibBack').onclick = closeConversation;
       toBottom = true;
@@ -261,7 +322,101 @@
       : 'More than 24 hours since their last message: only approved templates can be sent';
     renderMessages(toBottom);
     renderFoot(w.open);
+    renderLead();
+    renderAi();
   }
+
+  // ---------- Lead assistant: contact strip, suggested reply, hand-over ----------
+
+  const STATUS_LABEL = { new: 'New', interested: 'Interested', qualified: 'Qualified', won: 'Won', lost: 'Not interested' };
+  const STATUS_PILL = { new: '', interested: 'sent', qualified: 'scheduled', won: 'delivered', lost: 'cancelled' };
+
+  function renderLead() {
+    const t = ib.thread;
+    const ct = t?.contact;
+    const ai = t?.ai;
+    const hx = $('#ibHeadX');
+    if (!hx) return;
+    const tagOf = (id) => (t?.tags || []).find((x) => x.id === id);
+    hx.innerHTML = t ? `
+      ${ct ? (ct.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS_PILL[ct.status] || ''}">${esc(STATUS_LABEL[ct.status] || ct.status)}</span>`) : ''}
+      ${ct ? ct.tags.map(tagOf).filter(Boolean).slice(0, 3).map((x) => `<span class="tag-chip tag-${esc(x.color)}">${esc(x.name)}</span>`).join('') : ''}
+      ${ct ? `<button class="btn sm quiet" data-ai="contact" title="Open contact">${icon('users', 14)}Contact</button>` : ''}
+      ${ai ? `<button class="ib-ai-toggle ${ai.on ? 'on' : ''}" data-ai="toggle" title="${ai.on ? 'The AI drafts a reply when they write. Click to stop for this chat.' : ai.off ? 'AI drafts are off for this chat. Click to turn on.' : 'Turn on the lead assistant in Settings to draft replies automatically.'}" aria-pressed="${ai.on}"><svg class="orb-icon" data-orb-icon="14"></svg>AI ${ai.on ? 'on' : 'off'}</button>` : ''}` : '';
+    Orb.hydrate(hx);
+    const lead = ct?.lead || {};
+    const bits = [['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v);
+    const strip = $('#ibLead');
+    strip.classList.toggle('hidden', !(lead.summary || bits.length));
+    strip.innerHTML = `<span class="ib-lead-sum">${esc(lead.summary || '')}</span>${bits.map(([k, v]) => `<span><b>${k}</b> ${esc(v)}</span>`).join('')}`;
+  }
+
+  let aiOrb = null;
+  function renderAi() {
+    const el = $('#ibAi');
+    if (!el) return;
+    aiOrb?.destroy();
+    aiOrb = null;
+    const t = ib.thread;
+    const ai = t?.ai;
+    if (!ai) { el.innerHTML = ''; return; }
+    const w = windowInfo(current());
+    const last = (t.messages || []).filter((m) => m.type !== 'reaction').at(-1);
+    let html = '';
+    if (ai.handover) html += `<div class="ib-handover">${icon('badge-alert', 16)}<div><b>Needs you</b><span>${esc(ai.handover.reason)}</span></div><button class="btn sm quiet" data-ai="clear-handover">Done</button></div>`;
+    if (ai.busy) html += `<div class="ib-draft busy"><svg class="orb" id="ibAiOrb"></svg><span>Drafting a reply…</span></div>`;
+    else if (ai.draft) html += `<div class="ib-draft">
+        <div class="ib-draft-head"><svg class="orb-icon" data-orb-icon="14"></svg><span>Suggested reply</span>${ai.draft.stale ? '<span class="warn-text">They wrote again since this. Regenerate?</span>' : ''}</div>
+        <div class="ib-draft-text">${fmtText(ai.draft.text)}</div>
+        <div class="ib-draft-actions">
+          ${w.open ? `<button class="btn sm primary" data-ai="send" data-icon="send" data-icon-size="13">Send</button><button class="btn sm" data-ai="edit">Edit</button>` : '<span class="sub">The reply window has closed, so only a template can be sent.</span>'}
+          <button class="btn sm quiet" data-ai="regen">Regenerate</button><button class="btn sm quiet" data-ai="dismiss">Dismiss</button>
+        </div>
+      </div>`;
+    else if (w.open && last?.dir === 'in' && !t.contact?.optOut) html += `<button class="ib-ai-ask" data-ai="regen"><svg class="orb-icon" data-orb-icon="14"></svg>Draft a reply with AI</button>`;
+    if (ai.error && !ai.busy && !ai.draft) html += `<div class="ib-ai-err">${esc(ai.error)}</div>`;
+    const sig = `${Boolean(ai.handover)}|${ai.busy ? 'busy' : ai.draft ? 'draft:' + ai.draft.text : ''}`;
+    el.innerHTML = html;
+    if (sig !== el.__sig && !Motion.reduce()) [...el.children].forEach((c, i) => c.animate([{ opacity: 0, transform: 'translateY(8px) scale(0.99)' }, { opacity: 1, transform: 'none' }], { duration: 420, delay: i * 40, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'backwards' }));
+    el.__sig = sig;
+    LA.hydrate(el);
+    Orb.hydrate(el);
+    const orbEl = $('#ibAiOrb', el);
+    if (orbEl) aiOrb = Orb.mount(orbEl, { state: 'reasoning', size: 16 });
+  }
+
+  $('#ibChat').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-ai]');
+    if (!b || !ib.key) return;
+    const key = ib.key;
+    const act = b.dataset.ai;
+    const setAi = (ai) => { if (ib.key === key && ib.thread) { ib.thread.ai = ai; renderAi(); renderLead(); } };
+    if (act === 'contact') return window.Contacts?.open(ib.thread.contact.id);
+    if (act === 'send' || act === 'edit') {
+      const ta = $('#ibText');
+      if (!ta) return;
+      ta.value = ib.thread.ai.draft.text;
+      autosize();
+      if (act === 'send') return sendText();
+      ta.focus();
+      return;
+    }
+    await guard(async () => {
+      if (act === 'regen') {
+        setAi({ ...ib.thread.ai, busy: true, error: null });
+        setAi(await api(`/inbox/${enc(key)}/draft`, { method: 'POST' }));
+        await loadThread();
+      }
+      if (act === 'dismiss') setAi(await api(`/inbox/${enc(key)}/draft`, { method: 'DELETE' }));
+      if (act === 'clear-handover') setAi(await api(`/inbox/${enc(key)}/ai`, { method: 'POST', body: { clearHandover: true } }));
+      if (act === 'toggle') {
+        if (!state.settings.leadAgent?.enabled) { showTab('settings'); return toast('Turn on the lead assistant under Settings → Lead assistant'); }
+        setAi(await api(`/inbox/${enc(key)}/ai`, { method: 'POST', body: { off: ib.thread.ai.on } }));
+      }
+      loadList().catch(() => {});
+    }, b).catch(() => {});
+    if (act === 'regen' && ib.thread?.ai?.busy) { ib.thread.ai.busy = false; renderAi(); }
+  });
 
   function emptyPane() {
     if (ib.loaded && !ib.convs.length) {
@@ -294,7 +449,7 @@
     for (const m of msgs) if (m.type === 'reaction' && m.reaction?.to && m.reaction.emoji) reactions.set(m.reaction.to, m.reaction.emoji);
 
     if (!ib.thread) {
-      box.innerHTML = `<div class="ib-loading">Loading…</div>`;
+      box.innerHTML = Skel.bubbles();
       return;
     }
     if (!msgs.length) {
@@ -302,24 +457,44 @@
       return;
     }
 
+    // Messages already on screen stay put; only ones that just arrived rise in.
+    if (ib.seenKey !== ib.key) { ib.seen = new Set(); ib.freshAt.clear(); ib.sentAt.clear(); }
+    const now = Date.now();
     let html = '';
     let prev = null;
     for (const m of msgs) {
       if (m.type === 'reaction') continue;
+      // Each day is its own section, so its sticky date pill only sticks while that day is on
+      // screen and the next day's pill pushes it away (otherwise the pills pile up at the top).
       if (!prev || startOfDay(prev.ts) !== startOfDay(m.ts)) {
-        html += `<div class="ib-day">${dayLabel(m.ts)}</div>`;
+        html += `${html ? '</section>' : ''}<section class="ib-dayblock"><div class="ib-day">${dayLabel(m.ts)}</div>`;
         prev = null;
       }
       const first = !prev || prev.dir !== m.dir || new Date(m.ts) - new Date(prev.ts) > 10 * 60000;
       const react = m.wamid && reactions.get(m.wamid);
-      html += `<div class="ib-row ${m.dir} ${first ? 'first' : ''} ${react ? 'reacted' : ''}" data-wamid="${esc(m.wamid || '')}">
+      const mid = m.id || m.wamid || m.ts;
+      const isNew = ib.seenKey === ib.key && !ib.seen.has(mid);
+      ib.seen.add(mid);
+      // When a new message started rising in. The list is re-rendered often (the server's copy of a
+      // message you sent, delivery ticks), so a row that's still mid-animation carries on from there
+      // instead of restarting. The server's copy of your message takes over its placeholder's start.
+      let start = ib.freshAt.get(mid);
+      if (isNew && start == null) {
+        start = (!m.local && m.dir === 'out' && ib.sentAt.get(m.text)) || now;
+        ib.freshAt.set(mid, start);
+      }
+      if (m.local && start != null) ib.sentAt.set(m.text, start);
+      const age = start != null ? now - start : Infinity;
+      const fresh = age < 450;
+      html += `<div class="ib-row ${m.dir} ${first ? 'first' : ''} ${react ? 'reacted' : ''} ${fresh ? 'fresh' : ''}" ${fresh && age > 0 ? `style="animation-delay:-${age}ms"` : ''} data-wamid="${esc(m.wamid || '')}">
         <div class="ib-bubble ${m.type}">${msgBody(m, byWamid)}${react ? `<span class="ib-reacts">${esc(react)}</span>` : ''}</div>
         ${m.wamid && m.dir === 'in' ? `<button class="ib-reply-btn" data-reply="${esc(m.wamid)}" title="Reply" aria-label="Reply">${icon('reply', 14)}</button>` : ''}
       </div>`;
       if (m.status === 'failed' && m.error) html += `<div class="ib-err">Not delivered: ${esc(m.error)}</div>`;
       prev = m;
     }
-    box.innerHTML = html;
+    box.innerHTML = html ? html + '</section>' : '';
+    ib.seenKey = ib.key;
     if (toBottom || nearBottom) box.scrollTop = box.scrollHeight;
     ib.stick = toBottom || nearBottom;
   }
@@ -566,21 +741,15 @@
 
   let listTimer = null;
   let threadTimer = null;
-  const notify = new Set();
 
   function onEvent(ev) {
-    if (ev.kind === 'message' && ev.dir === 'in' && !(visible() && ev.key === ib.key && !document.hidden)) notify.add(ev.key);
+    // (Toasts for new messages come from the Notifications feed.)
     clearTimeout(listTimer);
     listTimer = setTimeout(async () => {
       await loadList().catch(() => {});
-      // A toast for new messages you aren't looking at.
-      for (const key of notify) {
-        const c = ib.convs.find((x) => x.key === key);
-        if (c && (!visible() || key !== ib.key)) toast(`New message from ${displayName(c)}: ${previewText(c.last)}`.slice(0, 120));
-      }
-      notify.clear();
       if (ev.kind === 'message' && ev.key === ib.key) markRead();
     }, 150);
+    if (ev.kind === 'draft' && ev.key === ib.key && visible()) { loadThread().catch(() => {}); return; }
     if (ev.key === ib.key && visible()) {
       clearTimeout(threadTimer);
       threadTimer = setTimeout(() => loadThread().catch(() => {}), 120);
@@ -589,9 +758,17 @@
 
   function connect() {
     const es = new EventSource('/api/events');
-    es.addEventListener('inbox', (e) => onEvent(JSON.parse(e.data)));
+    // One stream for the whole app: other pages (Notifications) listen for 'live' events.
+    es.addEventListener('inbox', (e) => {
+      const ev = JSON.parse(e.data);
+      document.dispatchEvent(new CustomEvent('live', { detail: ev }));
+      if (ev.kind !== 'notification') onEvent(ev);
+    });
     // After a reconnect, catch up on anything missed.
-    es.addEventListener('open', () => ib.loaded && loadList().catch(() => {}));
+    es.addEventListener('open', () => {
+      document.dispatchEvent(new CustomEvent('live', { detail: { kind: 'reconnect' } }));
+      if (ib.loaded) loadList().catch(() => {});
+    });
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -611,6 +788,9 @@
   addEventListener('resize', fit);
 
   window.Inbox = {
+    open: (key) => openConversation(key),
+    // The conversation on screen right now, if any.
+    viewing: () => (visible() && !document.hidden ? ib.key : null),
     async show() {
       scrollTo(0, 0);
       fit();
