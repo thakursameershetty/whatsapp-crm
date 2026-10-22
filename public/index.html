@@ -405,32 +405,36 @@
             </div>
             <div class="sp-sec sp-tpl-sec hidden" id="spTplSec">
               <div class="field-label">Message <span class="opt" id="spTplMeta"></span></div>
-              <div class="phone sp-tpl-phone"><div class="bubble" id="spTplPreview"></div></div>
-              <button type="button" class="btn primary sp-next" data-goto-pane="preview" id="spNext">Next: Personalise →</button>
+              <div class="phone sp-tpl-phone">
+                <div class="bubble" id="spTplPreview"></div>
+              </div>
+              <button type="button" class="btn primary sp-next" data-goto-pane="preview" id="spNext">Next: Personalise
+                →</button>
             </div>
           </div>
           <div class="sp-pane hidden" data-pane="preview">
             <div class="sp-duo">
-            <div class="sp-sec sp-duo-prev">
-              <div class="sp-prev-head">
-                <span class="field-label">Preview</span>
-                <span class="sp-stepper" id="spStepper">
-                  <button type="button" class="icon-btn" data-step="-1" aria-label="Previous recipient">‹</button>
-                  <span id="spStepN"></span>
-                  <button type="button" class="icon-btn" data-step="1" aria-label="Next recipient">›</button>
-                </span>
+              <div class="sp-sec sp-duo-prev">
+                <div class="sp-prev-head">
+                  <span class="field-label">Preview</span>
+                  <span class="sp-stepper" id="spStepper">
+                    <button type="button" class="icon-btn" data-step="-1" aria-label="Previous recipient">‹</button>
+                    <span id="spStepN"></span>
+                    <button type="button" class="icon-btn" data-step="1" aria-label="Next recipient">›</button>
+                  </span>
+                </div>
+                <div class="phone sp-phone-big">
+                  <div class="bubble" id="preview"><span class="muted">Select a template</span></div>
+                </div>
+                <div class="sub" id="previewNote"></div>
               </div>
-              <div class="phone sp-phone-big">
-                <div class="bubble" id="preview"><span class="muted">Select a template</span></div>
+              <div class="sp-sec sp-duo-fields">
+                <div class="field-label">Fill in the variables <span class="opt">from a column, or the same text for
+                    everyone</span></div>
+                <div id="mapping">
+                  <p class="sub">Pick a template to see what you can personalise.</p>
+                </div>
               </div>
-              <div class="sub" id="previewNote"></div>
-            </div>
-            <div class="sp-sec sp-duo-fields">
-              <div class="field-label">Fill in the variables <span class="opt">from a column, or the same text for everyone</span></div>
-              <div id="mapping">
-                <p class="sub">Pick a template to see what you can personalise.</p>
-              </div>
-            </div>
             </div>
           </div>
         </aside>
@@ -444,14 +448,16 @@
             <button data-mode="schedule" data-icon="clock" data-icon-size="15">Later</button>
           </div>
           <div class="sp-testwrap">
-            <button type="button" class="btn quiet" id="testOpen" data-icon="send" data-icon-size="15" aria-expanded="false">Send test</button>
+            <button type="button" class="btn quiet" id="testOpen" data-icon="send" data-icon-size="15"
+              aria-expanded="false">Send test</button>
             <div class="sp-testpop hidden" id="testPop" role="dialog" aria-label="Send a test to yourself">
               <b>Send a test to yourself</b>
               <div class="row tight">
                 <input id="testPhone" placeholder="Your number, e.g. 9876543210" inputmode="tel" />
                 <button class="btn primary" id="testSend">Send</button>
               </div>
-              <span class="sub" id="testNote">Uses the template and the recipient in the preview, from the first number you turned on.</span>
+              <span class="sub" id="testNote">Uses the template and the recipient in the preview, from the first number
+                you turned on.</span>
             </div>
           </div>
           <input type="datetime-local" id="scheduleAt" class="hidden" />
