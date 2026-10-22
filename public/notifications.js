@@ -165,10 +165,12 @@
     const readCount = NT.list.filter((n) => n.read).length;
     const items = [];
     if (readCount) items.push({ label: `Clear read (${readCount})`, action: () => clear({ read: true }, NT.list.filter((n) => n.read).map((n) => n.id)) });
-    items.push({ label: `Clear all (${NT.list.length})`, action: async () => {
-      if (!(await confirmDialog({ title: 'Clear all notifications?', message: 'This removes them from the list. Campaigns, chats and contacts aren’t affected.', confirmText: 'Clear all', danger: true }))) return;
-      clear({ all: true }, NT.list.map((n) => n.id));
-    } });
+    items.push({
+      label: `Clear all (${NT.list.length})`, action: async () => {
+        if (!(await confirmDialog({ title: 'Clear all notifications?', message: 'This removes them from the list. Campaigns, chats and contacts aren’t affected.', confirmText: 'Clear all', danger: true }))) return;
+        clear({ all: true }, NT.list.map((n) => n.id));
+      }
+    });
     Sheet.Menu.open(r.left, r.bottom + 4, items);
   });
 
@@ -181,7 +183,7 @@
 
   document.addEventListener('live', (e) => {
     const ev = e.detail;
-    if (ev.kind === 'reconnect') return load().then(() => visible() && render()).catch(() => {});
+    if (ev.kind === 'reconnect') return load().then(() => visible() && render()).catch(() => { });
     if (ev.kind !== 'notification') return;
     if (typeof ev.unread === 'number') NT.unread = ev.unread;
     const n = ev.notification;
@@ -212,5 +214,5 @@
       render();
     },
   };
-  load().catch(() => {});
+  load().catch(() => { });
 })();
