@@ -2909,3 +2909,10 @@ body.nav-mini .acct-text { display: none; }
 .login-alt a { color: var(--text); font-weight: 600; }
 .login-card { width: min(400px, 100%); }
 @media (max-width: 900px) { .acct-grid { grid-template-columns: 1fr; } .acct-btn { display: none; } }
+
+/* Show/hide password (sign-in pages) */
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 44px; }
+.pw-eye { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
+.pw-eye:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.pw-eye:focus-visible { outline: 0; box-shadow: 0 0 0 2px var(--ring); }
