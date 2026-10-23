@@ -139,7 +139,11 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · WhatsApp Sender</title><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css">
 <script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}</script></head>
-<body class="login-body">${body}<script>
+<body class="auth-body">${body}<script src="/gradient-ascii.js"></script><script>
+// The left panel: a drifting ASCII light (falls back to the CSS gradient without WebGL2).
+var art = document.querySelector('.auth-art');
+if (art && window.GradientASCII) { var host = document.createElement('div'); host.className = 'auth-ascii'; art.prepend(host); if (!GradientASCII.mount(host, { colors: ['#494949', '#eef2ff', '#ffffff', '#7e7e7e'], shape: 'pinch', characters: ' =+xX0S8#@', cellSize: 16, density: 0.8, glow: 0.25, grain: 0.06 })) host.remove(); else art.classList.add('has-ascii'); }
+</script><script>
 // Show/hide toggle on every password field.
 var EYE='<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 var OFF='<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2"/><path d="M6.6 6.6A17.4 17.4 0 0 0 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m2 2 20 20"/></svg>';
@@ -152,30 +156,50 @@ document.querySelectorAll('input[type=password]').forEach(function(inp){
 </script></body></html>`;
   }
   const brand = `<div class="brand">${LOGO}<span class="brand-name">WhatsApp Sender</span></div>`;
+  // Two-panel card: a gradient panel with a headline on the left, the form on the right.
+  const shell = ({ kicker, headline, form }) => `<main class="auth-card">
+  <aside class="auth-art" aria-hidden="true">
+    <div class="auth-art-logo">${LOGO}<span>WhatsApp Sender</span></div>
+    <div class="auth-art-text"><p>${esc(kicker)}</p><h2>${esc(headline)}</h2></div>
+  </aside>
+  <section class="auth-form">${form}</section>
+</main>`;
+  const mark = `<span class="auth-mark">${LOGO}</span>`;
 
   function loginPage({ error = '', email = '', next = '' } = {}) {
-    return page('Sign in', `<form class="card login-card" method="post" action="/login">${brand}
-<h1 class="login-title">Welcome back</h1>
-<label>Email<input type="email" name="email" value="${esc(email)}" autocomplete="email" required autofocus></label>
-<label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+    return page('Sign in', shell({
+      kicker: 'Welcome back',
+      headline: 'Pick up right where you left off.',
+      form: `<form method="post" action="/login" class="auth-fields">${mark}
+<h1>Sign in</h1>
+<p class="auth-sub">Your campaigns and chats are waiting.</p>
+<label>Your email<input type="email" name="email" value="${esc(email)}" autocomplete="email" placeholder="you@company.com" required autofocus></label>
+<label>Password<input type="password" name="password" autocomplete="current-password" placeholder="Your password" required></label>
 <input type="hidden" name="next" value="${esc(next)}">
-${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="btn primary" type="submit">Sign in</button>
-<p class="login-alt">New here? <a href="/signup${next ? `?next=${encodeURIComponent(next)}` : ''}">Create an account</a></p></form>`);
+${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">Sign in</button>
+<p class="login-alt">Don't have an account? <a href="/signup${next ? `?next=${encodeURIComponent(next)}` : ''}">Create one</a></p></form>`,
+    }));
   }
 
   function signupPage({ error = '', name = '', email = '', business = '', next = '', invite = null } = {}) {
     const legacy = !invite && legacyUnclaimed();
-    return page('Create account', `<form class="card login-card" method="post" action="/signup">${brand}
-<h1 class="login-title">${invite ? `Join ${esc(invite.wsName)}` : 'Create your account'}</h1>
-<p class="login-sub">${invite ? `You were invited to the ${esc(invite.wsName)} workspace.` : 'You get your own workspace: connect your WhatsApp number, import contacts and send campaigns.'}</p>
-<label>Your name<input name="name" value="${esc(name)}" autocomplete="name" required autofocus></label>
-<label>Email<input type="email" name="email" value="${esc(email || invite?.email || '')}" autocomplete="email" required></label>
-<label>Password <span class="opt">at least 8 characters</span><input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
+    return page('Create account', shell({
+      kicker: invite ? `Join ${invite.wsName}` : 'Start free',
+      headline: invite ? 'One inbox. One team. Every campaign.' : 'WhatsApp marketing that runs itself.',
+      form: `<form method="post" action="/signup" class="auth-fields">${mark}
+<h1>${invite ? `Join ${esc(invite.wsName)}` : 'Create your account'}</h1>
+<p class="auth-sub">${invite ? `You were invited to the ${esc(invite.wsName)} workspace.` : 'Set up in minutes. No credit card.'}</p>
+<div class="auth-row">
+<label>Your name<input name="name" value="${esc(name)}" autocomplete="name" placeholder="Full name" required autofocus></label>
 ${invite ? '' : `<label>Business name<input name="business" value="${esc(business)}" placeholder="e.g. Spotmies" required></label>`}
+</div>
+<label>Your email<input type="email" name="email" value="${esc(email || invite?.email || '')}" autocomplete="email" placeholder="you@company.com" required></label>
+<label>Password <span class="opt">at least 8 characters</span><input type="password" name="password" autocomplete="new-password" minlength="8" placeholder="Create a password" required></label>
 ${legacy ? `<label>Existing app password <span class="opt">only if you used this app before</span><input type="password" name="legacy" autocomplete="off" placeholder="Keeps your existing ${esc(legacy.name)} data"></label>` : ''}
 <input type="hidden" name="next" value="${esc(next)}">
-${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="btn primary" type="submit">${invite ? 'Join workspace' : 'Create account'}</button>
-<p class="login-alt">Already have an account? <a href="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">Sign in</a></p></form>`);
+${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">${invite ? 'Join workspace' : 'Get started'}</button>
+<p class="login-alt">Already have an account? <a href="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">Sign in</a></p></form>`,
+    }));
   }
 
   const safeNext = (n) => (/^\/[^/\\]/.test(String(n || '')) ? String(n) : '/');
@@ -255,7 +279,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="btn pri
 
     app.get('/invite/:token', (req, res) => {
       const inv = inviteFor(req.params.token);
-      if (!inv) return res.status(404).send(page('Invite', `<div class="card login-card">${brand}<h1 class="login-title">This invite has expired</h1><p class="login-sub">Ask whoever invited you to send a new link.</p><a class="btn primary" href="/login">Sign in</a></div>`));
+      if (!inv) return res.status(404).send(page('Invite', shell({ kicker: 'Invite', headline: 'Invites last 7 days so links can’t be reused forever.', form: `<div class="auth-fields">${mark}<h1>This invite has expired</h1><p class="auth-sub">Ask whoever invited you to send a new link.</p><a class="auth-btn" href="/login">Sign in</a></div>` })));
       const s = sessionOf(req);
       if (s) { acceptInvite(inv, s.userId); s.wsId = inv.wsId; saveAccounts(); return res.redirect('/'); }
       const next = `/invite/${req.params.token}`;

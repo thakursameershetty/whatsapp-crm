@@ -344,7 +344,11 @@ function renderAiSettings() {
   $('#removeAiKey').classList.toggle('hidden', !(shown === 'gemini' ? s.geminiKeyMasked : s.aiKeyMasked));
   $('#saveAiKey').textContent = shown === s.aiProvider ? 'Save' : `Save and use ${shown === 'gemini' ? 'Gemini' : 'Claude'}`;
   LA.hydrate($('.ai-settings'));
-  $('#asProvider') && ($('#asProvider').textContent = s.aiProvider === 'gemini' ? s.geminiModel : 'Claude Opus 5.5');
+  // The Assistant header shows the model with its maker's logo.
+  if ($('#asProvider')) {
+    const gem = s.aiProvider === 'gemini';
+    $('#asProvider').innerHTML = `<img class="prov-logo" src="/brand/${gem ? 'gemini' : 'claude'}.svg" alt="" /><span>${esc(gem ? s.geminiModel : 'Claude Opus 5.5')}</span>`;
+  }
 }
 $('#aiProviderSeg').addEventListener('click', (e) => {
   const b = e.target.closest('[data-provider]');

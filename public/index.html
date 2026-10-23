@@ -618,11 +618,11 @@
             <div>
               <label>AI provider</label>
               <div class="seg ai-provider" id="aiProviderSeg" role="radiogroup" aria-label="AI provider">
-                <button type="button" data-provider="gemini">Gemini <span class="opt">free tier</span></button>
-                <button type="button" data-provider="claude">Claude</button>
+                <button type="button" data-provider="gemini"><img class="prov-logo" src="/brand/gemini.svg" alt="" />Gemini <span class="opt">free tier</span></button>
+                <button type="button" data-provider="claude"><img class="prov-logo" src="/brand/claude.svg" alt="" />Claude</button>
               </div>
               <div class="ai-fields" data-for="gemini">
-                <label>Gemini API key <span class="opt" id="geminiKeyState"></span>
+                <label><span class="prov-label"><img class="prov-logo" src="/brand/gemini.svg" alt="" />Gemini API key</span> <span class="opt" id="geminiKeyState"></span>
                   <input id="setGeminiKey" type="password" autocomplete="off" spellcheck="false"
                     placeholder="Paste your key" />
                 </label>
@@ -637,7 +637,7 @@
                 </label>
               </div>
               <div class="ai-fields hidden" data-for="claude">
-                <label>Anthropic API key <span class="opt" id="aiKeyState"></span>
+                <label><span class="prov-label"><img class="prov-logo" src="/brand/claude.svg" alt="" />Anthropic API key</span> <span class="opt" id="aiKeyState"></span>
                   <input id="setAiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" />
                 </label>
                 <p class="sub">Uses Claude Opus 5.5.</p>

@@ -350,7 +350,9 @@ function handleWebhookChange(change) {
 tenants.mountAuth(app, express);
 
 app.use(express.json({ limit: '20mb' }));
-app.use((req, res, next) => (req.path === '/style.css' ? next() : tenants.requireAuth(req, res, next))); // the sign-in pages use style.css
+// The sign-in pages use these two files, so they load without signing in.
+const PUBLIC_FILES = new Set(['/style.css', '/gradient-ascii.js']);
+app.use((req, res, next) => (PUBLIC_FILES.has(req.path) ? next() : tenants.requireAuth(req, res, next)));
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // D3 for the dashboard charts, served locally so it works offline.
