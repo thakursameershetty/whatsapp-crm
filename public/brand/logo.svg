@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<defs>
+  <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#dcdfe2"/><stop offset=".55" stop-color="#c0c4c8"/><stop offset="1" stop-color="#e7e9eb"/></linearGradient>
+  <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".9"/><stop offset=".3" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f1214"/><stop offset="1" stop-color="#25292c"/></linearGradient>
+  <radialGradient id="halo" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+  <linearGradient id="wingTop" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef1f3"/></linearGradient>
+  <linearGradient id="wingLow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#dfe4e8"/><stop offset="1" stop-color="#bcc5cc"/></linearGradient>
+  <filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.2"/></filter>
+  <clipPath id="clip"><rect width="64" height="64" rx="15"/></clipPath>
+</defs>
+<g clip-path="url(#clip)">
+  <rect width="64" height="64" fill="url(#tile)"/>
+  <rect width="64" height="64" fill="url(#rim)"/>
+  <path d="M15 13 H49 A8 8 0 0 1 57 21 V35 A8 8 0 0 1 49 43 H27 L20 49.5 C19.2 50.2 18 49.6 18 48.6 V43 H15 A8 8 0 0 1 7 35 V21 A8 8 0 0 1 15 13 Z" transform="translate(0 1)" fill="#fff" opacity=".7"/>
+  <path d="M15 13 H49 A8 8 0 0 1 57 21 V35 A8 8 0 0 1 49 43 H27 L20 49.5 C19.2 50.2 18 49.6 18 48.6 V43 H15 A8 8 0 0 1 7 35 V21 A8 8 0 0 1 15 13 Z" fill="url(#screen)"/>
+  <ellipse cx="32" cy="29" rx="17" ry="11" fill="url(#halo)"/>
+  <path d="M15 13 H49 A8 8 0 0 1 57 21 V35 A8 8 0 0 1 49 43 H27 L20 49.5 C19.2 50.2 18 49.6 18 48.6 V43 H15 A8 8 0 0 1 7 35 V21 A8 8 0 0 1 15 13 Z" fill="none" stroke="#000" stroke-opacity=".5" stroke-width=".8"/>
+  
+  <g filter="url(#glow)">
+    <path d="M44 17.5 L18.5 27.5 L29.6 31.2 L34.6 40.2 Z" fill="#fff" opacity=".9"/>
+  </g>
+  <path d="M44 17.5 L18.5 27.5 L29.6 31.2 Z" fill="url(#wingTop)"/>
+  <path d="M44 17.5 L29.6 31.2 L34.6 40.2 Z" fill="url(#wingLow)"/>
+  <path d="M29.6 31.2 L30.6 36.2 L34.6 40.2 Z" fill="#8e989f"/>
+  <path d="M44 17.5 L18.5 27.5 L29.6 31.2 L30.6 36.2 L34.6 40.2 Z" fill="none" stroke="#fff" stroke-width=".6" stroke-linejoin="round" opacity=".85"/>
+  <path d="M29.6 31.2 L44 17.5" stroke="#aeb7be" stroke-width=".55"/>
+</g>
+</svg>

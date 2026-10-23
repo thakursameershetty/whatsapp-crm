@@ -3061,3 +3061,29 @@ body.nav-mini .acct-text { display: none; }
 .verify-banner { background: var(--info-soft); color: var(--text); }
 .verify-banner .dot { background: var(--info); }
 .verify-banner .btn { margin-left: auto; }
+
+/* Sign-in pages: faint time-of-day sky behind the card (same palette as the Assistant start page) */
+.auth-body { position: relative; }
+.auth-body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(110% 70% at 50% 0%, oklch(0.9 var(--sky-c, 0.05) var(--sky-h, 80) / 0.38), transparent 72%),
+    radial-gradient(90% 50% at 50% 100%, oklch(0.92 calc(var(--sky-c, 0.05) * 0.6) var(--sky-h, 80) / 0.26), transparent 70%);
+}
+:root[data-mode="dark"] .auth-body::before {
+  background:
+    radial-gradient(110% 70% at 50% 0%, oklch(0.42 var(--sky-c, 0.05) var(--sky-h, 80) / 0.3), transparent 72%),
+    radial-gradient(90% 50% at 50% 100%, oklch(0.38 calc(var(--sky-c, 0.05) * 0.6) var(--sky-h, 80) / 0.22), transparent 70%);
+}
+.auth-card { position: relative; z-index: 1; }
+@media (max-width: 860px) { .auth-body::before { display: none; } }
+/* Account: name/email with an Edit button */
+.acct-me-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.acct-me-row .btn { flex: none; margin-top: 4px; }
+
+/* App logo: a graphite tile (public/brand/logo*.svg) */
+img.logo { width: 30px; height: 30px; border-radius: 8px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(16, 24, 32, 0.2)); }
+.auth-art-logo img.logo { width: 36px; height: 36px; border-radius: 9px; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45)); }
+.auth-mark img.logo { width: 40px; height: 40px; border-radius: 10px; margin-bottom: 12px; }
+/* The logo appears once, in the dark panel; not again above the form */
+.auth-mark { display: none !important; }

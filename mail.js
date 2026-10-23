@@ -66,6 +66,14 @@ module.exports = {
     footer: "If you didn't ask for this, ignore this email. Your password stays the same.",
   })),
 
+  emailChanged: (to, newEmail, url) => quietly(send({
+    to, subject: 'Your email was changed',
+    heading: 'Your account email was changed',
+    body: `The email for your WhatsApp Sender account was changed to <b>${esc(newEmail)}</b>. If this was you, there's nothing to do.`,
+    button: 'Sign in', url,
+    footer: "If you didn't make this change, sign in and change your password, or reply to this email.",
+  })),
+
   invite: (to, inviter, workspace, url) => quietly(send({
     to, subject: `${inviter} invited you to ${workspace}`,
     heading: `Join ${workspace} on WhatsApp Sender`,

@@ -1683,6 +1683,28 @@ $('#acctBtn').addEventListener('click', (e) => {
   items.push('-', { label: 'Workspace & team…', action: () => { showTab('settings'); $('#acctCard').scrollIntoView({ behavior: 'smooth' }); } }, { label: 'Log out', action: () => (location.href = '/logout') });
   Sheet.Menu.open(r.left, r.top - 8 - (items.length * 34 + 12), items);
 });
+// Edit your own name and email (a new email needs your password, then a confirmation link).
+$('#acctEdit').addEventListener('click', () => {
+  const u = state.me.user;
+  const body = openModal('Edit your account', `
+    <label>Your name<input id="aeName" maxlength="80" value="${esc(u.name || '')}" autocomplete="name" /></label>
+    <label>Email<input id="aeEmail" type="email" value="${esc(u.email)}" autocomplete="email" /></label>
+    <label id="aePwWrap" class="hidden">Current password <span class="opt">needed to change your email</span><input id="aePw" type="password" autocomplete="current-password" /></label>
+    <p class="sub hidden" id="aeNote">We'll send a confirmation link to the new address and let the old one know.</p>
+    <div class="modal-actions"><button class="btn quiet" id="aeCancel">Cancel</button><button class="btn primary" id="aeSave">Save</button></div>`);
+  const emailChanged = () => $('#aeEmail', body).value.trim().toLowerCase() !== u.email;
+  $('#aeEmail', body).addEventListener('input', () => { const c = emailChanged(); $('#aePwWrap', body).classList.toggle('hidden', !c); $('#aeNote', body).classList.toggle('hidden', !c); });
+  $('#aeCancel', body).onclick = closeModal;
+  $('#aeSave', body).onclick = (e) => guard(async () => {
+    const changed = emailChanged();
+    await api('/account', { method: 'PATCH', body: { name: $('#aeName', body).value, email: $('#aeEmail', body).value, current: $('#aePw', body).value } });
+    closeModal();
+    await loadMe();
+    loadTeam();
+    toast(changed ? 'Saved. Check the new inbox to confirm it.' : 'Saved');
+  }, e.target);
+});
+
 $('#wsSave').addEventListener('click', (e) => guard(async () => { await api('/workspace', { method: 'PATCH', body: { name: $('#wsName').value } }); await loadMe(); toast('Workspace renamed'); }, e.target));
 $('#wsNew').addEventListener('click', async () => {
   const body = openModal('New workspace', `<p class="sub" style="margin-top:-6px">A separate, empty workspace for another business. You can switch between them from the sidebar.</p><label>Business name<input id="nwName" maxlength="80" /></label><div class="modal-actions"><button class="btn quiet" id="nwCancel">Cancel</button><button class="btn primary" id="nwGo">Create</button></div>`);

@@ -138,12 +138,21 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   // --- Pages --------------------------------------------------------------------
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const LOGO = `<svg class="logo" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 4.5h9a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8h-7.2L8 28.6v-5.1A8 8 0 0 1 3.5 16.5v-4a8 8 0 0 1 8-8z"/><path d="M10.4 12.4q1.6-2.2 3.2 0"/><circle class="logo-eye" cx="20.4" cy="11.6" r="1.25" fill="currentColor" stroke="none"/><path d="M10.6 17.2q2.4 2.4 4.8 1.4l5.6-4"/></svg>`;
+  const LOGO = `<img class="logo" src="/brand/logo-small.svg" alt="">`;
   function page(title, body) {
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)} · WhatsApp Sender</title><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css">
+<title>${esc(title)} · WhatsApp Sender</title><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"><link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg">
 <script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}</script></head>
 <body class="auth-body">${body}<script src="/gradient-ascii.js"></script><script>
+// The page background: the same faint time-of-day sky as the Assistant's start page.
+(function () {
+  var SKY = [[0, 265, 0.07], [4.5, 265, 0.07], [6.5, 70, 0.12], [9, 85, 0.08], [12, 90, 0.035], [15.5, 80, 0.06], [18.5, 45, 0.11], [20, 330, 0.07], [21.5, 265, 0.07], [24, 265, 0.07]];
+  var d = new Date(), t = d.getHours() + d.getMinutes() / 60, i = 0;
+  while (i < SKY.length - 2 && t >= SKY[i + 1][0]) i++;
+  var a = SKY[i], b = SKY[i + 1], f = (t - a[0]) / (b[0] - a[0]), dh = ((b[1] - a[1] + 540) % 360) - 180;
+  document.body.style.setProperty('--sky-h', ((a[1] + dh * f + 360) % 360).toFixed(1));
+  document.body.style.setProperty('--sky-c', (a[2] + (b[2] - a[2]) * f).toFixed(3));
+})();
 // The left panel: a drifting ASCII light (falls back to the CSS gradient without WebGL2).
 var art = document.querySelector('.auth-art');
 if (art && window.GradientASCII) { var host = document.createElement('div'); host.className = 'auth-ascii'; art.prepend(host); if (!GradientASCII.mount(host, { colors: ['#494949', '#eef2ff', '#ffffff', '#7e7e7e'], shape: 'pinch', characters: ' =+xX0S8#@', cellSize: 16, density: 0.8, glow: 0.25, grain: 0.06 })) host.remove(); else art.classList.add('has-ascii'); }
@@ -500,6 +509,32 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       m.role = role;
       saveAccounts();
       res.json({ ok: true });
+    }));
+
+    // Your own name and email. Only you can change them; a new email needs your password and a fresh confirmation.
+    app.patch('/api/account', wrap((req, res) => {
+      const u = req.user;
+      if (req.body.name != null) {
+        const name = String(req.body.name).trim().slice(0, 80);
+        if (!name) throw fail('Enter your name');
+        u.name = name;
+      }
+      if (req.body.email != null) {
+        const email = String(req.body.email).trim().toLowerCase();
+        if (email !== u.email) {
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw fail('Enter a valid email');
+          if (!checkPassword(req.body.current, u.password)) throw fail('Your current password is wrong');
+          if (userByEmail(email)) throw fail('Another account already uses that email');
+          const old = u.email;
+          u.email = email;
+          u.emailVerified = false;
+          delete u.resetToken;
+          mail.emailChanged(old, email, `${mail.baseUrl(req)}/login`);
+          sendVerify(req, u);
+        }
+      }
+      saveAccounts();
+      res.json({ user: { ...publicUser(u), emailVerified: u.emailVerified !== false } });
     }));
 
     app.post('/api/account/verify-email', wrap((req, res) => {
