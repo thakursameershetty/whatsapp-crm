@@ -2873,3 +2873,5 @@ body.send-open .banner { max-width: none; width: auto; margin-left: 24px; margin
 .ib-typing-label svg { width: 14px; height: 14px; }
 .ib-prev-typing { color: var(--good-text); font-weight: 600; font-style: italic; }
 @media (prefers-reduced-motion: reduce) { .ib-typing-bubble i { animation: none; } }
+.ib-unsupported svg.la { display: inline-block; vertical-align: -2px; margin-right: 5px; }
+.sp-prev-test { width: 100%; justify-content: center; margin-top: 12px; }

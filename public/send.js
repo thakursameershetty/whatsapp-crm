@@ -559,6 +559,7 @@
   function previewTarget() {
     const { list } = recipients();
     if (SP.previewAt != null && list.length) return list[Math.min(SP.previewAt, list.length - 1)];
+    if (!current()) return list[0] || null; // no sheet open: the grid has no cursor to ask about
     const active = grid.activeRow();
     return list.find((x) => x.row === active) || list[0] || null;
   }
@@ -606,7 +607,7 @@
     const t = currentTemplate();
     const el = $('#preview');
     renderTplPreview();
-    if (!t) { el.innerHTML = '<span class="muted">Pick a template in Compose to see the message here.</span>'; $('#previewNote').textContent = ''; $('#spStepper').classList.add('hidden'); return; }
+    if (!t) { el.innerHTML = '<span class="muted">Pick a template in Setup to see the message here.</span>'; $('#previewNote').textContent = ''; $('#spStepper').classList.add('hidden'); return; }
     const target = previewTarget();
     el.innerHTML = bubbleHtml(t, valuesFor(target?.obj));
     const { list } = recipients();
@@ -614,7 +615,7 @@
     $('#spStepN').textContent = target ? `${list.findIndex((x) => x.row === target.row) + 1} / ${list.length.toLocaleString()}` : '';
     $('#previewNote').textContent = target
       ? `Row ${target.sheet.rows.indexOf(target.row) + 1}${SP.sheets.length > 1 ? ` of ${target.sheet.name}` : ''} · +${target.row.phone}. Click a row to preview it.`
-      : 'Add recipients to preview personalised values.';
+      : 'No contacts open: variables show as they will be filled in. You can still send a test.';
   }
 
   // --- Chrome: toolbar state, tabs, summary ----------------------------------------------
@@ -789,6 +790,8 @@
       $('#testPhone').focus();
     }
   });
+  // The same pop-up, opened from under the preview.
+  $('#spPrevTest').addEventListener('click', (e) => { e.stopPropagation(); if ($('#testPop').classList.contains('hidden')) $('#testOpen').click(); else $('#testPhone').focus(); });
   $('#testPhone').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#testSend').click(); if (e.key === 'Escape') closeTest(); });
   document.addEventListener('click', (e) => { if (!e.target.closest('.sp-testwrap')) closeTest(); });
 

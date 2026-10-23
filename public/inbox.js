@@ -548,7 +548,8 @@
         h += `<div class="ib-label">${icon('reply', 11)}Tapped a button</div>`;
         break;
       case 'unsupported':
-        h += `<div class="ib-text ib-unsupported">${esc(m.text)}</div>`;
+        // WhatsApp didn't share this message's content (polls, some stickers, view-once, calls…).
+        h += `<div class="ib-text ib-unsupported">${icon('badge-alert', 13)}<span>Message not shown here. Open WhatsApp on the phone to see it.</span><span class="ib-spacer ${m.dir}"></span></div>`;
         textInside = false;
         break;
     }
