@@ -31,6 +31,16 @@ Anyone can sign up at `/signup` with their name, email, a password and their bus
 - **Upgrading from the single-password version:** on first start the old `data/db.json` becomes the first workspace (a copy is kept in `data/backups/`). Claim it by signing up and entering the old `APP_PASSWORD` in *Existing app password*, or with `OWNER_EMAIL`. On a hosted server (Railway) it stays unclaimed until one of them is set; only a local copy lets the first sign-up take it.
 - Server environment AI keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) only apply to that original workspace; other businesses add their own key in Settings.
 
+## Email
+
+Account emails: **confirm your email** (sent at sign-up, with a banner in the app until confirmed), **forgot password** (a one-hour reset link from *Forgot password?* on the sign-in page; resetting signs you out everywhere) and **invites** (emailed to the teammate; the link is still shown to copy). Uses [Resend](https://resend.com):
+
+| Variable | |
+|---|---|
+| `RESEND_API_KEY` | API key from resend.com. Without it, emails are written to the server log instead of sent. |
+| `MAIL_FROM` | Sender, e.g. `WhatsApp Sender <hello@spotmies.com>`. The domain must be verified in Resend. |
+| `APP_URL` | Optional public address used in email links (otherwise taken from the request). |
+
 ## Database
 
 Set `DATABASE_URL` to a PostgreSQL connection string to store everything in Postgres (recommended for anything public). Accounts live in `users`, `workspaces`, `members`, `invites` and `sessions`; every workspace record (contact, message, campaign, template, notification, chat…) is a row in `ws_items` keyed by workspace. The app keeps working data in memory and saves only the rows that changed, in a transaction. Tables are created on first start, and if the database is empty the existing JSON files in `data/` are imported (and kept as a backup). Without `DATABASE_URL` it uses JSON files in `data/`. Start with `npm start` (`node main.js`), which opens the database before the server starts.

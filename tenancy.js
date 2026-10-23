@@ -12,7 +12,11 @@
 const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 
+const mail = require('./mail');
+
 const SESSION_DAYS = 30;
+const RESET_MINUTES = 60;
+const VERIFY_DAYS = 7;
 const INVITE_DAYS = 7;
 
 module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEmail = '' }) {
@@ -166,7 +170,7 @@ document.querySelectorAll('input[type=password]').forEach(function(inp){
 </main>`;
   const mark = `<span class="auth-mark">${LOGO}</span>`;
 
-  function loginPage({ error = '', email = '', next = '' } = {}) {
+  function loginPage({ error = '', email = '', next = '', notice = '' } = {}) {
     return page('Sign in', shell({
       kicker: 'Welcome back',
       headline: 'Pick up right where you left off.',
@@ -174,9 +178,9 @@ document.querySelectorAll('input[type=password]').forEach(function(inp){
 <h1>Sign in</h1>
 <p class="auth-sub">Your campaigns and chats are waiting.</p>
 <label>Your email<input type="email" name="email" value="${esc(email)}" autocomplete="email" placeholder="you@company.com" required autofocus></label>
-<label>Password<input type="password" name="password" autocomplete="current-password" placeholder="Your password" required></label>
+<label><span class="auth-label-row">Password<a href="/forgot${email ? `?email=${encodeURIComponent(email)}` : ''}" class="auth-forgot">Forgot password?</a></span><input type="password" name="password" autocomplete="current-password" placeholder="Your password" required></label>
 <input type="hidden" name="next" value="${esc(next)}">
-${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">Sign in</button>
+${notice ? `<p class="auth-notice">${esc(notice)}</p>` : ''}${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">Sign in</button>
 <p class="login-alt">Don't have an account? <a href="/signup${next ? `?next=${encodeURIComponent(next)}` : ''}">Create one</a></p></form>`,
     }));
   }
@@ -200,6 +204,47 @@ ${legacy ? `<label>Existing app password <span class="opt">only if you used this
 ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">${invite ? 'Join workspace' : 'Get started'}</button>
 <p class="login-alt">Already have an account? <a href="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">Sign in</a></p></form>`,
     }));
+  }
+
+  function forgotPage({ email = '', sent = false, error = '' } = {}) {
+    return page('Reset password', shell({
+      kicker: 'Forgot password',
+      headline: 'It happens. Let’s get you back in.',
+      form: sent
+        ? `<div class="auth-fields">${mark}<h1>Check your email</h1><p class="auth-sub">If an account exists for <b>${esc(email)}</b>, we sent a link to reset the password. It works for 1 hour.</p><a class="auth-btn" href="/login">Back to sign in</a></div>`
+        : `<form method="post" action="/forgot" class="auth-fields">${mark}
+<h1>Reset your password</h1>
+<p class="auth-sub">Enter your email and we'll send you a link to choose a new password.</p>
+<label>Your email<input type="email" name="email" value="${esc(email)}" autocomplete="email" placeholder="you@company.com" required autofocus></label>
+${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">Send reset link</button>
+<p class="login-alt">Remembered it? <a href="/login">Sign in</a></p></form>`,
+    }));
+  }
+  function resetPage({ token, error = '' }) {
+    return page('New password', shell({
+      kicker: 'Almost there',
+      headline: 'Choose a new password.',
+      form: `<form method="post" action="/reset/${esc(token)}" class="auth-fields">${mark}
+<h1>Choose a new password</h1>
+<p class="auth-sub">You'll be signed out everywhere else.</p>
+<label>New password <span class="opt">at least 8 characters</span><input type="password" name="password" autocomplete="new-password" minlength="8" placeholder="New password" required autofocus></label>
+${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">Save password</button></form>`,
+    }));
+  }
+  const messagePage = (title, heading, text, cta = '<a class="auth-btn" href="/">Open the app</a>') =>
+    page(title, shell({ kicker: title, headline: heading, form: `<div class="auth-fields">${mark}<h1>${esc(heading)}</h1><p class="auth-sub">${text}</p>${cta}</div>` }));
+
+  // One-time links (reset password, confirm email): only a hash is stored, on the user.
+  function issueToken(user, kind, ms) {
+    const token = crypto.randomBytes(24).toString('hex');
+    user[kind] = { hash: sha(token), expiresAt: new Date(Date.now() + ms).toISOString() };
+    saveAccounts();
+    return token;
+  }
+  const userByToken = (kind, token) => accounts.users.find((u) => u[kind] && u[kind].hash === sha(String(token || '')) && new Date(u[kind].expiresAt) > new Date());
+  function sendVerify(req, user) {
+    const token = issueToken(user, 'verifyToken', VERIFY_DAYS * 86400000);
+    mail.verify(user.email, user.name, `${mail.baseUrl(req)}/verify/${token}`);
   }
 
   const safeNext = (n) => (/^\/[^/\\]/.test(String(n || '')) ? String(n) : '/');
@@ -258,7 +303,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       const claims = old && ((legacy && appPassword && sameText(String(legacy), appPassword)) || (ownerEmail && email === ownerEmail.toLowerCase()) || (!appPassword && !ownerEmail && !hosted));
       if (old && legacy && !claims) return again('That app password is wrong. Leave it empty to start a fresh workspace.');
 
-      const user = { id: id(), name: String(name).trim().slice(0, 80), email, password: hashPassword(password), createdAt: now() };
+      const user = { id: id(), name: String(name).trim().slice(0, 80), email, password: hashPassword(password), createdAt: now(), emailVerified: false };
       accounts.users.push(user);
       let wsId;
       if (invite) { acceptInvite(invite, user.id); wsId = invite.wsId; }
@@ -273,8 +318,45 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       }
       user.lastWsId = wsId;
       saveAccounts();
+      sendVerify(req, user);
       startSession(res, user.id, wsId);
       res.redirect('/');
+    });
+
+    // Forgot password → email a one-hour link. The page never says whether the email exists.
+    app.get('/forgot', (req, res) => res.send(forgotPage({ email: req.query.email || '' })));
+    app.post('/forgot', form, (req, res) => {
+      const email = String(req.body.email || '').trim().toLowerCase();
+      if (tooMany(`${req.ip}|forgot`)) return res.status(429).send(forgotPage({ email, error: 'Too many attempts. Try again in a few minutes.' }));
+      noteTry(`${req.ip}|forgot`);
+      const user = userByEmail(email);
+      if (user) mail.reset(user.email, `${mail.baseUrl(req)}/reset/${issueToken(user, 'resetToken', RESET_MINUTES * 60000)}`);
+      res.send(forgotPage({ email, sent: true }));
+    });
+    app.get('/reset/:token', (req, res) => {
+      if (!userByToken('resetToken', req.params.token)) return res.status(404).send(messagePage('Reset password', 'This link has expired', 'Reset links work for 1 hour and only once. Ask for a new one.', '<a class="auth-btn" href="/forgot">Send a new link</a>'));
+      res.send(resetPage({ token: req.params.token }));
+    });
+    app.post('/reset/:token', form, (req, res) => {
+      const user = userByToken('resetToken', req.params.token);
+      if (!user) return res.status(404).send(messagePage('Reset password', 'This link has expired', 'Reset links work for 1 hour and only once. Ask for a new one.', '<a class="auth-btn" href="/forgot">Send a new link</a>'));
+      if (String(req.body.password || '').length < 8) return res.status(400).send(resetPage({ token: req.params.token, error: 'Use a password of at least 8 characters' }));
+      user.password = hashPassword(String(req.body.password));
+      delete user.resetToken;
+      user.emailVerified = true; // they proved they can read this inbox
+      accounts.sessions = accounts.sessions.filter((x) => x.userId !== user.id); // signed out everywhere
+      saveAccounts();
+      res.send(loginPage({ email: user.email, notice: 'Password changed. Sign in with your new password.' }));
+    });
+
+    // Confirm email address.
+    app.get('/verify/:token', (req, res) => {
+      const user = userByToken('verifyToken', req.params.token);
+      if (!user) return res.status(404).send(messagePage('Confirm email', 'This link has expired', 'Sign in and send a new confirmation link from the banner at the top of the app.'));
+      user.emailVerified = true;
+      delete user.verifyToken;
+      saveAccounts();
+      res.send(messagePage('Confirm email', 'Email confirmed', `Thanks, <b>${esc(user.email)}</b> is confirmed.`));
     });
 
     app.get('/invite/:token', (req, res) => {
@@ -329,7 +411,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
     app.get('/api/me', (req, res) => {
       const ws = current();
       res.json({
-        user: publicUser(req.user),
+        user: { ...publicUser(req.user), emailVerified: req.user.emailVerified !== false },
+        mail: mail.enabled(),
         role: req.role,
         workspace: { id: ws.meta.id, name: ws.meta.name },
         workspaces: membershipsOf(req.user.id).map((m) => ({ id: m.wsId, name: accounts.workspaces.find((w) => w.id === m.wsId)?.name, role: m.role })),
@@ -384,7 +467,9 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       accounts.invites = accounts.invites.filter((i) => !(i.wsId === wsId && i.email === email));
       accounts.invites.push({ id: id(), hash: sha(token), wsId, email, role: req.body.role === 'owner' ? 'owner' : 'member', invitedBy: req.user.id, expiresAt: new Date(Date.now() + INVITE_DAYS * 86400000).toISOString() });
       saveAccounts();
-      res.json({ link: `${req.protocol}://${req.get('host')}/invite/${token}`, expiresInDays: INVITE_DAYS });
+      const link = `${mail.baseUrl(req)}/invite/${token}`;
+      mail.invite(email, req.user.name || req.user.email, current().meta.name, link);
+      res.json({ link, expiresInDays: INVITE_DAYS, emailed: mail.enabled() });
     }));
 
     app.delete('/api/team/invites/:id', wrap((req, res) => {
@@ -415,6 +500,14 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       m.role = role;
       saveAccounts();
       res.json({ ok: true });
+    }));
+
+    app.post('/api/account/verify-email', wrap((req, res) => {
+      if (req.user.emailVerified !== false) return res.json({ ok: true, already: true });
+      if (tooMany(`${req.user.id}|verify`)) throw fail('Too many emails. Try again in a few minutes.', 429);
+      noteTry(`${req.user.id}|verify`);
+      sendVerify(req, req.user);
+      res.json({ ok: true, mail: mail.enabled() });
     }));
 
     app.post('/api/account/password', wrap((req, res) => {

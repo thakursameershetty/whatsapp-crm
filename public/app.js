@@ -1657,7 +1657,15 @@ async function loadMe() {
   $('#acctMe').innerHTML = `<b>${esc(user.name)}</b><br><span class="muted">${esc(user.email)} · ${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
   $('#inviteBox').classList.toggle('hidden', state.me.role !== 'owner');
   document.title = `${workspace.name} · WhatsApp Sender`;
+  $('#verifyBanner').classList.toggle('hidden', user.emailVerified);
+  $('#verifyEmail').textContent = user.email;
+  $('#inviteNote').textContent = state.me.mail ? 'They get an email with a link to join. Links work for 7 days.' : 'Email isn’t set up yet, so copy the link and send it yourself. Links work for 7 days.';
 }
+$('#verifyResend').addEventListener('click', (e) => guard(async () => {
+  const r = await api('/account/verify-email', { method: 'POST' });
+  toast(r.already ? 'Your email is already confirmed' : r.mail ? 'Sent. Check your inbox.' : 'Email isn’t set up on this server yet');
+  if (r.already) loadMe();
+}, e.target));
 async function loadTeam() {
   const t = await api('/team');
   $('#teamList').innerHTML = t.members.map((m) => `<div class="team-row"><span class="acct-av sm" style="${avatarStyle(m.email)}">${esc((m.name || m.email).slice(0, 1).toUpperCase())}</span>
@@ -1686,6 +1694,7 @@ $('#pwSave').addEventListener('click', (e) => guard(async () => { await api('/ac
 $('#inviteBtn').addEventListener('click', (e) => guard(async () => {
   const r = await api('/team/invites', { method: 'POST', body: { email: $('#inviteEmail').value } });
   $('#inviteOut').classList.remove('hidden');
+  toast(r.emailed ? 'Invite emailed. You can also copy the link.' : 'Invite created. Copy the link and send it to them.');
   $('#inviteOut').innerHTML = `<input readonly value="${esc(r.link)}" id="inviteLink" /><button class="btn sm" id="inviteCopy">Copy link</button>`;
   $('#inviteCopy').onclick = () => { navigator.clipboard.writeText(r.link); toast('Invite link copied'); };
   $('#inviteEmail').value = '';

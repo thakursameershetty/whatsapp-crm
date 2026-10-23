@@ -79,6 +79,11 @@
     </div>
   </aside>
 
+  <div id="verifyBanner" class="banner verify-banner hidden">
+    <span class="dot"></span>
+    <span><strong>Confirm your email</strong> — we sent a link to <b id="verifyEmail"></b>. It lets you reset your password if you ever forget it.</span>
+    <button class="btn sm quiet" id="verifyResend">Send again</button>
+  </div>
   <div id="demoBanner" class="banner hidden">
     <span class="dot"></span>
     <span><strong>Demo mode</strong> — sending is simulated. Turn it off in <a href="#"
@@ -528,7 +533,7 @@
               <div class="field-label" style="margin-top:14px">Invite a teammate</div>
               <div class="row tight"><input id="inviteEmail" type="email" placeholder="name@company.com" /><button class="btn primary" id="inviteBtn">Create invite link</button></div>
               <div id="inviteOut" class="invite-out hidden"></div>
-              <p class="sub">They open the link to join. Links work for 7 days; no email is sent, so share it yourself.</p>
+              <p class="sub" id="inviteNote">They get an email with a link to join. Links work for 7 days.</p>
             </div>
           </div>
         </div>

@@ -3051,3 +3051,13 @@ body.nav-mini .acct-text { display: none; }
   .auth-fields h1 { font-size: 26px; }
   .auth-sub { margin-bottom: 18px; }
 }
+
+/* Account emails: forgot-password link, notices, confirm-email banner */
+.auth-label-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.auth-forgot { font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; }
+.auth-forgot:hover { color: var(--text); text-decoration: underline; }
+.auth-notice { margin: 10px 0 -6px; padding: 10px 12px; border-radius: 10px; font-size: 13.5px; background: var(--good-soft); color: var(--good-text); }
+.auth-fields b { color: var(--text); }
+.verify-banner { background: var(--info-soft); color: var(--text); }
+.verify-banner .dot { background: var(--info); }
+.verify-banner .btn { margin-left: auto; }
