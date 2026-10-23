@@ -1,48 +1,35 @@
 // Workspaces, accounts and sign-in.
 //
 // Every business gets its own workspace: its own WhatsApp numbers, templates, contacts,
-// campaigns, inbox, AI settings and chats, stored in data/workspaces/<id>.json. People sign
-// up with email + password (data/accounts.json); a workspace can have several members.
+// campaigns, inbox, AI settings and chats. People sign up with email + password; a workspace
+// can have several members. Where it's all saved is up to the store (store.js: Postgres, or
+// JSON files when there's no database).
 //
 // The rest of the app uses one `db` object. Here `db` is a proxy that points at the current
 // request's workspace (AsyncLocalStorage), so existing code works unchanged but can only see
 // its own workspace. Background work (webhooks, scheduler, startup) runs inside forWorkspace().
 
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 
 const SESSION_DAYS = 30;
 const INVITE_DAYS = 7;
 
-module.exports = function tenancy({ dataDir, defaultDb, appPassword = '', ownerEmail = '' }) {
-  const WS_DIR = path.join(dataDir, 'workspaces');
-  const ACCOUNTS_FILE = path.join(dataDir, 'accounts.json');
-  const LEGACY_FILE = path.join(dataDir, 'db.json');
-  fs.mkdirSync(WS_DIR, { recursive: true });
-
+module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEmail = '' }) {
   const id = () => crypto.randomBytes(8).toString('hex');
   const now = () => new Date().toISOString();
   const als = new AsyncLocalStorage();
 
   // --- Accounts ---------------------------------------------------------------
 
-  const accounts = fs.existsSync(ACCOUNTS_FILE)
-    ? JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf8'))
-    : { users: [], workspaces: [], members: [], invites: [], sessions: [] };
+  const accounts = store.accounts;
   let accTimer = null;
   function saveAccounts() {
     if (accTimer) return;
     accTimer = setTimeout(() => {
       accTimer = null;
-      writeJson(ACCOUNTS_FILE, accounts);
+      store.saveAccounts(accounts).catch((e) => console.error('Saving accounts failed:', e.message));
     }, 200);
-  }
-  function writeJson(file, data) {
-    const tmp = file + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-    fs.renameSync(tmp, file);
   }
 
   // --- Workspaces -------------------------------------------------------------
@@ -58,24 +45,11 @@ module.exports = function tenancy({ dataDir, defaultDb, appPassword = '', ownerE
   }
 
   function loadWorkspace(meta) {
-    const file = path.join(WS_DIR, meta.id + '.json');
-    const raw = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
-    const ws = { meta, db: normalize(raw), timer: null };
+    const ws = { meta, db: normalize(store.data.get(meta.id) || {}), timer: null };
     loaded.set(meta.id, ws);
     return ws;
   }
 
-  // The data that existed before workspaces becomes the first workspace, kept for whoever
-  // claims it (see signup). A copy of the old file is kept in data/backups.
-  if (!accounts.workspaces.length && fs.existsSync(LEGACY_FILE)) {
-    const meta = { id: id(), name: 'Spotmies', createdAt: now(), legacy: true };
-    fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
-    fs.copyFileSync(LEGACY_FILE, path.join(dataDir, 'backups', `db-before-workspaces-${Date.now()}.json`));
-    fs.copyFileSync(LEGACY_FILE, path.join(WS_DIR, meta.id + '.json'));
-    fs.renameSync(LEGACY_FILE, LEGACY_FILE + '.migrated');
-    accounts.workspaces.push(meta);
-    writeJson(ACCOUNTS_FILE, accounts);
-  }
   for (const meta of accounts.workspaces) loadWorkspace(meta);
 
   function createWorkspace(name) {
@@ -92,7 +66,7 @@ module.exports = function tenancy({ dataDir, defaultDb, appPassword = '', ownerE
     if (ws.timer) return;
     ws.timer = setTimeout(() => {
       ws.timer = null;
-      writeJson(path.join(WS_DIR, ws.meta.id + '.json'), ws.db);
+      store.saveWorkspace(ws.meta.id, ws.db).catch((e) => console.error(`Saving workspace ${ws.meta.id} failed:`, e.message));
     }, 300);
   }
 
@@ -433,9 +407,11 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="btn pri
     mountAuth, requireAuth, mountAccountApi,
     wsId: () => current()?.meta.id || null,
     isLegacy: () => Boolean(current()?.meta.legacy),
-    flush() { // write everything now (used on shutdown)
-      for (const ws of loaded.values()) if (ws.timer) { clearTimeout(ws.timer); ws.timer = null; writeJson(path.join(WS_DIR, ws.meta.id + '.json'), ws.db); }
-      if (accTimer) { clearTimeout(accTimer); accTimer = null; writeJson(ACCOUNTS_FILE, accounts); }
+    async flush() { // write everything now (used on shutdown)
+      if (accTimer) { clearTimeout(accTimer); accTimer = null; }
+      await store.saveAccounts(accounts);
+      for (const ws of loaded.values()) if (ws.timer) { clearTimeout(ws.timer); ws.timer = null; await store.saveWorkspace(ws.meta.id, ws.db); }
+      await store.close();
     },
   };
 };

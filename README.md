@@ -31,6 +31,12 @@ Anyone can sign up at `/signup` with their name, email, a password and their bus
 - **Upgrading from the single-password version:** on first start the old `data/db.json` becomes the first workspace (a copy is kept in `data/backups/`). Claim it by signing up and entering the old `APP_PASSWORD` in *Existing app password*, or with `OWNER_EMAIL`. On a hosted server (Railway) it stays unclaimed until one of them is set; only a local copy lets the first sign-up take it.
 - Server environment AI keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) only apply to that original workspace; other businesses add their own key in Settings.
 
+## Database
+
+Set `DATABASE_URL` to a PostgreSQL connection string to store everything in Postgres (recommended for anything public). Accounts live in `users`, `workspaces`, `members`, `invites` and `sessions`; every workspace record (contact, message, campaign, template, notification, chat…) is a row in `ws_items` keyed by workspace. The app keeps working data in memory and saves only the rows that changed, in a transaction. Tables are created on first start, and if the database is empty the existing JSON files in `data/` are imported (and kept as a backup). Without `DATABASE_URL` it uses JSON files in `data/`. Start with `npm start` (`node main.js`), which opens the database before the server starts.
+
+On Railway: add a PostgreSQL database to the project, then in the app service's **Variables** add a reference to it named `DATABASE_URL`. Keep the volume: it still holds downloaded media and backups.
+
 ## Before your API access is ready: Demo mode
 
 The app starts in **Demo mode**. Everything works (adding numbers, templates, uploading contacts, sending, progress, delivered/read) but sending is simulated. Use it to set up and practise.

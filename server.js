@@ -38,7 +38,8 @@ const DEFAULT_DB = {
 };
 
 // One workspace per business; `db` always means the current request's workspace.
-const tenants = require('./tenancy')({ dataDir: DATA_DIR, defaultDb: DEFAULT_DB, appPassword: APP_PASSWORD, ownerEmail: process.env.OWNER_EMAIL || '' });
+const store = global.__store || require('./store').fileStore(DATA_DIR); // main.js opens Postgres when DATABASE_URL is set
+const tenants = require('./tenancy')({ store, defaultDb: DEFAULT_DB, appPassword: APP_PASSWORD, ownerEmail: process.env.OWNER_EMAIL || '' });
 const { db, save } = tenants;
 
 const id = () => crypto.randomBytes(8).toString('hex');
@@ -1356,4 +1357,6 @@ app.listen(PORT, () => {
   console.log(`${tenants.allWorkspaces().length} workspace(s). Sign up or sign in at /login.`);
 });
 // Write pending changes before the process stops (deploys restart it).
-for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { tenants.flush(); process.exit(0); });
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => {
+  tenants.flush().catch((e) => console.error('Saving on shutdown failed:', e.message)).finally(() => process.exit(0));
+});
