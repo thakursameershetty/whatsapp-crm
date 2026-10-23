@@ -64,6 +64,9 @@
       <button data-icon="settings" data-icon-size="16" data-tab="settings" title="Settings"><span
           class="nav-label">Settings</span></button>
     </nav>
+    <button type="button" class="acct-btn" id="acctBtn" aria-haspopup="menu" title="Account and workspace">
+      <span class="acct-av" id="acctAv"></span><span class="acct-text"><b id="acctWs">Workspace</b><span id="acctUser"></span></span>
+    </button>
     <div class="side-foot">
       <button id="modeBadge" class="badge" data-goto="settings" title="Change in Settings"></button>
       <div class="seg seg-icons" id="themeSeg" title="Theme">
@@ -502,6 +505,34 @@
 
     <!-- SETTINGS ---------------------------------------------------------->
     <section id="tab-settings" class="tab hidden">
+      <div class="card la-host acct-card" id="acctCard">
+        <h2 data-icon="users">Workspace &amp; team</h2>
+        <p class="sub">Each business has its own workspace: numbers, templates, contacts, campaigns, inbox and AI settings are separate. Invite teammates to share this one.</p>
+        <div class="acct-grid">
+          <div>
+            <label>Workspace name<input id="wsName" maxlength="80" /></label>
+            <div class="row tight"><button class="btn" id="wsSave">Save name</button><button class="btn quiet" id="wsNew" data-icon="plus" data-icon-size="14">New workspace</button></div>
+            <div class="field-label" style="margin-top:18px">Your account</div>
+            <p class="acct-me" id="acctMe"></p>
+            <details class="acct-pw"><summary>Change password</summary>
+              <label>Current password<input type="password" id="pwCur" autocomplete="current-password" /></label>
+              <label>New password <span class="opt">at least 8 characters</span><input type="password" id="pwNew" autocomplete="new-password" /></label>
+              <button class="btn" id="pwSave">Change password</button>
+            </details>
+            <a class="btn quiet danger" href="/logout" data-icon="arrow-left" data-icon-size="14">Log out</a>
+          </div>
+          <div>
+            <div class="field-label">Team</div>
+            <div id="teamList" class="team-list"></div>
+            <div id="inviteBox">
+              <div class="field-label" style="margin-top:14px">Invite a teammate</div>
+              <div class="row tight"><input id="inviteEmail" type="email" placeholder="name@company.com" /><button class="btn primary" id="inviteBtn">Create invite link</button></div>
+              <div id="inviteOut" class="invite-out hidden"></div>
+              <p class="sub">They open the link to join. Links work for 7 days; no email is sent, so share it yourself.</p>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="grid-2">
         <div class="card la-host">
           <h2 data-icon="settings">General</h2>

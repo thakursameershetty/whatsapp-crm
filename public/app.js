@@ -1639,8 +1639,69 @@ $('#unseedBtn').addEventListener('click', (e) =>
 
 LA.hydrate();
 
+// --- Account, workspace and team (tenancy.js) -----------------------------------
+async function loadMe() {
+  state.me = await api('/me');
+  const { user, workspace } = state.me;
+  const initials = (user.name || user.email).split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  $('#acctAv').textContent = initials;
+  $('#acctAv').setAttribute('style', avatarStyle(user.email));
+  $('#acctWs').textContent = workspace.name;
+  $('#acctUser').textContent = user.name || user.email;
+  $('#wsName').value = workspace.name;
+  $('#wsName').disabled = $('#wsSave').disabled = state.me.role !== 'owner';
+  $('#acctMe').innerHTML = `<b>${esc(user.name)}</b><br><span class="muted">${esc(user.email)} · ${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
+  $('#inviteBox').classList.toggle('hidden', state.me.role !== 'owner');
+  document.title = `${workspace.name} · WhatsApp Sender`;
+}
+async function loadTeam() {
+  const t = await api('/team');
+  $('#teamList').innerHTML = t.members.map((m) => `<div class="team-row"><span class="acct-av sm" style="${avatarStyle(m.email)}">${esc((m.name || m.email).slice(0, 1).toUpperCase())}</span>
+      <span class="team-who"><b>${esc(m.name)}${m.you ? ' <span class="muted">(you)</span>' : ''}</b><span>${esc(m.email)}</span></span>
+      <span class="pill ${m.role === 'owner' ? 'scheduled' : ''}">${m.role}</span>
+      ${t.role === 'owner' && !m.you ? `<button class="btn sm quiet" data-member="${m.id}" data-role="${m.role === 'owner' ? 'member' : 'owner'}">${m.role === 'owner' ? 'Make member' : 'Make owner'}</button><button class="btn sm quiet danger" data-remove="${m.id}">Remove</button>` : ''}
+      ${m.you && t.members.length > 1 ? `<button class="btn sm quiet danger" data-remove="${m.id}">Leave</button>` : ''}
+    </div>`).join('') + t.invites.map((i) => `<div class="team-row invited"><span class="acct-av sm">✉</span><span class="team-who"><b>${esc(i.email)}</b><span>Invited · expires ${new Date(i.expiresAt).toLocaleDateString()}</span></span><span class="pill">${i.role}</span><button class="btn sm quiet" data-uninvite="${i.id}">Cancel</button></div>`).join('');
+}
+$('#acctBtn').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const me = state.me;
+  if (!me) return;
+  const items = me.workspaces.map((w) => ({ label: `${w.id === me.workspace.id ? '✓ ' : ''}${w.name}`, action: () => w.id !== me.workspace.id && guard(async () => { await api('/workspace/switch', { method: 'POST', body: { id: w.id } }); location.reload(); }) }));
+  items.push('-', { label: 'Workspace & team…', action: () => { showTab('settings'); $('#acctCard').scrollIntoView({ behavior: 'smooth' }); } }, { label: 'Log out', action: () => (location.href = '/logout') });
+  Sheet.Menu.open(r.left, r.top - 8 - (items.length * 34 + 12), items);
+});
+$('#wsSave').addEventListener('click', (e) => guard(async () => { await api('/workspace', { method: 'PATCH', body: { name: $('#wsName').value } }); await loadMe(); toast('Workspace renamed'); }, e.target));
+$('#wsNew').addEventListener('click', async () => {
+  const body = openModal('New workspace', `<p class="sub" style="margin-top:-6px">A separate, empty workspace for another business. You can switch between them from the sidebar.</p><label>Business name<input id="nwName" maxlength="80" /></label><div class="modal-actions"><button class="btn quiet" id="nwCancel">Cancel</button><button class="btn primary" id="nwGo">Create</button></div>`);
+  $('#nwName', body).focus();
+  $('#nwCancel', body).onclick = closeModal;
+  $('#nwGo', body).onclick = (e) => guard(async () => { await api('/workspaces', { method: 'POST', body: { name: $('#nwName', body).value } }); location.reload(); }, e.target);
+});
+$('#pwSave').addEventListener('click', (e) => guard(async () => { await api('/account/password', { method: 'POST', body: { current: $('#pwCur').value, password: $('#pwNew').value } }); $('#pwCur').value = $('#pwNew').value = ''; toast('Password changed'); }, e.target));
+$('#inviteBtn').addEventListener('click', (e) => guard(async () => {
+  const r = await api('/team/invites', { method: 'POST', body: { email: $('#inviteEmail').value } });
+  $('#inviteOut').classList.remove('hidden');
+  $('#inviteOut').innerHTML = `<input readonly value="${esc(r.link)}" id="inviteLink" /><button class="btn sm" id="inviteCopy">Copy link</button>`;
+  $('#inviteCopy').onclick = () => { navigator.clipboard.writeText(r.link); toast('Invite link copied'); };
+  $('#inviteEmail').value = '';
+  loadTeam();
+}, e.target));
+$('#teamList').addEventListener('click', async (e) => {
+  const rm = e.target.closest('[data-remove]'), un = e.target.closest('[data-uninvite]'), mr = e.target.closest('[data-member]');
+  if (rm) {
+    const self = rm.dataset.remove === state.me.user.id;
+    if (!(await confirmDialog({ title: self ? 'Leave this workspace?' : 'Remove this teammate?', message: self ? 'You lose access until someone invites you again.' : 'They lose access to this workspace straight away.', confirmText: self ? 'Leave' : 'Remove', danger: true }))) return;
+    await guard(async () => { await api('/team/members/' + rm.dataset.remove, { method: 'DELETE' }); if (self) location.href = '/'; else loadTeam(); });
+  }
+  if (un) guard(async () => { await api('/team/invites/' + un.dataset.uninvite, { method: 'DELETE' }); loadTeam(); });
+  if (mr) guard(async () => { await api('/team/members/' + mr.dataset.member, { method: 'PATCH', body: { role: mr.dataset.role } }); loadTeam(); });
+});
+
 (async () => {
   try {
+    await loadMe().catch(() => {});
+    loadTeam().catch(() => {});
     state.settings = await api('/settings');
     renderSettings();
     await Promise.all([loadSenders(), loadTemplates()]);

@@ -1,6 +1,7 @@
 // WhatsApp bulk sender — Express backend.
-// Stores config + campaigns in data/db.json, talks to the WhatsApp Cloud API
-// (graph.facebook.com), and runs campaigns across multiple sender numbers.
+// Each business has its own workspace (tenancy.js: accounts, sign-in, one data file per
+// workspace). Talks to the WhatsApp Cloud API (graph.facebook.com) and runs campaigns across
+// multiple sender numbers.
 
 const express = require('express');
 const fs = require('fs');
@@ -10,7 +11,6 @@ const crypto = require('crypto');
 const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const DATA_DIR = path.join(__dirname, 'data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 // ---------------------------------------------------------------------------
 // Storage
@@ -37,40 +37,24 @@ const DEFAULT_DB = {
   tags: [],
 };
 
-function loadDb() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(DB_FILE)) return structuredClone(DEFAULT_DB);
-  const raw = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  return { ...DEFAULT_DB, ...raw, settings: { ...DEFAULT_DB.settings, ...raw.settings } };
-}
-
-const db = loadDb();
-let saveTimer = null;
-
-function save() {
-  if (saveTimer) return;
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    const tmp = DB_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
-    fs.renameSync(tmp, DB_FILE);
-  }, 300);
-}
-save();
+// One workspace per business; `db` always means the current request's workspace.
+const tenants = require('./tenancy')({ dataDir: DATA_DIR, defaultDb: DEFAULT_DB, appPassword: APP_PASSWORD, ownerEmail: process.env.OWNER_EMAIL || '' });
+const { db, save } = tenants;
 
 const id = () => crypto.randomBytes(8).toString('hex');
 
 // messageId -> { campaignId, index } so webhook status updates find their recipient.
 const messageIndex = new Map();
-for (const c of db.campaigns) {
-  c.recipients.forEach((r, i) => r.messageId && messageIndex.set(r.messageId, { campaignId: c.id, index: i }));
-  // A campaign that was mid-run when the server stopped can't resume its in-memory loop.
-  if (c.status === 'running') c.status = 'stopped';
-}
-
 // wamid -> inbox message, for de-duplicating webhook deliveries and applying status updates.
 const inboxIndex = new Map();
-for (const m of db.messages) if (m.wamid) inboxIndex.set(m.wamid, m);
+for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
+  for (const c of db.campaigns) {
+    c.recipients.forEach((r, i) => r.messageId && messageIndex.set(r.messageId, { campaignId: c.id, index: i }));
+    // A campaign that was mid-run when the server stopped can't resume its in-memory loop.
+    if (c.status === 'running') { c.status = 'stopped'; save(); }
+  }
+  for (const m of db.messages) if (m.wamid) inboxIndex.set(m.wamid, m);
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -304,17 +288,29 @@ function simulateStatuses(campaign, i) {
 const app = express();
 
 // Webhook must stay reachable by Meta without the app password.
+// Every workspace uses this same URL; Meta's verify token says which one is setting it up.
 app.get('/webhook', (req, res) => {
-  const ok = req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === db.settings.webhookVerifyToken;
+  const token = String(req.query['hub.verify_token'] || '');
+  const ok = req.query['hub.mode'] === 'subscribe' && token && tenants.allWorkspaces().some((ws) => ws.db.settings.webhookVerifyToken === token);
   return ok ? res.status(200).send(req.query['hub.challenge']) : res.sendStatus(403);
 });
 
+// Each change belongs to the workspace that owns its phone number.
 app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
   res.sendStatus(200);
-  const rank = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 };
-  const failedIn = new Set(); // campaigns that got new delivery failures in this webhook
   for (const entry of req.body?.entry || []) {
     for (const change of entry.changes || []) {
+      const ws = tenants.byPhoneNumberId(change.value?.metadata?.phone_number_id);
+      if (ws) tenants.forWorkspace(ws, () => handleWebhookChange(change));
+    }
+  }
+});
+
+function handleWebhookChange(change) {
+  const rank = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 };
+  const failedIn = new Set(); // campaigns that got new delivery failures in this webhook
+  {
+    {
       for (const st of change.value?.statuses || []) {
         const im = inboxIndex.get(st.id);
         if (im && im.dir === 'out') {
@@ -346,47 +342,14 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
   save();
   // Failures that arrive after a campaign finished (or while it runs) update its notification.
   for (const c of failedIn) if (!running.has(c.id)) notes?.deliveryFailed(c);
-});
-
-// Optional password protection for the dashboard + API: a login page that sets a
-// session cookie. (Basic auth still works for scripts, e.g. curl -u :password.)
-if (APP_PASSWORD) {
-  const SESSION = crypto.createHash('sha256').update('whatsapp-sender:' + APP_PASSWORD).digest('hex');
-  const same = (a, b) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-  const cookie = (req) => /(?:^|;\s*)ws_session=([a-f0-9]+)/.exec(req.headers.cookie || '')?.[1] || '';
-  const basicPass = (req) => {
-    const [scheme, b64] = (req.headers.authorization || '').split(' ');
-    if (scheme !== 'Basic' || !b64) return '';
-    const raw = Buffer.from(b64, 'base64').toString();
-    return raw.slice(raw.indexOf(':') + 1);
-  };
-  const loginPage = (error = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · WhatsApp Sender</title><link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><style>g{stroke:%2314181c}circle{fill:%2314181c}@media (prefers-color-scheme:dark){g{stroke:%23fff}circle{fill:%23fff}}</style><g fill='none' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'><path d='M11.5 4.5h9a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8h-7.2L8 28.6v-5.1A8 8 0 0 1 3.5 16.5v-4a8 8 0 0 1 8-8z'/><path d='M10.4 12.4q1.6-2.2 3.2 0'/><path d='M10.6 17.2q2.4 2.4 4.8 1.4l5.6-4'/></g><circle cx='20.4' cy='11.6' r='1.4'/></svg>"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css">
-<script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}</script></head>
-<body class="login-body"><form class="card login-card" method="post" action="/login">
-<div class="brand"><svg class="logo" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 4.5h9a8 8 0 0 1 8 8v4a8 8 0 0 1-8 8h-7.2L8 28.6v-5.1A8 8 0 0 1 3.5 16.5v-4a8 8 0 0 1 8-8z"/><path d="M10.4 12.4q1.6-2.2 3.2 0"/><circle class="logo-eye" cx="20.4" cy="11.6" r="1.25" fill="currentColor" stroke="none"/><path d="M10.6 17.2q2.4 2.4 4.8 1.4l5.6-4"/></svg><span class="brand-name">WhatsApp Sender</span></div>
-<label>Password<input type="password" name="password" autofocus autocomplete="current-password" required></label>
-${error ? `<p class="login-error">${error}</p>` : ''}<button class="btn primary" type="submit">Sign in</button></form></body></html>`;
-
-  app.get('/login', (req, res) => res.send(loginPage()));
-  app.post('/login', express.urlencoded({ extended: false }), (req, res) => {
-    if (!same(String(req.body?.password || ''), APP_PASSWORD)) return res.status(401).send(loginPage('Wrong password'));
-    res.set('Set-Cookie', `ws_session=${SESSION}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 86400}`);
-    res.redirect('/');
-  });
-  app.get('/logout', (req, res) => {
-    res.set('Set-Cookie', 'ws_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
-    res.redirect('/login');
-  });
-  app.use((req, res, next) => {
-    if (same(cookie(req), SESSION) || same(basicPass(req), APP_PASSWORD)) return next();
-    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Signed out — reload the page to sign in' });
-    if (req.path === '/style.css') return next(); // the login page uses it
-    res.redirect('/login');
-  });
 }
 
+// Sign up, sign in, invites (tenancy.js). Everything after requireAuth needs a signed-in
+// member and runs inside their workspace.
+tenants.mountAuth(app, express);
+
 app.use(express.json({ limit: '20mb' }));
+app.use((req, res, next) => (req.path === '/style.css' ? next() : tenants.requireAuth(req, res, next))); // the sign-in pages use style.css
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // D3 for the dashboard charts, served locally so it works offline.
@@ -397,6 +360,7 @@ const wrap = (fn) => (req, res) =>
     .then(() => fn(req, res))
     .catch((e) => res.status(e.httpStatus || 400).json({ error: e.message }));
 const fail = (msg, httpStatus = 400) => Object.assign(new Error(msg), { httpStatus });
+tenants.mountAccountApi(app, { wrap, fail });
 
 // --- Settings ---------------------------------------------------------------
 
@@ -404,7 +368,9 @@ const fail = (msg, httpStatus = 400) => Object.assign(new Error(msg), { httpStat
 const AI_PROVIDERS = ['gemini', 'claude'];
 const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 function aiConfig() {
-  const keys = { claude: db.settings.anthropicApiKey || process.env.ANTHROPIC_API_KEY || '', gemini: db.settings.geminiApiKey || process.env.GEMINI_API_KEY || '' };
+  // Keys from the server's environment only serve the original workspace; every other business brings its own.
+  const env = tenants.isLegacy() ? process.env : {};
+  const keys = { claude: db.settings.anthropicApiKey || env.ANTHROPIC_API_KEY || '', gemini: db.settings.geminiApiKey || env.GEMINI_API_KEY || '' };
   // Until one is picked, use whichever has a key (Gemini first: it has a free tier).
   const provider = AI_PROVIDERS.includes(db.settings.aiProvider) ? db.settings.aiProvider : keys.gemini || !keys.claude ? 'gemini' : 'claude';
   return { provider, key: keys[provider], keys, geminiModel: db.settings.geminiModel || DEFAULT_GEMINI_MODEL };
@@ -418,10 +384,10 @@ function publicSettings() {
     geminiModel: ai.geminiModel,
     hasAiKey: Boolean(ai.key),
     aiKeyMasked: maskToken(anthropicApiKey),
-    aiKeyFromEnv: !anthropicApiKey && Boolean(process.env.ANTHROPIC_API_KEY),
+    aiKeyFromEnv: !anthropicApiKey && tenants.isLegacy() && Boolean(process.env.ANTHROPIC_API_KEY),
     hasGeminiKey: Boolean(ai.keys.gemini),
     geminiKeyMasked: maskToken(geminiApiKey),
-    geminiKeyFromEnv: !geminiApiKey && Boolean(process.env.GEMINI_API_KEY),
+    geminiKeyFromEnv: !geminiApiKey && tenants.isLegacy() && Boolean(process.env.GEMINI_API_KEY),
   };
 }
 
@@ -663,9 +629,11 @@ app.post('/api/campaigns', wrap((req, res) => {
 // while the server was off start as soon as it's back up.
 setInterval(() => {
   const now = Date.now();
-  for (const c of db.campaigns) {
-    if (c.status === 'scheduled' && new Date(c.scheduledAt) <= now && !running.has(c.id)) runCampaign(c);
-  }
+  for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
+    for (const c of db.campaigns) {
+      if (c.status === 'scheduled' && new Date(c.scheduledAt) <= now && !running.has(c.id)) runCampaign(c);
+    }
+  });
 }, 5000);
 
 app.post('/api/campaigns/:id/cancel', wrap((req, res) => {
@@ -769,10 +737,11 @@ const splitKey = (key) => {
 };
 
 // Live updates for open dashboards (Server-Sent Events).
-const listeners = new Set();
+const listeners = new Set(); // open dashboards, each tagged with its workspace
 function broadcast(data) {
+  const ws = tenants.wsId();
   const line = `event: inbox\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const res of listeners) res.write(line);
+  for (const res of listeners) if (res.wsId === ws) res.write(line);
 }
 setInterval(() => { for (const res of listeners) res.write(': ping\n\n'); }, 25000);
 
@@ -891,6 +860,7 @@ app.get('/api/events', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   res.flushHeaders();
   res.write('retry: 3000\n\n');
+  res.wsId = tenants.wsId();
   listeners.add(res);
   req.on('close', () => listeners.delete(res));
 });
@@ -1042,15 +1012,17 @@ function recordOut(key, msg) {
 app.get('/api/media/:mid', wrap(async (req, res) => {
   const mid = req.params.mid;
   if (!/^\d+$/.test(mid)) throw fail('Invalid media id', 404);
-  const file = path.join(MEDIA_DIR, mid);
+  const dir = path.join(MEDIA_DIR, tenants.wsId());
+  const file = path.join(dir, mid);
   if (!fs.existsSync(file)) {
     const owner = db.messages.find((m) => m.media?.id === mid);
+    if (!owner) throw fail('Media not found', 404);
     const sender = db.senders.find((s) => s.id === owner?.senderId && s.accessToken) || db.senders.find((s) => s.accessToken);
     if (!sender) throw fail('No access token to download this media', 404);
     const info = await graph(sender, mid);
     const r = await fetch(info.url, { headers: { Authorization: `Bearer ${sender.accessToken}` } });
     if (!r.ok) throw fail(`Media download failed (HTTP ${r.status})`, 502);
-    fs.mkdirSync(MEDIA_DIR, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
     fs.writeFileSync(file + '.json', JSON.stringify({ mime: info.mime_type }));
   }
@@ -1377,10 +1349,11 @@ const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, bro
 
 // --- AI assistant -------------------------------------------------------------
 
-require('./ai')(app, { db, save, id, wrap, fail, aiConfig, contacts: contactsApi, normalizePhone, templateVariables, createCampaign, computeStats, summary, publicSender });
+require('./ai')(app, { db, save, id, wsId: tenants.wsId, wrap, fail, aiConfig, contacts: contactsApi, normalizePhone, templateVariables, createCampaign, computeStats, summary, publicSender });
 
 app.listen(PORT, () => {
   console.log(`WhatsApp Sender running at http://localhost:${PORT}`);
-  console.log(db.settings.demoMode ? 'Demo mode is ON — no real messages will be sent.' : 'LIVE mode — messages will be sent via the WhatsApp Cloud API.');
-  if (!APP_PASSWORD) console.log('Tip: set APP_PASSWORD=yourpassword to protect the dashboard before exposing it publicly.');
+  console.log(`${tenants.allWorkspaces().length} workspace(s). Sign up or sign in at /login.`);
 });
+// Write pending changes before the process stops (deploys restart it).
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { tenants.flush(); process.exit(0); });

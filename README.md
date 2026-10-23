@@ -14,11 +14,22 @@ Options (environment variables):
 | Variable | Purpose |
 |---|---|
 | `PORT` | Port to listen on (default `3000`) |
-| `APP_PASSWORD` | Password-protect the dashboard with a sign-in page (**set this before putting it online**). Sign out at `/logout`. |
+| `APP_PASSWORD` | Only used once, to claim the data from before accounts existed: enter it in the *Existing app password* field when you sign up. |
+| `OWNER_EMAIL` | Optional alternative: signing up with this email claims the existing data. |
 | `GEMINI_API_KEY` | Gemini key for the AI assistant, if you'd rather not save it in Settings. A key saved in Settings takes priority. |
 | `ANTHROPIC_API_KEY` | Same, for Claude. |
 
 All data (numbers, tokens, templates, campaign logs, the AI assistant's API key) is saved in `data/db.json`. Back that file up, and never commit it, because it contains your access tokens.
+
+## Accounts and workspaces
+
+Anyone can sign up at `/signup` with their name, email, a password and their business name, and gets a **fresh workspace** of their own: WhatsApp numbers and tokens, templates, contacts, campaigns, Inbox, AI keys and settings are all separate per workspace (`data/workspaces/<id>.json`; accounts in `data/accounts.json`). New workspaces start in Demo mode.
+
+- **Team:** in **Settings → Workspace & team** the owner creates an invite link for a teammate's email (no email is sent; share the link, valid 7 days). Owners can change roles and remove people; members can leave.
+- **Several businesses:** **New workspace** creates another one; switch from the account button at the bottom of the sidebar.
+- **Webhooks:** every workspace uses the same Callback URL (`/webhook`) with its own verify token (Settings → Webhook). Incoming messages and status updates go to the workspace that owns the phone number.
+- **Upgrading from the single-password version:** on first start the old `data/db.json` becomes the first workspace (a copy is kept in `data/backups/`). Claim it by signing up and entering the old `APP_PASSWORD` in *Existing app password*, or with `OWNER_EMAIL`. On a hosted server (Railway) it stays unclaimed until one of them is set; only a local copy lets the first sign-up take it.
+- Server environment AI keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) only apply to that original workspace; other businesses add their own key in Settings.
 
 ## Before your API access is ready: Demo mode
 

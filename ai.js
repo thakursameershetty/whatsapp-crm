@@ -362,6 +362,7 @@ function geminiProvider(key, model, newId, { system = SYSTEM, tools = TOOLS } = 
 
 module.exports = function mountAi(app, ctx) {
   const { db, save, id, wrap, fail, aiConfig, contacts, normalizePhone, templateVariables, createCampaign, computeStats, summary } = ctx;
+  const wsId = ctx.wsId || (() => null); // sessions and plans belong to one workspace
   db.aiChats ||= [];
   const chatById = (cid) => db.aiChats.find((c) => c.id === cid);
 
@@ -383,17 +384,18 @@ module.exports = function mountAi(app, ctx) {
   }
   function getSession(sid, create = true) {
     let s = sid && sessions.get(sid);
+    if (s && s.ws !== wsId()) s = null; // another workspace's conversation
     // A saved chat that isn't in memory (server restarted, or it timed out): pick it up again.
     const saved = !s && sid && chatById(sid);
     if (saved) {
       prune();
-      s = { id: saved.id, provider: saved.provider, history: structuredClone(saved.history || []), said: [...(saved.said || [])], files: new Map(), planIds: [], pending: null, busy: false, updatedAt: Date.now(), restored: true };
+      s = { id: saved.id, ws: wsId(), provider: saved.provider, history: structuredClone(saved.history || []), said: [...(saved.said || [])], files: new Map(), planIds: [], pending: null, busy: false, updatedAt: Date.now(), restored: true };
       sessions.set(s.id, s);
     }
     if (!s && sid && !create) throw fail('This conversation has expired. Start a new one.', 410);
     if (!s) {
       prune();
-      s = { id: id(), provider: aiConfig().provider, history: [], said: [], files: new Map(), planIds: [], pending: null, busy: false, updatedAt: Date.now() };
+      s = { id: id(), ws: wsId(), provider: aiConfig().provider, history: [], said: [], files: new Map(), planIds: [], pending: null, busy: false, updatedAt: Date.now() };
       sessions.set(s.id, s);
     }
     s.updatedAt = Date.now();
@@ -1141,7 +1143,7 @@ module.exports = function mountAi(app, ctx) {
 
   const findPlan = (pid) => {
     const p = plans.get(pid);
-    if (!p) throw fail('This plan has expired. Ask the assistant again.', 410);
+    if (!p || sessions.get(p.sessionId)?.ws !== wsId()) throw fail('This plan has expired. Ask the assistant again.', 410);
     return p;
   };
 
