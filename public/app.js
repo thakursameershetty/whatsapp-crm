@@ -1659,6 +1659,10 @@ async function loadMe() {
   $('#wsName').value = workspace.name;
   $('#wsName').disabled = $('#wsSave').disabled = state.me.role !== 'owner';
   $('#acctMe').innerHTML = `<span class="acct-av lg" style="${avatarStyle(user.email)}">${esc(initials)}</span><span class="acct-text"><b>${esc(user.name || user.email)}</b><span>${esc(user.email)}</span></span><span class="pill ${state.me.role === 'owner' ? 'scheduled' : ''}">${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
+  const n = state.me.workspaces.length;
+  $('#acctFacts').innerHTML = `<div><dt>Email</dt><dd>${user.emailVerified ? '<span class="acct-ok">Confirmed</span>' : 'Not confirmed yet'}</dd></div>
+    <div><dt>Workspaces</dt><dd>${n} ${n === 1 ? 'workspace' : 'workspaces'}</dd></div>
+    ${user.createdAt ? `<div><dt>Member since</dt><dd>${new Date(user.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</dd></div>` : ''}`;
   $('#inviteBox').classList.toggle('hidden', state.me.role !== 'owner');
   document.title = `${workspace.name} · WhatsApp Sender`;
   $('#verifyBanner').classList.toggle('hidden', user.emailVerified);

@@ -166,13 +166,25 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
       });
   };
   email.addEventListener('input', function () { clearTimeout(timer); wait = 0; btn.disabled = false; btn.textContent = 'Send code'; hidden.value = ''; otp && otp.reset(); });
+  // Confirmed: the code row and the Resend button fold away, and the email gets a green tick.
+  function done() {
+    clearTimeout(timer);
+    email.readOnly = true;
+    btn.style.width = btn.offsetWidth + 'px'; btn.tabIndex = -1;
+    wrap.style.height = wrap.offsetHeight + 'px';
+    void wrap.offsetHeight;
+    document.getElementById('suEmailRow').classList.add('is-verified');
+    wrap.classList.add('folding'); wrap.style.height = '0px';
+    setTimeout(function () { wrap.classList.add('hidden'); wrap.classList.remove('folding'); wrap.style.height = ''; }, 500);
+  }
   // The code row: each full code is checked with the server; a right one fuses into "Verified".
   var hidden = document.getElementById('suCode'), otp = window.OneTimeCode && OneTimeCode.mount(document.getElementById('suOtp'), {
     length: 6,
+    align: 'start',
     check: function (code) {
       return fetch('/signup/code/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value, code: code }) }).then(function (r) { return r.ok; });
     },
-    onVerified: function (code) { hidden.value = code; },
+    onVerified: function (code) { hidden.value = code; setTimeout(done, 1100); },
     onChange: function () { hidden.value = ''; },
   });
   document.querySelector('form[action="/signup"]').addEventListener('submit', function (e) {
@@ -242,7 +254,7 @@ ${notice ? `<p class="auth-notice">${esc(notice)}</p>` : ''}${error ? `<p class=
     }));
   }
 
-  function signupPage({ error = '', name = '', email = '', business = '', next = '', invite = null, codeSent = false } = {}) {
+  function signupPage({ error = '', name = '', email = '', business = '', next = '', invite = null, codeSent = false, verified = '' } = {}) {
     const legacy = !invite && legacyUnclaimed();
     return page('Create account', shell({
       kicker: invite ? `Join ${invite.wsName}` : 'Start free',
@@ -254,8 +266,8 @@ ${notice ? `<p class="auth-notice">${esc(notice)}</p>` : ''}${error ? `<p class=
 <label>Your name<input name="name" id="suName" value="${esc(name)}" autocomplete="name" placeholder="Full name" required autofocus></label>
 ${invite ? '' : `<label>Business name<input name="business" value="${esc(business)}" placeholder="e.g. Spotmies" required></label>`}
 </div>
-<label>Your email<span class="auth-inline"><input type="email" name="email" id="suEmail" value="${esc(email || invite?.email || '')}" autocomplete="email" placeholder="you@company.com" required><button type="button" class="auth-send" id="suSend">Send code</button></span></label>
-<div id="suCodeWrap" ${codeSent ? '' : 'class="hidden"'}><span class="auth-otp-label">Confirmation code <span class="opt" id="suCodeNote">sent to your email</span></span><div class="auth-otp" id="suOtp"></div><input type="hidden" name="code" id="suCode"></div>
+<label>Your email<span class="auth-inline${verified ? ' is-verified' : ''}" id="suEmailRow"><span class="auth-email"><input type="email" name="email" id="suEmail" value="${esc(email || invite?.email || '')}" autocomplete="email" placeholder="you@company.com" required${verified ? ' readonly' : ''}><svg class="auth-tick" viewBox="0 0 24 24" aria-label="Email confirmed" role="img"><circle cx="12" cy="12" r="10"/><path d="m7.8 12.4 2.8 2.8 5.6-5.8"/></svg></span><button type="button" class="auth-send" id="suSend"${verified ? ' tabindex="-1"' : ''}>Send code</button></span></label>
+<div id="suCodeWrap" ${codeSent && !verified ? '' : 'class="hidden"'}><span class="auth-otp-label">Confirmation code <span class="opt" id="suCodeNote">sent to your email</span></span><div class="auth-otp" id="suOtp"></div><input type="hidden" name="code" id="suCode" value="${esc(verified)}"></div>
 <label>Password<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="Create a password" required id="suPw" data-pw-rules data-pw-email="#suEmail" data-pw-name="#suName"></label>
 <label>Confirm password<input type="password" name="confirm" autocomplete="new-password" maxlength="128" placeholder="Type it again" required data-pw-match="#suPw"></label>
 ${legacy ? `<label>Existing app password <span class="opt">only if you used this app before</span><input type="password" name="legacy" autocomplete="off" placeholder="Keeps your existing ${esc(legacy.name)} data"></label>` : ''}
@@ -379,7 +391,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const { name = '', password = '', business = '', legacy = '', next = '' } = req.body;
       const email = String(req.body.email || '').trim().toLowerCase();
       const invite = inviteFromNext(next);
-      const again = (error) => res.status(400).send(signupPage({ error, name, email, business, next, invite }));
+      // A page that comes back with another error keeps a confirmed email confirmed.
+      const again = (error) => res.status(400).send(signupPage({ error, name, email, business, next, invite, verified: req.body.code && !checkCode(email, req.body.code, { consume: false }) ? String(req.body.code) : '' }));
       if (tooMany(`${req.ip}|signup`)) return again('Too many attempts. Try again in a few minutes.');
       noteTry(`${req.ip}|signup`);
       if (!String(name).trim()) return again('Enter your name');
@@ -568,7 +581,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     app.get('/api/me', (req, res) => {
       const ws = current();
       res.json({
-        user: { ...publicUser(req.user), emailVerified: req.user.emailVerified !== false },
+        user: { ...publicUser(req.user), emailVerified: req.user.emailVerified !== false, createdAt: req.user.createdAt },
         admin: req.admin,
         mail: mail.enabled(),
         role: req.role,

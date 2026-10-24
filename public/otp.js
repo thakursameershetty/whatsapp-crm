@@ -70,7 +70,7 @@
   const SHAKE_MS = 620;
   const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 
-  function mount(root, { length = 6, corner = 12, check = async () => true, onVerified = () => {}, onChange = () => {} } = {}) {
+  function mount(root, { length = 6, corner = 12, align = 'center', check = async () => true, onVerified = () => {}, onChange = () => {} } = {}) {
     const n = length === 4 ? 4 : 6;
     const r = clamp(corner, 0, H / 2);
     const rowW = n * W + (n - 1) * G;
@@ -149,7 +149,9 @@
          clamped to it, and only the capsule is allowed to take the
          overshoot, as a stretch */
       const raw = merge.m, m = clamp(raw, 0, 1);
-      const home = (i) => i * (W + G), mid = (rowW - W) / 2;
+      /* where the capsule settles: the middle of the row, or (align: 'start') flush left */
+      const at = align === 'start' ? CAP / 2 : rowW / 2;
+      const home = (i) => i * (W + G), mid = at - W / 2;
       const since = now - shook;
       const shaking = phase === 'no' && since < SHAKE_MS && !still;
       const shake = (i) => (shaking ? 5 * Math.exp(-since / 190) * Math.sin((since / 1000) * Math.PI * 2 * 10 + i * 0.55) : 0);
@@ -172,7 +174,7 @@
       cells.forEach((c, i) => { c.style.borderRadius = cellR + 'px'; c.style.transform = `translateX(${cellX(i).toFixed(2)}px) scale(${breath(i).toFixed(3)})`; });
       cap.style.display = capW > 0.5 ? '' : 'none';
       cap.style.width = capW + 'px';
-      cap.style.transform = `translateX(${((rowW - capW) / 2).toFixed(2)}px) scaleY(${capSy.toFixed(3)})`;
+      cap.style.transform = `translateX(${(at - capW / 2).toFixed(2)}px) scaleY(${capSy.toFixed(3)})`;
       slots.forEach((s, i) => {
         s.style.transform = `translateX(${cellX(i).toFixed(2)}px)`;
         s.style.opacity = String(1 - smooth(0, 0.45, m));
@@ -186,6 +188,7 @@
          the capsule is still on */
       caretEl.dataset.on = String(phase === 'type' && focus && code.length < n && m < 0.08);
       caretEl.style.transform = `translateX(${(caret.x - 1).toFixed(2)}px) scaleX(${(1 + Math.min(5, Math.abs(caret.v) * 0.9)).toFixed(3)})`;
+      if (align === 'start') { okEl.style.right = 'auto'; okEl.style.width = CAP + 'px'; }
       okEl.style.opacity = String(smooth(0.72, 1, m));
       okEl.style.scale = String(mix(0.92, 1, smooth(0.72, 1, m)));
     }

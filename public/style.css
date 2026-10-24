@@ -3303,7 +3303,9 @@ input.pw-bad, input.pw-bad:focus { box-shadow: var(--sh-sunk), 0 0 0 2px color-m
 .modal .pw-rules, .modal .pw-note { margin-top: -4px; }
 
 /* ---- Settings: your account + workspace & team ---- */
-.acct-cards { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); gap: 20px; margin-bottom: 20px; align-items: start; }
+/* Same columns as the General / Webhook row below, so the two rows line up: the wide card left, the narrow one right */
+.acct-cards { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 24px; margin-bottom: 24px; align-items: stretch; }
+.acct-cards .acct-me-card { order: 2; }
 .acct-cards .card { margin: 0; }
 .acct-me-card { display: flex; flex-direction: column; }
 .acct-me { display: flex; align-items: center; gap: 12px; margin: 6px 0 18px; }
@@ -3312,7 +3314,8 @@ input.pw-bad, input.pw-bad:focus { box-shadow: var(--sh-sunk), 0 0 0 2px color-m
 .acct-me .acct-text span { font-size: 13px; }
 .acct-av.lg { width: 44px; height: 44px; font-size: 15px; }
 .acct-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.acct-logout { align-self: flex-start; margin-top: 14px; padding-left: 8px; }
+.acct-logout { align-self: flex-start; margin-top: auto; padding-left: 8px; }
+.acct-actions { margin-bottom: 18px; }
 .acct-logout .logout-ic { margin-right: 2px; }
 .acct-logout:hover .logout-arrow { animation: logout-nudge 0.4s ease forwards; }
 .acct-lead { margin: -8px 0 18px; }
@@ -3322,7 +3325,7 @@ input.pw-bad, input.pw-bad:focus { box-shadow: var(--sh-sunk), 0 0 0 2px color-m
 .acct-invite { margin-top: 10px; }
 #acctCard .team-list { margin: 2px -6px 0; }
 #acctCard #inviteNote { margin-top: 8px; }
-@media (max-width: 1100px) { .acct-cards { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .acct-cards { grid-template-columns: 1fr; } .acct-cards .acct-me-card { order: 0; } }
 .auth-fields input.pw-bad:not([type=hidden]) { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--danger) 70%, transparent); }
 .auth-fields input.pw-bad:focus { box-shadow: inset 0 0 0 1.5px var(--danger), 0 0 0 4px color-mix(in srgb, var(--danger) 14%, transparent); }
 
@@ -3342,3 +3345,26 @@ input.pw-bad, input.pw-bad:focus { box-shadow: var(--sh-sunk), 0 0 0 2px color-m
   .nt-bar .seg, .filter-bar .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 }
 @media (max-width: 460px) { .sidebar .brand-name { display: none; } }
+
+/* Sign-up email, once confirmed: a green tick inside the box, the Send/Resend button folded away */
+.auth-email { position: relative; flex: 1; min-width: 0; display: block; }
+.auth-email input:not([type=hidden]) { width: 100%; transition: padding 0.3s, box-shadow 0.2s; }
+.auth-tick { position: absolute; right: 13px; top: 50%; width: 22px; height: 22px; translate: 0 -50%; opacity: 0; scale: 0.4; pointer-events: none; transition: opacity 0.25s ease, scale 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.auth-tick circle { fill: var(--good); }
+.auth-tick path { fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 14; stroke-dashoffset: 14; transition: stroke-dashoffset 0.35s ease 0.2s; }
+.is-verified .auth-tick { opacity: 1; scale: 1; }
+.is-verified .auth-tick path { stroke-dashoffset: 0; }
+.is-verified .auth-email input:not([type=hidden]) { padding-right: 46px; cursor: default; }
+.is-verified .auth-email input:focus { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--text) 16%, transparent); }
+.auth-send { transition: width 0.4s cubic-bezier(0.65, 0, 0.35, 1), padding 0.4s cubic-bezier(0.65, 0, 0.35, 1), margin 0.4s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.2s, background 0.2s; overflow: hidden; }
+.is-verified .auth-send { width: 0 !important; padding: 0; margin-left: -8px; opacity: 0; pointer-events: none; }
+/* the code row folds shut */
+#suCodeWrap.folding { overflow: hidden; opacity: 0; transition: height 0.45s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.25s ease; }
+@media (prefers-reduced-motion: reduce) { .auth-tick, .auth-tick path, .auth-send, #suCodeWrap.folding { transition: none; } }
+.acct-facts { margin: 0 0 18px; display: flex; flex-direction: column; border-radius: 12px; background: var(--sunk); box-shadow: var(--sh-sunk); padding: 4px 14px; }
+.acct-facts > div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 13px; }
+.acct-facts > div + div { box-shadow: 0 -1px 0 var(--hair); }
+.acct-facts dt { color: var(--muted); }
+.acct-facts dd { margin: 0; font-weight: 500; }
+.acct-ok { color: var(--good-text); }
+.acct-ok::before { content: "✓ "; }
