@@ -334,7 +334,7 @@ body { padding-left: var(--nav-w); }
 .badge.live::before { box-shadow: 0 0 0 3px var(--ring); }
 
 .banner {
-  max-width: 1264px; margin: 16px auto 0; padding: 10px 16px; border-radius: 11px;
+  max-width: 1544px; margin: 16px auto 0; padding: 10px 16px; border-radius: 11px;
   display: flex; gap: 10px; align-items: center;
   background: var(--warn-soft); color: var(--warn); font-size: 13px;
   width: calc(100% - 56px);
@@ -342,7 +342,7 @@ body { padding-left: var(--nav-w); }
 .banner .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .banner a { color: inherit; font-weight: 600; }
 
-main { max-width: 1320px; margin: 0 auto; padding: 24px 28px 40px; }
+main { max-width: 1600px; margin: 0 auto; padding: 24px 28px 40px; } /* wide enough to fill the screen with the sidebar open or collapsed; capped so huge monitors stay readable */
 
 /* ---------- Layout ---------- */
 .grid-2 { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 24px; align-items: start; }
@@ -2341,7 +2341,9 @@ svg.la-bell.on .a-clap { animation: la-clap 0.9s var(--ease-out); }
 
 /* ---- Notifications page ---- */
 .nt-bar { margin-bottom: 18px; }
-.nt-list { max-width: 860px; }
+.nt-list { max-width: none; }
+/* Notifications read as one centred column (header, filters and list together) instead of rows stretched across a wide screen */
+#tab-notifications { max-width: 920px; margin-inline: auto; }
 .nt-day { margin-bottom: 22px; }
 .nt-day h3 { margin: 0 0 8px 4px; font-size: 13px; font-weight: 650; color: var(--muted); }
 .nt-card { padding: 4px; }
@@ -3037,9 +3039,10 @@ body.nav-mini .acct-text { display: none; }
 .auth-art > :not(.auth-ascii) { z-index: 2; }
 .auth-art::after { z-index: 1; }
 
-/* Sign-in and sign-up share one card size on desktop; the form scrolls inside if it ever needs more room */
+/* Sign-in and sign-up share one card size on desktop. When the window is short (or zoomed in) the card
+   simply grows and the page scrolls, so nothing ever spills out of it. */
 @media (min-width: 861px) {
-  .auth-card { height: auto; min-height: min(700px, calc(100vh - 64px)); max-height: calc(100vh - 64px); }
+  .auth-card { height: auto; min-height: min(700px, calc(100vh - 64px)); }
   .auth-form { overflow-y: auto; scrollbar-width: thin; }
 }
 /* Phones: no card, just the page — a short dark banner on top, then the form */
