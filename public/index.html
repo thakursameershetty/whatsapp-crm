@@ -506,31 +506,30 @@
 
     <!-- SETTINGS ---------------------------------------------------------->
     <section id="tab-settings" class="tab hidden">
-      <div class="card la-host acct-card" id="acctCard">
-        <h2 data-icon="users">Workspace &amp; team</h2>
-        <p class="sub">Each business has its own workspace: numbers, templates, contacts, campaigns, inbox and AI settings are separate. Invite teammates to share this one.</p>
-        <div class="acct-grid">
-          <div>
-            <label>Workspace name<input id="wsName" maxlength="80" /></label>
-            <div class="row tight"><button class="btn" id="wsSave">Save name</button><button class="btn quiet" id="wsNew" data-icon="plus" data-icon-size="14">New workspace</button></div>
-            <div class="field-label" style="margin-top:18px">Your account</div>
-            <div class="acct-me-row"><p class="acct-me" id="acctMe"></p><button class="btn sm" id="acctEdit" data-icon="square-pen" data-icon-size="13">Edit</button></div>
-            <details class="acct-pw"><summary>Change password</summary>
-              <label>Current password<input type="password" id="pwCur" autocomplete="current-password" /></label>
-              <label>New password<input type="password" id="pwNew" autocomplete="new-password" maxlength="128" data-pw-rules /></label>
-              <button class="btn" id="pwSave">Change password</button>
-            </details>
-            <a class="btn quiet danger" href="/logout" data-icon="arrow-left" data-icon-size="14">Log out</a>
+      <div class="acct-cards">
+        <div class="card la-host acct-me-card">
+          <h2 data-icon="user">Your account</h2>
+          <div class="acct-me" id="acctMe"></div>
+          <div class="acct-actions">
+            <button class="btn" id="acctEdit" data-icon="square-pen" data-icon-size="14">Edit profile</button>
+            <button class="btn" id="pwChange" data-icon="lock" data-icon-size="14">Change password</button>
           </div>
-          <div>
-            <div class="field-label">Team</div>
-            <div id="teamList" class="team-list"></div>
-            <div id="inviteBox">
-              <div class="field-label" style="margin-top:14px">Invite a teammate</div>
-              <div class="row tight"><input id="inviteEmail" type="email" placeholder="name@company.com" /><button class="btn primary" id="inviteBtn">Create invite link</button></div>
-              <div id="inviteOut" class="invite-out hidden"></div>
-              <p class="sub" id="inviteNote">They get an email with a link to join. Links work for 7 days.</p>
-            </div>
+          <a class="btn quiet danger acct-logout" href="/logout"><svg class="logout-ic" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><g class="logout-arrow"><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></g></svg>Log out</a>
+        </div>
+        <div class="card la-host acct-card" id="acctCard">
+          <div class="card-head">
+            <h2 data-icon="users">Workspace &amp; team</h2>
+            <button class="btn quiet sm" id="wsNew" data-icon="plus" data-icon-size="14">New workspace</button>
+          </div>
+          <p class="sub acct-lead">Numbers, templates, contacts, campaigns, inbox and AI settings belong to this workspace. Invite teammates to share it.</p>
+          <div class="field-label">Workspace name</div>
+          <div class="row tight acct-inline"><input id="wsName" maxlength="80" aria-label="Workspace name" /><button class="btn" id="wsSave">Save</button></div>
+          <div class="field-label acct-gap">Team <span class="opt" id="teamCount"></span></div>
+          <div id="teamList" class="team-list"></div>
+          <div id="inviteBox">
+            <div class="row tight acct-inline acct-invite"><input id="inviteEmail" type="email" placeholder="Invite by email: name@company.com" aria-label="Invite a teammate by email" /><button class="btn primary" id="inviteBtn">Send invite</button></div>
+            <div id="inviteOut" class="invite-out hidden"></div>
+            <p class="sub" id="inviteNote">They get an email with a link to join. Links work for 7 days.</p>
           </div>
         </div>
       </div>

@@ -256,7 +256,8 @@ ${invite ? '' : `<label>Business name<input name="business" value="${esc(busines
 </div>
 <label>Your email<span class="auth-inline"><input type="email" name="email" id="suEmail" value="${esc(email || invite?.email || '')}" autocomplete="email" placeholder="you@company.com" required><button type="button" class="auth-send" id="suSend">Send code</button></span></label>
 <div id="suCodeWrap" ${codeSent ? '' : 'class="hidden"'}><span class="auth-otp-label">Confirmation code <span class="opt" id="suCodeNote">sent to your email</span></span><div class="auth-otp" id="suOtp"></div><input type="hidden" name="code" id="suCode"></div>
-<label>Password<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="Create a password" required data-pw-rules data-pw-email="#suEmail" data-pw-name="#suName"></label>
+<label>Password<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="Create a password" required id="suPw" data-pw-rules data-pw-email="#suEmail" data-pw-name="#suName"></label>
+<label>Confirm password<input type="password" name="confirm" autocomplete="new-password" maxlength="128" placeholder="Type it again" required data-pw-match="#suPw"></label>
 ${legacy ? `<label>Existing app password <span class="opt">only if you used this app before</span><input type="password" name="legacy" autocomplete="off" placeholder="Keeps your existing ${esc(legacy.name)} data"></label>` : ''}
 <input type="hidden" name="next" value="${esc(next)}">
 ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">${invite ? 'Join workspace' : 'Get started'}</button>
@@ -285,7 +286,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       form: `<form method="post" action="/reset/${esc(token)}" class="auth-fields">${mark}
 <h1>Choose a new password</h1>
 <p class="auth-sub">You'll be signed out everywhere else.</p>
-<label>New password<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="New password" required autofocus data-pw-rules data-email="${esc(email)}"></label>
+<label>New password<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="New password" required autofocus id="rsPw" data-pw-rules data-email="${esc(email)}"></label>
+<label>Confirm new password<input type="password" name="confirm" autocomplete="new-password" maxlength="128" placeholder="Type it again" required data-pw-match="#rsPw"></label>
 ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">Save password</button></form>`,
     }));
   }
@@ -384,6 +386,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return again('Enter a valid email');
       const weak = passwordRules.check(password, { email, name }).problem;
       if (weak) return again(weak);
+      if (req.body.confirm !== password) return again("The two passwords don't match");
       if (userByEmail(email)) return again('An account with this email already exists. Sign in instead.');
       if (!invite && !String(business).trim()) return again('Enter your business name');
       // The email is confirmed before the account exists: the code we sent must match.
@@ -483,6 +486,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       if (!user) return res.status(404).send(messagePage('Reset password', 'This link has expired', 'Reset links work for 1 hour and only once. Ask for a new one.', '<a class="auth-btn" href="/forgot">Send a new link</a>'));
       const weak = passwordRules.check(req.body.password, user).problem;
       if (weak) return res.status(400).send(resetPage({ token: req.params.token, error: weak, email: user.email }));
+      if (req.body.confirm !== req.body.password) return res.status(400).send(resetPage({ token: req.params.token, error: "The two passwords don't match", email: user.email }));
       user.password = hashPassword(String(req.body.password));
       delete user.resetToken;
       user.emailVerified = true; // they proved they can read this inbox

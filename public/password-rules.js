@@ -42,28 +42,70 @@
   root.passwordRules = api;
 
   // The live checklist. data-pw-email / data-pw-name point at the inputs holding the email and name.
+  // A second input with data-pw-match="#first" is the "confirm password" field.
+  // Trying to submit with a password that breaks a rule turns the missing rules red and says why.
   const TICK = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-  function mount(inp) {
-    const list = document.createElement('ul');
-    list.className = 'pw-rules';
+  const CROSS = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+  const noteAfter = (inp) => {
     const note = document.createElement('p');
     note.className = 'pw-note';
-    const field = inp.closest('label') || inp;
-    field.after(list, note);
+    (inp.closest('label') || inp).after(note);
+    return note;
+  };
+  // On a submit every invalid field reports; only the first one takes the focus.
+  const firstInvalid = (inp) => !inp.form || inp.form.querySelector(':invalid') === inp;
+  function mount(inp) {
+    if (inp._pw) return inp._pw;
+    const list = document.createElement('ul');
+    list.className = 'pw-rules';
+    (inp.closest('label') || inp).after(list);
+    const note = noteAfter(list);
     // data-pw-email="#id" reads another input; data-email="a@b.c" is a fixed value.
     const val = (sel, fixed) => (sel && document.querySelector(sel)?.value) || fixed || '';
     const who = () => ({ email: val(inp.dataset.pwEmail, inp.dataset.email), name: val(inp.dataset.pwName, inp.dataset.name) });
-    let touched = false;
+    let touched = false, shout = false;
     const draw = () => {
       const r = check(inp.value, who());
-      list.innerHTML = r.rules.map((x) => `<li class="${x.ok ? 'ok' : ''}">${TICK}<span>${x.label}</span></li>`).join('');
-      // Only nag about guessable passwords once the basic rules pass.
-      note.textContent = touched && inp.value && r.rules.every((x) => x.ok) ? r.problem : '';
-      inp.setCustomValidity(inp.value && !r.ok ? r.problem : '');
+      list.classList.toggle('shout', shout);
+      list.innerHTML = r.rules.map((x) => `<li class="${x.ok ? 'ok' : 'miss'}">${x.ok || !shout ? TICK : CROSS}<span>${x.label}</span></li>`).join('');
+      // The list shows what's missing; the line below only covers what it can't (too common, your name, too long).
+      note.textContent = (shout || touched) && inp.value && r.rules.every((x) => x.ok) ? r.problem : '';
+      inp.classList.toggle('pw-bad', shout && !r.ok);
+      inp.setCustomValidity(!r.ok && (inp.value || inp.required) ? r.problem : '');
+      return r;
     };
+    // Show the problem in the page, not in the browser's little bubble.
+    const showErrors = (focus = true) => { shout = true; const r = draw(); if (!r.ok && focus) inp.focus(); return r.ok; };
+    inp.addEventListener('invalid', (e) => { e.preventDefault(); showErrors(firstInvalid(inp)); });
     inp.addEventListener('input', () => { touched = true; draw(); });
     draw();
+    return (inp._pw = { showErrors, reset: () => { touched = shout = false; draw(); } });
   }
-  const start = () => document.querySelectorAll('input[data-pw-rules]').forEach(mount);
+  function mountMatch(inp) {
+    if (inp._pw) return inp._pw;
+    const first = document.querySelector(inp.dataset.pwMatch);
+    const note = noteAfter(inp);
+    let shout = false;
+    const draw = () => {
+      const bad = Boolean(inp.value || shout) && inp.value !== first.value;
+      // While typing, wait until it's as long as the password before saying it doesn't match.
+      note.textContent = bad && (shout || inp.value.length >= first.value.length) ? "Passwords don't match." : '';
+      inp.classList.toggle('pw-bad', Boolean(note.textContent));
+      inp.setCustomValidity(bad ? "Passwords don't match." : '');
+      return !bad;
+    };
+    const showErrors = (focus = true) => { shout = true; const ok = draw(); if (!ok && focus) inp.focus(); return ok; };
+    inp.addEventListener('invalid', (e) => { e.preventDefault(); showErrors(firstInvalid(inp)); });
+    inp.addEventListener('input', draw);
+    first.addEventListener('input', () => inp.value && draw());
+    draw();
+    return (inp._pw = { showErrors, reset: () => { shout = false; draw(); } });
+  }
+  api.mount = mount;
+  api.mountMatch = mountMatch;
+  const start = () => {
+    document.querySelectorAll('input[data-pw-rules]').forEach(mount);
+    document.querySelectorAll('input[data-pw-match]').forEach(mountMatch);
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })(typeof window !== 'undefined' ? window : globalThis);

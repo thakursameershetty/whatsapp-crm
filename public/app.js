@@ -1658,8 +1658,7 @@ async function loadMe() {
   $('#acctUser').textContent = user.name || user.email;
   $('#wsName').value = workspace.name;
   $('#wsName').disabled = $('#wsSave').disabled = state.me.role !== 'owner';
-  Object.assign($('#pwNew').dataset, { email: user.email, name: user.name }); // the password rules check these
-  $('#acctMe').innerHTML = `<b>${esc(user.name)}</b><br><span class="muted">${esc(user.email)} · ${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
+  $('#acctMe').innerHTML = `<span class="acct-av lg" style="${avatarStyle(user.email)}">${esc(initials)}</span><span class="acct-text"><b>${esc(user.name || user.email)}</b><span>${esc(user.email)}</span></span><span class="pill ${state.me.role === 'owner' ? 'scheduled' : ''}">${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
   $('#inviteBox').classList.toggle('hidden', state.me.role !== 'owner');
   document.title = `${workspace.name} · WhatsApp Sender`;
   $('#verifyBanner').classList.toggle('hidden', user.emailVerified);
@@ -1673,6 +1672,7 @@ $('#verifyResend').addEventListener('click', (e) => guard(async () => {
 }, e.target));
 async function loadTeam() {
   const t = await api('/team');
+  $('#teamCount').textContent = `${t.members.length} ${t.members.length === 1 ? 'person' : 'people'}${t.invites.length ? ` · ${t.invites.length} invited` : ''}`;
   $('#teamList').innerHTML = t.members.map((m) => `<div class="team-row"><span class="acct-av sm" style="${avatarStyle(m.email)}">${esc((m.name || m.email).slice(0, 1).toUpperCase())}</span>
       <span class="team-who"><b>${esc(m.name)}${m.you ? ' <span class="muted">(you)</span>' : ''}</b><span>${esc(m.email)}</span></span>
       <span class="pill ${m.role === 'owner' ? 'scheduled' : ''}">${m.role}</span>
@@ -1741,7 +1741,27 @@ $('#wsNew').addEventListener('click', async () => {
   $('#nwCancel', body).onclick = closeModal;
   $('#nwGo', body).onclick = (e) => guard(async () => { await api('/workspaces', { method: 'POST', body: { name: $('#nwName', body).value } }); location.reload(); }, e.target);
 });
-$('#pwSave').addEventListener('click', (e) => guard(async () => { await api('/account/password', { method: 'POST', body: { current: $('#pwCur').value, password: $('#pwNew').value } }); $('#pwCur').value = $('#pwNew').value = ''; $('#pwNew').dispatchEvent(new Event('input')); toast('Password changed'); }, e.target));
+// Change password: the same rules and the same "type it again" check as sign-up.
+$('#pwChange').addEventListener('click', () => {
+  const u = state.me.user;
+  const body = openModal('Change password', `
+    <label>Current password<input type="password" id="pwCur" autocomplete="current-password" /></label>
+    <label>New password<input type="password" id="pwNew" autocomplete="new-password" maxlength="128" data-email="${esc(u.email)}" data-name="${esc(u.name || '')}" /></label>
+    <label>Confirm new password<input type="password" id="pwAgain" autocomplete="new-password" maxlength="128" data-pw-match="#pwNew" /></label>
+    <div class="modal-actions"><button class="btn quiet" id="pwCancel">Cancel</button><button class="btn primary" id="pwSave">Change password</button></div>`);
+  const rules = passwordRules.mount($('#pwNew', body)), again = passwordRules.mountMatch($('#pwAgain', body));
+  $('#pwCur', body).focus();
+  $('#pwCancel', body).onclick = closeModal;
+  $('#pwSave', body).onclick = (e) => {
+    if (!$('#pwCur', body).value) return $('#pwCur', body).focus();
+    if (!rules.showErrors() || !again.showErrors()) return;
+    guard(async () => {
+      await api('/account/password', { method: 'POST', body: { current: $('#pwCur', body).value, password: $('#pwNew', body).value } });
+      closeModal();
+      toast('Password changed');
+    }, e.target);
+  };
+});
 $('#inviteBtn').addEventListener('click', (e) => guard(async () => {
   const r = await api('/team/invites', { method: 'POST', body: { email: $('#inviteEmail').value } });
   $('#inviteOut').classList.remove('hidden');

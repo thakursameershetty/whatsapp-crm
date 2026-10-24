@@ -38,6 +38,8 @@
     moon: `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>`,
     'calendar-days': `<path d="M8 2v4"/><path d="M16 2v4"/><rect height="18" rx="2" width="18" x="3" y="4"/><path d="M3 10h18"/>${[[8, 14], [12, 14], [16, 14], [8, 18], [12, 18], [16, 18]].map(([cx, cy], i) => `<circle class="dot" style="--i:${i}" cx="${cx}" cy="${cy}" r="1" fill="currentColor" stroke="none"/>`).join('')}`,
     history: `<g class="a-arrow"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></g><line class="a-hour" x1="12" x2="12" y1="12" y2="7"/><line class="a-min" x1="12" x2="16" y1="12" y2="14"/>`,
+    user: `<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>`,
+    lock: `<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path class="a-slide" d="M7 11V7a5 5 0 0 1 10 0v4"/>`,
     users: `<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path class="a-slide" d="M22 21v-2a4 4 0 0 0-3-3.87"/><path class="a-slide" d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
     'circle-check': `<circle cx="12" cy="12" r="10"/><path class="draw" ${PL} d="m9 12 2 2 4-4"/>`,
     'maximize-2': `<path class="a-bl" d="M3 16.2V21m0 0h4.8M3 21l6-6"/><path class="a-tr" d="M21 7.8V3m0 0h-4.8M21 3l-6 6"/>`,
