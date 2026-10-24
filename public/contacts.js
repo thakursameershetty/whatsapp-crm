@@ -569,7 +569,7 @@
     const body = openModal(c ? c.name || fmtPhone(c.phone) : 'Add contact', `
       <form id="ctForm" class="ct-form">
         <div class="row"><label>Name<input name="name" value="${esc(c?.name || '')}" /></label>
-          <label>Phone<input name="phone" value="${esc(c ? '+' + c.phone : '')}" required inputmode="tel" placeholder="98765 43210 or +91 98765 43210" /></label></div>
+          <label>Phone<input name="phone" value="${esc(c ? '+' + c.phone : '')}" required inputmode="tel" maxlength="22" autocomplete="tel" placeholder="98765 43210 or +91 98765 43210" /></label></div>
         <div class="row"><label>Email<input name="email" type="email" value="${esc(c?.email || '')}" /></label>
           <label>Company<input name="company" value="${esc(c?.company || '')}" /></label></div>
         <div class="row"><label>Status<select name="status">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${c?.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>

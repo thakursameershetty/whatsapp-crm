@@ -523,6 +523,9 @@ td.err { white-space: normal !important; color: var(--danger); font-size: 12px; 
 /* ---------- Modals ---------- */
 .modal { position: fixed; inset: 0; background: rgba(12, 18, 24, 0.28); display: grid; place-items: center; z-index: 50; padding: 16px; backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2); animation: fade 0.15s; }
 .modal-box { background: var(--surface); border-radius: 10px; padding: 26px; width: 100%; max-width: 560px; max-height: 90vh; overflow: auto; box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.5); animation: pop 0.18s cubic-bezier(0.3, 1.2, 0.5, 1); }
+/* Keep scrolling inside an open dialog: lock the page behind it and stop the box's scroll from chaining out. */
+html:has(.modal:not(.hidden)) { overflow: hidden; }
+.modal, .modal-box { overscroll-behavior: contain; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .modal-head h2 { margin: 0; font-size: 17px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
@@ -3488,3 +3491,74 @@ h1, h2, h3, h4, p, li, dd, blockquote, code, .sub { overflow-wrap: anywhere; }
 .pw-wrap > input { margin-top: 0; }
 .pw-wrap { margin-top: 6px; }
 .auth-fields .pw-wrap { margin-top: 6px; }
+
+/* ---- Sidebar collapse / expand as one smooth morph ----
+   The width eases in and out over ~0.45s, the content beside it follows, labels fade and slide away
+   (instead of vanishing in one frame) and every icon glides to the centre of the narrow bar. */
+@media (min-width: 901px) {
+  :root { --nav-ease: cubic-bezier(0.65, 0, 0.35, 1); --nav-dur: 0.45s; }
+  body { transition: padding-left var(--nav-dur) var(--nav-ease); }
+  .sidebar { transition: width var(--nav-dur) var(--nav-ease), padding var(--nav-dur) var(--nav-ease); }
+  .banner { transition: width var(--nav-dur) var(--nav-ease); }
+
+  /* nav buttons: the icon keeps its place on the left and slides to the centre (48px button, 16px icon) */
+  .side-nav.seg > button { overflow: hidden; transition: padding var(--nav-dur) var(--nav-ease), background 0.2s, color 0.2s; }
+  .side-nav.seg > button svg.la, .side-nav.seg > button svg.orb-icon { flex: none; transition: margin var(--nav-dur) var(--nav-ease); }
+  body.nav-mini .side-nav.seg > button { justify-content: flex-start; padding: 0 0 0 16px; }
+  .nav-label, .brand-name, .acct-text { white-space: nowrap; transition: opacity 0.22s ease 0.12s, transform var(--nav-dur) var(--nav-ease); }
+  body.nav-mini .nav-label, body.nav-mini .brand-name, body.nav-mini .acct-text {
+    display: revert; opacity: 0; transform: translateX(-8px); pointer-events: none; transition: opacity 0.14s ease, transform var(--nav-dur) var(--nav-ease);
+  }
+  body.nav-mini .acct-text { display: flex; }
+
+  /* brand: the logo slides from the left edge to the centre; the name fades */
+  .brand { transition: padding var(--nav-dur) var(--nav-ease); overflow: hidden; }
+  body.nav-mini .brand { justify-content: flex-start; padding: 4px 0 4px 10px; }
+  body.nav-mini .brand-name { position: absolute; left: 48px; }
+
+  /* account button: the avatar glides to the centre, the name fades */
+  .acct-btn { overflow: hidden; transition: padding var(--nav-dur) var(--nav-ease), background 0.2s; }
+  body.nav-mini .acct-btn { justify-content: flex-start; padding: 6px 0 6px 9px; }
+  body.nav-mini .acct-btn .acct-text { position: absolute; left: 50px; }
+  .acct-btn { position: relative; }
+
+  /* unread badges: shrink into the corner instead of jumping */
+  .nav-badge { transition: transform var(--nav-dur) var(--nav-ease); }
+}
+@media (min-width: 901px) and (prefers-reduced-motion: reduce) {
+  body, .sidebar, .banner, .side-nav.seg > button, .side-nav.seg > button svg, .nav-label, .brand-name, .acct-text, .brand, .acct-btn, .nav-badge { transition: none !important; }
+}
+@media (min-width: 901px) {
+  /* the global ease-out (*, !important) made this snap; moving things ease in and out */
+  body, .sidebar, .banner, .side-nav.seg > button, .side-nav.seg > button svg, .brand, .acct-btn, .nav-badge { transition-timing-function: var(--nav-ease) !important; }
+  .nav-label, .brand-name, .acct-text { transition-timing-function: ease, var(--nav-ease) !important; }
+}
+
+/* Add / edit number: the check with Meta */
+.sf-token { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 14px; padding: 8px 8px 8px 14px; border-radius: var(--r-md); background: var(--sunk); box-shadow: var(--sh-sunk); font-size: 13.5px; color: var(--muted); }
+.sf-token span { display: inline-flex; align-items: center; gap: 7px; }
+.sf-token b { color: var(--text); font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.04em; }
+.sf-status { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0 12px; padding: 10px 12px; border-radius: var(--r-md); font-size: 13px; line-height: 1.45; }
+.sf-status svg { flex: none; margin-top: 1px; }
+.sf-status.busy { background: var(--sunk); color: var(--muted); align-items: center; }
+.sf-status.ok { background: var(--good-soft); color: var(--good-text); }
+.sf-status.bad { background: var(--danger-soft); color: var(--danger); }
+.sf-spin { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: sf-spin 0.7s linear infinite; }
+@keyframes sf-spin { to { transform: rotate(360deg); } }
+.kv-ok { color: var(--good-text); }
+/* Templates: how to add one in Meta — four steps on a thin line */
+.tg-lead { margin: -4px 0 20px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.tg-steps { margin: 0 0 18px; padding: 0; list-style: none; counter-reset: tg; }
+.tg-steps li { counter-increment: tg; position: relative; display: flex; flex-direction: column; gap: 2px; padding: 0 0 18px 40px; min-height: 26px; }
+.tg-steps li:last-child { padding-bottom: 0; }
+.tg-steps li::before { content: counter(tg); position: absolute; left: 0; top: -2px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--text); background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--hair), var(--sh-raised); }
+.tg-steps li:not(:last-child)::after { content: ""; position: absolute; left: 12.5px; top: 28px; bottom: 2px; width: 1px; background: var(--hair); }
+.tg-steps b { font-size: 14px; font-weight: 600; }
+.tg-steps span { font-size: 13px; line-height: 1.5; color: var(--muted); }
+.tg-steps code, .tg-waba code { font-size: 12px; padding: 1px 6px; border-radius: 5px; background: var(--sunk); color: var(--text); }
+.tg-waba { margin: 0 0 4px; padding-top: 14px; box-shadow: 0 -1px 0 var(--hair); font-size: 12.5px; color: var(--faint); }
+
+/* A popup is open: the page behind it doesn't scroll (app.js toggles .modal-open) */
+html.modal-open, html.modal-open body { overflow: hidden; }
+html.modal-open body { padding-right: var(--sbw, 0px); }
+.modal { overscroll-behavior: contain; }

@@ -808,6 +808,7 @@
       if (empty.some((v) => v.media)) throw new Error('Fill in the header media URL first (Personalise)');
       for (const v of empty) values[v.key] = 'test';
       const phone = $('#testPhone').value;
+      if (phoneError(phone)) { $('#testPhone').focus(); throw new Error(phoneError(phone)); }
       try { localStorage.setItem('testPhone', phone); } catch {}
       const r = await api('/send/test', { method: 'POST', body: { senderId, templateId: t.id, phone, values } });
       toast(`${r.demo ? '(Demo) ' : ''}Test sent to +${r.to}${empty.length ? ` · ${empty.length} empty variable${empty.length > 1 ? 's' : ''} sent as “test”` : ''}`);

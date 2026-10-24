@@ -9,7 +9,7 @@ const TAG_COLORS = ['blue', 'green', 'violet', 'orange', 'teal', 'pink', 'gray']
 const STOP_RE = /^\s*(stop|stop all|unsubscribe|opt[ -]?out|cancel|remove me)\s*[.!]*\s*$/i;
 
 module.exports = function mountContacts(app, ctx) {
-  const { db, save, id, wrap, fail, normalizePhone, broadcast } = ctx;
+  const { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast } = ctx;
   db.contacts ||= [];
   db.tags ||= [];
 
@@ -100,8 +100,9 @@ module.exports = function mountContacts(app, ctx) {
   app.get('/api/contacts', (req, res) => res.json({ contacts: db.contacts, tags: db.tags, counts: tagCounts(), statuses: STATUSES }));
 
   app.post('/api/contacts', wrap((req, res) => {
+    const phoneErr = phoneInputError(req.body.phone);
+    if (phoneErr) throw fail(phoneErr);
     const phone = normalizePhone(req.body.phone);
-    if (!phone) throw fail('Enter a valid phone number');
     const { contact, created } = upsert(phone, req.body, { source: 'manual', addTags: req.body.tags || [] });
     save();
     res.json({ contact, created });
@@ -111,8 +112,9 @@ module.exports = function mountContacts(app, ctx) {
     const c = db.contacts.find((x) => x.id === req.params.id);
     if (!c) throw fail('Contact not found', 404);
     if (req.body.phone != null) {
+      const phoneErr = phoneInputError(req.body.phone);
+      if (phoneErr) throw fail(phoneErr);
       const phone = normalizePhone(req.body.phone);
-      if (!phone) throw fail('Enter a valid phone number');
       if (phone !== c.phone && byPhone(phone)) throw fail('Another contact already has that number');
       c.phone = phone;
     }

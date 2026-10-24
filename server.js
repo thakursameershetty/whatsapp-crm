@@ -77,6 +77,19 @@ function publicSender(s) {
   return { ...rest, accessTokenMasked: maskToken(accessToken), hasToken: Boolean(accessToken) };
 }
 
+// A number someone typed in a form: digits with optional +, spaces, dashes or brackets, and either
+// 10 digits (the default country code is added) or the full number with country code (up to 15).
+// Returns an error message, or '' when it's fine. (Imported sheets go through normalizePhone, which is forgiving.)
+function phoneInputError(input) {
+  const v = String(input ?? '').trim();
+  if (!v) return 'Enter a phone number';
+  if (!/^\+?[\d\s\-().]+$/.test(v)) return 'A phone number can only have digits (and a + at the start)';
+  const digits = v.replace(/\D/g, '').replace(/^00/, '');
+  if (digits.length < 10) return 'That number is too short. Enter 10 digits, or the full number with the country code.';
+  if (digits.length > 15) return 'That number is too long. Phone numbers have at most 15 digits.';
+  return normalizePhone(v) ? '' : 'Enter a valid phone number';
+}
+
 function normalizePhone(input) {
   let digits = String(input || '').replace(/\D/g, '').replace(/^00/, '');
   const cc = db.settings.defaultCountryCode;
@@ -457,24 +470,99 @@ app.get('/api/senders', (req, res) => res.json(db.senders.map(publicSender)));
 const tidyLabel = (v) => String(v ?? '').replace(/\s+/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '').trim();
 const senderLabelError = (v) => { const s = tidyLabel(v); return !s ? 'Give the number a label' : s.length > 40 ? `Keep the label to 40 characters (it's ${s.length})` : ''; };
 
-app.post('/api/senders', wrap((req, res) => {
-  const { label, phoneNumberId, wabaId, accessToken, displayPhone } = req.body;
+// Meta's IDs are numbers; the display phone, if given, is a phone number. Values already saved
+// (e.g. demo placeholders) are left alone when an edit doesn't change them.
+function senderIdsError(body, existing) {
+  const changed = (k) => k in body && String(body[k] ?? '').trim() !== String(existing?.[k] ?? '');
+  for (const [k, name] of [['phoneNumberId', 'Phone number ID'], ['wabaId', 'WhatsApp Business Account ID']]) {
+    const v = String(body[k] ?? '').trim();
+    if (v && changed(k) && !/^\d{10,17}$/.test(v)) return `${name} should be 10–17 digits (copy it from Meta → WhatsApp → API Setup)`;
+  }
+  const dp = String(body.displayPhone ?? '').trim();
+  if (dp && changed('displayPhone')) { const e = phoneInputError(dp); if (e) return 'Display phone: ' + e.charAt(0).toLowerCase() + e.slice(1); }
+  return '';
+}
+
+// --- Checking a number with Meta before it's saved ----------------------------------------
+// Live numbers are only saved once Meta confirms the token works, the phone number ID exists and
+// (when given) it belongs to that Business Account. Demo mode skips this: its numbers are placeholders.
+// Only reads from Meta; nothing is sent.
+async function verifyWithMeta({ phoneNumberId, wabaId, accessToken }) {
+  const who = { label: 'this number', accessToken };
+  const say = (e, fallback) => {
+    if (e.code === 190) return "Meta doesn't accept this access token. It may be mistyped, expired or revoked. Create a permanent system-user token in Meta Business Settings and paste it again.";
+    if (e.code === 10 || e.code === 200 || e.code === 3) return "This token doesn't have permission for this number. Give the system user the whatsapp_business_messaging and whatsapp_business_management permissions.";
+    if (e.status === 429 || e.code === 4 || e.code === 80008) return 'Meta is rate limiting checks right now. Wait a minute and try again.';
+    if (!e.status) return "Couldn't reach Meta to check this number. Check the server's internet connection and try again.";
+    // Meta's own text only when it adds something (not its generic "Unsupported get request…").
+    return fallback + (e.message && !/Unsupported get request|does not exist/i.test(e.message) ? ` (Meta said: ${e.message})` : '');
+  };
+  let info;
+  try { info = await graph(who, `${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating,messaging_limit_tier`); }
+  catch (e) { throw fail(say(e, "Meta has no WhatsApp number with this phone number ID that this token can use. Copy the ID from Meta → WhatsApp → API Setup (it isn't the phone number itself).")); }
+  if (!info.display_phone_number) throw fail("That ID isn't a WhatsApp phone number ID. Copy the Phone number ID from Meta → WhatsApp → API Setup.");
+  if (wabaId) {
+    let list;
+    try { list = await graph(who, `${encodeURIComponent(wabaId)}/phone_numbers?fields=id&limit=200`); }
+    catch (e) { throw fail(say(e, "Meta has no WhatsApp Business Account with this ID that this token can use. Copy it from Meta → WhatsApp → API Setup.")); }
+    if (!(list.data || []).some((x) => x.id === String(phoneNumberId))) throw fail("This number isn't in that WhatsApp Business Account. Check both IDs in Meta → WhatsApp → API Setup.");
+  }
+  return { displayPhone: info.display_phone_number, verifiedName: info.verified_name || '', qualityRating: info.quality_rating, messagingLimit: info.messaging_limit_tier };
+}
+// The token to check with: the one typed in, else the number's saved one, else one shared by a number in the same Business Account.
+function tokenFor(body, existing) {
+  const typed = String(body.accessToken || '').trim();
+  if (typed) return typed;
+  if (existing?.accessToken) return existing.accessToken;
+  const waba = String(body.wabaId || existing?.wabaId || '').trim();
+  return (waba && db.senders.find((x) => x !== existing && x.wabaId === waba && x.accessToken)?.accessToken) || '';
+}
+const NEED_TOKEN = 'Paste the access token for this number. It lets the app send from it; Meta Business Settings → System users → Generate token.';
+
+// The popup's "Test connection": checks what's typed without saving anything.
+app.post('/api/senders/verify', wrap(async (req, res) => {
+  const existing = req.body.senderId ? db.senders.find((x) => x.id === req.body.senderId) : null;
+  const pnid = String(req.body.phoneNumberId || '').trim(), waba = String(req.body.wabaId || '').trim();
+  const idErr = senderIdsError({ phoneNumberId: pnid, wabaId: waba });
+  if (!pnid) throw fail('Enter the phone number ID first');
+  if (idErr) throw fail(idErr);
+  const token = tokenFor(req.body, existing);
+  if (!token) throw fail(NEED_TOKEN);
+  res.json({ ok: true, info: await verifyWithMeta({ phoneNumberId: pnid, wabaId: waba, accessToken: token }), sharedToken: !req.body.accessToken && !existing?.accessToken });
+}));
+
+app.post('/api/senders', wrap(async (req, res) => {
+  const { label, phoneNumberId, wabaId, displayPhone } = req.body;
   if (!label || !phoneNumberId) throw fail('Label and Phone Number ID are required');
-  const labelErr = senderLabelError(label);
+  const labelErr = senderLabelError(label) || senderIdsError(req.body);
   if (labelErr) throw fail(labelErr);
-  const s = { id: id(), label: tidyLabel(label), phoneNumberId: String(phoneNumberId).trim(), wabaId: String(wabaId || '').trim(), accessToken: String(accessToken || '').trim(), displayPhone: displayPhone || '', enabled: true, createdAt: new Date().toISOString() };
+  const s = { id: id(), label: tidyLabel(label), phoneNumberId: String(phoneNumberId).trim(), wabaId: String(wabaId || '').trim(), accessToken: tokenFor(req.body), displayPhone: displayPhone || '', enabled: true, createdAt: new Date().toISOString() };
+  if (!db.settings.demoMode) {
+    if (!s.accessToken) throw fail(NEED_TOKEN);
+    Object.assign(s, await verifyWithMeta(s), { lastCheckedAt: new Date().toISOString() });
+  }
   db.senders.push(s);
   save();
   res.json(publicSender(s));
 }));
 
-app.put('/api/senders/:id', wrap((req, res) => {
+app.put('/api/senders/:id', wrap(async (req, res) => {
   const s = db.senders.find((x) => x.id === req.params.id);
   if (!s) throw fail('Not found', 404);
   if ('label' in req.body) { const e = senderLabelError(req.body.label); if (e) throw fail(e); req.body.label = tidyLabel(req.body.label); }
+  { const e = senderIdsError(req.body, s); if (e) throw fail(e); }
+  // A new token or different IDs are checked with Meta before anything changes (switching a number on/off isn't).
+  const next = { phoneNumberId: String(req.body.phoneNumberId ?? s.phoneNumberId).trim(), wabaId: String(req.body.wabaId ?? s.wabaId ?? '').trim(), accessToken: tokenFor(req.body, s) };
+  const credsChanged = Boolean(String(req.body.accessToken || '').trim()) || next.phoneNumberId !== s.phoneNumberId || next.wabaId !== String(s.wabaId || '');
+  let checked = null;
+  if (credsChanged && !db.settings.demoMode) {
+    if (!next.accessToken) throw fail(NEED_TOKEN);
+    checked = await verifyWithMeta(next);
+  }
   for (const k of ['label', 'phoneNumberId', 'wabaId', 'displayPhone', 'enabled']) if (k in req.body) s[k] = typeof req.body[k] === 'string' ? req.body[k].trim() : req.body[k];
   // Blank token on edit means "keep the existing one".
   if (req.body.accessToken) s.accessToken = req.body.accessToken.trim();
+  if (checked) Object.assign(s, checked, { lastCheckedAt: new Date().toISOString() });
   save();
   res.json(publicSender(s));
 }));
@@ -508,6 +596,9 @@ app.get('/api/templates', (req, res) => res.json(db.templates.map(publicTemplate
 
 // Manually defined template (for before API access, or for templates you know the shape of).
 app.post('/api/templates', wrap((req, res) => {
+  // Meta only sends templates it has approved, and those are created in WhatsApp Manager. Templates typed in here
+  // can't be sent for real, so they're only for demo mode.
+  if (!db.settings.demoMode) throw fail('Create templates in Meta WhatsApp Manager, then click Sync from Meta. Templates added here only work in demo mode.');
   const { name, language, category, headerFormat, headerText, bodyText, footerText, urlButtons } = req.body;
   if (!name || !language || !bodyText) throw fail('Name, language and body text are required');
   const components = [];
@@ -589,8 +680,9 @@ app.post('/api/send/test', wrap(async (req, res) => {
   const sender = db.senders.find((s) => s.id === senderId);
   const template = db.templates.find((t) => t.id === templateId);
   if (!sender || !template) throw fail('Pick a sender number and a template');
+  const phoneErr = phoneInputError(phone);
+  if (phoneErr) throw fail(phoneErr);
   const to = normalizePhone(phone);
-  if (!to) throw fail('Invalid phone number');
   if (!db.settings.demoMode && !sender.accessToken) throw fail('This sender has no access token');
   const messageId = await sendTemplate(sender, template, to, values);
   // Keep test sends in the Inbox thread too, so the conversation shows everything that went out.
@@ -1407,7 +1499,7 @@ function removeSeedData() {
 // --- Contacts and the Inbox lead assistant ------------------------------------
 
 notes = require('./notifications')(app, { db, save, id, wrap, broadcast });
-const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, broadcast });
+const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast });
 const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, broadcast, contacts: contactsApi, notes, sendText: (key, text, opts) => sendInboxText(key, text, opts) });
 
 // --- AI assistant -------------------------------------------------------------

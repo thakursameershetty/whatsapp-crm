@@ -162,6 +162,41 @@ document.addEventListener('click', (e) => {
   if (copy) { navigator.clipboard.writeText($('#' + copy.dataset.copy).value); toast('Copied'); }
 });
 
+// Phone fields (any input with inputmode="tel"): letters can't be typed, a + only at the start, at most
+// 15 digits; the same message as the server explains anything else. phoneError() is the shared check.
+function phoneError(v) {
+  v = String(v ?? '').trim();
+  if (!v) return 'Enter a phone number';
+  if (!/^\+?[\d\s\-().]+$/.test(v)) return 'A phone number can only have digits (and a + at the start)';
+  const digits = v.replace(/\D/g, '').replace(/^00/, '');
+  if (digits.length < 10) return 'That number is too short. Enter 10 digits, or the full number with the country code.';
+  if (digits.length > 15) return 'That number is too long. Phone numbers have at most 15 digits.';
+  return '';
+}
+document.addEventListener('input', (e) => {
+  const inp = e.target;
+  if (!inp.matches?.('input[inputmode="tel"]')) return;
+  const at = inp.selectionStart, before = inp.value;
+  let v = before.replace(/[^\d+\s\-()]/g, '').replace(/(?!^)\+/g, '');
+  let n = 0;
+  v = v.replace(/\d/g, (d) => (++n > 15 ? '' : d));
+  if (v !== before) { inp.value = v; const p = Math.max(0, at - (before.length - v.length)); inp.setSelectionRange(p, p); }
+  inp.setCustomValidity(v.trim() && phoneError(v) ? phoneError(v) : '');
+  inp.classList.remove('pw-bad');
+});
+// Meta IDs (phone number ID, business account ID): digits only.
+document.addEventListener('input', (e) => {
+  const inp = e.target;
+  if (!inp.matches?.('input[data-digits]')) return;
+  const v = inp.value.replace(/\D/g, '');
+  if (v !== inp.value) inp.value = v;
+  inp.setCustomValidity(v && v.length < 10 ? 'That ID looks too short. Copy it from Meta → WhatsApp → API Setup.' : '');
+});
+document.addEventListener('blur', (e) => {
+  const inp = e.target;
+  if (inp.matches?.('input[inputmode="tel"]') && inp.value.trim()) inp.classList.toggle('pw-bad', Boolean(phoneError(inp.value)));
+}, true);
+
 // Show/hide toggle on password fields (the same eye as on the sign-in pages).
 const PW_EYE = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const PW_EYE_OFF = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2"/><path d="M6.6 6.6A17.4 17.4 0 0 0 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m2 2 20 20"/></svg>';
@@ -193,6 +228,19 @@ function hideOverlay(el) {
   setTimeout(() => el.classList.remove('closing') || el.classList.add('hidden'), Motion.reduce() ? 0 : 180);
 }
 const closeModal = () => hideOverlay($('#modal'));
+// While any popup is open the page behind it stays put: scrolling only moves the popup. The page's
+// scrollbar width is kept as padding so nothing shifts sideways when it's hidden.
+(() => {
+  const sync = () => {
+    const open = [...document.querySelectorAll('.modal')].some((m) => !m.classList.contains('hidden'));
+    const root = document.documentElement;
+    if (open === root.classList.contains('modal-open')) return;
+    if (open) root.style.setProperty('--sbw', innerWidth - root.clientWidth + 'px');
+    root.classList.toggle('modal-open', open);
+  };
+  const watch = new MutationObserver(sync);
+  document.querySelectorAll('.modal').forEach((m) => watch.observe(m, { attributes: true, attributeFilter: ['class'] }));
+})();
 $('#modalClose').addEventListener('click', closeModal);
 $('#modal').addEventListener('click', (e) => e.target.id === 'modal' && closeModal());
 
@@ -477,6 +525,7 @@ function renderSenders() {
         ${s.verifiedName ? `<dt>Verified name</dt><dd>${esc(s.verifiedName)}</dd>` : ''}
         ${s.qualityRating ? `<dt>Quality</dt><dd>${esc(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Daily limit</dt><dd>${esc(s.messagingLimit)}</dd>` : ''}
+        ${s.lastCheckedAt ? `<dt>Connection</dt><dd class="kv-ok">Connected · checked ${esc(relTime(s.lastCheckedAt))}</dd>` : ''}
       </dl>
       <div class="row tight">
         <button class="btn sm" data-test="${s.id}">${icon('zap', 15)}Test connection</button>
@@ -520,37 +569,73 @@ $('#senderList').addEventListener('click', (e) => {
 });
 
 function senderForm(s = null) {
+  // Live numbers are checked with Meta before they're saved (the server checks again on Save).
+  const live = !state.settings.demoMode;
+  const shared = !s && state.senders.find((x) => x.hasToken && x.wabaId);
   const body = openModal(s ? 'Edit number' : 'Add sender number', `
-    <form id="senderForm">
+    <form id="senderForm" novalidate>
       <label>Label <span class="opt">up to 40 characters</span><input name="label" required maxlength="40" placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
-      <label>Display phone <span class="opt">optional, for your reference</span><input name="displayPhone" placeholder="+91 98765 43210" value="${esc(s?.displayPhone)}" /></label>
-      <label>Phone number ID <input name="phoneNumberId" required placeholder="From Meta → WhatsApp → API Setup" value="${esc(s?.phoneNumberId)}" /></label>
-      <label>WhatsApp Business Account ID <input name="wabaId" placeholder="Needed to sync templates" value="${esc(s?.wabaId)}" /></label>
-      <label>Access token ${s?.hasToken ? '<span class="opt">leave blank to keep current</span>' : ''}
-        <input name="accessToken" type="password" autocomplete="off" placeholder="${s?.hasToken ? esc(s.accessTokenMasked) : 'Permanent system-user token'}" />
-      </label>
+      <label>Phone number ID <input name="phoneNumberId" required inputmode="numeric" data-digits maxlength="17" placeholder="From Meta → WhatsApp → API Setup (digits)" value="${esc(s?.phoneNumberId)}" /></label>
+      <label>WhatsApp Business Account ID <input name="wabaId" inputmode="numeric" data-digits maxlength="17" placeholder="Needed to sync templates (digits)" value="${esc(s?.wabaId)}" /></label>
+      ${s?.hasToken
+        ? `<div class="field-label">Access token</div>
+           <div class="sf-token" id="sfSaved"><span>${icon('lock', 14)}Saved token ending in <b>${esc((s.accessTokenMasked || '').slice(-4))}</b></span><button type="button" class="btn sm" id="sfReplace">Replace token</button></div>
+           <label class="hidden" id="sfTokenWrap">New access token<input name="accessToken" type="password" autocomplete="off" placeholder="Paste the new token" /></label>`
+        : `<label>Access token${live ? '' : ' <span class="opt">optional in demo mode</span>'}<input name="accessToken" type="password" autocomplete="off" placeholder="${shared ? 'Leave blank to use the token of ' + esc(shared.label) : 'Permanent system-user token'}" /></label>`}
+      <label>Display phone <span class="opt">${live ? 'filled in from Meta when the number is checked' : 'optional, for your reference'}</span><input name="displayPhone" inputmode="tel" maxlength="22" placeholder="+91 98765 43210" value="${esc(s?.displayPhone)}" /></label>
+      <div class="sf-status hidden" id="sfStatus" role="status" aria-live="polite"></div>
       <p class="sub">Numbers in the same WhatsApp Business Account can share one token. It's stored only on this server and never shown in full again.</p>
       <div class="modal-actions">
+        ${live ? '<button type="button" class="btn quiet" id="sfTest" data-icon="zap" style="margin-right:auto">Test connection</button>' : ''}
         <button type="button" class="btn quiet" onclick="closeModal()">Cancel</button>
         <button class="btn primary">${s ? 'Save' : 'Add number'}</button>
       </div>
     </form>`);
-  // Prefill WABA + token hint from an existing number to make adding more numbers quicker.
+  const form = $('#senderForm', body), status = $('#sfStatus', body);
+  // Prefill WABA from an existing number to make adding more numbers quicker.
   if (!s && state.senders[0]?.wabaId) $('[name=wabaId]', body).value = state.senders[0].wabaId;
-  $('#senderForm').addEventListener('submit', (e) => {
+  $('#sfReplace', body)?.addEventListener('click', () => { $('#sfSaved', body).classList.add('hidden'); $('#sfTokenWrap', body).classList.remove('hidden'); $('[name=accessToken]', body).focus(); });
+  const show = (kind, html) => { status.className = 'sf-status ' + kind; status.innerHTML = html; };
+  // Editing the number or token means the last check no longer applies.
+  form.addEventListener('input', (e) => { if (e.target.matches('[name=phoneNumberId], [name=wabaId], [name=accessToken]')) status.className = 'sf-status hidden'; });
+  const fields = () => Object.fromEntries(new FormData(form));
+  const firstProblem = () => {
+    const d = fields();
+    if (!d.label.trim()) return ['label', 'Give the number a label'];
+    if (!d.phoneNumberId) return ['phoneNumberId', 'Enter the phone number ID'];
+    return [...form.querySelectorAll('input')].map((i) => i.validationMessage && [i.name, i.validationMessage]).find(Boolean) || null;
+  };
+  const check = async () => {
+    const bad = firstProblem();
+    if (bad && bad[0] !== 'label') { form.querySelector(`[name=${bad[0]}]`).focus(); show('bad', esc(bad[1])); return false; }
+    show('busy', '<span class="sf-spin"></span>Checking with Meta…');
+    try {
+      const r = await api('/senders/verify', { method: 'POST', body: { ...fields(), senderId: s?.id } });
+      const i = r.info;
+      $('[name=displayPhone]', body).value = i.displayPhone;
+      show('ok', `${icon('circle-check', 15)}<span><b>Connected</b> · ${esc(i.verifiedName || 'WhatsApp number')} · ${esc(i.displayPhone)}${i.qualityRating ? ` · quality ${esc(String(i.qualityRating).toLowerCase())}` : ''}${r.sharedToken ? '<br>Using the token saved for your other number in this Business Account.' : ''}</span>`);
+      return true;
+    } catch (err) { show('bad', esc(err.message)); return false; }
+  };
+  $('#sfTest', body)?.addEventListener('click', (e) => guard(check, e.currentTarget));
+  form.addEventListener('submit', (e) => {
     e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target));
+    const bad = firstProblem();
+    if (bad) { form.querySelector(`[name=${bad[0]}]`).focus(); show('bad', esc(bad[1])); return; }
+    const btn = $('button.primary', form);
     guard(async () => {
-      if (s) await api('/senders/' + s.id, { method: 'PUT', body: data });
-      else {
-        // Reuse an existing token from the same WABA if none was given.
-        const added = await api('/senders', { method: 'POST', body: data });
-        state.selectedSenders.add(added.id);
-      }
+      if (live) show('busy', '<span class="sf-spin"></span>Checking with Meta, then saving…');
+      try {
+        if (s) await api('/senders/' + s.id, { method: 'PUT', body: fields() });
+        else {
+          const added = await api('/senders', { method: 'POST', body: fields() });
+          state.selectedSenders.add(added.id);
+        }
+      } catch (err) { show('bad', esc(err.message)); return; } // the problem stays in the popup, next to the fields
       closeModal();
-      toast(s ? 'Saved' : 'Number added');
+      toast(s ? 'Saved' : live ? 'Number connected and added' : 'Number added');
       await loadSenders();
-    }, $('button.primary', e.target));
+    }, btn);
   });
 }
 window.senderForm = senderForm;
@@ -575,8 +660,8 @@ function renderTemplates() {
     list.innerHTML = emptyState({
       icon: 'template',
       title: 'No templates yet',
-      text: 'WhatsApp only lets you start conversations with approved templates. Once your API is ready, click Sync from Meta. Until then, add one by hand to try things out.',
-      actions: `<button class="btn primary" onclick="templateForm()">${icon('plus', 16)}Add manually</button><button class="btn" onclick="document.getElementById('syncTemplates').click()">${icon('refresh-cw', 16)}Sync from Meta</button>`,
+      text: 'WhatsApp only lets you start conversations with templates Meta has approved. Create one in Meta, then click Sync from Meta to bring it in.',
+      actions: `<button class="btn primary" onclick="templateGuide()">${icon('plus', 16)}Add a template</button><button class="btn" onclick="document.getElementById('syncTemplates').click()">${icon('refresh-cw', 16)}Sync from Meta</button>`,
     });
     return;
   }
@@ -672,7 +757,31 @@ function templateForm() {
   });
 }
 window.templateForm = templateForm;
-$('#addTemplate').addEventListener('click', () => templateForm());
+// "Add": Meta only sends templates it has approved, and they're created in WhatsApp Manager, so this
+// explains how to make one there and then syncs it in. (A hand-made template is for demo mode only.)
+function templateGuide() {
+  const waba = state.senders.find((x) => x.wabaId)?.wabaId;
+  const manager = 'https://business.facebook.com/wa/manage/message-templates/' + (waba ? '?waba_id=' + encodeURIComponent(waba) : '');
+  const body = openModal('Add a template', `
+    <p class="tg-lead">WhatsApp only delivers templates that Meta has approved, so they're created in Meta's WhatsApp Manager. It takes a few minutes; approval usually comes within a few minutes to a day.</p>
+    <ol class="tg-steps">
+      <li><b>Open WhatsApp Manager → Message templates</b><span>Sign in with the Facebook account that manages your WhatsApp Business Account${waba ? ` (ID <code>${esc(waba)}</code>)` : ''}.</span></li>
+      <li><b>Click Create template</b><span>Pick a category: <i>Marketing</i> for offers, <i>Utility</i> for order and account updates, <i>Authentication</i> for codes.</span></li>
+      <li><b>Name it and choose the language</b><span>Lowercase letters, numbers and underscores only, e.g. <code>diwali_offer</code>.</span></li>
+      <li><b>Write the message</b><span>Use <code>{{1}}</code>, <code>{{2}}</code>… where each person's details go (name, order number). Add a header image or buttons if you like.</span></li>
+      <li><b>Submit it for review</b><span>Its status shows <i>In review</i>, then <i>Active</i> once approved.</span></li>
+      <li><b>Come back and click Sync from Meta</b><span>Approved templates appear here, ready to use on the Send page.</span></li>
+    </ol>
+    <div class="modal-actions">
+      ${state.settings.demoMode ? '<button type="button" class="btn quiet" id="tgManual" style="margin-right:auto">Practice template (demo)</button>' : ''}
+      <button type="button" class="btn quiet" id="tgSync" data-icon="refresh-cw">Sync from Meta</button>
+      <a class="btn primary" href="${esc(manager)}" target="_blank" rel="noopener" data-icon="external-link">Open WhatsApp Manager</a>
+    </div>`);
+  $('#tgSync', body).onclick = () => { closeModal(); $('#syncTemplates').click(); };
+  $('#tgManual', body)?.addEventListener('click', () => templateForm());
+}
+window.templateGuide = templateGuide;
+$('#addTemplate').addEventListener('click', () => templateGuide());
 
 // ---------------------------------------------------------------------------
 // Shared: reading contact files, phone numbers, template bubbles
@@ -1023,7 +1132,7 @@ function renderSetup(st) {
   const s = st.setup, demoOk = state.settings?.demoAllowed;
   const steps = [
     { done: s.sender, title: 'Add a WhatsApp number', text: demoOk ? 'Phone number ID and token from Meta. A placeholder is fine for demo mode.' : 'Your phone number ID and WhatsApp Business account ID from Meta.', action: `<button class="btn sm" onclick="senderForm()">${icon('plus', 15)}Add number</button>` },
-    { done: s.template, title: 'Add a template', text: 'Sync approved templates from Meta, or add one by hand.', action: `<button class="btn sm" data-goto="templates">${icon('file-text', 15)}Templates</button>` },
+    { done: s.template, title: 'Add a template', text: 'Create one in Meta WhatsApp Manager, then sync it in.', action: `<button class="btn sm" data-goto="templates">${icon('file-text', 15)}Templates</button>` },
     { done: s.campaign, title: 'Send a campaign', text: 'Upload contacts, pick who to message and press send.', action: `<button class="btn sm" data-goto="send">${icon('send', 15)}Start</button>` },
     demoOk
       ? { done: s.live && s.token, title: 'Go live', text: 'Add your API token and switch off demo mode in Settings.', action: `<button class="btn sm" data-goto="settings">${icon('rocket', 15)}Go live</button>` }

@@ -457,7 +457,7 @@
             <div class="sp-testpop hidden" id="testPop" role="dialog" aria-label="Send a test to yourself">
               <b>Send a test to yourself</b>
               <div class="row tight">
-                <input id="testPhone" placeholder="Your number, e.g. 9876543210" inputmode="tel" />
+                <input id="testPhone" placeholder="Your number, e.g. 9876543210" inputmode="tel" maxlength="22" />
                 <button class="btn primary" id="testSend">Send</button>
               </div>
               <span class="sub" id="testNote">Uses the template and the recipient in the preview, from the first number
@@ -493,11 +493,11 @@
       <div class="section-head">
         <div>
           <h1>Templates</h1>
-          <p class="sub">Sync approved templates from Meta, or add one by hand while you wait for approval.</p>
+          <p class="sub">Templates are created and approved in Meta, then synced here to send.</p>
         </div>
         <div class="row tight">
           <button class="btn" id="syncTemplates" data-icon="refresh-cw">Sync from Meta</button>
-          <button class="btn primary" id="addTemplate" data-icon="plus">Add manually</button>
+          <button class="btn primary" id="addTemplate" data-icon="plus">Add</button>
         </div>
       </div>
       <div id="templateList" class="cards" data-skel="card:3"></div>

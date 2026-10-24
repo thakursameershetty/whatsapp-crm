@@ -741,13 +741,15 @@
     const body = openModal(
       'New chat',
       `<p class="sub ib-modal-sub">WhatsApp only lets you start a conversation with an approved template. Free-form messages open up once they reply.</p>
-      <label>Phone number<input id="ncPhone" inputmode="tel" placeholder="98765 43210 or +91 98765 43210" /></label>
+      <label>Phone number<input id="ncPhone" inputmode="tel" maxlength="22" placeholder="98765 43210 or +91 98765 43210" /></label>
       <label>From<select id="ncSender">${senders.map((s) => `<option value="${esc(s.id)}">${esc(s.label)}${s.displayPhone ? ' · ' + esc(s.displayPhone) : ''}</option>`).join('')}</select></label>
       <div class="modal-actions"><button class="btn quiet" id="ncCancel">Cancel</button><button class="btn primary" id="ncGo">Open chat</button></div>`
     );
     $('#ncPhone', body).focus();
     $('#ncCancel', body).onclick = closeModal;
     const go = () => {
+      const err = phoneError($('#ncPhone', body).value);
+      if (err) { $('#ncPhone', body).focus(); return toast(err, 'error'); }
       let digits = $('#ncPhone', body).value.replace(/\D/g, '').replace(/^00/, '');
       const cc = state.settings.defaultCountryCode;
       if (cc && digits.length === 10) digits = cc + digits;

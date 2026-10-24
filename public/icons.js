@@ -39,6 +39,7 @@
     'calendar-days': `<path d="M8 2v4"/><path d="M16 2v4"/><rect height="18" rx="2" width="18" x="3" y="4"/><path d="M3 10h18"/>${[[8, 14], [12, 14], [16, 14], [8, 18], [12, 18], [16, 18]].map(([cx, cy], i) => `<circle class="dot" style="--i:${i}" cx="${cx}" cy="${cy}" r="1" fill="currentColor" stroke="none"/>`).join('')}`,
     history: `<g class="a-arrow"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></g><line class="a-hour" x1="12" x2="12" y1="12" y2="7"/><line class="a-min" x1="12" x2="16" y1="12" y2="14"/>`,
     user: `<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>`,
+    'external-link': `<path d="M15 3h6v6"/><path class="a-slide" d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>`,
     lock: `<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path class="a-slide" d="M7 11V7a5 5 0 0 1 10 0v4"/>`,
     users: `<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path class="a-slide" d="M22 21v-2a4 4 0 0 0-3-3.87"/><path class="a-slide" d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
     'circle-check': `<circle cx="12" cy="12" r="10"/><path class="draw" ${PL} d="m9 12 2 2 4-4"/>`,
