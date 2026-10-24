@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 
 const mail = require('./mail');
+const passwordRules = require('./public/password-rules');
 
 const SESSION_DAYS = 30;
 // New workspaces may send this many template messages a day until an admin raises it.
@@ -147,7 +148,50 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · WhatsApp Sender</title><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"><link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg">
 <script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}</script></head>
-<body class="auth-body">${body}<script src="/gradient-ascii.js"></script><script>
+<body class="auth-body">${body}<script src="/gradient-ascii.js"></script><script src="/otp.js"></script><script src="/password-rules.js"></script><script>
+// Sign-up: "Send code" emails a confirmation code, then shows the box for it.
+(function () {
+  var btn = document.getElementById('suSend'); if (!btn) return;
+  var email = document.getElementById('suEmail'), wrap = document.getElementById('suCodeWrap'), note = document.getElementById('suCodeNote'), wait = 0, timer;
+  function tick() { if (wait > 0) { btn.textContent = 'Resend in ' + wait + 's'; btn.disabled = true; wait--; timer = setTimeout(tick, 1000); } else { btn.textContent = 'Resend code'; btn.disabled = false; } }
+  btn.onclick = function () {
+    if (!email.checkValidity() || !email.value) { email.reportValidity(); return; }
+    btn.disabled = true; btn.textContent = 'Sending…';
+    fetch('/signup/code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value }) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) {
+        if (!x.ok) { btn.disabled = false; btn.textContent = 'Send code'; note.textContent = ''; alert(x.j.error || 'Could not send the code'); return; }
+        wrap.classList.remove('hidden'); note.textContent = 'sent to ' + email.value; otp && otp.reset(); hidden.value = ''; otp && otp.focus();
+        wait = 30; tick();
+      });
+  };
+  email.addEventListener('input', function () { clearTimeout(timer); wait = 0; btn.disabled = false; btn.textContent = 'Send code'; hidden.value = ''; otp && otp.reset(); });
+  // The code row: each full code is checked with the server; a right one fuses into "Verified".
+  var hidden = document.getElementById('suCode'), otp = window.OneTimeCode && OneTimeCode.mount(document.getElementById('suOtp'), {
+    length: 6,
+    check: function (code) {
+      return fetch('/signup/code/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value, code: code }) }).then(function (r) { return r.ok; });
+    },
+    onVerified: function (code) { hidden.value = code; },
+    onChange: function () { hidden.value = ''; },
+  });
+  document.querySelector('form[action="/signup"]').addEventListener('submit', function (e) {
+    if (!hidden.value) { e.preventDefault(); wrap.classList.remove('hidden'); if (otp) otp.focus(); note.textContent = btn.textContent === 'Send code' ? 'click Send code first' : 'enter the code from your email'; }
+  });
+})();
+// Confirm-email page: the same code row; a right code goes straight into the app.
+(function () {
+  var el = document.getElementById('gateOtp'); if (!el || !window.OneTimeCode) return;
+  var err = document.getElementById('gateErr');
+  var otp = OneTimeCode.mount(el, {
+    length: 6,
+    check: function (code) {
+      return fetch('/verify/code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code }) }).then(function (r) { err.classList.toggle('hidden', r.ok); return r.ok; });
+    },
+    onVerified: function () { setTimeout(function () { location.href = '/'; }, 900); },
+  });
+  otp.focus();
+})();
 // The page background: the same faint time-of-day sky as the Assistant's start page.
 (function () {
   var SKY = [[0, 265, 0.07], [4.5, 265, 0.07], [6.5, 70, 0.12], [9, 85, 0.08], [12, 90, 0.035], [15.5, 80, 0.06], [18.5, 45, 0.11], [20, 330, 0.07], [21.5, 265, 0.07], [24, 265, 0.07]];
@@ -198,7 +242,7 @@ ${notice ? `<p class="auth-notice">${esc(notice)}</p>` : ''}${error ? `<p class=
     }));
   }
 
-  function signupPage({ error = '', name = '', email = '', business = '', next = '', invite = null } = {}) {
+  function signupPage({ error = '', name = '', email = '', business = '', next = '', invite = null, codeSent = false } = {}) {
     const legacy = !invite && legacyUnclaimed();
     return page('Create account', shell({
       kicker: invite ? `Join ${invite.wsName}` : 'Start free',
@@ -207,11 +251,12 @@ ${notice ? `<p class="auth-notice">${esc(notice)}</p>` : ''}${error ? `<p class=
 <h1>${invite ? `Join ${esc(invite.wsName)}` : 'Create your account'}</h1>
 <p class="auth-sub">${invite ? `You were invited to the ${esc(invite.wsName)} workspace.` : 'Set up in minutes. No credit card.'}</p>
 <div class="auth-row">
-<label>Your name<input name="name" value="${esc(name)}" autocomplete="name" placeholder="Full name" required autofocus></label>
+<label>Your name<input name="name" id="suName" value="${esc(name)}" autocomplete="name" placeholder="Full name" required autofocus></label>
 ${invite ? '' : `<label>Business name<input name="business" value="${esc(business)}" placeholder="e.g. Spotmies" required></label>`}
 </div>
-<label>Your email<input type="email" name="email" value="${esc(email || invite?.email || '')}" autocomplete="email" placeholder="you@company.com" required></label>
-<label>Password <span class="opt">at least 8 characters</span><input type="password" name="password" autocomplete="new-password" minlength="8" placeholder="Create a password" required></label>
+<label>Your email<span class="auth-inline"><input type="email" name="email" id="suEmail" value="${esc(email || invite?.email || '')}" autocomplete="email" placeholder="you@company.com" required><button type="button" class="auth-send" id="suSend">Send code</button></span></label>
+<div id="suCodeWrap" ${codeSent ? '' : 'class="hidden"'}><span class="auth-otp-label">Confirmation code <span class="opt" id="suCodeNote">sent to your email</span></span><div class="auth-otp" id="suOtp"></div><input type="hidden" name="code" id="suCode"></div>
+<label>Password<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="Create a password" required data-pw-rules data-pw-email="#suEmail" data-pw-name="#suName"></label>
 ${legacy ? `<label>Existing app password <span class="opt">only if you used this app before</span><input type="password" name="legacy" autocomplete="off" placeholder="Keeps your existing ${esc(legacy.name)} data"></label>` : ''}
 <input type="hidden" name="next" value="${esc(next)}">
 ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">${invite ? 'Join workspace' : 'Get started'}</button>
@@ -233,14 +278,14 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
 <p class="login-alt">Remembered it? <a href="/login">Sign in</a></p></form>`,
     }));
   }
-  function resetPage({ token, error = '' }) {
+  function resetPage({ token, error = '', email = '' }) {
     return page('New password', shell({
       kicker: 'Almost there',
       headline: 'Choose a new password.',
       form: `<form method="post" action="/reset/${esc(token)}" class="auth-fields">${mark}
 <h1>Choose a new password</h1>
 <p class="auth-sub">You'll be signed out everywhere else.</p>
-<label>New password <span class="opt">at least 8 characters</span><input type="password" name="password" autocomplete="new-password" minlength="8" placeholder="New password" required autofocus></label>
+<label>New password<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" placeholder="New password" required autofocus data-pw-rules data-email="${esc(email)}"></label>
 ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">Save password</button></form>`,
     }));
   }
@@ -255,6 +300,39 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
     return token;
   }
   const userByToken = (kind, token) => accounts.users.find((u) => u[kind] && u[kind].hash === sha(String(token || '')) && new Date(u[kind].expiresAt) > new Date());
+  // 6-digit email codes: kept in memory (hash only) for 10 minutes, 5 tries each.
+  const codes = new Map(); // email → { hash, expiresAt, tries }
+  function sendCode(email) {
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    codes.set(email, { hash: sha(email + ':' + code), expiresAt: Date.now() + 10 * 60000, tries: 0 });
+    mail.code(email, code);
+  }
+  // consume: false checks it (counting the try) but keeps it for the real submit.
+  function checkCode(email, code, { consume = true } = {}) {
+    const c = codes.get(email);
+    if (!c || c.expiresAt < Date.now()) return 'That code has expired. Send a new one.';
+    if (++c.tries > 5) { codes.delete(email); return 'Too many wrong codes. Send a new one.'; }
+    if (!sameText(c.hash, sha(email + ':' + String(code || '').replace(/\D/g, '')))) return 'That code isn’t right. Check the email and try again.';
+    if (consume) codes.delete(email);
+    else c.tries--; // a right answer doesn't use up a try
+    return null;
+  }
+
+  // Signed in but the email isn't confirmed yet: this page is all they can use.
+  function verifyGatePage(user, { error = '', sent = false } = {}) {
+    return page('Confirm email', shell({
+      kicker: 'One last step',
+      headline: 'Confirm your email to continue.',
+      form: `<form method="post" action="/verify/code" class="auth-fields">${mark}
+<h1>Confirm your email</h1>
+<p class="auth-sub">We ${sent ? 'just sent' : 'sent'} a 6-digit code to <b>${esc(user.email)}</b>. Enter it below. The email also has a link you can click instead.</p>
+<div class="auth-otp" id="gateOtp"></div><input type="hidden" name="code" id="gateCode">
+${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error hidden" id="gateErr">That code isn’t right. Check the email and try again.</p>
+<p class="login-alt"><button type="submit" form="resendForm" class="auth-link">Send a new code</button> · <a href="/logout">Log out</a></p></form>
+<form id="resendForm" method="post" action="/verify/resend"></form>`,
+    }));
+  }
+
   function sendVerify(req, user) {
     const token = issueToken(user, 'verifyToken', VERIFY_DAYS * 86400000);
     mail.verify(user.email, user.name, `${mail.baseUrl(req)}/verify/${token}`);
@@ -304,9 +382,13 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       noteTry(`${req.ip}|signup`);
       if (!String(name).trim()) return again('Enter your name');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return again('Enter a valid email');
-      if (String(password).length < 8) return again('Use a password of at least 8 characters');
+      const weak = passwordRules.check(password, { email, name }).problem;
+      if (weak) return again(weak);
       if (userByEmail(email)) return again('An account with this email already exists. Sign in instead.');
       if (!invite && !String(business).trim()) return again('Enter your business name');
+      // The email is confirmed before the account exists: the code we sent must match.
+      const codeErr = checkCode(email, req.body.code);
+      if (codeErr) return res.status(400).send(signupPage({ error: req.body.code ? codeErr : 'Click “Send code” and enter the code from your email', name, email, business, next, invite, codeSent: Boolean(codes.get(email)) }));
 
       // Keeping the data from before accounts existed: prove it with the old app password
       // (or be the OWNER_EMAIL). Otherwise everyone starts with a fresh workspace.
@@ -316,7 +398,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       const claims = old && ((legacy && appPassword && sameText(String(legacy), appPassword)) || (ownerEmail && email === ownerEmail.toLowerCase()) || (!appPassword && !ownerEmail && !hosted));
       if (old && legacy && !claims) return again('That app password is wrong. Leave it empty to start a fresh workspace.');
 
-      const user = { id: id(), name: String(name).trim().slice(0, 80), email, password: hashPassword(password), createdAt: now(), emailVerified: false };
+      const user = { id: id(), name: String(name).trim().slice(0, 80), email, password: hashPassword(password), createdAt: now(), emailVerified: true };
       accounts.users.push(user);
       let wsId;
       if (invite) { acceptInvite(invite, user.id); wsId = invite.wsId; }
@@ -331,9 +413,55 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       }
       user.lastWsId = wsId;
       saveAccounts();
-      sendVerify(req, user);
       startSession(res, user.id, wsId);
       res.redirect('/');
+    });
+
+    // Sign-up: email a code as soon as they've typed their email.
+    app.post('/signup/code', express.json(), (req, res) => {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email first' });
+      if (userByEmail(email)) return res.status(409).json({ error: 'An account with this email already exists. Sign in instead.' });
+      if (tooMany(`${req.ip}|code`) || tooMany(`${email}|code`)) return res.status(429).json({ error: 'Too many codes. Try again in a few minutes.' });
+      noteTry(`${req.ip}|code`); noteTry(`${email}|code`);
+      sendCode(email);
+      res.json({ ok: true, mail: mail.enabled() });
+    });
+
+    // The code row checks each full code as it's typed (kept for the real submit).
+    app.post('/signup/code/check', express.json(), (req, res) => {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const err = checkCode(email, req.body?.code, { consume: false });
+      res.status(err ? 400 : 200).json(err ? { ok: false, error: err } : { ok: true });
+    });
+
+    // The confirm-email gate (signed in, email not confirmed).
+    const gateUser = (req) => { const s = sessionOf(req); return s && accounts.users.find((u) => u.id === s.userId); };
+    app.get('/verify', (req, res) => {
+      const u = gateUser(req);
+      if (!u) return res.redirect('/login');
+      if (u.emailVerified !== false) return res.redirect('/');
+      res.send(verifyGatePage(u));
+    });
+    app.post('/verify/code', form, express.json(), (req, res) => {
+      const u = gateUser(req);
+      const json = req.is('application/json');
+      if (!u) return json ? res.status(401).json({ ok: false }) : res.redirect('/login');
+      const err = checkCode(u.email, req.body.code);
+      if (err) return json ? res.status(400).json({ ok: false, error: err }) : res.status(400).send(verifyGatePage(u, { error: err }));
+      u.emailVerified = true;
+      delete u.verifyToken;
+      saveAccounts();
+      json ? res.json({ ok: true }) : res.redirect('/');
+    });
+    app.post('/verify/resend', form, (req, res) => {
+      const u = gateUser(req);
+      if (!u) return res.redirect('/login');
+      if (tooMany(`${u.id}|verify`)) return res.status(429).send(verifyGatePage(u, { error: 'Too many codes. Try again in a few minutes.' }));
+      noteTry(`${u.id}|verify`);
+      sendCode(u.email);
+      sendVerify(req, u);
+      res.send(verifyGatePage(u, { sent: true }));
     });
 
     // Forgot password → email a one-hour link. The page never says whether the email exists.
@@ -348,12 +476,13 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
     });
     app.get('/reset/:token', (req, res) => {
       if (!userByToken('resetToken', req.params.token)) return res.status(404).send(messagePage('Reset password', 'This link has expired', 'Reset links work for 1 hour and only once. Ask for a new one.', '<a class="auth-btn" href="/forgot">Send a new link</a>'));
-      res.send(resetPage({ token: req.params.token }));
+      res.send(resetPage({ token: req.params.token, email: userByToken('resetToken', req.params.token).email }));
     });
     app.post('/reset/:token', form, (req, res) => {
       const user = userByToken('resetToken', req.params.token);
       if (!user) return res.status(404).send(messagePage('Reset password', 'This link has expired', 'Reset links work for 1 hour and only once. Ask for a new one.', '<a class="auth-btn" href="/forgot">Send a new link</a>'));
-      if (String(req.body.password || '').length < 8) return res.status(400).send(resetPage({ token: req.params.token, error: 'Use a password of at least 8 characters' }));
+      const weak = passwordRules.check(req.body.password, user).problem;
+      if (weak) return res.status(400).send(resetPage({ token: req.params.token, error: weak, email: user.email }));
       user.password = hashPassword(String(req.body.password));
       delete user.resetToken;
       user.emailVerified = true; // they proved they can read this inbox
@@ -412,6 +541,11 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
     if (session && session.wsId !== wsId) { session.wsId = wsId; saveAccounts(); }
     req.user = accounts.users.find((u) => u.id === userId);
     req.admin = isAdmin(req.user);
+    // Nothing works until the email is confirmed (new sign-ups confirm with a code first).
+    if (req.user.emailVerified === false && req.path !== '/api/me') {
+      if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'Confirm your email first', verify: true });
+      return res.redirect('/verify');
+    }
     // A suspended workspace is closed to its members (admins can still look in).
     if (ws.meta.suspended && !req.admin) {
       if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'This workspace is suspended. Contact support.' });
@@ -541,6 +675,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
           u.emailVerified = false;
           delete u.resetToken;
           mail.emailChanged(old, email, `${mail.baseUrl(req)}/login`);
+          sendCode(email);
           sendVerify(req, u);
         }
       }
@@ -595,7 +730,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
 
     app.post('/api/account/password', wrap((req, res) => {
       if (!checkPassword(req.body.current, req.user.password)) throw fail('Your current password is wrong');
-      if (String(req.body.password || '').length < 8) throw fail('Use a password of at least 8 characters');
+      const weak = passwordRules.check(req.body.password, req.user).problem;
+      if (weak) throw fail(weak);
       req.user.password = hashPassword(String(req.body.password));
       saveAccounts();
       res.json({ ok: true });

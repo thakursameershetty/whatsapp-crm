@@ -57,11 +57,14 @@
       <button data-icon="settings" data-icon-size="16" data-tab="settings" title="Settings"><span
           class="nav-label">Settings</span></button>
     </nav>
-    <button type="button" class="acct-btn" id="acctBtn" aria-haspopup="menu" title="Account and workspace">
-      <span class="acct-av" id="acctAv"></span><span class="acct-text"><b id="acctWs">Workspace</b><span id="acctUser"></span></span>
-    </button>
-    <div class="side-foot">
+    <div class="acct-row">
+      <button type="button" class="acct-btn" id="acctBtn" aria-haspopup="menu" title="Account, workspace and theme">
+        <span class="acct-av" id="acctAv"></span><span class="acct-text"><b id="acctWs">Workspace</b><span id="acctUser"></span></span>
+      </button>
       <button id="modeBadge" class="badge" data-goto="settings" title="Change in Settings"></button>
+    </div>
+    <!-- Narrow screens only: on wider ones the theme lives in the account menu -->
+    <div class="side-foot">
       <div class="seg seg-icons" id="themeSeg" title="Theme">
         <button data-theme-set="light" title="Light" data-icon="sun" data-icon-size="15"></button>
         <button data-theme-set="auto" title="Match system" data-icon="sun-moon" data-icon-size="15"></button>
@@ -514,7 +517,7 @@
             <div class="acct-me-row"><p class="acct-me" id="acctMe"></p><button class="btn sm" id="acctEdit" data-icon="square-pen" data-icon-size="13">Edit</button></div>
             <details class="acct-pw"><summary>Change password</summary>
               <label>Current password<input type="password" id="pwCur" autocomplete="current-password" /></label>
-              <label>New password <span class="opt">at least 8 characters</span><input type="password" id="pwNew" autocomplete="new-password" /></label>
+              <label>New password<input type="password" id="pwNew" autocomplete="new-password" maxlength="128" data-pw-rules /></label>
               <button class="btn" id="pwSave">Change password</button>
             </details>
             <a class="btn quiet danger" href="/logout" data-icon="arrow-left" data-icon-size="14">Log out</a>
@@ -801,6 +804,7 @@
   <script src="icons.js"></script>
   <script src="motion.js"></script>
   <script src="orb.js"></script>
+  <script src="password-rules.js"></script>
   <script src="app.js"></script>
   <script src="inbox.js"></script>
   <script src="sheet.js"></script>

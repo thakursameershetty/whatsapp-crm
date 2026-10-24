@@ -365,7 +365,7 @@ tenants.mountAuth(app, express);
 
 app.use(express.json({ limit: '20mb' }));
 // The sign-in pages use these two files, so they load without signing in.
-const PUBLIC_FILES = new Set(['/style.css', '/gradient-ascii.js', '/brand/logo.svg', '/brand/logo-small.svg']);
+const PUBLIC_FILES = new Set(['/style.css', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg']);
 app.use((req, res, next) => (PUBLIC_FILES.has(req.path) ? next() : tenants.requireAuth(req, res, next)));
 app.use(security.rateLimit); // after sign-in, so limits are per user
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.

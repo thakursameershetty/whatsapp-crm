@@ -16,14 +16,14 @@ function layout({ heading, body, button, url, footer }) {
 <tr><td style="font-size:15px;font-weight:600;padding-bottom:22px">WhatsApp Sender</td></tr>
 <tr><td style="font-size:22px;font-weight:700;letter-spacing:-0.02em;padding-bottom:10px">${esc(heading)}</td></tr>
 <tr><td style="font-size:15px;line-height:1.55;color:#4a5560;padding-bottom:24px">${body}</td></tr>
-<tr><td style="padding-bottom:24px"><a href="${esc(url)}" style="display:inline-block;background:#14181c;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:10px">${esc(button)}</a></td></tr>
-<tr><td style="font-size:12.5px;line-height:1.5;color:#8a949c">${footer}<br>Or open this link: <a href="${esc(url)}" style="color:#8a949c">${esc(url)}</a></td></tr>
+${url ? `<tr><td style="padding-bottom:24px"><a href="${esc(url)}" style="display:inline-block;background:#14181c;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:10px">${esc(button)}</a></td></tr>` : ''}
+<tr><td style="font-size:12.5px;line-height:1.5;color:#8a949c">${footer}${url ? `<br>Or open this link: <a href="${esc(url)}" style="color:#8a949c">${esc(url)}</a>` : ''}</td></tr>
 </table></td></tr></table></body></html>`;
 }
 
-async function send({ to, subject, heading, body, button, url, footer = '', text }) {
+async function send({ to, subject, heading, body, button = '', url = '', footer = '', text }) {
   const html = layout({ heading, body, button, url, footer });
-  const plain = text || `${heading}\n\n${body.replace(/<[^>]+>/g, '')}\n\n${button}: ${url}\n`;
+  const plain = text || `${heading}\n\n${body.replace(/<[^>]+>/g, '')}\n${url ? `\n${button}: ${url}\n` : ''}`;
   const key = process.env.RESEND_API_KEY;
   if (!key) {
     console.log(`[email not sent: RESEND_API_KEY is not set] To: ${to} · ${subject}\n  ${url}`);
@@ -49,6 +49,14 @@ const baseUrl = (req) => (process.env.APP_URL || `${req.protocol}://${req.get('h
 module.exports = {
   enabled: () => Boolean(process.env.RESEND_API_KEY),
   baseUrl,
+
+  // A 6-digit code to confirm an email address (at sign-up, or when the app asks for it).
+  code: (to, code) => quietly(send({
+    to, subject: `${code} is your WhatsApp Sender code`,
+    heading: 'Your confirmation code',
+    body: `Enter this code to confirm your email:<br><span style="display:inline-block;margin-top:14px;font-size:30px;font-weight:700;letter-spacing:8px;color:#14181c;font-family:ui-monospace,Menlo,monospace">${esc(code)}</span><br><br>It works for 10 minutes.`,
+    footer: "If you didn't ask for this, you can ignore this email.",
+  })),
 
   verify: (to, name, url) => quietly(send({
     to, subject: 'Confirm your email',

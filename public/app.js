@@ -129,7 +129,7 @@ $('#navToggle').addEventListener('click', () => {
 const THEMES = [['light', 'Light', 'sun'], ['auto', 'Match system', 'sun-moon'], ['dark', 'Dark', 'moon']];
 function renderThemeSeg() {
   const cur = document.documentElement.dataset.theme;
-  $$('#themeSeg button').forEach((b) => b.classList.toggle('active', b.dataset.themeSet === cur));
+  $$('[data-theme-set]').forEach((b) => b.classList.toggle('active', b.dataset.themeSet === cur));
   // The collapsed sidebar's single button shows the current theme and names the next one.
   const i = Math.max(0, THEMES.findIndex(([k]) => k === cur));
   const next = THEMES[(i + 1) % THEMES.length];
@@ -145,7 +145,8 @@ function setTheme(t) {
   try { localStorage.setItem('theme', t); } catch {}
   renderThemeSeg();
 }
-$('#themeSeg').addEventListener('click', (e) => {
+// The theme switch on narrow screens and the one in the account menu.
+document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-theme-set]');
   if (b) setTheme(b.dataset.themeSet);
 });
@@ -1657,6 +1658,7 @@ async function loadMe() {
   $('#acctUser').textContent = user.name || user.email;
   $('#wsName').value = workspace.name;
   $('#wsName').disabled = $('#wsSave').disabled = state.me.role !== 'owner';
+  Object.assign($('#pwNew').dataset, { email: user.email, name: user.name }); // the password rules check these
   $('#acctMe').innerHTML = `<b>${esc(user.name)}</b><br><span class="muted">${esc(user.email)} · ${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
   $('#inviteBox').classList.toggle('hidden', state.me.role !== 'owner');
   document.title = `${workspace.name} · WhatsApp Sender`;
@@ -1678,14 +1680,37 @@ async function loadTeam() {
       ${m.you && t.members.length > 1 ? `<button class="btn sm quiet danger" data-remove="${m.id}">Leave</button>` : ''}
     </div>`).join('') + t.invites.map((i) => `<div class="team-row invited"><span class="acct-av sm">✉</span><span class="team-who"><b>${esc(i.email)}</b><span>Invited · expires ${new Date(i.expiresAt).toLocaleDateString()}</span></span><span class="pill">${i.role}</span><button class="btn sm quiet" data-uninvite="${i.id}">Cancel</button></div>`).join('');
 }
+// The account menu: who you are, your workspaces, the theme, and log out.
+const LOGOUT_SVG = '<svg class="logout-ic" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><g class="logout-arrow"><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></g></svg>';
+const TICK_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 $('#acctBtn').addEventListener('click', (e) => {
-  const r = e.currentTarget.getBoundingClientRect();
   const me = state.me;
   if (!me) return;
-  const items = me.workspaces.map((w) => ({ label: `${w.id === me.workspace.id ? '✓ ' : ''}${w.name}`, action: () => w.id !== me.workspace.id && guard(async () => { await api('/workspace/switch', { method: 'POST', body: { id: w.id } }); location.reload(); }) }));
-  if (me.admin) items.push('-', { label: 'Admin: all workspaces…', action: () => (location.href = '/admin.html') });
-  items.push('-', { label: 'Workspace & team…', action: () => { showTab('settings'); $('#acctCard').scrollIntoView({ behavior: 'smooth' }); } }, { label: 'Log out', action: () => (location.href = '/logout') });
-  Sheet.Menu.open(r.left, r.top - 8 - (items.length * 34 + 12), items);
+  const btn = e.currentTarget, r = btn.getBoundingClientRect();
+  const cur = document.documentElement.dataset.theme;
+  const el = Sheet.Menu.panel(r.left, 0, `
+    <div class="acct-pop-me"><span class="acct-av" style="${avatarStyle(me.user.email)}">${esc($('#acctAv').textContent)}</span><span class="acct-text"><b>${esc(me.user.name || me.user.email)}</b><span>${esc(me.user.email)}</span></span></div>
+    <hr />
+    <div class="acct-pop-label">Workspaces</div>
+    ${me.workspaces.map((w) => `<button type="button" class="acct-pop-item" data-ws="${w.id}"><span>${esc(w.name)}</span>${w.id === me.workspace.id ? TICK_SVG : ''}</button>`).join('')}
+    <button type="button" class="acct-pop-item" data-act="team">${icon('users', 15)}<span>Workspace & team</span></button>
+    ${me.admin ? `<button type="button" class="acct-pop-item" data-act="admin">${icon('layout-grid', 15)}<span>Admin: all workspaces</span></button>` : ''}
+    <hr />
+    <div class="acct-pop-theme"><span>Theme</span><div class="seg seg-icons">${THEMES.map(([k, label, ic]) => `<button type="button" data-theme-set="${k}" title="${label}" class="${k === cur ? 'active' : ''}">${icon(ic, 15)}</button>`).join('')}</div></div>
+    <hr />
+    <a class="acct-pop-item logout" href="/logout">${LOGOUT_SVG}<span>Log out</span></a>`);
+  el.classList.add('acct-pop');
+  el.style.width = Math.max(240, r.width) + 'px';
+  el.style.top = Math.max(8, r.top - 8 - el.offsetHeight) + 'px';
+  el.addEventListener('click', (ev) => {
+    const ws = ev.target.closest('[data-ws]'), act = ev.target.closest('[data-act]')?.dataset.act;
+    if (ws) {
+      Sheet.Menu.close();
+      if (ws.dataset.ws !== me.workspace.id) guard(async () => { await api('/workspace/switch', { method: 'POST', body: { id: ws.dataset.ws } }); location.reload(); });
+    }
+    if (act === 'team') { Sheet.Menu.close(); showTab('settings'); $('#acctCard').scrollIntoView({ behavior: 'smooth' }); }
+    if (act === 'admin') location.href = '/admin.html';
+  });
 });
 // Edit your own name and email (a new email needs your password, then a confirmation link).
 $('#acctEdit').addEventListener('click', () => {
@@ -1716,7 +1741,7 @@ $('#wsNew').addEventListener('click', async () => {
   $('#nwCancel', body).onclick = closeModal;
   $('#nwGo', body).onclick = (e) => guard(async () => { await api('/workspaces', { method: 'POST', body: { name: $('#nwName', body).value } }); location.reload(); }, e.target);
 });
-$('#pwSave').addEventListener('click', (e) => guard(async () => { await api('/account/password', { method: 'POST', body: { current: $('#pwCur').value, password: $('#pwNew').value } }); $('#pwCur').value = $('#pwNew').value = ''; toast('Password changed'); }, e.target));
+$('#pwSave').addEventListener('click', (e) => guard(async () => { await api('/account/password', { method: 'POST', body: { current: $('#pwCur').value, password: $('#pwNew').value } }); $('#pwCur').value = $('#pwNew').value = ''; $('#pwNew').dispatchEvent(new Event('input')); toast('Password changed'); }, e.target));
 $('#inviteBtn').addEventListener('click', (e) => guard(async () => {
   const r = await api('/team/invites', { method: 'POST', body: { email: $('#inviteEmail').value } });
   $('#inviteOut').classList.remove('hidden');
