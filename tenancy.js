@@ -18,7 +18,8 @@ const passwordRules = require('./public/password-rules');
 const SESSION_DAYS = 30;
 // New workspaces may send this many template messages a day until an admin raises it.
 const NEW_WORKSPACE_DAILY_LIMIT = Number(process.env.NEW_WORKSPACE_DAILY_LIMIT || 250);
-const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '').toLowerCase().split(/[\s,]+/).filter(Boolean);
+// Forgiving about how it's typed in a hosting dashboard: quotes, commas, semicolons or spaces between emails.
+const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '').toLowerCase().replace(/["'`]/g, '').split(/[\s,;]+/).filter((e) => e.includes('@'));
 const isAdmin = (user) => Boolean(user && ADMIN_EMAILS.includes(String(user.email).toLowerCase()));
 const RESET_MINUTES = 60;
 const VERIFY_DAYS = 7;
@@ -701,7 +702,12 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     }));
 
     // --- Admin (people listed in ADMIN_EMAILS): every workspace, its usage, suspend and limits.
-    const adminOnly = (req) => { if (!req.admin) throw fail('Admins only', 403); };
+    const adminOnly = (req) => {
+      if (req.admin) return;
+      throw fail(ADMIN_EMAILS.length
+        ? `Admins only. You're signed in as ${req.user.email}, which isn't in ADMIN_EMAILS.`
+        : `Admins only. ADMIN_EMAILS isn't set on this server: add ${req.user.email} to it and restart.`, 403);
+    };
     app.get('/api/admin/workspaces', wrap((req, res) => {
       adminOnly(req);
       const day = Date.now() - 86400000, month = Date.now() - 30 * 86400000;
@@ -839,6 +845,10 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     wsId: () => current()?.meta.id || null,
     meta: () => current()?.meta || null,
     isLegacy: () => Boolean(current()?.meta.legacy),
+    adminCount: ADMIN_EMAILS.length,
+    // Demo mode (simulated sends, sample data) is for us, not customers: only the original
+    // workspace and workspaces an admin belongs to get it.
+    demoAllowed: (ws = current()) => Boolean(ws && (ws.meta.legacy || accounts.members.some((m) => m.wsId === ws.meta.id && isAdmin(accounts.users.find((u) => u.id === m.userId))))),
     async flush() { // write everything now (used on shutdown)
       if (accTimer) { clearTimeout(accTimer); accTimer = null; }
       await store.saveAccounts(accounts);

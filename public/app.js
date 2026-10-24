@@ -261,6 +261,7 @@ function renderMode() {
 function renderSettings() {
   const s = state.settings;
   $('#setDemo').checked = s.demoMode;
+  $('#demoRow').classList.toggle('hidden', !s.demoAllowed); // demo mode is only for our own workspaces
   $('#setCC').value = s.defaultCountryCode || '';
   $('#setGraph').value = s.graphVersion || '';
   $('#setConc').value = s.concurrencyPerNumber;
@@ -915,7 +916,7 @@ async function loadOverview() {
 function renderOverview(st) {
   const live = !st.demo;
   $('#ovSub').innerHTML = `${live ? 'Live sending' : 'Demo data — nothing here was really sent'}${st.running ? ` · <span class="pill running">${st.running} sending now</span>` : ''}`;
-  $('#seedBtn').classList.toggle('hidden', live || st.hasSeed);
+  $('#seedBtn').classList.toggle('hidden', live || st.hasSeed || !state.settings?.demoAllowed);
   $('#unseedBtn').classList.toggle('hidden', !st.hasSeed);
   renderFilters(st);
   renderSetup(st);
@@ -1001,12 +1002,14 @@ $('#fReset').addEventListener('click', () => {
 // --- Setup checklist ---
 
 function renderSetup(st) {
-  const s = st.setup;
+  const s = st.setup, demoOk = state.settings?.demoAllowed;
   const steps = [
-    { done: s.sender, title: 'Add a WhatsApp number', text: 'Phone number ID and token from Meta. A placeholder is fine for demo mode.', action: `<button class="btn sm" onclick="senderForm()">${icon('plus', 15)}Add number</button>` },
+    { done: s.sender, title: 'Add a WhatsApp number', text: demoOk ? 'Phone number ID and token from Meta. A placeholder is fine for demo mode.' : 'Your phone number ID and WhatsApp Business account ID from Meta.', action: `<button class="btn sm" onclick="senderForm()">${icon('plus', 15)}Add number</button>` },
     { done: s.template, title: 'Add a template', text: 'Sync approved templates from Meta, or add one by hand.', action: `<button class="btn sm" data-goto="templates">${icon('file-text', 15)}Templates</button>` },
     { done: s.campaign, title: 'Send a campaign', text: 'Upload contacts, pick who to message and press send.', action: `<button class="btn sm" data-goto="send">${icon('send', 15)}Start</button>` },
-    { done: s.live && s.token, title: 'Go live', text: 'Add your API token and switch off demo mode in Settings.', action: `<button class="btn sm" data-goto="settings">${icon('rocket', 15)}Go live</button>` },
+    demoOk
+      ? { done: s.live && s.token, title: 'Go live', text: 'Add your API token and switch off demo mode in Settings.', action: `<button class="btn sm" data-goto="settings">${icon('rocket', 15)}Go live</button>` }
+      : { done: s.token, title: 'Connect your token', text: 'Add the access token from Meta to your number so messages really send.', action: `<button class="btn sm" data-goto="numbers">${icon('rocket', 15)}Add token</button>` },
   ];
   const done = steps.filter((x) => x.done).length;
   if (done === steps.length) { $('#setupCard').innerHTML = ''; return; }

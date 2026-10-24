@@ -18,7 +18,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 
 const DEFAULT_DB = {
   settings: {
-    demoMode: true,
+    demoMode: false, // new workspaces send for real; see tenants.demoAllowed
     graphVersion: 'v21.0',
     defaultCountryCode: '91',
     webhookVerifyToken: crypto.randomBytes(12).toString('hex'),
@@ -57,6 +57,13 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
   // Rewrite once so secrets stored before encryption was turned on get encrypted.
   if (require('./secrets').enabled) save();
   for (const m of db.messages) if (m.wamid) inboxIndex.set(m.wamid, m);
+  // Workspaces that may not use demo mode (it used to be on for every new one): switch them to live and clear the sample data.
+  if (!tenants.demoAllowed() && (db.settings.demoMode || hasSeedData())) {
+    db.settings.demoMode = false;
+    removeSeedData();
+    for (const c of db.campaigns) if (c.demo && c.status === 'scheduled') c.status = 'cancelled';
+    save();
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -398,6 +405,7 @@ function publicSettings() {
   const ai = aiConfig();
   return {
     ...rest,
+    demoAllowed: tenants.demoAllowed(),
     aiProvider: ai.provider,
     geminiModel: ai.geminiModel,
     hasAiKey: Boolean(ai.key),
@@ -414,6 +422,7 @@ app.get('/api/settings', (req, res) => res.json(publicSettings()));
 app.put('/api/settings', (req, res) => {
   const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber'];
   for (const k of allowed) if (k in req.body) db.settings[k] = req.body[k];
+  if (!tenants.demoAllowed()) db.settings.demoMode = false;
   db.settings.concurrencyPerNumber = Math.min(50, Math.max(1, Number(db.settings.concurrencyPerNumber) || 1));
   db.settings.delayMsPerNumber = Math.max(0, Number(db.settings.delayMsPerNumber) || 0);
   // Blank means "keep the saved key"; removing it is an explicit flag.
@@ -984,7 +993,7 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
 // the lead assistant (drafts and auto-reply) can be tried without WhatsApp. It goes through the
 // same steps as a real incoming message; everything it creates is demo data.
 app.post('/api/demo/inbound', wrap((req, res) => {
-  if (!db.settings.demoMode) throw fail('Only available in Demo mode');
+  if (!db.settings.demoMode || !tenants.demoAllowed()) throw fail('Only available in Demo mode');
   const key = String(req.body.key || '');
   const { senderId, wa } = splitKey(key);
   if (!db.senders.some((s) => s.id === senderId) || !/^\d{6,15}$/.test(wa)) throw fail('Pick a conversation first');
@@ -1166,7 +1175,7 @@ function computeStats(query = {}) {
       campaign: db.campaigns.length > 0,
       live: !demo,
     },
-    hasSeed: db.senders.some((s) => s.seed) || db.templates.some((t) => t.seed) || db.campaigns.some((c) => c.seed),
+    hasSeed: hasSeedData(),
   };
 }
 
@@ -1177,6 +1186,7 @@ app.get('/api/stats', (req, res) => res.json(computeStats(req.query)));
 // campaign history so the dashboard can be explored before the API is ready.
 
 app.post('/api/demo/seed', wrap((req, res) => {
+  if (!tenants.demoAllowed()) throw fail('Sample data is not available for this workspace');
   if (!db.settings.demoMode) throw fail('Turn on Demo mode first — sample data is only for demo mode');
   if (db.campaigns.some((c) => c.seed)) throw fail('Demo workspace is already loaded');
 
@@ -1363,7 +1373,17 @@ function seedNotifications(campaigns) {
 
 app.delete('/api/demo/seed', wrap((req, res) => {
   if ([...running.keys()].some((cid) => db.campaigns.find((c) => c.id === cid)?.seed)) throw fail('Stop the running demo campaign first');
+  removeSeedData();
+  save();
+  res.json({ ok: true });
+}));
 
+function hasSeedData() {
+  return db.senders.some((s) => s.seed) || db.templates.some((t) => t.seed) || db.campaigns.some((c) => c.seed);
+}
+// Removes the sample workspace from the current workspace (only items marked seed).
+function removeSeedData() {
+  for (const m of db.messages) if (m.seed && m.wamid) inboxIndex.delete(m.wamid); // the index is shared by every workspace
   db.campaigns = db.campaigns.filter((c) => !c.seed);
   db.senders = db.senders.filter((s) => !s.seed);
   db.templates = db.templates.filter((t) => !t.seed);
@@ -1374,11 +1394,7 @@ app.delete('/api/demo/seed', wrap((req, res) => {
   const seedTags = new Set(db.tags.filter((t) => t.seed).map((t) => t.id));
   db.tags = db.tags.filter((t) => !t.seed);
   for (const c of db.contacts) c.tags = c.tags.filter((t) => !seedTags.has(t));
-  inboxIndex.clear();
-  for (const m of db.messages) if (m.wamid) inboxIndex.set(m.wamid, m);
-  save();
-  res.json({ ok: true });
-}));
+}
 
 // --- Contacts and the Inbox lead assistant ------------------------------------
 
@@ -1393,6 +1409,7 @@ require('./ai')(app, { db, save, id, wsId: tenants.wsId, wrap, fail, aiConfig, c
 app.listen(PORT, () => {
   console.log(`WhatsApp Sender running at http://localhost:${PORT}`);
   console.log(`${tenants.allWorkspaces().length} workspace(s). Sign up or sign in at /login.`);
+  console.log(tenants.adminCount ? `Admin panel: ${tenants.adminCount} admin email(s) from ADMIN_EMAILS.` : 'Admin panel: off (ADMIN_EMAILS is not set).');
 });
 // Write pending changes before the process stops (deploys restart it).
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => {
