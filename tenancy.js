@@ -17,6 +17,9 @@ const passwordRules = require('./public/password-rules');
 
 const SESSION_DAYS = 30;
 // New workspaces may send this many template messages a day until an admin raises it.
+// How many workspaces one person may own (admins: no limit). The daily send limit is per workspace,
+// so this also stops someone multiplying it by making many workspaces.
+const MAX_WORKSPACES_PER_USER = Number(process.env.MAX_WORKSPACES_PER_USER || 3);
 const NEW_WORKSPACE_DAILY_LIMIT = Number(process.env.NEW_WORKSPACE_DAILY_LIMIT || 250);
 // Forgiving about how it's typed in a hosting dashboard: quotes, commas, semicolons or spaces between emails.
 const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '').toLowerCase().replace(/["'`]/g, '').split(/[\s,;]+/).filter((e) => e.includes('@'));
@@ -614,6 +617,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         role: req.role,
         workspace: { id: ws.meta.id, name: ws.meta.name },
         workspaces: membershipsOf(req.user.id).map((m) => ({ id: m.wsId, name: accounts.workspaces.find((w) => w.id === m.wsId)?.name, role: m.role })),
+        workspaceLimit: workspaceLimit(req.user), workspacesOwned: ownedCount(req.user.id),
       });
     });
 
@@ -626,9 +630,13 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       res.json({ name });
     }));
 
+    const ownedCount = (userId) => accounts.members.filter((m) => m.userId === userId && m.role === 'owner').length;
+    const workspaceLimit = (user) => (isAdmin(user) ? null : user.workspaceLimit ?? MAX_WORKSPACES_PER_USER);
     app.post('/api/workspaces', wrap((req, res) => {
       const { name, error } = checkName(req.body.name, 'workspace');
       if (error) throw fail(error);
+      const limit = workspaceLimit(req.user);
+      if (limit != null && ownedCount(req.user.id) >= limit) throw fail(`You already have ${limit} workspaces,, the most one account can own. Contact us if you need more.`);
       const ws = createWorkspace(name);
       accounts.members.push({ wsId: ws.meta.id, userId: req.user.id, role: 'owner', joinedAt: now() });
       if (req.session) req.session.wsId = ws.meta.id;
@@ -650,7 +658,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const wsId = current().meta.id;
       res.json({
         members: accounts.members.filter((m) => m.wsId === wsId).map((m) => ({ ...publicUser(accounts.users.find((u) => u.id === m.userId) || {}), role: m.role, joinedAt: m.joinedAt, you: m.userId === req.user.id })),
-        invites: req.role === 'owner' ? accounts.invites.filter((i) => i.wsId === wsId && new Date(i.expiresAt) > new Date()).map((i) => ({ id: i.id, email: i.email, role: i.role, expiresAt: i.expiresAt })) : [],
+        invites: req.role === 'owner' ? accounts.invites.filter((i) => i.wsId === wsId && new Date(i.expiresAt) > new Date()).map((i) => ({ id: i.id, email: i.email, role: i.role, expiresAt: i.expiresAt, createdAt: i.createdAt || null, invitedBy: accounts.users.find((u) => u.id === i.invitedBy)?.name || null })) : [],
         role: req.role,
       });
     });
@@ -665,11 +673,27 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       if (existing && roleIn(existing.id, wsId)) throw fail('They are already in this workspace');
       const token = crypto.randomBytes(24).toString('hex');
       accounts.invites = accounts.invites.filter((i) => !(i.wsId === wsId && i.email === email));
-      accounts.invites.push({ id: id(), hash: sha(token), wsId, email, role: req.body.role === 'owner' ? 'owner' : 'member', invitedBy: req.user.id, expiresAt: new Date(Date.now() + INVITE_DAYS * 86400000).toISOString() });
+      accounts.invites.push({ id: id(), hash: sha(token), wsId, email, role: req.body.role === 'owner' ? 'owner' : 'member', invitedBy: req.user.id, createdAt: now(), expiresAt: new Date(Date.now() + INVITE_DAYS * 86400000).toISOString() });
       saveAccounts();
       const link = `${mail.baseUrl(req)}/invite/${token}`;
       mail.invite(email, req.user.name || req.user.email, current().meta.name, link);
       res.json({ link, expiresInDays: INVITE_DAYS, emailed: mail.enabled() });
+    }));
+
+    // A pending invite's link. Only a hash of each link is stored (like a password), so the old link can't
+    // be shown again: this makes a fresh one, which replaces it (older links stop working) and restarts
+    // the 7 days. With email set up, `email: true` also sends it to them again.
+    app.post('/api/team/invites/:id/link', wrap((req, res) => {
+      ownerOnly(req);
+      const inv = accounts.invites.find((i) => i.id === req.params.id && i.wsId === current().meta.id);
+      if (!inv) throw fail('That invite no longer exists. It may have been accepted or cancelled.', 404);
+      const token = crypto.randomBytes(24).toString('hex');
+      inv.hash = sha(token);
+      inv.expiresAt = new Date(Date.now() + INVITE_DAYS * 86400000).toISOString();
+      saveAccounts();
+      const link = `${mail.baseUrl(req)}/invite/${token}`;
+      if (req.body.email && mail.enabled()) mail.invite(inv.email, req.user.name || req.user.email, current().meta.name, link);
+      res.json({ link, expiresAt: inv.expiresAt, emailed: Boolean(req.body.email && mail.enabled()) });
     }));
 
     app.delete('/api/team/invites/:id', wrap((req, res) => {

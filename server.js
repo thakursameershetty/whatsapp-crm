@@ -433,7 +433,10 @@ function publicSettings() {
 app.get('/api/settings', (req, res) => res.json(publicSettings()));
 
 app.put('/api/settings', (req, res) => {
-  const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber'];
+  const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'defaultCountry', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber'];
+  // A calling code is 1–3 digits; the country is its two-letter ISO code (it tells +1 US from +1 Canada).
+  if ('defaultCountryCode' in req.body && !/^\d{1,3}$/.test(String(req.body.defaultCountryCode))) return res.status(400).json({ error: 'The country code should be 1–3 digits, e.g. 91 for India' });
+  if ('defaultCountry' in req.body && req.body.defaultCountry && !/^[A-Z]{2}$/.test(String(req.body.defaultCountry))) return res.status(400).json({ error: 'Pick a country from the list' });
   for (const k of allowed) if (k in req.body) db.settings[k] = req.body[k];
   if (!tenants.demoAllowed()) db.settings.demoMode = false;
   db.settings.concurrencyPerNumber = Math.min(50, Math.max(1, Number(db.settings.concurrencyPerNumber) || 1));

@@ -528,13 +528,10 @@
           <p class="sub acct-lead">Numbers, templates, contacts, campaigns, inbox and AI settings belong to this workspace. Invite teammates to share it.</p>
           <div class="field-label">Workspace name</div>
           <div class="row tight acct-inline"><input id="wsName" maxlength="40" aria-label="Workspace name" /><button class="btn" id="wsSave">Save</button></div>
+          <div class="field-label acct-gap">Your workspaces <span class="opt" id="wsCount"></span></div>
+          <div id="wsList" class="ws-list"></div>
           <div class="field-label acct-gap">Team <span class="opt" id="teamCount"></span></div>
-          <div id="teamList" class="team-list"></div>
-          <div id="inviteBox">
-            <div class="row tight acct-inline acct-invite"><input id="inviteEmail" type="email" placeholder="Invite by email: name@company.com" aria-label="Invite a teammate by email" /><button class="btn primary" id="inviteBtn">Send invite</button></div>
-            <div id="inviteOut" class="invite-out hidden"></div>
-            <p class="sub" id="inviteNote">They get an email with a link to join. Links work for 7 days.</p>
-          </div>
+          <div id="teamRow" class="tm-row" aria-label="Team"></div>
         </div>
       </div>
       <div class="grid-2">
@@ -551,13 +548,17 @@
                   class="knob"></span></span>
             </label>
           </div>
-          <label>Default country code <span class="opt">added to 10-digit numbers</span>
-            <input id="setCC" placeholder="91" />
-          </label>
-          <label>Graph API version
-            <input id="setGraph" placeholder="v21.0" />
-          </label>
-          <div class="row">
+          <div class="row set-row">
+            <div class="set-field">
+              <div class="field-label">Default country <span class="opt">added to 10-digit numbers</span></div>
+              <button type="button" class="cc-pick" id="ccPick" aria-haspopup="listbox"></button>
+              <input type="hidden" id="setCC" /><input type="hidden" id="setCountry" />
+            </div>
+            <label>Graph API version
+              <input id="setGraph" placeholder="v21.0" />
+            </label>
+          </div>
+          <div class="row set-row">
             <label>Parallel sends per number
               <input id="setConc" type="number" min="1" max="50" />
             </label>
@@ -565,7 +566,7 @@
               <input id="setDelay" type="number" min="0" />
             </label>
           </div>
-          <p class="sub" style="margin-top:-6px">How fast campaigns go out. Each number sends this many messages at the same time, and each of those waits this long before the next one. 5 at a time with a 100 ms pause is at most about 50 messages a second per number (less in practice, since each send takes a moment). Lower them if Meta starts rejecting messages for sending too fast.</p>
+          <p class="sub set-help">How fast campaigns go out: how many messages each number sends at once, and the pause after each. 5 with 100 ms is at most about 50 a second per number. Lower them if Meta rejects messages for sending too fast.</p>
           <div class="card-actions"><button class="btn primary" id="saveSettings" data-icon="circle-check">Save
               settings</button></div>
         </div>
@@ -808,6 +809,7 @@
   <script src="icons.js"></script>
   <script src="motion.js"></script>
   <script src="orb.js"></script>
+  <script src="countries.js"></script>
   <script src="password-rules.js"></script>
   <script src="app.js"></script>
   <script src="inbox.js"></script>

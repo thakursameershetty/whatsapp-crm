@@ -3562,3 +3562,198 @@ h1, h2, h3, h4, p, li, dd, blockquote, code, .sub { overflow-wrap: anywhere; }
 html.modal-open, html.modal-open body { overflow: hidden; }
 html.modal-open body { padding-right: var(--sbw, 0px); }
 .modal { overscroll-behavior: contain; }
+
+/* ---- Workspaces: list in Settings, the "created / switched" note, the hint on the account button ---- */
+.ws-list { display: flex; flex-direction: column; gap: 2px; margin: 2px -6px 0; }
+.ws-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px; padding: 8px 6px; border-radius: 10px; }
+.ws-row:hover { background: var(--sunk); }
+.ws-row.current { background: color-mix(in srgb, var(--sunk) 70%, transparent); }
+.ws-who { min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.ws-who b { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-who span { font-size: 12px; color: var(--muted); }
+#wsNew:disabled { opacity: 0.5; cursor: not-allowed; }
+.nw-note { display: flex; gap: 9px; margin: 2px 0 14px; padding: 10px 12px; border-radius: var(--r-md); background: var(--sunk); font-size: 13px; line-height: 1.5; color: var(--muted); }
+.nw-note svg { flex: none; margin-top: 2px; }
+.nw-note b { color: var(--text); font-weight: 600; }
+.ws-notice {
+  position: fixed; z-index: 60; left: 50%; bottom: 24px; transform: translateX(-50%); width: min(520px, calc(100vw - 32px));
+  display: flex; align-items: flex-start; gap: 12px; padding: 14px 12px 14px 16px; border-radius: 14px;
+  background: var(--surface); box-shadow: 0 18px 50px -16px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--hair);
+  animation: ws-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+}
+.ws-notice.out { opacity: 0; transform: translate(-50%, 10px); transition: opacity 0.25s, transform 0.25s; }
+.ws-notice-ic { color: var(--good-text); margin-top: 1px; }
+.ws-notice div { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.45; }
+.ws-notice b { font-size: 14px; }
+.ws-notice div span { color: var(--muted); }
+@keyframes ws-in { from { opacity: 0; transform: translate(-50%, 16px) scale(0.98); } }
+body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
+@keyframes ws-glow { 50% { box-shadow: 0 0 0 3px var(--ring), 0 0 0 7px color-mix(in srgb, var(--ring) 40%, transparent); background: color-mix(in srgb, var(--text) 6%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .ws-notice, body.ws-hint .acct-btn { animation: none; } }
+.pill.ws-here { text-transform: none; }
+
+/* ---- Team: an overlapping stack of faces (each lifts on hover with its name), an Invite circle beside it ---- */
+.tm-row { display: flex; align-items: center; gap: 14px; padding: 18px 0 4px; flex-wrap: wrap; }
+.tm-stack { display: flex; align-items: center; padding-left: 10px; }
+.tm-av { position: relative; border: 0; padding: 0; background: none; cursor: pointer; margin-left: -10px; border-radius: 50%; outline: 0; }
+.tm-pic { position: relative; display: block; transition: transform 0.38s cubic-bezier(0.34, 1.7, 0.5, 1); }
+.tm-av:hover .tm-pic, .tm-av:focus-visible .tm-pic { transform: translateY(-30%); }
+.tm-face { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: var(--muted); background: var(--sunk); box-shadow: 0 0 0 3px var(--surface); }
+.tm-face[style*="--av-h"] { color: oklch(0.45 0.11 var(--av-h)); background: oklch(0.92 0.05 var(--av-h)); }
+:root[data-mode="dark"] .tm-face[style*="--av-h"] { color: oklch(0.85 0.09 var(--av-h)); background: oklch(0.34 0.06 var(--av-h)); }
+.tm-av:focus-visible .tm-face { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--ring); }
+.tm-av.invited .tm-face { opacity: 0.55; filter: grayscale(1); }
+.tm-badge { position: absolute; right: -2px; bottom: -2px; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 9px; line-height: 1; color: var(--surface); background: var(--text); box-shadow: 0 0 0 2px var(--surface); }
+.tm-crown { background: oklch(0.78 0.14 80); color: #3a2a00; }
+.tm-more { font-size: 12px; color: var(--text); background: var(--surface); box-shadow: 0 0 0 3px var(--surface), inset 0 0 0 1.5px var(--hair); }
+/* name tooltip above the lifted face */
+.tm-name { position: absolute; left: 50%; bottom: calc(100% + 18px); transform: translate(-50%, 4px); padding: 4px 8px; border-radius: 7px; white-space: nowrap; font-size: 11.5px; font-weight: 600; color: var(--surface); background: var(--text); opacity: 0; pointer-events: none; transition: opacity 0.15s, transform 0.2s; }
+.tm-av:hover .tm-name, .tm-av:focus-visible .tm-name { opacity: 1; transform: translate(-50%, 0); }
+/* Invite: a dashed circle that isn't part of the stack */
+.tm-add { margin-left: 0; display: inline-flex; align-items: center; gap: 9px; border-radius: 99px; padding-right: 12px; color: var(--muted); }
+.tm-add .tm-face { background: none; box-shadow: none; border: 1.5px dashed color-mix(in srgb, var(--text) 30%, transparent); color: var(--muted); transition: border-color 0.2s, background 0.2s, transform 0.25s; }
+.tm-add:hover .tm-face { border-color: var(--text); color: var(--text); background: var(--sunk); transform: rotate(90deg); }
+.tm-add:hover .tm-pic { transform: none; }
+.tm-add .tm-name { position: static; transform: none; opacity: 1; padding: 0; background: none; color: inherit; font-size: 13px; }
+.tm-add:hover .tm-name { color: var(--text); }
+/* popovers */
+.sg-pop.tm-pop { width: 300px; padding: 14px; }
+.tm-card { display: flex; align-items: center; gap: 12px; }
+.tm-face.lg { width: 46px; height: 46px; font-size: 15px; box-shadow: none; flex: none; }
+.tm-face.sm { width: 32px; height: 32px; font-size: 11.5px; box-shadow: none; flex: none; }
+.tm-who { min-width: 0; display: flex; flex-direction: column; line-height: 1.3; flex: 1; text-align: left; }
+.tm-who b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-who span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 12px 0 0; padding-top: 12px; box-shadow: 0 -1px 0 var(--hair); font-size: 12.5px; }
+.tm-acts { display: flex; gap: 6px; margin-top: 12px; }
+.tm-inv-form { display: flex; flex-direction: column; gap: 8px; }
+.tm-inv-form input { margin: 0; }
+.tm-role { align-self: flex-start; }
+.tm-note { margin: 10px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.tm-out { margin-top: 10px; padding: 10px; border-radius: var(--r-md); background: var(--good-soft); font-size: 12.5px; color: var(--good-text); display: flex; flex-direction: column; gap: 8px; }
+.tm-out > span { display: flex; gap: 6px; align-items: flex-start; }
+.tm-out input { margin: 0; height: 32px; font-size: 12px; flex: 1; min-width: 0; }
+.tm-search { margin: -2px 0 8px; }
+.tm-list { max-height: 280px; overflow-y: auto; margin: 0 -6px; scrollbar-width: thin; }
+.tm-li { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 6px; border: 0; border-radius: 9px; background: none; cursor: pointer; font: inherit; color: var(--text); }
+.tm-li:hover { background: var(--sunk); }
+@media (prefers-reduced-motion: reduce) { .tm-pic, .tm-add .tm-face { transition: none; } }
+.tm-row { padding-top: 34px; margin-top: -14px; }
+.tm-out > span { display: block; }
+.tm-out > span svg { vertical-align: -3px; margin-right: 6px; }
+.tm-out b { word-break: break-all; }
+.tm-row { padding: 16px 0 30px; margin-top: 0; }
+.tm-av:not(.tm-add) .tm-name { bottom: auto; top: calc(100% + 6px); transform: translate(-50%, -4px); }
+.tm-av:not(.tm-add):hover .tm-name, .tm-av:not(.tm-add):focus-visible .tm-name { transform: translate(-50%, 0); }
+.tm-add:hover .tm-name, .tm-add:focus-visible .tm-name { transform: none; opacity: 1; }
+
+/* Team stack, dock-style: JS springs drive each face's scale and lift, so the CSS hover lift and per-face names are off */
+.tm-stack { position: relative; padding-left: 14px; }
+.tm-stack .tm-av { margin-left: -14px; }
+.tm-stack .tm-pic { transition: none; transform-origin: 50% 50%; will-change: transform; }
+.tm-stack .tm-av:hover .tm-pic, .tm-stack .tm-av:focus-visible .tm-pic { transform: none; }
+.tm-stack .tm-name { display: none; }
+.tm-tip {
+  position: absolute; left: 0; top: 50%; z-index: 400; pointer-events: none; white-space: nowrap; opacity: 0;
+  padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--surface); background: var(--text);
+  box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.45);
+}
+.tm-tip::after { content: ""; position: absolute; left: calc(50% + var(--tip-shift, 0px)); bottom: -4px; width: 8px; height: 8px; background: inherit; transform: translateX(-50%) rotate(45deg); border-radius: 0 0 2px 0; }
+.tm-row { padding: 64px 0 18px; margin-top: -40px; }
+.tm-row { padding: 34px 0 20px; margin-top: 0; }
+.tm-tip { z-index: 3000; }
+.tm-row { padding-top: 46px; }
+
+/* Teammate / invite popover: person, details, link, actions — in clear sections */
+.sg-pop.tm-pop.tm-member { width: 340px; padding: 16px; }
+.tm-member .tm-card .tm-pic { flex: none; }
+.tm-state { display: inline-flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 12px; font-weight: 600; color: var(--warn) !important; }
+.tm-state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent); }
+.tm-sec { margin-top: 14px; padding-top: 14px; box-shadow: 0 -1px 0 var(--hair); display: flex; flex-direction: column; gap: 9px; }
+.tm-sec-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.tm-kv { display: grid; grid-template-columns: 92px 1fr; gap: 10px; font-size: 13px; line-height: 1.4; }
+.tm-kv > span { color: var(--muted); }
+.tm-kv b { font-weight: 600; display: flex; flex-direction: column; gap: 1px; }
+.tm-kv small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.tm-linkrow { display: flex; gap: 6px; }
+.tm-linkrow input { margin: 0; height: 32px; font: 12px ui-monospace, Menlo, monospace; flex: 1; min-width: 0; }
+.tm-member .tm-note { margin: 0; font-size: 11.5px; }
+.tm-member .tm-acts { margin-top: 14px; padding-top: 14px; box-shadow: 0 -1px 0 var(--hair); align-items: center; }
+.tm-acts .tm-end { margin-left: auto; }
+.tm-member .tm-meta { display: none; }
+
+/* Invite: one dashed pill holding the + and the word */
+.tm-add { gap: 6px; height: 38px; padding: 0 14px 0 10px; border-radius: 99px; border: 1.5px dashed color-mix(in srgb, var(--text) 28%, transparent); color: var(--muted); transition: border-color 0.2s, background 0.2s, color 0.2s; }
+.tm-add .tm-pic { display: grid; place-items: center; }
+.tm-add .tm-face { width: 20px; height: 20px; border: 0; background: none; box-shadow: none; color: inherit; transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.tm-add .tm-face svg { width: 17px; height: 17px; }
+.tm-add .tm-name { font-size: 13px; font-weight: 600; }
+.tm-add:hover, .tm-add:focus-visible { border-color: var(--text); border-style: dashed; background: var(--sunk); color: var(--text); }
+.tm-add:hover .tm-face { border: 0; background: none; transform: rotate(90deg); }
+.tm-add:focus-visible { box-shadow: 0 0 0 3px var(--ring); }
+.tm-row { padding-top: 30px; } .tm-stack { margin-right: 6px; }
+
+/* Default country picker: flag · ISO · name · +code */
+.cc-pick { display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; margin: 6px 0 14px; padding: 0 12px 0 14px; border: 0; border-radius: var(--r-md); background: var(--field); box-shadow: var(--sh-sunk); color: var(--text); font: 400 14px Inter, sans-serif; cursor: pointer; text-align: left; }
+.cc-pick:hover { background: color-mix(in srgb, var(--text) 4%, var(--field)); }
+.cc-pick:focus-visible { outline: 0; box-shadow: var(--sh-sunk), 0 0 0 3px var(--ring); }
+.cc-pick > svg { margin-left: auto; color: var(--muted); flex: none; }
+.cc-flag { flex: none; border-radius: 3px; object-fit: cover; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08); }
+.cc-iso { flex: none; min-width: 24px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--muted); }
+.cc-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-code { flex: none; font-variant-numeric: tabular-nums; color: var(--muted); }
+.cc-pick .cc-code { margin-left: auto; }
+.sg-pop.cc-pop { padding: 8px; min-width: 280px; }
+.cc-search { margin: 0 0 6px; }
+.cc-search .search { width: 100%; }
+.cc-list { max-height: 300px; overflow-y: auto; scrollbar-width: thin; }
+.cc-opt { display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: none; color: var(--text); font: 13.5px Inter, sans-serif; cursor: pointer; text-align: left; }
+.cc-opt .cc-code { margin-left: auto; }
+.cc-opt:hover, .cc-opt:focus-visible { background: var(--sunk); outline: 0; }
+.cc-opt.on { background: color-mix(in srgb, var(--accent) 9%, transparent); font-weight: 600; }
+.cc-pick > svg { margin-left: 4px; }
+
+/* Settings → General: two fields per row, and the cards beside each other share a height */
+.set-row { align-items: flex-start; }
+.set-row > * { flex: 1; min-width: 0; }
+.set-field .cc-pick { margin: 6px 0 14px; }
+.set-help { margin: -4px 0 0; }
+#tab-settings .grid-2 { align-items: stretch; }
+#tab-settings .grid-2 > .card { display: flex; flex-direction: column; }
+#tab-settings .grid-2 > .card > .card-actions { margin-top: auto; padding-top: 16px; }
+@media (max-width: 700px) { .set-row { flex-direction: column; gap: 0; } .set-row > * { width: 100%; } }
+
+/* Team faces: a little more room each, and pending invites drawn solid (no see-through overlaps) */
+.tm-stack { padding-left: 8px; }
+.tm-stack .tm-av { margin-left: -8px; }
+.tm-face { box-shadow: 0 0 0 3px var(--surface); }
+.tm-av.invited .tm-face { opacity: 1; filter: none; color: var(--faint); background: color-mix(in srgb, var(--sunk) 85%, var(--surface)); box-shadow: 0 0 0 3px var(--surface), inset 0 0 0 1.5px var(--hair); }
+.tm-badge { background: var(--muted); }
+.tm-crown { background: oklch(0.78 0.14 80); }
+.set-field .field-label { margin-bottom: 0; }
+.set-field .cc-pick { margin-top: 0; }
+
+/* Team popovers: attached to the face by a small arrow */
+.sg-pop.tm-pop { overflow: visible; transform-origin: var(--arrow-x, 50%) top; }
+.sg-pop.tm-pop.tm-up { transform-origin: var(--arrow-x, 50%) bottom; }
+.tm-pop::before {
+  content: ""; position: absolute; top: -6px; left: var(--arrow-x, 50%); width: 12px; height: 12px; margin-left: -6px;
+  background: var(--surface); transform: rotate(45deg); border-radius: 3px 0 0 0;
+  box-shadow: -1px -1px 0 0 var(--hair);
+}
+.tm-pop.tm-up::before { top: auto; bottom: -6px; border-radius: 0 0 3px 0; box-shadow: 1px 1px 0 0 var(--hair); }
+
+/* "Invite pending": a crisp dot with a soft pulse, centred on the text */
+.tm-state { line-height: 1; }
+.tm-state i { position: relative; flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: none; }
+.tm-state i::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid currentColor; opacity: 0; animation: tm-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
+@keyframes tm-ping { 0% { transform: scale(0.5); opacity: 0.55; } 80%, 100% { transform: scale(1.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .tm-state i::after { animation: none; } }
+
+/* The hook glides: --arrow-x is a real length so it can animate (spring-like overshoot) */
+@property --arrow-x { syntax: '<length>'; inherits: true; initial-value: 50px; }
+.sg-pop.tm-pop { transition: --arrow-x 0.42s cubic-bezier(0.34, 1.45, 0.5, 1); }
+.sg-pop.tm-pop.tm-swap { animation: none; }
+@media (prefers-reduced-motion: reduce) { .sg-pop.tm-pop { transition: none; } }
+.tm-row { padding: 12px 0 6px; gap: 10px; } .tm-stack { margin-right: 4px; }
+.tm-stack { margin-right: 9px; }

@@ -323,11 +323,49 @@ function renderMode() {
   $('#demoBanner').classList.toggle('hidden', !demo);
 }
 
+// --- Default country: a picker with flag, ISO code, name and calling code -------------------------
+// Which country a shared code means when only the code is known (+1 is the US and Canada, +7 Russia and Kazakhstan…).
+const CC_PREFERRED = { 1: 'US', 7: 'RU', 44: 'GB', 39: 'IT', 61: 'AU', 47: 'NO', 358: 'FI', 590: 'GP', 262: 'RE', 212: 'MA' };
+const flagImg = (iso, size = 20) => `<img class="cc-flag" src="https://flagcdn.com/${iso.toLowerCase()}.svg" width="${size}" height="${Math.round(size * 0.75)}" alt="" loading="lazy" onerror="this.remove()" />`;
+const countryOf = (iso, code) => COUNTRIES.find((c) => c[0] === iso) || COUNTRIES.find((c) => c[0] === CC_PREFERRED[code]) || COUNTRIES.find((c) => c[2] === String(code));
+function setCountry(iso, code) {
+  const c = countryOf(iso, code);
+  $('#setCC').value = c ? c[2] : String(code || '').replace(/\D/g, '').slice(0, 3);
+  $('#setCountry').value = c ? c[0] : '';
+  $('#ccPick').innerHTML = c
+    ? `${flagImg(c[0])}<b class="cc-iso">${c[0]}</b><span class="cc-name">${esc(c[1])}</span><span class="cc-code">+${c[2]}</span>${icon('chevron-down', 16)}`
+    : `<span class="cc-name muted">Choose a country</span>${icon('chevron-down', 16)}`;
+}
+$('#ccPick').addEventListener('click', (e) => {
+  const btn = e.currentTarget, r = btn.getBoundingClientRect();
+  const el = Sheet.Menu.panel(r.left, r.bottom + 6, `<div class="search-wrap cc-search">${icon('search', 15)}<input class="search" id="ccQ" placeholder="Search country or code" autocomplete="off" /></div><div class="cc-list" id="ccList" role="listbox"></div>`);
+  el.classList.add('cc-pop');
+  el.style.width = r.width + 'px';
+  const current = $('#setCountry').value;
+  const draw = () => {
+    const q = $('#ccQ', el).value.trim().toLowerCase().replace(/^\+/, '');
+    const list = COUNTRIES.filter((c) => !q || c[1].toLowerCase().includes(q) || c[0].toLowerCase() === q || c[2].startsWith(q));
+    $('#ccList', el).innerHTML = list.map((c) => `<button type="button" role="option" class="cc-opt ${c[0] === current ? 'on' : ''}" data-cc="${c[0]}" aria-selected="${c[0] === current}">${flagImg(c[0], 18)}<b class="cc-iso">${c[0]}</b><span class="cc-name">${esc(c[1])}</span><span class="cc-code">+${c[2]}</span></button>`).join('') || '<p class="tm-note" style="text-align:center;padding:12px 0">No country matches.</p>';
+  };
+  draw();
+  setTimeout(() => { $('#ccQ', el).focus(); el.querySelector('.cc-opt.on')?.scrollIntoView({ block: 'center' }); }, 20);
+  $('#ccQ', el).addEventListener('input', draw);
+  $('#ccQ', el).addEventListener('keydown', (ev) => { if (ev.key === 'Enter') el.querySelector('.cc-opt')?.click(); });
+  $('#ccList', el).addEventListener('click', (ev) => {
+    const o = ev.target.closest('[data-cc]');
+    if (!o) return;
+    const c = COUNTRIES.find((x) => x[0] === o.dataset.cc);
+    setCountry(c[0], c[2]);
+    Sheet.Menu.close();
+    btn.focus();
+  });
+});
+
 function renderSettings() {
   const s = state.settings;
   $('#setDemo').checked = s.demoMode;
   $('#demoRow').classList.toggle('hidden', !s.demoAllowed); // demo mode is only for our own workspaces
-  $('#setCC').value = s.defaultCountryCode || '';
+  setCountry(s.defaultCountry, s.defaultCountryCode || '91');
   $('#setGraph').value = s.graphVersion || '';
   $('#setConc').value = s.concurrencyPerNumber;
   $('#setDelay').value = s.delayMsPerNumber;
@@ -350,6 +388,7 @@ async function saveSettings(extra = {}) {
     body: {
       demoMode: $('#setDemo').checked,
       defaultCountryCode: $('#setCC').value.replace(/\D/g, ''),
+      defaultCountry: $('#setCountry').value,
       graphVersion: $('#setGraph').value.trim() || 'v21.0',
       concurrencyPerNumber: Number($('#setConc').value),
       delayMsPerNumber: Number($('#setDelay').value),
@@ -1799,34 +1838,235 @@ async function loadMe() {
   $('#acctDelete').classList.toggle('hidden', Boolean(del));
   $('#acctDelNote').classList.toggle('hidden', !del);
   if (del) $('#acctDelNote').innerHTML = `<b>Deletion requested</b> on ${new Date(del.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}. Our team will get in touch before anything is deleted. Your account works as usual until then.<button class="btn sm" id="acctDelCancel">Cancel request</button>`;
-  $('#inviteBox').classList.toggle('hidden', state.me.role !== 'owner');
+  renderWorkspaces();
   document.title = `${workspace.name} · WhatsApp Sender`;
   $('#verifyBanner').classList.toggle('hidden', user.emailVerified);
   $('#verifyEmail').textContent = user.email;
-  $('#inviteNote').textContent = state.me.mail ? 'They get an email with a link to join. Links work for 7 days.' : 'Email isn’t set up yet, so copy the link and send it yourself. Links work for 7 days.';
 }
 $('#verifyResend').addEventListener('click', (e) => guard(async () => {
   const r = await api('/account/verify-email', { method: 'POST' });
   toast(r.already ? 'Your email is already confirmed' : r.mail ? 'Sent. Check your inbox.' : 'Email isn’t set up on this server yet');
   if (r.already) loadMe();
 }, e.target));
+// --- Team: a row of avatars; click one for their details and actions, the dashed circle to invite ---
+const TEAM_VISIBLE = 7;
+const initials2 = (n) => String(n || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 async function loadTeam() {
   const t = await api('/team');
+  state.team = t;
   $('#teamCount').textContent = `${t.members.length} ${t.members.length === 1 ? 'person' : 'people'}${t.invites.length ? ` · ${t.invites.length} invited` : ''}`;
-  // Each row: avatar · name and email (cut with "…", full text on hover) · role · actions. Role and actions
-  // sit in fixed columns so they line up from row to row, whatever the names are.
-  const row = (cls, av, avStyle, name, sub, role, roleCls, acts) => `<div class="team-row ${cls}">
-      <span class="acct-av sm" style="${avStyle}">${av}</span>
-      <span class="team-who" title="${esc(name.replace(/<[^>]+>/g, ''))}\n${esc(sub)}"><b>${name}</b><span>${esc(sub)}</span></span>
-      <span class="team-side"><span class="pill ${roleCls}">${role}</span><span class="team-acts">${acts}</span></span>
-    </div>`;
-  $('#teamList').innerHTML = t.members.map((m) => row('', esc((m.name || m.email).slice(0, 1).toUpperCase()), avatarStyle(m.email),
-      `<span class="team-name">${esc(m.name || m.email)}</span>${m.you ? ' <span class="muted">(you)</span>' : ''}`, m.name ? m.email : '', m.role, m.role === 'owner' ? 'scheduled' : '',
-      (t.role === 'owner' && !m.you ? `<button class="btn sm quiet" data-member="${m.id}" data-role="${m.role === 'owner' ? 'member' : 'owner'}">${m.role === 'owner' ? 'Make member' : 'Make owner'}</button><button class="btn sm quiet danger" data-remove="${m.id}">Remove</button>` : '')
-      + (m.you && t.members.length > 1 ? `<button class="btn sm quiet danger" data-remove="${m.id}">Leave</button>` : ''))).join('')
-    + t.invites.map((i) => row('invited', '✉', '', `<span class="team-name">${esc(i.email)}</span>`, `Invited · expires ${new Date(i.expiresAt).toLocaleDateString()}`, i.role, '',
-      `<button class="btn sm quiet" data-uninvite="${i.id}">Cancel</button>`)).join('');
+  renderTeam();
 }
+// Everyone in one list: you first, then owners, members, and pending invites last.
+function teamPeople() {
+  const t = state.team;
+  const rank = (m) => (m.you ? 0 : m.role === 'owner' ? 1 : 2);
+  return [
+    ...[...t.members].sort((x, y) => rank(x) - rank(y)).map((m) => ({ ...m, kind: 'member', key: 'm' + m.id, label: m.you ? 'You' : (m.name || m.email).split(/[\s@]/)[0] })),
+    ...t.invites.map((i) => ({ ...i, kind: 'invite', key: 'i' + i.id, name: '', label: i.email.split('@')[0] })),
+  ];
+}
+function tmAvatar(p, size = '') {
+  return `<span class="tm-face ${size}" style="${p.kind === 'invite' ? '' : avatarStyle(p.email)}">${p.kind === 'invite' ? icon('user', size ? 16 : 20) : esc(initials2(p.name || p.email))}</span>`;
+}
+function renderTeam() {
+  const t = state.team, people = teamPeople(), owner = t.role === 'owner';
+  const shown = people.slice(0, TEAM_VISIBLE), extra = people.length - shown.length;
+  $('#teamRow').innerHTML = '<div class="tm-stack"><span class="tm-tip" aria-hidden="true"></span>' + shown.map((p, i) => `<button type="button" style="z-index:${TEAM_VISIBLE - i}" class="tm-av ${p.kind === 'invite' ? 'invited' : ''} ${p.role === 'owner' ? 'owner' : ''}" data-tm="${p.key}" data-label="${esc(p.kind === 'invite' ? p.email + ' · invited' : (p.you ? 'You · ' : '') + (p.name || p.email))}" aria-label="${esc(p.name || p.email)}${p.kind === 'invite' ? ' (invited)' : ''}">
+      <span class="tm-pic">${tmAvatar(p)}${p.kind === 'invite' ? `<i class="tm-badge">${icon('clock', 10)}</i>` : p.role === 'owner' ? '<i class="tm-badge tm-crown" aria-label="Owner">★</i>' : ''}</span>
+      <span class="tm-name">${esc(p.label)}</span>
+    </button>`).join('')
+    + (extra > 0 ? `<button type="button" class="tm-av" style="z-index:0" data-tm="all" data-label="See everyone" aria-label="Everyone in this workspace"><span class="tm-pic"><span class="tm-face tm-more">+${extra}</span></span><span class="tm-name">Everyone</span></button>` : '') + '</div>'
+    + (owner ? `<button type="button" class="tm-av tm-add" data-tm="add" aria-label="Invite a teammate"><span class="tm-pic"><span class="tm-face">${icon('plus', 20)}</span></span><span class="tm-name">Invite</span></button>` : '');
+}
+// Popovers hang from the team row. A card opened from a face sits in one fixed place under the stack
+// (the same for every face), and its hook slides along the top edge to point at the face that was
+// clicked. Clicking another face while one is open swaps the contents in place and glides the hook over.
+const tmHook = { x: null, at: 0 };
+function tmPop(anchor, html, cls) {
+  const inStack = anchor.closest('.tm-stack');
+  const target = anchor.querySelector('.tm-face') || anchor;
+  const fr = target.getBoundingClientRect(), base = (inStack || anchor).getBoundingClientRect();
+  const swapping = inStack && tmHook.x != null && Date.now() - tmHook.at < 400; // a card was open a moment ago
+  const el = Sheet.Menu.panel(0, 0, html);
+  el.classList.add('tm-pop', cls);
+  if (swapping) el.classList.add('tm-swap'); // no pop-in: it's the same card, new contents
+  const w = el.offsetWidth, h = el.offsetHeight, gap = 12;
+  const ar = anchor.getBoundingClientRect(); // the button itself never moves; the face inside it lifts and grows
+  const cx = ar.left + ar.width / 2, cy = inStack ? ar.top + ar.height / 2 : fr.top + fr.height / 2;
+  // Measured from the face's centre, so a face that's still growing gives the same answer.
+  const faceBottom = inStack ? cy + 21 * 1.4 : fr.bottom, faceTop = inStack ? cy - 21 * 1.4 : fr.top;
+  const left = Math.max(8, Math.min(innerWidth - w - 8, (inStack ? base.left - 6 : cx - w / 2)));
+  const below = faceBottom + gap + h <= innerHeight - 8 || faceTop - gap - h < 8;
+  el.style.left = left + 'px';
+  el.style.top = (below ? faceBottom + gap : faceTop - gap - h) + 'px';
+  el.classList.toggle('tm-up', !below);
+  const arrow = Math.max(18, Math.min(w - 18, cx - left));
+  if (swapping) {
+    el.style.setProperty('--arrow-x', tmHook.x + 'px');
+    requestAnimationFrame(() => requestAnimationFrame(() => el.style.setProperty('--arrow-x', arrow + 'px')));
+  } else el.style.setProperty('--arrow-x', arrow + 'px');
+  tmHook.x = arrow;
+  if (inStack) {
+    // remember where the hook was when this card closes, so the next face can glide from there
+    const watch = new MutationObserver(() => { if (!el.isConnected) { tmHook.at = Date.now(); watch.disconnect(); } });
+    watch.observe(document.body, { childList: true });
+  } else tmHook.x = null;
+  return el;
+}
+function memberPop(anchor, p) {
+  const t = state.team, owner = t.role === 'owner', inv = p.kind === 'invite';
+  const ROLE_TEXT = { owner: 'Manages numbers, settings and the team', member: 'Sends campaigns, uses the Inbox and contacts' };
+  const row = (k, v) => `<div class="tm-kv"><span>${k}</span><b>${v}</b></div>`;
+  const when = (d) => (d ? esc(relTime(d)) : '');
+  const head = `<div class="tm-card">
+      <span class="tm-pic">${tmAvatar(p, 'lg')}${inv ? `<i class="tm-badge">${icon('clock', 10)}</i>` : ''}</span>
+      <div class="tm-who"><b title="${esc(p.name || p.email)}">${esc(inv ? p.email : p.name || p.email)}${p.you ? ' <span class="muted">(you)</span>' : ''}</b>
+        ${inv ? '<span class="tm-state"><i></i>Invite pending</span>' : `<span title="${esc(p.email)}">${esc(p.email)}</span>`}</div>
+    </div>`;
+  const details = `<div class="tm-sec">
+      ${row('Role', `${p.role === 'owner' ? 'Owner' : 'Member'}<small>${ROLE_TEXT[p.role] || ''}</small>`)}
+      ${inv ? (p.createdAt ? row('Invited', `${when(p.createdAt)}${p.invitedBy ? ` by ${esc(p.invitedBy)}` : ''}`) : '') + row('Link expires', when(p.expiresAt)) : p.joinedAt ? row('Joined', when(p.joinedAt)) : ''}
+    </div>`;
+  const link = inv && owner ? `<div class="tm-sec">
+      <div class="tm-sec-label">Invite link</div>
+      <div id="tmLink"><button class="btn sm" data-act="link">${icon('copy', 14)}Get invite link</button></div>
+      <p class="tm-note">A fresh link is made each time and the one sent before stops working, so only the latest link opens the invite.</p>
+    </div>` : '';
+  const acts = inv
+    ? (owner ? `${state.me.mail ? `<button class="btn sm" data-act="resend">${icon('send', 14)}Resend email</button>` : ''}<button class="btn sm quiet danger tm-end" data-act="uninvite">Cancel invite</button>` : '')
+    : p.you
+      ? (t.members.length > 1 ? `<button class="btn sm quiet danger tm-end" data-act="leave">Leave workspace</button>` : '')
+      : owner ? `<button class="btn sm" data-act="role">${p.role === 'owner' ? 'Make member' : 'Make owner'}</button><button class="btn sm quiet danger tm-end" data-act="remove">Remove</button>` : '';
+  const el = tmPop(anchor, head + details + link + (acts ? `<div class="tm-acts">${acts}</div>` : ''), 'tm-member');
+  el.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]'), act = btn?.dataset.act;
+    if (!act) return;
+    if (act === 'link' || act === 'resend') return guard(async () => {
+      const r = await api(`/team/invites/${p.id}/link`, { method: 'POST', body: { email: act === 'resend' } });
+      p.expiresAt = r.expiresAt;
+      $('#tmLink', el).innerHTML = `<div class="tm-linkrow"><input readonly value="${esc(r.link)}" aria-label="Invite link" /><button class="btn sm" data-act="copy">${icon('copy', 14)}Copy</button></div>`;
+      $('#tmLink input', el)?.select();
+      if (act === 'resend') toast(r.emailed ? `Invite emailed to ${p.email} again` : 'New link ready. Copy it and send it to them.');
+    }, btn);
+    if (act === 'copy') { navigator.clipboard.writeText($('#tmLink input', el).value); toast('Invite link copied'); btn.innerHTML = `${icon('check', 14)}Copied`; return; }
+    Sheet.Menu.close();
+    if (act === 'uninvite') return guard(async () => { await api('/team/invites/' + p.id, { method: 'DELETE' }); toast('Invite cancelled'); loadTeam(); });
+    if (act === 'role') return guard(async () => { await api('/team/members/' + p.id, { method: 'PATCH', body: { role: p.role === 'owner' ? 'member' : 'owner' } }); toast(p.role === 'owner' ? 'Now a member' : 'Now an owner'); loadTeam(); });
+    const self = act === 'leave';
+    if (!(await confirmDialog({ title: self ? 'Leave this workspace?' : `Remove ${p.name || p.email}?`, message: self ? 'You lose access until someone invites you again.' : 'They lose access to this workspace straight away.', confirmText: self ? 'Leave' : 'Remove', danger: true }))) return;
+    guard(async () => { await api('/team/members/' + p.id, { method: 'DELETE' }); if (self) location.href = '/'; else { toast('Removed from the team'); loadTeam(); } });
+  });
+}
+function invitePop(anchor) {
+  const el = tmPop(anchor, `
+    <div class="sg-pop-title">Invite a teammate</div>
+    <div class="tm-inv-form">
+      <input type="email" id="tmEmail" placeholder="name@company.com" aria-label="Their email" autocomplete="off" />
+      <div class="seg tm-role" role="radiogroup" aria-label="Role"><button type="button" class="active" data-role="member">Member</button><button type="button" data-role="owner">Owner</button></div>
+      <button class="btn primary" id="tmSend">Send invite</button>
+    </div>
+    <p class="tm-note">${state.me.mail ? 'They get an email with a link to join. Links work for 7 days.' : 'Email isn’t set up yet, so you’ll get a link to send them yourself. Links work for 7 days.'}</p>
+    <div class="tm-out hidden" id="tmOut"></div>`, 'tm-invite');
+  let role = 'member';
+  const email = $('#tmEmail', el);
+  setTimeout(() => email.focus(), 30);
+  $('.tm-role', el).addEventListener('click', (e) => { const b = e.target.closest('[data-role]'); if (!b) return; role = b.dataset.role; $$('.tm-role button', el).forEach((x) => x.classList.toggle('active', x === b)); });
+  const send = () => guard(async () => {
+    const r = await api('/team/invites', { method: 'POST', body: { email: email.value, role } });
+    $('#tmOut', el).classList.remove('hidden');
+    $('#tmOut', el).innerHTML = `<span>${icon('circle-check', 15)}${r.emailed ? `Invite emailed to <b>${esc(email.value)}</b>.` : `Invite ready for <b>${esc(email.value)}</b>. Send them this link:`}</span>
+      <div class="row tight"><input readonly value="${esc(r.link)}" /><button class="btn sm" id="tmCopy">${icon('copy', 14)}Copy</button></div>`;
+    $('#tmCopy', el).onclick = () => { navigator.clipboard.writeText(r.link); toast('Invite link copied'); };
+    email.value = ''; email.focus();
+    loadTeam();
+  }, $('#tmSend', el));
+  $('#tmSend', el).onclick = send;
+  email.addEventListener('keydown', (e) => e.key === 'Enter' && send());
+}
+function allPop(anchor) {
+  const el = tmPop(anchor, `<div class="search-wrap tm-search">${icon('search', 15)}<input class="search" id="tmQ" placeholder="Search people" /></div><div class="tm-list" id="tmList"></div>`, 'tm-all');
+  const draw = () => {
+    const q = $('#tmQ', el).value.trim().toLowerCase();
+    const list = teamPeople().filter((p) => !q || (p.name || '').toLowerCase().includes(q) || p.email.toLowerCase().includes(q));
+    $('#tmList', el).innerHTML = list.map((p) => `<button type="button" class="tm-li" data-tmk="${p.key}">${tmAvatar(p, 'sm')}<span class="tm-who"><b>${esc(p.kind === 'invite' ? p.email : p.name || p.email)}${p.you ? ' <span class="muted">(you)</span>' : ''}</b><span>${p.kind === 'invite' ? 'Invited' : esc(p.email)}</span></span><span class="pill ${p.role === 'owner' ? 'scheduled' : ''} ws-here">${p.role === 'owner' ? 'Owner' : 'Member'}</span></button>`).join('') || '<p class="tm-note" style="text-align:center;padding:14px 0">Nobody matches.</p>';
+  };
+  draw();
+  setTimeout(() => $('#tmQ', el).focus(), 30);
+  $('#tmQ', el).addEventListener('input', draw);
+  $('#tmList', el).addEventListener('click', (e) => { const b = e.target.closest('[data-tmk]'); if (!b) return; const p = teamPeople().find((x) => x.key === b.dataset.tmk); memberPop(anchor, p); });
+}
+// The stack magnifies like a dock: the face under the cursor swells and lifts, its neighbours grow a
+// little less the further away they are, and one tooltip springs along above the face you're on.
+// Every value is a spring (stiffness 300, damping 17: a quick move with a small, soft overshoot).
+(() => {
+  const K = 300, C = 17, RANGE = 70, GROW = 0.4, LIFT = -0.08;
+  const springs = new Map(); // element → { s, v } for scale and lift
+  const tip = { x: 0, vx: 0, o: 0, vo: 0, tx: 0, to: 0, el: null, label: '' };
+  let mouseX = null, focusEl = null, raf = 0, last = 0;
+  const reduce = () => Motion.reduce();
+  const faces = () => [...document.querySelectorAll('#teamRow .tm-stack .tm-av')];
+  const step = (o, key, vkey, target, dt) => { const a = -K * (o[key] - target) - C * o[vkey]; o[vkey] += a * dt; o[key] += o[vkey] * dt; };
+  function frame(t) {
+    const dt = Math.min(0.032, (t - (last || t)) / 1000 || 0.016); last = t;
+    const stack = document.querySelector('#teamRow .tm-stack');
+    if (!stack) { raf = 0; return; }
+    const box = stack.getBoundingClientRect();
+    let moving = false, best = null, bestD = Infinity;
+    // First where everything is, so the closest face is known before anything moves.
+    const items = faces().map((el) => {
+      const r = el.getBoundingClientRect(), cx = r.left + r.width / 2;
+      const d = focusEl ? (el === focusEl ? 0 : Infinity) : mouseX == null ? Infinity : Math.abs(mouseX - cx);
+      if (d < bestD) { bestD = d; best = { el, cx: cx - box.left }; }
+      return { el, d };
+    });
+    for (const { el, d } of items) {
+      const pic = el.querySelector('.tm-pic');
+      const near = Math.max(0, 1 - d / RANGE), ease = near * near * (3 - 2 * near); // smoothstep falloff
+      const sp = springs.get(el) || { s: 1, v: 0, y: 0, vy: 0 };
+      springs.set(el, sp);
+      const target = 1 + GROW * ease;
+      if (reduce()) { sp.s = target; sp.v = 0; } else step(sp, 's', 'v', target, dt);
+      const lift = best && el === best.el && near > 0 ? LIFT : 0; // only the face being named lifts
+      if (reduce()) sp.y = lift; else step(sp, 'y', 'vy', lift, dt);
+      pic.style.transform = `translateY(${(sp.y * 42).toFixed(2)}px) scale(${sp.s.toFixed(4)})`;
+      el.style.zIndex = String(Number.isFinite(d) ? 1000 - Math.round(d) : 10); // nearest on top
+      if (Math.abs(sp.v) > 0.001 || Math.abs(sp.s - target) > 0.001 || Math.abs(sp.vy) > 0.001 || Math.abs(sp.y - lift) > 0.001) moving = true;
+    }
+    // tooltip: over the closest face, 24px above its lifted, magnified top
+    const active = best && bestD < RANGE * 0.6 && !document.querySelector('.tm-pop') ? best : null; // no name tooltip over an open card
+    tip.el = stack.querySelector('.tm-tip');
+    if (active) {
+      const label = active.el.dataset.label || '';
+      if (label !== tip.label) { tip.el.textContent = label; tip.label = label; }
+      tip.tx = active.cx; tip.to = 1;
+      if (tip.o < 0.05) { tip.x = tip.tx; tip.vx = 0; } // appear in place, then follow
+    } else tip.to = 0;
+    if (reduce()) { tip.x = tip.tx; tip.o = tip.to; } else { step(tip, 'x', 'vx', tip.tx, dt); step(tip, 'o', 'vo', tip.to, dt); }
+    const o = Math.max(0, Math.min(1, tip.o));
+    const top = 21 * (1 + GROW) + Math.abs(LIFT) * 42 + 24 + 13; // half the magnified face + its lift + 24px gap + half the tooltip
+    tip.el.style.opacity = o.toFixed(3);
+    const half = tip.el.offsetWidth / 2, x = Math.max(half - 14, tip.x); // never past the card's left edge
+    tip.el.style.setProperty('--tip-shift', (tip.x - x).toFixed(2) + 'px'); // keeps the arrow pointing at the face
+    tip.el.style.transform = `translate(${x.toFixed(2)}px, ${(-top + (1 - o) * 8).toFixed(2)}px) translate(-50%, -50%) scale(${(0.85 + 0.15 * o).toFixed(3)})`;
+    if (Math.abs(tip.vx) > 0.01 || Math.abs(tip.x - tip.tx) > 0.1 || Math.abs(tip.o - tip.to) > 0.002) moving = true;
+    raf = moving || mouseX != null || focusEl ? requestAnimationFrame(frame) : 0;
+    if (!raf) last = 0;
+  }
+  const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
+  const row = $('#teamRow');
+  row.addEventListener('mousemove', (e) => { mouseX = e.target.closest('.tm-stack') ? e.clientX : null; kick(); });
+  row.addEventListener('mouseleave', () => { mouseX = null; kick(); });
+  row.addEventListener('focusin', (e) => { focusEl = e.target.closest('.tm-stack .tm-av'); kick(); });
+  row.addEventListener('focusout', () => { focusEl = null; kick(); });
+})();
+$('#teamRow').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tm]');
+  if (!b) return;
+  if (b.dataset.tm === 'add') return invitePop(b);
+  if (b.dataset.tm === 'all') return allPop(b);
+  memberPop(b, teamPeople().find((p) => p.key === b.dataset.tm));
+});
 // The account menu: who you are, your workspaces, the theme, and log out.
 const LOGOUT_SVG = '<svg class="logout-ic" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><g class="logout-arrow"><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></g></svg>';
 const TICK_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
@@ -1853,7 +2093,7 @@ $('#acctBtn').addEventListener('click', (e) => {
     const ws = ev.target.closest('[data-ws]'), act = ev.target.closest('[data-act]')?.dataset.act;
     if (ws) {
       Sheet.Menu.close();
-      if (ws.dataset.ws !== me.workspace.id) guard(async () => { await api('/workspace/switch', { method: 'POST', body: { id: ws.dataset.ws } }); location.reload(); });
+      if (ws.dataset.ws !== me.workspace.id) switchWorkspace(ws.dataset.ws);
     }
     if (act === 'team') { Sheet.Menu.close(); showTab('settings'); scrollTo({ top: 0, behavior: 'smooth' }); } // Workspace & team is the first card
     if (act === 'admin') location.href = '/admin.html';
@@ -1882,12 +2122,67 @@ $('#acctEdit').addEventListener('click', () => {
 });
 
 $('#wsSave').addEventListener('click', (e) => guard(async () => { await api('/workspace', { method: 'PATCH', body: { name: $('#wsName').value } }); await loadMe(); toast('Workspace renamed'); }, e.target));
+// --- Workspaces: the list in Settings, creating one, switching -------------------------------
+// After a create or switch the page reloads into the other workspace; this note survives the reload
+// so it can say where you are now and how to get back.
+function switchWorkspace(id, kind = 'switched') {
+  const w = state.me.workspaces.find((x) => x.id === id);
+  return guard(async () => {
+    await api('/workspace/switch', { method: 'POST', body: { id } });
+    try { sessionStorage.setItem('wsNotice', JSON.stringify({ kind, name: w?.name || '' })); } catch {}
+    location.reload();
+  });
+}
+function renderWorkspaces() {
+  const me = state.me, lim = me.workspaceLimit;
+  $('#wsCount').textContent = lim == null ? `${me.workspaces.length}` : `${me.workspacesOwned} of ${lim} you can own`;
+  $('#wsList').innerHTML = me.workspaces.map((w) => {
+    const cur = w.id === me.workspace.id;
+    return `<div class="ws-row ${cur ? 'current' : ''}">
+      <span class="acct-av sm" style="${avatarStyle(w.id)}">${esc((w.name || '?').slice(0, 1).toUpperCase())}</span>
+      <span class="ws-who"><b title="${esc(w.name)}">${esc(w.name)}</b><span>${w.role === 'owner' ? 'Owner' : 'Member'}</span></span>
+      ${cur ? '<span class="pill scheduled ws-here">You\'re here</span>' : `<button class="btn sm" data-switch-ws="${w.id}">Switch</button>`}
+    </div>`;
+  }).join('');
+  const full = lim != null && me.workspacesOwned >= lim;
+  $('#wsNew').disabled = full;
+  $('#wsNew').title = full ? `You can own up to ${lim} workspaces` : 'Create a workspace for another business';
+}
+$('#wsList').addEventListener('click', (e) => { const b = e.target.closest('[data-switch-ws]'); if (b) switchWorkspace(b.dataset.switchWs); });
 $('#wsNew').addEventListener('click', async () => {
-  const body = openModal('New workspace', `<p class="sub" style="margin-top:-6px">A separate, empty workspace for another business. You can switch between them from the sidebar.</p><label>Business name <span class="opt">up to 40 characters</span><input id="nwName" maxlength="40" /></label><div class="modal-actions"><button class="btn quiet" id="nwCancel">Cancel</button><button class="btn primary" id="nwGo">Create</button></div>`);
+  const me = state.me, lim = me.workspaceLimit;
+  const body = openModal('New workspace', `
+    <p class="sub" style="margin-top:-6px">A separate, empty workspace for another business, with its own numbers, templates, contacts, campaigns and team. Your current workspace stays exactly as it is.</p>
+    <label>Business name <span class="opt">up to 40 characters</span><input id="nwName" maxlength="40" placeholder="e.g. Cotton Business 3" /></label>
+    <div class="nw-note">${icon('layout-grid', 15)}<span>You'll move into the new workspace straight away. To switch back, use <b>Your workspaces</b> here in Settings, or click your name at the bottom of the sidebar.${lim != null ? ` You own ${me.workspacesOwned} of ${lim}.` : ''}</span></div>
+    <div class="modal-actions"><button class="btn quiet" id="nwCancel">Cancel</button><button class="btn primary" id="nwGo">Create and open</button></div>`);
   $('#nwName', body).focus();
   $('#nwCancel', body).onclick = closeModal;
-  $('#nwGo', body).onclick = (e) => guard(async () => { await api('/workspaces', { method: 'POST', body: { name: $('#nwName', body).value } }); location.reload(); }, e.target);
+  const go = (e) => guard(async () => {
+    const r = await api('/workspaces', { method: 'POST', body: { name: $('#nwName', body).value } });
+    try { sessionStorage.setItem('wsNotice', JSON.stringify({ kind: 'created', name: r.name })); } catch {}
+    location.reload();
+  }, $('#nwGo', body));
+  $('#nwGo', body).onclick = go;
+  $('#nwName', body).addEventListener('keydown', (e) => e.key === 'Enter' && go());
 });
+// The note left by a create or switch: say where you are and point at the switcher.
+function showWorkspaceNotice() {
+  let n; try { n = JSON.parse(sessionStorage.getItem('wsNotice') || 'null'); sessionStorage.removeItem('wsNotice'); } catch { return; }
+  if (!n || !state.me) return;
+  const name = state.me.workspace.name;
+  const el = document.createElement('div');
+  el.className = 'ws-notice';
+  el.setAttribute('role', 'status');
+  el.innerHTML = `<span class="ws-notice-ic">${icon('circle-check', 18)}</span><div><b>${n.kind === 'created' ? `Workspace “${esc(name)}” created` : `Switched to “${esc(name)}”`}</b>
+    <span>${n.kind === 'created' ? 'It starts empty. Add a WhatsApp number to get going. ' : ''}Switch workspaces any time from your name at the bottom of the sidebar.</span></div>
+    <button class="icon-btn" aria-label="Close">${icon('x', 16)}</button>`;
+  document.body.append(el);
+  const close = () => { el.classList.add('out'); setTimeout(() => el.remove(), 300); document.body.classList.remove('ws-hint'); };
+  el.querySelector('button').onclick = close;
+  setTimeout(close, 9000);
+  document.body.classList.add('ws-hint'); // the account button glows for a moment so people see where switching lives
+}
 // Request account deletion: nothing is deleted here. An admin follows up, then deletes it.
 const DELETE_REASONS = [['not-using', 'Not using it any more'], ['too-expensive', 'Too expensive'], ['missing-feature', 'Missing something I need'], ['other-tool', 'Switching to another tool'], ['testing', 'Was only trying it out'], ['privacy', 'Privacy concerns'], ['other', 'Something else']];
 $('#acctDelete').addEventListener('click', () => {
@@ -1937,29 +2232,10 @@ $('#pwChange').addEventListener('click', () => {
     }, e.target);
   };
 });
-$('#inviteBtn').addEventListener('click', (e) => guard(async () => {
-  const r = await api('/team/invites', { method: 'POST', body: { email: $('#inviteEmail').value } });
-  $('#inviteOut').classList.remove('hidden');
-  toast(r.emailed ? 'Invite emailed. You can also copy the link.' : 'Invite created. Copy the link and send it to them.');
-  $('#inviteOut').innerHTML = `<input readonly value="${esc(r.link)}" id="inviteLink" /><button class="btn sm" id="inviteCopy">Copy link</button>`;
-  $('#inviteCopy').onclick = () => { navigator.clipboard.writeText(r.link); toast('Invite link copied'); };
-  $('#inviteEmail').value = '';
-  loadTeam();
-}, e.target));
-$('#teamList').addEventListener('click', async (e) => {
-  const rm = e.target.closest('[data-remove]'), un = e.target.closest('[data-uninvite]'), mr = e.target.closest('[data-member]');
-  if (rm) {
-    const self = rm.dataset.remove === state.me.user.id;
-    if (!(await confirmDialog({ title: self ? 'Leave this workspace?' : 'Remove this teammate?', message: self ? 'You lose access until someone invites you again.' : 'They lose access to this workspace straight away.', confirmText: self ? 'Leave' : 'Remove', danger: true }))) return;
-    await guard(async () => { await api('/team/members/' + rm.dataset.remove, { method: 'DELETE' }); if (self) location.href = '/'; else loadTeam(); });
-  }
-  if (un) guard(async () => { await api('/team/invites/' + un.dataset.uninvite, { method: 'DELETE' }); loadTeam(); });
-  if (mr) guard(async () => { await api('/team/members/' + mr.dataset.member, { method: 'PATCH', body: { role: mr.dataset.role } }); loadTeam(); });
-});
-
 (async () => {
   try {
     await loadMe().catch(() => {});
+    showWorkspaceNotice();
     loadTeam().catch(() => {});
     state.settings = await api('/settings');
     renderSettings();
