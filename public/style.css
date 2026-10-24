@@ -3483,3 +3483,8 @@ h1, h2, h3, h4, p, li, dd, blockquote, code, .sub { overflow-wrap: anywhere; }
 .admin .ad-ws b { max-width: 220px; }
 .admin td .ad-person { max-width: 220px; }
 .admin .data-table th, .admin .data-table td { padding-left: 10px; padding-right: 10px; }
+/* The show/hide eye always has its own room: typed text never runs under it (the sign-in pages' input padding used to win) */
+.pw-wrap > input:not([type=hidden]), .auth-fields .pw-wrap > input:not([type=hidden]) { padding-right: 46px; }
+.pw-wrap > input { margin-top: 0; }
+.pw-wrap { margin-top: 6px; }
+.auth-fields .pw-wrap { margin-top: 6px; }

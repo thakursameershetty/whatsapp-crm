@@ -120,6 +120,9 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
     return `${salt}:${crypto.scryptSync(pw, salt, 64).toString('hex')}`;
   };
   const checkPassword = (pw, stored) => {
+    // New passwords are at most 128 characters; anything far longer is refused before the (slow) hash,
+    // so nobody can make the server hash megabytes. 1024 leaves room for passwords set before the limit.
+    if (String(pw ?? '').length > 1024) return false;
     const [salt, hash] = String(stored || '').split(':');
     if (!salt || !hash) return false;
     const a = crypto.scryptSync(String(pw), salt, 64), b = Buffer.from(hash, 'hex');
@@ -164,7 +167,9 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   function page(title, body) {
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · WhatsApp Sender</title><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"><link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg">
-<script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}</script></head>
+<script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}
+// Came back with Back/Forward from memory? Ask the server again (it sends a signed-in person into the app).
+addEventListener('pageshow',function(e){if(e.persisted)location.reload()});</script></head>
 <body class="auth-body">${body}<script src="/gradient-ascii.js"></script><script src="/otp.js"></script><script src="/password-rules.js"></script><script>
 // Sign-up: "Send code" emails a confirmation code, then shows the box for it.
 (function () {
@@ -264,7 +269,7 @@ document.querySelectorAll('input[type=password]').forEach(function(inp){
 <h1>Sign in</h1>
 <p class="auth-sub">Your campaigns and chats are waiting.</p>
 <label>Your email<input type="email" name="email" value="${esc(email)}" autocomplete="email" placeholder="you@company.com" required autofocus></label>
-<label><span class="auth-label-row">Password<a href="/forgot${email ? `?email=${encodeURIComponent(email)}` : ''}" class="auth-forgot">Forgot password?</a></span><input type="password" name="password" autocomplete="current-password" placeholder="Your password" required></label>
+<label><span class="auth-label-row">Password<a href="/forgot${email ? `?email=${encodeURIComponent(email)}` : ''}" class="auth-forgot">Forgot password?</a></span><input type="password" name="password" autocomplete="current-password" placeholder="Your password" maxlength="1024" required></label>
 <input type="hidden" name="next" value="${esc(next)}">
 ${notice ? `<p class="auth-notice">${esc(notice)}</p>` : ''}${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">Sign in</button>
 <p class="login-alt">Don't have an account? <a href="/signup${next ? `?next=${encodeURIComponent(next)}` : ''}">Create one</a></p></form>`,
@@ -387,6 +392,9 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
   function mountAuth(app, express) {
     const form = express.urlencoded({ extended: false });
 
+    // Sign-in pages are never kept by the browser: pressing Back from the app asks the server again,
+    // which sends a signed-in person straight back into the app instead of showing the form.
+    app.use(['/login', '/signup', '/forgot', '/reset', '/verify', '/invite'], (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
     app.get('/login', (req, res) => (sessionOf(req) ? res.redirect(safeNext(req.query.next)) : res.send(loginPage({ next: req.query.next }))));
     app.post('/login', form, (req, res) => {
       const email = String(req.body.email || '').trim().toLowerCase();
@@ -403,7 +411,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       res.redirect(inv ? '/' : safeNext(next));
     });
 
-    app.get('/signup', (req, res) => res.send(signupPage({ next: req.query.next, invite: inviteFromNext(req.query.next) })));
+    app.get('/signup', (req, res) => (sessionOf(req) ? res.redirect(safeNext(req.query.next)) : res.send(signupPage({ next: req.query.next, invite: inviteFromNext(req.query.next) }))));
     app.post('/signup', form, (req, res) => {
       const { name = '', password = '', business = '', legacy = '', next = '' } = req.body;
       const email = String(req.body.email || '').trim().toLowerCase();
