@@ -348,7 +348,12 @@ $('#ccPick').addEventListener('click', (e) => {
     $('#ccList', el).innerHTML = list.map((c) => `<button type="button" role="option" class="cc-opt ${c[0] === current ? 'on' : ''}" data-cc="${c[0]}" aria-selected="${c[0] === current}">${flagImg(c[0], 18)}<b class="cc-iso">${c[0]}</b><span class="cc-name">${esc(c[1])}</span><span class="cc-code">+${c[2]}</span></button>`).join('') || '<p class="tm-note" style="text-align:center;padding:12px 0">No country matches.</p>';
   };
   draw();
-  setTimeout(() => { $('#ccQ', el).focus(); el.querySelector('.cc-opt.on')?.scrollIntoView({ block: 'center' }); }, 20);
+  setTimeout(() => {
+    $('#ccQ', el).focus({ preventScroll: true });
+    // Scroll only the list to the current country (scrollIntoView would move the page too and leave the list behind).
+    const list = $('#ccList', el), on = list.querySelector('.cc-opt.on');
+    if (on) list.scrollTop = on.offsetTop - list.clientHeight / 2 + on.offsetHeight / 2;
+  }, 20);
   $('#ccQ', el).addEventListener('input', draw);
   $('#ccQ', el).addEventListener('keydown', (ev) => { if (ev.key === 'Enter') el.querySelector('.cc-opt')?.click(); });
   $('#ccList', el).addEventListener('click', (ev) => {
@@ -1970,7 +1975,7 @@ function invitePop(anchor) {
     <div class="tm-out hidden" id="tmOut"></div>`, 'tm-invite');
   let role = 'member';
   const email = $('#tmEmail', el);
-  setTimeout(() => email.focus(), 30);
+  setTimeout(() => email.focus({ preventScroll: true }), 30);
   $('.tm-role', el).addEventListener('click', (e) => { const b = e.target.closest('[data-role]'); if (!b) return; role = b.dataset.role; $$('.tm-role button', el).forEach((x) => x.classList.toggle('active', x === b)); });
   const send = () => guard(async () => {
     const r = await api('/team/invites', { method: 'POST', body: { email: email.value, role } });
@@ -1992,7 +1997,7 @@ function allPop(anchor) {
     $('#tmList', el).innerHTML = list.map((p) => `<button type="button" class="tm-li" data-tmk="${p.key}">${tmAvatar(p, 'sm')}<span class="tm-who"><b>${esc(p.kind === 'invite' ? p.email : p.name || p.email)}${p.you ? ' <span class="muted">(you)</span>' : ''}</b><span>${p.kind === 'invite' ? 'Invited' : esc(p.email)}</span></span><span class="pill ${p.role === 'owner' ? 'scheduled' : ''} ws-here">${p.role === 'owner' ? 'Owner' : 'Member'}</span></button>`).join('') || '<p class="tm-note" style="text-align:center;padding:14px 0">Nobody matches.</p>';
   };
   draw();
-  setTimeout(() => $('#tmQ', el).focus(), 30);
+  setTimeout(() => $('#tmQ', el).focus({ preventScroll: true }), 30);
   $('#tmQ', el).addEventListener('input', draw);
   $('#tmList', el).addEventListener('click', (e) => { const b = e.target.closest('[data-tmk]'); if (!b) return; const p = teamPeople().find((x) => x.key === b.dataset.tmk); memberPop(anchor, p); });
 }

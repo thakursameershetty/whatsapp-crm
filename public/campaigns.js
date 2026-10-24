@@ -89,7 +89,8 @@
     el.classList.remove('hidden');
     $('#campaignDetail').classList.add('hidden');
     if (!CP.list.length) {
-      el.innerHTML = emptyState({ icon: 'send', title: 'No campaigns yet', text: 'Every bulk send shows up here: delivery, reads, replies and the leads they bring in.', actions: `<button class="btn primary" data-goto="send">${icon('plus', 16)}Create a campaign</button>` });
+      // Same header as when there are campaigns, so the page always says where you are.
+      el.innerHTML = `<div class="section-head"><div><h1>Campaigns</h1><p class="sub">Every bulk send you make, with its delivery, reads, replies and leads.</p></div><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div>` + emptyState({ icon: 'send', title: 'No campaigns yet', text: 'Every bulk send shows up here: delivery, reads, replies and the leads they bring in.', actions: `<button class="btn primary" data-goto="send">${icon('plus', 16)}Create a campaign</button>` });
       return;
     }
     const pinned = CP.list.filter((c) => live(c) || c.status === 'scheduled').sort((a, b) => (live(b) - live(a)) || String(a.scheduledAt).localeCompare(String(b.scheduledAt)));

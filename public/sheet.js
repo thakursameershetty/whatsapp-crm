@@ -822,7 +822,7 @@
         el.append(b);
       });
       place(el, x, y);
-      el.querySelector('button:not(:disabled)')?.focus();
+      el.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
     }
     function panel(x, y, html) {
       close();
@@ -843,6 +843,8 @@
       if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
     }, true);
     addEventListener('resize', close);
+    // A popup is pinned to where it opened; if the page scrolls underneath it, close it rather than leave it floating.
+    addEventListener('scroll', (e) => { if (el && !(e.target instanceof Node && el.contains(e.target))) close(); }, { capture: true, passive: true });
     return { open, panel, close };
   })();
 
