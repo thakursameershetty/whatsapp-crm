@@ -16,6 +16,11 @@
       <div class="admin-sum" id="sum"></div>
       <a class="btn quiet" href="/">Back to the app</a>
     </header>
+    <section class="card admin-card admin-del hidden" id="delReqs">
+      <h2>Deletion requests <span class="pill" id="delCount"></span></h2>
+      <p class="sub">People who asked for their account to be deleted. Reach out first, then delete the account or dismiss the request.</p>
+      <div id="delList"></div>
+    </section>
     <div class="search-wrap"><input class="search" id="q" placeholder="Search workspace or email" /></div>
     <div class="card admin-card"><div class="table-wrap"><table class="data-table" id="tbl"><thead><tr>
       <th>Workspace</th><th>People</th><th class="num">Numbers</th><th class="num">Contacts</th><th class="num">Sent 24h</th><th class="num">Sent 30d</th><th class="num">Failed 30d</th><th>Daily limit</th><th>Last active</th><th>Status</th>
@@ -53,7 +58,36 @@ function render() {
     </tr>`;
   }).join('') || '<tr><td colspan="10" class="table-empty">No workspaces match.</td></tr>';
 }
+// Deletion requests: what they said, and what deleting would do to each workspace.
+let dels = [];
+function renderDels() {
+  $('#delReqs').classList.toggle('hidden', !dels.length);
+  $('#delCount').textContent = dels.length;
+  $('#delList').innerHTML = dels.map((d) => `<div class="del-req">
+    <div class="del-req-head"><div><b>${esc(d.name || d.email)}</b> <span class="muted">${esc(d.email)}</span><br><span class="muted">Asked ${ago(d.at)} · member since ${d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—'}</span></div><span class="pill">${esc(d.reasonText)}</span></div>
+    ${d.note ? `<blockquote>${esc(d.note)}</blockquote>` : ''}
+    <ul class="del-plan">${d.plan.map((p) => `<li class="${p.action}"><b>${esc(p.name)}</b> — ${esc(p.text)}</li>`).join('') || '<li>Not in any workspace</li>'}</ul>
+    <div class="del-acts">
+      <a class="btn sm" href="mailto:${encodeURIComponent(d.email)}?subject=${encodeURIComponent('About deleting your WhatsApp Sender account')}">Email them</a>
+      <button class="btn sm quiet" data-dismiss="${d.id}">Dismiss request</button>
+      <button class="btn sm quiet danger" data-delete="${d.id}" data-email="${esc(d.email)}">Delete account…</button>
+    </div>
+  </div>`).join('');
+}
+$('#delList').addEventListener('click', async (e) => {
+  const dis = e.target.closest('[data-dismiss]'), del = e.target.closest('[data-delete]');
+  try {
+    if (dis) { await api('/admin/users/' + dis.dataset.dismiss + '/dismiss-deletion', { method: 'POST' }); toast('Request dismissed'); load(); }
+    if (del) {
+      const typed = prompt(`This permanently deletes ${del.dataset.email} and the workspaces only they use. It can't be undone.\n\nType their email to confirm:`);
+      if (typed === null) return;
+      await api('/admin/users/' + del.dataset.delete + '/delete', { method: 'POST', body: { confirm: typed } });
+      toast('Account deleted'); load();
+    }
+  } catch (err) { toast(err.message, true); }
+});
 async function load() {
+  try { dels = await api('/admin/deletion-requests'); renderDels(); } catch (e) { /* the table below shows the error */ }
   try { all = await api('/admin/workspaces'); render(); }
   catch (e) { $('#tbl tbody').innerHTML = `<tr><td colspan="10" class="table-empty">${esc(e.message)}</td></tr>`; }
 }

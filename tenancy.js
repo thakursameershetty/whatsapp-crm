@@ -581,7 +581,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     app.get('/api/me', (req, res) => {
       const ws = current();
       res.json({
-        user: { ...publicUser(req.user), emailVerified: req.user.emailVerified !== false, createdAt: req.user.createdAt },
+        user: { ...publicUser(req.user), emailVerified: req.user.emailVerified !== false, createdAt: req.user.createdAt, deletionRequest: req.user.deletionRequest || null },
         admin: req.admin,
         mail: mail.enabled(),
         role: req.role,
@@ -734,6 +734,84 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         ws.meta.dailyLimit = n;
       }
       saveAccounts();
+      res.json({ ok: true });
+    }));
+
+    // --- Account deletion: the person asks, an admin follows up and does it -------------
+    const REASONS = { 'not-using': 'Not using it any more', 'too-expensive': 'Too expensive', 'missing-feature': 'Missing something I need', 'other-tool': 'Switching to another tool', 'testing': 'Was only trying it out', 'privacy': 'Privacy concerns', other: 'Something else' };
+    // What deleting this person would do to each workspace they belong to.
+    function deletionPlan(user) {
+      return membershipsOf(user.id).map((m) => {
+        const ws = loaded.get(m.wsId), others = accounts.members.filter((x) => x.wsId === m.wsId && x.userId !== user.id);
+        const name = ws?.meta.name || 'Unknown workspace';
+        if (ws?.meta.legacy && !others.length) return { wsId: m.wsId, name, action: 'detach', text: 'Original workspace: the data is kept, nobody is in it any more' };
+        if (!others.length) return { wsId: m.wsId, name, action: 'delete', text: 'Deleted with all its data (only member)' };
+        if (m.role === 'owner' && !others.some((x) => x.role === 'owner')) {
+          const heir = [...others].sort((a, b) => String(a.joinedAt || '').localeCompare(String(b.joinedAt || '')))[0];
+          return { wsId: m.wsId, name, action: 'handover', heir: heir.userId, text: `Kept; ${accounts.users.find((u) => u.id === heir.userId)?.email || 'a teammate'} becomes the owner` };
+        }
+        return { wsId: m.wsId, name, action: 'leave', text: 'Kept; they are removed from the team' };
+      });
+    }
+    async function deleteAccount(user) {
+      const plan = deletionPlan(user);
+      for (const p of plan) {
+        if (p.action === 'handover') { const heir = accounts.members.find((x) => x.wsId === p.wsId && x.userId === p.heir); if (heir) heir.role = 'owner'; }
+        if (p.action === 'delete') {
+          const ws = loaded.get(p.wsId);
+          if (ws?.timer) { clearTimeout(ws.timer); ws.timer = null; }
+          loaded.delete(p.wsId);
+          accounts.workspaces = accounts.workspaces.filter((w) => w.id !== p.wsId);
+          accounts.invites = accounts.invites.filter((i) => i.wsId !== p.wsId);
+          await store.deleteWorkspace(p.wsId);
+        }
+      }
+      accounts.members = accounts.members.filter((m) => m.userId !== user.id);
+      accounts.sessions = accounts.sessions.filter((x) => x.userId !== user.id);
+      accounts.invites = accounts.invites.filter((i) => i.email !== user.email);
+      accounts.users = accounts.users.filter((u) => u.id !== user.id);
+      codes.delete(user.email);
+      saveAccounts();
+      return plan;
+    }
+
+    app.post('/api/account/deletion-request', wrap((req, res) => {
+      const u = req.user;
+      if (!checkPassword(req.body.password, u.password)) throw fail('Your password is wrong');
+      const reason = REASONS[req.body.reason] ? req.body.reason : 'other';
+      u.deletionRequest = { at: now(), reason, note: String(req.body.note || '').trim().slice(0, 1000) };
+      saveAccounts();
+      mail.deletionReceived(u.email, u.name);
+      for (const to of ADMIN_EMAILS) mail.deletionRequested(to, u, REASONS[reason], u.deletionRequest.note, `${mail.baseUrl(req)}/admin.html`);
+      res.json({ deletionRequest: u.deletionRequest });
+    }));
+    app.delete('/api/account/deletion-request', wrap((req, res) => {
+      delete req.user.deletionRequest;
+      saveAccounts();
+      res.json({ ok: true });
+    }));
+
+    app.get('/api/admin/deletion-requests', wrap((req, res) => {
+      adminOnly(req);
+      res.json(accounts.users.filter((u) => u.deletionRequest).sort((a, b) => a.deletionRequest.at.localeCompare(b.deletionRequest.at)).map((u) => ({
+        id: u.id, name: u.name, email: u.email, createdAt: u.createdAt, ...u.deletionRequest, reasonText: REASONS[u.deletionRequest.reason] || u.deletionRequest.reason, plan: deletionPlan(u),
+      })));
+    }));
+    app.post('/api/admin/users/:id/delete', wrap(async (req, res) => {
+      adminOnly(req);
+      const u = accounts.users.find((x) => x.id === req.params.id);
+      if (!u) throw fail('That account no longer exists', 404);
+      if (u.id === req.user.id) throw fail("You can't delete your own account from here");
+      if (String(req.body.confirm || '').trim().toLowerCase() !== u.email) throw fail('Type their email to confirm');
+      const plan = await deleteAccount(u);
+      console.log(`[admin] ${req.user.email} deleted the account ${u.email}`);
+      mail.deletionDone(u.email);
+      res.json({ ok: true, plan });
+    }));
+    app.post('/api/admin/users/:id/dismiss-deletion', wrap((req, res) => {
+      adminOnly(req);
+      const u = accounts.users.find((x) => x.id === req.params.id);
+      if (u) { delete u.deletionRequest; saveAccounts(); }
       res.json({ ok: true });
     }));
 

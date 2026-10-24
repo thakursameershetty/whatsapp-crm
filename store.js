@@ -77,6 +77,8 @@ function fileStore(dataDir) {
     data,
     async saveAccounts(acc) { writeJson(path.join(dataDir, 'accounts.json'), acc); },
     async saveWorkspace(id, db) { writeJson(path.join(dataDir, 'workspaces', id + '.json'), secrets.sealWorkspace(db)); },
+    // A deleted account's own workspace: its file goes too.
+    async deleteWorkspace(id) { if (/^[a-z0-9_-]+$/i.test(id)) fs.rmSync(path.join(dataDir, 'workspaces', id + '.json'), { force: true }); },
     async close() {},
   };
 }
@@ -257,6 +259,11 @@ async function pgStore(url, dataDir) {
     data,
     saveAccounts: (acc) => queue(() => inTx((c) => syncAccounts(c, acc))),
     saveWorkspace: (id, db) => queue(() => inTx((c) => syncWorkspace(c, id, db))),
+    // A deleted account's own workspace: its row goes, and its items with it (on delete cascade).
+    deleteWorkspace: (id) => queue(() => inTx(async (c) => {
+      await c.query('delete from workspaces where id = $1', [id]);
+      for (const key of [...saved.keys()]) if (key.startsWith(id + '|') || key === 'workspaces|' + id) saved.delete(key);
+    })),
     // A new workspace needs its row before its items (and before members point at it).
     async close() { await chain.catch(() => {}); await pool.end(); },
   };

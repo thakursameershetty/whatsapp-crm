@@ -82,6 +82,27 @@ module.exports = {
     footer: "If you didn't make this change, sign in and change your password, or reply to this email.",
   })),
 
+  // Account deletion: the person asks, an admin follows up and does it.
+  deletionReceived: (to, name) => quietly(send({
+    to, subject: 'We got your request to delete your account',
+    heading: `We got your request${name ? `, ${name.split(' ')[0]}` : ''}`,
+    body: "Your request to delete your WhatsApp Sender account has reached us. Someone from our team will get in touch before anything is deleted. Until then your account keeps working as usual, and you can cancel the request any time in Settings.",
+    footer: "If you didn't ask for this, sign in, cancel the request in Settings and change your password.",
+  })),
+  deletionRequested: (to, user, reason, note, url) => quietly(send({
+    to, subject: `Account deletion request: ${user.email}`,
+    heading: 'Someone asked to delete their account',
+    body: `<b>${esc(user.name || user.email)}</b> (${esc(user.email)}) wants their account deleted.<br><br>Reason: <b>${esc(reason)}</b>${note ? `<br>What they said: “${esc(note)}”` : ''}<br><br>Follow up with them, then delete the account or dismiss the request from the admin page.`,
+    button: 'Open admin', url,
+    footer: 'You get this because your email is in ADMIN_EMAILS.',
+  })),
+  deletionDone: (to) => quietly(send({
+    to, subject: 'Your account has been deleted',
+    heading: 'Your account has been deleted',
+    body: "As you asked, your WhatsApp Sender account has been deleted, along with the workspaces only you used. Thanks for trying us. You're welcome back any time.",
+    footer: 'Questions? Just reply to this email.',
+  })),
+
   invite: (to, inviter, workspace, url) => quietly(send({
     to, subject: `${inviter} invited you to ${workspace}`,
     heading: `Join ${workspace} on WhatsApp Sender`,

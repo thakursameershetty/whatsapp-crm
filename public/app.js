@@ -1663,6 +1663,10 @@ async function loadMe() {
   $('#acctFacts').innerHTML = `<div><dt>Email</dt><dd>${user.emailVerified ? '<span class="acct-ok">Confirmed</span>' : 'Not confirmed yet'}</dd></div>
     <div><dt>Workspaces</dt><dd>${n} ${n === 1 ? 'workspace' : 'workspaces'}</dd></div>
     ${user.createdAt ? `<div><dt>Member since</dt><dd>${new Date(user.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</dd></div>` : ''}`;
+  const del = user.deletionRequest;
+  $('#acctDelete').classList.toggle('hidden', Boolean(del));
+  $('#acctDelNote').classList.toggle('hidden', !del);
+  if (del) $('#acctDelNote').innerHTML = `<b>Deletion requested</b> on ${new Date(del.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}. Our team will get in touch before anything is deleted. Your account works as usual until then.<button class="btn sm" id="acctDelCancel">Cancel request</button>`;
   $('#inviteBox').classList.toggle('hidden', state.me.role !== 'owner');
   document.title = `${workspace.name} · WhatsApp Sender`;
   $('#verifyBanner').classList.toggle('hidden', user.emailVerified);
@@ -1744,6 +1748,34 @@ $('#wsNew').addEventListener('click', async () => {
   $('#nwName', body).focus();
   $('#nwCancel', body).onclick = closeModal;
   $('#nwGo', body).onclick = (e) => guard(async () => { await api('/workspaces', { method: 'POST', body: { name: $('#nwName', body).value } }); location.reload(); }, e.target);
+});
+// Request account deletion: nothing is deleted here. An admin follows up, then deletes it.
+const DELETE_REASONS = [['not-using', 'Not using it any more'], ['too-expensive', 'Too expensive'], ['missing-feature', 'Missing something I need'], ['other-tool', 'Switching to another tool'], ['testing', 'Was only trying it out'], ['privacy', 'Privacy concerns'], ['other', 'Something else']];
+$('#acctDelete').addEventListener('click', () => {
+  const body = openModal('Request account deletion', `
+    <p class="sub" style="margin-top:-6px">Tell us why and we'll get back to you. Nothing is deleted until our team has talked to you, and your account keeps working until then.</p>
+    <div class="del-what"><b>When it's deleted</b><span>Workspaces only you use are erased with their numbers, contacts, campaigns and messages. Shared workspaces stay with your teammates.</span></div>
+    <div class="field-label">Why are you leaving?</div>
+    <div class="del-reasons">${DELETE_REASONS.map(([k, label]) => `<label class="del-reason"><input type="radio" name="delReason" value="${k}" /><span>${label}</span></label>`).join('')}</div>
+    <label>Anything we could have done better? <span class="opt">optional</span><textarea id="delNote" rows="3" maxlength="1000" placeholder="It helps us a lot"></textarea></label>
+    <label>Your password <span class="opt">to confirm it's you</span><input type="password" id="delPw" autocomplete="current-password" /></label>
+    <div class="modal-actions"><button class="btn quiet" id="delCancel">Cancel</button><button class="btn danger-solid" id="delGo">Send request</button></div>`);
+  $('#delCancel', body).onclick = closeModal;
+  $('#delGo', body).onclick = (e) => {
+    const reason = $('input[name=delReason]:checked', body)?.value;
+    if (!reason) return toast('Pick a reason first', true);
+    if (!$('#delPw', body).value) return $('#delPw', body).focus();
+    guard(async () => {
+      await api('/account/deletion-request', { method: 'POST', body: { reason, note: $('#delNote', body).value, password: $('#delPw', body).value } });
+      closeModal();
+      await loadMe();
+      toast("Request sent. We'll be in touch.");
+    }, e.target);
+  };
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#acctDelCancel')) return;
+  guard(async () => { await api('/account/deletion-request', { method: 'DELETE' }); await loadMe(); toast('Deletion request cancelled'); }, e.target);
 });
 // Change password: the same rules and the same "type it again" check as sign-up.
 $('#pwChange').addEventListener('click', () => {
