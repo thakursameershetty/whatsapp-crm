@@ -830,6 +830,7 @@
       el.className = 'sg-menu-pop sg-pop';
       el.innerHTML = html;
       place(el, x, y);
+      openedAt = Date.now();
       return el;
     }
     document.addEventListener('mousedown', (e) => { if (el && !el.contains(e.target)) close(); }, true);
@@ -844,7 +845,9 @@
     }, true);
     addEventListener('resize', close);
     // A popup is pinned to where it opened; if the page scrolls underneath it, close it rather than leave it floating.
-    addEventListener('scroll', (e) => { if (el && !(e.target instanceof Node && el.contains(e.target))) close(); }, { capture: true, passive: true });
+    // (The first moments after opening don't count: the page may still be easing into place.)
+    let openedAt = 0;
+    addEventListener('scroll', (e) => { if (el && Date.now() - openedAt > 400 && !(e.target instanceof Node && el.contains(e.target))) close(); }, { capture: true, passive: true });
     return { open, panel, close };
   })();
 

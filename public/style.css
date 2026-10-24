@@ -3771,3 +3771,35 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .ss-opt:disabled { color: var(--faint); cursor: default; }
 .ss-group { padding: 8px 10px 4px; font-size: 11.5px; font-weight: 600; color: var(--faint); }
 .ss-none { margin: 0; padding: 12px; text-align: center; font-size: 13px; color: var(--muted); }
+
+/* Date & time picker (select.js) */
+.dt-native { display: none !important; }
+.dt-pick { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border: 0; border-radius: var(--r-md); background: var(--field); box-shadow: var(--sh-sunk); color: var(--text); font: 500 13.5px Inter, sans-serif; cursor: pointer; white-space: nowrap; }
+.dt-pick svg { color: var(--muted); flex: none; }
+.dt-pick small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.dt-pick:hover { background: color-mix(in srgb, var(--text) 4%, var(--field)); }
+.dt-pick:focus-visible { outline: 0; box-shadow: var(--sh-sunk), 0 0 0 3px var(--ring); }
+.sg-pop.dt-pop { width: 440px; max-width: calc(100vw - 16px); padding: 12px; }
+.dt-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.dt-chip { height: 28px; padding: 0 10px; border: 0; border-radius: 99px; background: var(--sunk); color: var(--text); font: 500 12.5px Inter, sans-serif; cursor: pointer; }
+.dt-chip:hover { background: color-mix(in srgb, var(--text) 9%, var(--sunk)); }
+.dt-main { display: grid; grid-template-columns: 1fr 108px; gap: 12px; }
+.dt-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 13.5px; }
+.dt-nav { width: 28px; height: 28px; border: 0; border-radius: 8px; background: none; color: var(--text); font-size: 18px; line-height: 1; cursor: pointer; }
+.dt-nav:hover:not(:disabled) { background: var(--sunk); }
+.dt-nav:disabled { color: var(--faint); cursor: default; }
+.dt-week, .dt-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.dt-week span { font-size: 11px; font-weight: 600; color: var(--faint); padding: 4px 0; }
+.dt-day { height: 32px; border: 0; border-radius: 8px; background: none; color: var(--text); font: 13px Inter, sans-serif; font-variant-numeric: tabular-nums; cursor: pointer; }
+.dt-day:hover:not(:disabled) { background: var(--sunk); }
+.dt-day.today { font-weight: 700; box-shadow: inset 0 0 0 1px var(--hair); }
+.dt-day.on { background: var(--text); color: var(--surface); font-weight: 600; }
+.dt-day:disabled { color: var(--faint); opacity: 0.5; cursor: default; }
+.dt-times { max-height: 252px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-left: 10px; box-shadow: -1px 0 0 var(--hair); scrollbar-width: thin; }
+.dt-time { flex: none; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--text); font: 13px Inter, sans-serif; font-variant-numeric: tabular-nums; cursor: pointer; }
+.dt-time:hover:not(:disabled) { background: var(--sunk); }
+.dt-time.on { background: var(--text); color: var(--surface); font-weight: 600; }
+.dt-time:disabled { display: none; }
+.dt-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding-top: 12px; box-shadow: 0 -1px 0 var(--hair); font-size: 12.5px; color: var(--muted); }
+.dt-foot b { color: var(--text); font-weight: 600; }
+@media (max-width: 480px) { .dt-main { grid-template-columns: 1fr; } .dt-times { flex-direction: row; overflow-x: auto; max-height: none; padding: 8px 0 0; box-shadow: 0 -1px 0 var(--hair); } .dt-time { padding: 0 10px; } }
