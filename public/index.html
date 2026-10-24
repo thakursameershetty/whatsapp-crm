@@ -146,7 +146,7 @@
           <div id="dayChart" class="chart" data-skel="chart"></div>
           <div id="dayTable" class="table-wrap chart-table hidden"></div>
         </div>
-        <div class="card la-host">
+        <div class="card la-host funnel-card">
           <h2 data-icon="users">Delivery funnel</h2>
           <p class="sub" id="funnelSub" style="margin:-10px 0 18px">How far your messages got</p>
           <div id="funnel" data-skel="bars:4"></div>
@@ -164,19 +164,18 @@
           </div>
           <div id="senderHealth" data-skel="bars:2"></div>
         </div>
-        <div class="stack">
-          <div class="card la-host">
-            <h2 data-icon="calendar-days">Upcoming</h2>
-            <div id="upcoming" data-skel="lines:3"></div>
-          </div>
-          <div class="card">
-            <div class="card-head" style="margin-bottom:10px">
-              <h2 data-icon="history">Recent campaigns</h2>
-              <a href="#" class="btn quiet sm" data-goto="campaigns" data-icon="history">View all</a>
-            </div>
-            <div id="recent" data-skel="lines:4"></div>
-          </div>
+        <div class="card la-host">
+          <h2 data-icon="calendar-days">Upcoming</h2>
+          <div id="upcoming" data-skel="lines:3"></div>
         </div>
+      </div>
+
+      <div class="card ov-recent">
+        <div class="card-head" style="margin-bottom:10px">
+          <h2 data-icon="history">Recent campaigns</h2>
+          <a href="#" class="btn quiet sm" data-goto="campaigns" data-icon="history">View all</a>
+        </div>
+        <div id="recent" data-skel="lines:4"></div>
       </div>
     </section>
 
@@ -403,7 +402,7 @@
               </label>
             </div>
             <div class="sp-sec">
-              <div class="field-label">Send from <span class="opt">split evenly across the numbers you turn on</span>
+              <div class="field-label">Send from <span class="opt" id="sendFromHint">split evenly across the numbers you turn on</span>
               </div>
               <div id="senderChecks" class="toggle-list"></div>
             </div>
@@ -528,7 +527,7 @@
           </div>
           <p class="sub acct-lead">Numbers, templates, contacts, campaigns, inbox and AI settings belong to this workspace. Invite teammates to share it.</p>
           <div class="field-label">Workspace name</div>
-          <div class="row tight acct-inline"><input id="wsName" maxlength="80" aria-label="Workspace name" /><button class="btn" id="wsSave">Save</button></div>
+          <div class="row tight acct-inline"><input id="wsName" maxlength="40" aria-label="Workspace name" /><button class="btn" id="wsSave">Save</button></div>
           <div class="field-label acct-gap">Team <span class="opt" id="teamCount"></span></div>
           <div id="teamList" class="team-list"></div>
           <div id="inviteBox">

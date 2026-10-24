@@ -160,7 +160,7 @@
                 <span class="ib-prev">${c.ai?.busy ? '<span class="ib-prev-typing">AI is typing…</span>' : `${l.dir === 'out' ? ticks(l.status) : ''}<span>${esc(previewText(l))}</span>`}</span>
                 ${c.unread ? `<span class="ib-count">${c.unread}</span>` : ''}
               </span>
-              ${multi ? `<span class="ib-via">via ${esc(c.senderLabel)}</span>` : ''}
+              ${multi ? `<span class="ib-via" title="via ${esc(c.senderLabel)}">via ${esc(c.senderLabel)}</span>` : ''}
             </span>
           </button>`;
         })
@@ -340,7 +340,7 @@
     const tagOf = (id) => (t?.tags || []).find((x) => x.id === id);
     hx.innerHTML = t ? `
       ${ct ? (ct.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS_PILL[ct.status] || ''}">${esc(STATUS_LABEL[ct.status] || ct.status)}</span>`) : ''}
-      ${ct ? ct.tags.map(tagOf).filter(Boolean).slice(0, 3).map((x) => `<span class="tag-chip tag-${esc(x.color)}">${esc(x.name)}</span>`).join('') : ''}
+      ${ct ? ct.tags.map(tagOf).filter(Boolean).slice(0, 3).map((x) => `<span class="tag-chip tag-${esc(x.color)}" title="${esc(x.name)}">${esc(x.name)}</span>`).join('') : ''}
       ${ct ? `<button class="btn sm quiet" data-ai="contact" title="Open contact">${icon('users', 14)}Contact</button>` : ''}
       ${ai ? `<button class="ib-ai-toggle ${ai.on ? 'on' : ''}" data-ai="toggle" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Click to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Click to stop for this chat.' : ai.off ? 'AI is off for this chat. Click to turn on.' : 'Turn on the lead assistant in Settings to draft replies automatically.'}" aria-pressed="${ai.on}"><svg class="orb-icon" data-orb-icon="14"></svg>AI ${ai.auto ? 'auto-reply' : ai.on ? 'on' : 'off'}</button>` : ''}` : '';
     Orb.hydrate(hx);

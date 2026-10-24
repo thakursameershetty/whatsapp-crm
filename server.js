@@ -453,10 +453,16 @@ app.put('/api/settings', (req, res) => {
 
 app.get('/api/senders', (req, res) => res.json(db.senders.map(publicSender)));
 
+// A number's label shows on cards, filters and the Send page: keep it short.
+const tidyLabel = (v) => String(v ?? '').replace(/\s+/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+const senderLabelError = (v) => { const s = tidyLabel(v); return !s ? 'Give the number a label' : s.length > 40 ? `Keep the label to 40 characters (it's ${s.length})` : ''; };
+
 app.post('/api/senders', wrap((req, res) => {
   const { label, phoneNumberId, wabaId, accessToken, displayPhone } = req.body;
   if (!label || !phoneNumberId) throw fail('Label and Phone Number ID are required');
-  const s = { id: id(), label, phoneNumberId: String(phoneNumberId).trim(), wabaId: String(wabaId || '').trim(), accessToken: String(accessToken || '').trim(), displayPhone: displayPhone || '', enabled: true, createdAt: new Date().toISOString() };
+  const labelErr = senderLabelError(label);
+  if (labelErr) throw fail(labelErr);
+  const s = { id: id(), label: tidyLabel(label), phoneNumberId: String(phoneNumberId).trim(), wabaId: String(wabaId || '').trim(), accessToken: String(accessToken || '').trim(), displayPhone: displayPhone || '', enabled: true, createdAt: new Date().toISOString() };
   db.senders.push(s);
   save();
   res.json(publicSender(s));
@@ -465,6 +471,7 @@ app.post('/api/senders', wrap((req, res) => {
 app.put('/api/senders/:id', wrap((req, res) => {
   const s = db.senders.find((x) => x.id === req.params.id);
   if (!s) throw fail('Not found', 404);
+  if ('label' in req.body) { const e = senderLabelError(req.body.label); if (e) throw fail(e); req.body.label = tidyLabel(req.body.label); }
   for (const k of ['label', 'phoneNumberId', 'wabaId', 'displayPhone', 'enabled']) if (k in req.body) s[k] = typeof req.body[k] === 'string' ? req.body[k].trim() : req.body[k];
   // Blank token on edit means "keep the existing one".
   if (req.body.accessToken) s.accessToken = req.body.accessToken.trim();
@@ -1165,7 +1172,8 @@ function computeStats(query = {}) {
     totals,
     prev,
     senders,
-    recent: camps.slice(0, 5).map(summary),
+    // A full 3 × 2 grid on the overview; colorIndex = place by creation date, which picks the folder colour (as on the Campaigns page).
+    recent: (() => { const order = new Map([...db.campaigns].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).map((c, i) => [c.id, i])); return camps.filter((c) => c.status !== 'scheduled').slice(0, 6).map((c) => ({ ...summary(c), colorIndex: order.get(c.id) })); })(),
     upcoming: camps.filter((c) => c.status === 'scheduled').sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt)).slice(0, 5).map(summary),
     running: camps.filter((c) => c.status === 'running').length,
     setup: {

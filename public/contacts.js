@@ -15,7 +15,7 @@
   const COLORS = ['blue', 'green', 'violet', 'orange', 'teal', 'pink', 'gray'];
   const tagById = (id) => CT.tags.find((t) => t.id === id);
   const fmtPhone = (p) => { const m = /^91(\d{5})(\d{5})$/.exec(p); return m ? `+91 ${m[1]} ${m[2]}` : '+' + p; };
-  const tagChip = (t, extra = '') => `<span class="tag-chip tag-${esc(t.color)}" ${extra}>${esc(t.name)}</span>`;
+  const tagChip = (t, extra = '') => `<span class="tag-chip tag-${esc(t.color)}" title="${esc(t.name)}" ${extra}>${esc(t.name)}</span>`;
 
   async function load() {
     const [r, inbox] = await Promise.all([api('/contacts'), api('/inbox').catch(() => ({ conversations: [] }))]);
@@ -130,7 +130,7 @@
     const untagged = CT.contacts.filter((c) => !c.tags.length).length;
     Motion.patch($('#ctTags'), `
       <button type="button" class="ct-tag ${!CT.tag ? 'active' : ''}" data-tag="">All tags</button>
-      ${CT.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)} ${CT.tag === t.id ? 'active' : ''}" data-tag="${t.id}"><i></i>${esc(t.name)} <span>${(CT.counts[t.id] || 0).toLocaleString()}</span><b class="ct-tag-edit" data-edit-tag="${t.id}" title="Rename, recolour or delete" role="button" aria-label="Edit ${esc(t.name)}">⋯</b></button>`).join('')}
+      ${CT.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)} ${CT.tag === t.id ? 'active' : ''}" data-tag="${t.id}" title="${esc(t.name)}"><i></i><span class="ct-tag-name">${esc(t.name)}</span> <span>${(CT.counts[t.id] || 0).toLocaleString()}</span><b class="ct-tag-edit" data-edit-tag="${t.id}" title="Rename, recolour or delete" role="button" aria-label="Edit ${esc(t.name)}">⋯</b></button>`).join('')}
       ${untagged && CT.tags.length ? `<button type="button" class="ct-tag ${CT.tag === 'none' ? 'active' : ''}" data-tag="none">No tag <span>${untagged.toLocaleString()}</span></button>` : ''}
       <button type="button" class="ct-tag ct-tag-new" id="ctNewTag">${icon('plus', 13)} New tag</button>`);
 
@@ -449,7 +449,7 @@
       </div>
       <div class="ct-psec">
         <div class="field-label">Tags</div>
-        <div class="ct-pick">${CT.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)} ${c.tags.includes(t.id) ? 'active' : ''}" data-ptag="${t.id}"><i></i>${esc(t.name)}</button>`).join('')}<button type="button" class="ct-tag ct-tag-new" data-ptag="+">${icon('plus', 13)} New</button></div>
+        <div class="ct-pick">${CT.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)} ${c.tags.includes(t.id) ? 'active' : ''}" data-ptag="${t.id}" title="${esc(t.name)}"><i></i><span class="ct-tag-name">${esc(t.name)}</span></button>`).join('')}<button type="button" class="ct-tag ct-tag-new" data-ptag="+">${icon('plus', 13)} New</button></div>
       </div>
       ${lead.summary || lead.need || lead.budget || lead.timeline ? `<div class="ct-leadbox"><div class="pc-label">From the lead assistant</div>
         ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}

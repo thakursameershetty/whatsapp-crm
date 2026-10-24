@@ -47,8 +47,8 @@ function render() {
   $('#tbl tbody').innerHTML = list.map((w) => {
     const rate = w.sent30d ? Math.round((100 * w.failed30d) / w.sent30d) : 0;
     return `<tr class="${w.suspended ? 'ct-opted' : ''}">
-      <td><b>${esc(w.name)}</b>${w.legacy ? ' <span class="pill">original</span>' : ''}${w.demoMode ? ' <span class="pill demo">demo</span>' : ''}<br><span class="muted">since ${new Date(w.createdAt).toLocaleDateString()}</span></td>
-      <td>${w.members.map((m) => `${esc(m.email)}${m.role === 'owner' ? ' <span class="muted">owner</span>' : ''}`).join('<br>') || '<span class="muted">nobody yet</span>'}</td>
+      <td class="ad-ws"><b title="${esc(w.name)}">${esc(w.name)}</b>${w.legacy ? ' <span class="pill">original</span>' : ''}${w.demoMode ? ' <span class="pill demo">demo</span>' : ''}<br><span class="muted">since ${new Date(w.createdAt).toLocaleDateString()}</span></td>
+      <td>${w.members.map((m) => `<span class="ad-person" title="${esc(m.email)}">${esc(m.email)}</span>${m.role === 'owner' ? ' <span class="muted">owner</span>' : ''}`).join('<br>') || '<span class="muted">nobody yet</span>'}</td>
       <td class="num">${w.numbers}</td><td class="num">${w.contacts.toLocaleString()}</td>
       <td class="num">${w.sent24h.toLocaleString()}</td><td class="num">${w.sent30d.toLocaleString()}</td>
       <td class="num ${rate > 20 ? 'bad' : ''}">${w.failed30d.toLocaleString()}${w.sent30d ? ` <span class="muted">(${rate}%)</span>` : ''}</td>

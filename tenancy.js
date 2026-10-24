@@ -22,6 +22,17 @@ const NEW_WORKSPACE_DAILY_LIMIT = Number(process.env.NEW_WORKSPACE_DAILY_LIMIT |
 const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '').toLowerCase().replace(/["'`]/g, '').split(/[\s,;]+/).filter((e) => e.includes('@'));
 const isAdmin = (user) => Boolean(user && ADMIN_EMAILS.includes(String(user.email).toLowerCase()));
 const RESET_MINUTES = 60;
+// Names: long enough for real ones, short enough to fit the sidebar, menus and admin table.
+const NAME_MAX = { person: 60, workspace: 40 };
+const tidyName = (v) => String(v ?? '').replace(/\s+/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+// The cleaned name, or an error message (empty, too short, too long).
+function checkName(v, kind) {
+  const s = tidyName(v), max = NAME_MAX[kind];
+  if (!s) return { error: kind === 'person' ? 'Enter your name' : 'Enter your business name' };
+  if (kind === 'workspace' && s.length < 2) return { error: 'Use at least 2 characters for the business name' };
+  if (s.length > max) return { error: `Keep ${kind === 'person' ? 'your name' : 'the business name'} to ${max} characters (it's ${s.length})` };
+  return { name: s };
+}
 const VERIFY_DAYS = 7;
 const INVITE_DAYS = 7;
 
@@ -61,9 +72,14 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   }
 
   for (const meta of accounts.workspaces) loadWorkspace(meta);
+  // Names saved before the length limits existed: tidy and shorten them once.
+  let renamed = 0;
+  for (const w of accounts.workspaces) { const n = tidyName(w.name).slice(0, NAME_MAX.workspace).trim() || 'My workspace'; if (n !== w.name) { w.name = n; renamed++; } }
+  for (const u of accounts.users) { const n = tidyName(u.name).slice(0, NAME_MAX.person).trim(); if (n !== (u.name || '')) { u.name = n; renamed++; } }
+  if (renamed) { console.log(`Shortened ${renamed} over-long name(s) to fit the limits.`); saveAccounts(); }
 
   function createWorkspace(name) {
-    const meta = { id: id(), name: String(name || 'My workspace').trim().slice(0, 80) || 'My workspace', createdAt: now(), dailyLimit: NEW_WORKSPACE_DAILY_LIMIT };
+    const meta = { id: id(), name: tidyName(name).slice(0, NAME_MAX.workspace) || 'My workspace', createdAt: now(), dailyLimit: NEW_WORKSPACE_DAILY_LIMIT };
     accounts.workspaces.push(meta);
     const ws = loadWorkspace(meta);
     ws.db.settings.webhookVerifyToken = crypto.randomBytes(12).toString('hex');
@@ -264,8 +280,8 @@ ${notice ? `<p class="auth-notice">${esc(notice)}</p>` : ''}${error ? `<p class=
 <h1>${invite ? `Join ${esc(invite.wsName)}` : 'Create your account'}</h1>
 <p class="auth-sub">${invite ? `You were invited to the ${esc(invite.wsName)} workspace.` : 'Set up in minutes. No credit card.'}</p>
 <div class="auth-row">
-<label>Your name<input name="name" id="suName" value="${esc(name)}" autocomplete="name" placeholder="Full name" required autofocus></label>
-${invite ? '' : `<label>Business name<input name="business" value="${esc(business)}" placeholder="e.g. Spotmies" required></label>`}
+<label>Your name<input name="name" id="suName" value="${esc(name)}" autocomplete="name" placeholder="Full name" maxlength="${NAME_MAX.person}" required autofocus></label>
+${invite ? '' : `<label>Business name<input name="business" value="${esc(business)}" placeholder="e.g. Spotmies" minlength="2" maxlength="${NAME_MAX.workspace}" required></label>`}
 </div>
 <label>Your email<span class="auth-inline${verified ? ' is-verified' : ''}" id="suEmailRow"><span class="auth-email"><input type="email" name="email" id="suEmail" value="${esc(email || invite?.email || '')}" autocomplete="email" placeholder="you@company.com" required${verified ? ' readonly' : ''}><svg class="auth-tick" viewBox="0 0 24 24" aria-label="Email confirmed" role="img"><circle cx="12" cy="12" r="10"/><path d="m7.8 12.4 2.8 2.8 5.6-5.8"/></svg></span><button type="button" class="auth-send" id="suSend"${verified ? ' tabindex="-1"' : ''}>Send code</button></span></label>
 <div id="suCodeWrap" ${codeSent && !verified ? '' : 'class="hidden"'}><span class="auth-otp-label">Confirmation code <span class="opt" id="suCodeNote">sent to your email</span></span><div class="auth-otp" id="suOtp"></div><input type="hidden" name="code" id="suCode" value="${esc(verified)}"></div>
@@ -396,13 +412,15 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const again = (error) => res.status(400).send(signupPage({ error, name, email, business, next, invite, verified: req.body.code && !checkCode(email, req.body.code, { consume: false }) ? String(req.body.code) : '' }));
       if (tooMany(`${req.ip}|signup`)) return again('Too many attempts. Try again in a few minutes.');
       noteTry(`${req.ip}|signup`);
-      if (!String(name).trim()) return again('Enter your name');
+      const nameCheck = checkName(name, 'person');
+      if (nameCheck.error) return again(nameCheck.error);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return again('Enter a valid email');
       const weak = passwordRules.check(password, { email, name }).problem;
       if (weak) return again(weak);
       if (req.body.confirm !== password) return again("The two passwords don't match");
       if (userByEmail(email)) return again('An account with this email already exists. Sign in instead.');
-      if (!invite && !String(business).trim()) return again('Enter your business name');
+      const bizCheck = invite ? {} : checkName(business, 'workspace');
+      if (bizCheck.error) return again(bizCheck.error);
       // The email is confirmed before the account exists: the code we sent must match.
       const codeErr = checkCode(email, req.body.code);
       if (codeErr) return res.status(400).send(signupPage({ error: req.body.code ? codeErr : 'Click “Send code” and enter the code from your email', name, email, business, next, invite, codeSent: Boolean(codes.get(email)) }));
@@ -415,16 +433,16 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const claims = old && ((legacy && appPassword && sameText(String(legacy), appPassword)) || (ownerEmail && email === ownerEmail.toLowerCase()) || (!appPassword && !ownerEmail && !hosted));
       if (old && legacy && !claims) return again('That app password is wrong. Leave it empty to start a fresh workspace.');
 
-      const user = { id: id(), name: String(name).trim().slice(0, 80), email, password: hashPassword(password), createdAt: now(), emailVerified: true };
+      const user = { id: id(), name: nameCheck.name, email, password: hashPassword(password), createdAt: now(), emailVerified: true };
       accounts.users.push(user);
       let wsId;
       if (invite) { acceptInvite(invite, user.id); wsId = invite.wsId; }
       else if (claims) {
-        old.name = String(business).trim().slice(0, 80) || old.name;
+        old.name = bizCheck.name || old.name;
         accounts.members.push({ wsId: old.id, userId: user.id, role: 'owner', joinedAt: now() });
         wsId = old.id;
       } else {
-        const ws = createWorkspace(business);
+        const ws = createWorkspace(bizCheck.name);
         accounts.members.push({ wsId: ws.meta.id, userId: user.id, role: 'owner', joinedAt: now() });
         wsId = ws.meta.id;
       }
@@ -593,15 +611,17 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
 
     app.patch('/api/workspace', wrap((req, res) => {
       ownerOnly(req);
-      const name = String(req.body.name || '').trim().slice(0, 80);
-      if (!name) throw fail('Give the workspace a name');
+      const { name, error } = checkName(req.body.name, 'workspace');
+      if (error) throw fail(error);
       current().meta.name = name;
       saveAccounts();
       res.json({ name });
     }));
 
     app.post('/api/workspaces', wrap((req, res) => {
-      const ws = createWorkspace(req.body.name);
+      const { name, error } = checkName(req.body.name, 'workspace');
+      if (error) throw fail(error);
+      const ws = createWorkspace(name);
       accounts.members.push({ wsId: ws.meta.id, userId: req.user.id, role: 'owner', joinedAt: now() });
       if (req.session) req.session.wsId = ws.meta.id;
       req.user.lastWsId = ws.meta.id;
@@ -678,8 +698,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     app.patch('/api/account', wrap((req, res) => {
       const u = req.user;
       if (req.body.name != null) {
-        const name = String(req.body.name).trim().slice(0, 80);
-        if (!name) throw fail('Enter your name');
+        const { name, error } = checkName(req.body.name, 'person');
+        if (error) throw fail(error);
         u.name = name;
       }
       if (req.body.email != null) {

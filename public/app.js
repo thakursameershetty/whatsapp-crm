@@ -438,7 +438,7 @@ function renderSenders() {
     list.innerHTML = emptyState({
       icon: 'phone',
       title: 'No numbers yet',
-      text: 'Add each WhatsApp number from your Meta Business account. Messages are spread across all the numbers you add. For Demo mode, a label and any placeholder ID is enough.',
+      text: `Add each WhatsApp number from your Meta Business account. Messages are spread across all the numbers you add.${state.settings.demoMode ? ' For Demo mode, a label and any placeholder ID is enough.' : ''}`,
       actions: `<button class="btn primary" onclick="senderForm()">${icon('plus', 16)}Add number</button>${state.settings.demoMode ? `<button class="btn quiet" data-goto="overview">${icon('layout-grid', 16)}Or load a demo workspace</button>` : ''}`,
     });
     return;
@@ -448,7 +448,7 @@ function renderSenders() {
       (s) => `
     <div class="card sender-card">
       <div class="li-head">
-        <h3>${esc(s.label)}</h3>
+        <h3 title="${esc(s.label)}"><span class="li-name">${esc(s.label)}</span></h3>
         <label title="${s.enabled ? 'Number is in use' : 'Number is switched off'}">${toggleHtml({ checked: s.enabled, attrs: `data-enable="${s.id}"`, size: 'sm' })}</label>
       </div>
       <div class="num">${esc(s.displayPhone || '—')}</div>
@@ -505,7 +505,7 @@ $('#senderList').addEventListener('click', (e) => {
 function senderForm(s = null) {
   const body = openModal(s ? 'Edit number' : 'Add sender number', `
     <form id="senderForm">
-      <label>Label <input name="label" required placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
+      <label>Label <span class="opt">up to 40 characters</span><input name="label" required maxlength="40" placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
       <label>Display phone <span class="opt">optional, for your reference</span><input name="displayPhone" placeholder="+91 98765 43210" value="${esc(s?.displayPhone)}" /></label>
       <label>Phone number ID <input name="phoneNumberId" required placeholder="From Meta → WhatsApp → API Setup" value="${esc(s?.phoneNumberId)}" /></label>
       <label>WhatsApp Business Account ID <input name="wabaId" placeholder="Needed to sync templates" value="${esc(s?.wabaId)}" /></label>
@@ -937,6 +937,7 @@ function renderFilters(st) {
     sel.value = items.some(([v]) => v === current) ? current : '';
   };
   fill($('#fSender'), st.senders.map((s) => [s.id, s.label]), st.filters.sender);
+  $('#fSender').closest('label').classList.toggle('hidden', st.senders.length < 2 && !st.filters.sender); // nothing to choose between
   fill($('#fTemplate'), st.options.templates.map((t) => [t, t]), st.filters.template);
   $('#fReset').classList.toggle('hidden', !st.filters.sender && !st.filters.template);
   $('#fNote').textContent = `Changes compare with the previous ${st.range} days${st.range === 90 ? ' · grouped by week' : ''}`;
@@ -1565,7 +1566,7 @@ function renderHealth(st) {
           <div class="meter ${cls}"><span data-w="${Math.min(100, used * 100).toFixed(2)}" data-k="h-${s.id}"></span></div>
           <div class="meter-label"><span><b data-count="${s.today}" data-fmt="int" data-k="ht-${s.id}">0</b> ${limit === null ? 'today · unlimited' : `/ ${limit.toLocaleString()} today`}</span><span>${known ? '' : 'limit unknown'}</span></div>
         </div>
-        <div class="health-total"><b data-count="${s.sent}" data-k="hs-${s.id}">0</b>sent · ${pct(s.delivered, s.sent)}% delivered</div>
+        <div class="health-total"><b data-count="${s.sent}" data-k="hs-${s.id}">0</b>${s.sent ? `sent · ${pct(s.delivered, s.sent)}% delivered` : 'nothing sent yet'}</div>
       </div>`;
     })
     .join('');
@@ -1602,8 +1603,10 @@ function renderRecent(st) {
       const s = c.stats || {};
       const sent = (s.sent || 0) + (s.delivered || 0) + (s.read || 0);
       const delivered = (s.delivered || 0) + (s.read || 0);
-      return `<div class="mini-item" data-open-campaign="${c.id}">
-        <div class="mini-title">${esc(c.name)}</div>
+      const color = window.folderColorAt && c.colorIndex != null ? folderColorAt(c.colorIndex) : 'oklch(var(--fl) var(--fc) 250)';
+      return `<div class="mini-item rc-item" data-open-campaign="${c.id}" style="--c:${color}">
+        <span class="cp-ficon" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span>
+        <div class="mini-title" title="${esc(c.name)}">${esc(window.campaignDisplayName ? campaignDisplayName(c) : c.name)}</div>
         <div class="mini-right"><b><span data-count="${pct(delivered, sent)}" data-k="rc-${c.id}">0</span>%</b>delivered</div>
         <div class="mini-meta"><span class="pill ${c.status}" style="height:18px;font-size:10.5px">${c.status}</span> ${relTime(c.startedAt || c.createdAt)} · ${c.total.toLocaleString()} recipients</div>
         <div class="mini-progress"><span data-w="${pct(sent + (s.failed || 0), c.total)}" data-k="rp-${c.id}"></span></div>
@@ -1684,12 +1687,19 @@ $('#verifyResend').addEventListener('click', (e) => guard(async () => {
 async function loadTeam() {
   const t = await api('/team');
   $('#teamCount').textContent = `${t.members.length} ${t.members.length === 1 ? 'person' : 'people'}${t.invites.length ? ` · ${t.invites.length} invited` : ''}`;
-  $('#teamList').innerHTML = t.members.map((m) => `<div class="team-row"><span class="acct-av sm" style="${avatarStyle(m.email)}">${esc((m.name || m.email).slice(0, 1).toUpperCase())}</span>
-      <span class="team-who"><b>${esc(m.name)}${m.you ? ' <span class="muted">(you)</span>' : ''}</b><span>${esc(m.email)}</span></span>
-      <span class="pill ${m.role === 'owner' ? 'scheduled' : ''}">${m.role}</span>
-      ${t.role === 'owner' && !m.you ? `<button class="btn sm quiet" data-member="${m.id}" data-role="${m.role === 'owner' ? 'member' : 'owner'}">${m.role === 'owner' ? 'Make member' : 'Make owner'}</button><button class="btn sm quiet danger" data-remove="${m.id}">Remove</button>` : ''}
-      ${m.you && t.members.length > 1 ? `<button class="btn sm quiet danger" data-remove="${m.id}">Leave</button>` : ''}
-    </div>`).join('') + t.invites.map((i) => `<div class="team-row invited"><span class="acct-av sm">✉</span><span class="team-who"><b>${esc(i.email)}</b><span>Invited · expires ${new Date(i.expiresAt).toLocaleDateString()}</span></span><span class="pill">${i.role}</span><button class="btn sm quiet" data-uninvite="${i.id}">Cancel</button></div>`).join('');
+  // Each row: avatar · name and email (cut with "…", full text on hover) · role · actions. Role and actions
+  // sit in fixed columns so they line up from row to row, whatever the names are.
+  const row = (cls, av, avStyle, name, sub, role, roleCls, acts) => `<div class="team-row ${cls}">
+      <span class="acct-av sm" style="${avStyle}">${av}</span>
+      <span class="team-who" title="${esc(name.replace(/<[^>]+>/g, ''))}\n${esc(sub)}"><b>${name}</b><span>${esc(sub)}</span></span>
+      <span class="team-side"><span class="pill ${roleCls}">${role}</span><span class="team-acts">${acts}</span></span>
+    </div>`;
+  $('#teamList').innerHTML = t.members.map((m) => row('', esc((m.name || m.email).slice(0, 1).toUpperCase()), avatarStyle(m.email),
+      `<span class="team-name">${esc(m.name || m.email)}</span>${m.you ? ' <span class="muted">(you)</span>' : ''}`, m.name ? m.email : '', m.role, m.role === 'owner' ? 'scheduled' : '',
+      (t.role === 'owner' && !m.you ? `<button class="btn sm quiet" data-member="${m.id}" data-role="${m.role === 'owner' ? 'member' : 'owner'}">${m.role === 'owner' ? 'Make member' : 'Make owner'}</button><button class="btn sm quiet danger" data-remove="${m.id}">Remove</button>` : '')
+      + (m.you && t.members.length > 1 ? `<button class="btn sm quiet danger" data-remove="${m.id}">Leave</button>` : ''))).join('')
+    + t.invites.map((i) => row('invited', '✉', '', `<span class="team-name">${esc(i.email)}</span>`, `Invited · expires ${new Date(i.expiresAt).toLocaleDateString()}`, i.role, '',
+      `<button class="btn sm quiet" data-uninvite="${i.id}">Cancel</button>`)).join('');
 }
 // The account menu: who you are, your workspaces, the theme, and log out.
 const LOGOUT_SVG = '<svg class="logout-ic" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><g class="logout-arrow"><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></g></svg>';
@@ -1727,7 +1737,7 @@ $('#acctBtn').addEventListener('click', (e) => {
 $('#acctEdit').addEventListener('click', () => {
   const u = state.me.user;
   const body = openModal('Edit your account', `
-    <label>Your name<input id="aeName" maxlength="80" value="${esc(u.name || '')}" autocomplete="name" /></label>
+    <label>Your name<input id="aeName" maxlength="60" value="${esc(u.name || '')}" autocomplete="name" /></label>
     <label>Email<input id="aeEmail" type="email" value="${esc(u.email)}" autocomplete="email" /></label>
     <label id="aePwWrap" class="hidden">Current password <span class="opt">needed to change your email</span><input id="aePw" type="password" autocomplete="current-password" /></label>
     <p class="sub hidden" id="aeNote">We'll send a confirmation link to the new address and let the old one know.</p>
@@ -1747,7 +1757,7 @@ $('#acctEdit').addEventListener('click', () => {
 
 $('#wsSave').addEventListener('click', (e) => guard(async () => { await api('/workspace', { method: 'PATCH', body: { name: $('#wsName').value } }); await loadMe(); toast('Workspace renamed'); }, e.target));
 $('#wsNew').addEventListener('click', async () => {
-  const body = openModal('New workspace', `<p class="sub" style="margin-top:-6px">A separate, empty workspace for another business. You can switch between them from the sidebar.</p><label>Business name<input id="nwName" maxlength="80" /></label><div class="modal-actions"><button class="btn quiet" id="nwCancel">Cancel</button><button class="btn primary" id="nwGo">Create</button></div>`);
+  const body = openModal('New workspace', `<p class="sub" style="margin-top:-6px">A separate, empty workspace for another business. You can switch between them from the sidebar.</p><label>Business name <span class="opt">up to 40 characters</span><input id="nwName" maxlength="40" /></label><div class="modal-actions"><button class="btn quiet" id="nwCancel">Cancel</button><button class="btn primary" id="nwGo">Create</button></div>`);
   $('#nwName', body).focus();
   $('#nwCancel', body).onclick = closeModal;
   $('#nwGo', body).onclick = (e) => guard(async () => { await api('/workspaces', { method: 'POST', body: { name: $('#nwName', body).value } }); location.reload(); }, e.target);

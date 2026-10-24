@@ -489,6 +489,7 @@
 
   function renderSenderChecks() {
     const enabled = state.senders.filter((s) => s.enabled);
+    $('#sendFromHint').textContent = enabled.length > 1 ? 'split evenly across the numbers you turn on' : enabled.length ? 'every message goes from this number' : '';
     $('#senderChecks').innerHTML = enabled.length
       ? enabled.map((s) => `<label class="toggle-item"><span><span class="ti-name">${esc(s.label)}</span><br/><span class="ti-meta">${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</span></span>${toggleHtml({ checked: state.selectedSenders.has(s.id), attrs: `value="${s.id}"`, size: 'sm' })}</label>`).join('')
       : `<div class="empty-note">No numbers yet. <a href="#" data-goto="numbers">Add one</a> to start sending.</div>`;

@@ -552,7 +552,7 @@ td.err { white-space: normal !important; color: var(--danger); font-size: 12px; 
   .side-nav.seg > button { width: auto; height: 34px; flex: none; }
   main { padding: 16px; }
   .banner { width: calc(100% - 32px); }
-  .cards { grid-template-columns: 1fr; }
+  .cards { grid-template-columns: minmax(0, 1fr); }
   .card { padding: 18px; }
   .search { width: 100%; }
   .search-wrap, .tools-right { width: 100%; }
@@ -717,11 +717,11 @@ td.err { white-space: normal !important; color: var(--danger); font-size: 12px; 
   .setup .setup-progress { max-width: 360px; }
 }
 @container ov (max-width: 980px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container ov (max-width: 860px) { .grid-ov { grid-template-columns: 1fr; } }
+@container ov (max-width: 860px) { .grid-ov { grid-template-columns: minmax(0, 1fr); } }
 @container ov (max-width: 720px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container ov (max-width: 460px) { .kpis, .steps { grid-template-columns: 1fr; } }
 @media (max-width: 900px) {
-  .health-row { grid-template-columns: 1fr auto; }
+  .health-row { grid-template-columns: minmax(0, 1fr) auto; }
   .health-row .health-meter { grid-column: 1 / -1; grid-row: 2; }
 }
 @media (max-width: 560px) {
@@ -3403,3 +3403,80 @@ input.pw-bad, input.pw-bad:focus { box-shadow: var(--sh-sunk), 0 0 0 2px color-m
    (plain align-items: center pushed the heading out of reach above the card) */
 .auth-form { align-items: flex-start; }
 .auth-form > .auth-fields { margin-block: auto; }
+
+/* Admin table: a long name gets cut with "…" (full name on hover) instead of pushing the columns off-screen */
+.admin .table-wrap { overflow-x: auto; }
+.admin .ad-ws b { display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.team-who b, .acct-pop-me .acct-text b, .acct-me .acct-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Overview: rows that line up. Each row uses the same two columns and its cards share a height. ---- */
+#tab-overview .grid-ov { align-items: stretch; }
+#tab-overview .grid-ov > .card { display: flex; flex-direction: column; }
+/* the funnel's Failed / Waiting box sits at the bottom, level with the chart beside it */
+.funnel-card #funnel { flex: 1; display: flex; flex-direction: column; }
+.funnel-card .funnel-note { margin-top: auto; }
+.funnel-card .funnel-row:last-of-type { margin-bottom: 18px; }
+/* Recent campaigns: full width, as a grid of small tiles */
+.ov-recent { margin-top: 24px; }
+.ov-recent .mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.ov-recent .mini-item { margin: 0; padding: 14px 16px; border-radius: 12px; background: color-mix(in srgb, var(--sunk) 55%, transparent); box-shadow: none !important; }
+.ov-recent .mini-item:hover { background: var(--sunk); transform: translateY(-2px); }
+#tab-overview .grid-ov > .card > .seg { align-self: flex-start; }
+#tab-overview .chart-card #dayChart { flex: 1; }
+/* Recent campaigns: the same little folder (and colour) as on the Campaigns page */
+.rc-item { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 12px; }
+.rc-item .cp-ficon { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+.rc-item .mini-title, .rc-item .mini-meta { grid-column: 2; }
+.rc-item .mini-right { grid-column: 3; }
+.rc-item .mini-progress span { background: var(--c); }
+
+/* Many numbers / long labels */
+.sender-card .li-head { flex-wrap: nowrap; }
+.sender-card .li-head h3 { min-width: 0; flex: 1; }
+.li-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-bar label.inline select { max-width: 220px; }
+@media (max-width: 900px) { .filter-bar label.inline { max-width: 100%; } .filter-bar label.inline select { max-width: calc(100vw - 120px); min-width: 0; } }
+#senderChecks { max-height: 340px; overflow-y: auto; scrollbar-width: thin; }
+.ti-name { overflow-wrap: anywhere; }
+/* Single-column grids never grow past the screen because of one long name */
+.cards > *, .grid-ov > * { min-width: 0; }
+
+/* ---- Long names already saved (labels, tags, contacts, campaigns, templates): they never push the layout out ---- */
+/* Headings and running text break inside a very long word instead of overflowing */
+h1, h2, h3, h4, p, li, dd, blockquote, code, .sub { overflow-wrap: anywhere; }
+.li-head > h3 { min-width: 0; }
+/* Chips stay on one line and end in "…" (full name on hover) */
+.tag-chip { display: inline-block; max-width: 180px; line-height: 20px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.ct-tag .ct-tag-name { display: inline-block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: inherit; color: inherit; font-variant-numeric: normal; vertical-align: bottom; }
+/* Inbox: the "via <number>" line and the chat header keep the name visible */
+.ib-via { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-headx { flex-wrap: nowrap; min-width: 0; flex-shrink: 1; }
+.ib-headx .tag-chip { max-width: 140px; flex-shrink: 1; }
+.ib-who { min-width: 90px; }
+@media (max-width: 700px) { .ib-headx .tag-chip { display: none; } }
+/* Campaigns: the scheduled / sending banner */
+.cp-pin-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Settings on phones: the account cards stay inside the screen */
+@media (max-width: 900px) { .acct-cards { grid-template-columns: minmax(0, 1fr); } }
+.acct-cards > * { min-width: 0; }
+
+/* ---- Team list: names get the room; role and actions in fixed columns that line up ---- */
+.team-list { container: team / inline-size; }
+.team-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px; }
+.team-who b { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.team-who b .team-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-who b .muted { flex: none; font-weight: 500; }
+.team-side { display: grid; grid-template-columns: 74px 186px; align-items: center; }
+.team-side .pill { justify-self: start; }
+.team-acts { display: flex; justify-content: flex-end; gap: 2px; }
+/* Narrow: role and actions drop under the name */
+@container team (max-width: 520px) {
+  .team-row { grid-template-columns: auto minmax(0, 1fr); row-gap: 6px; }
+  .team-side { grid-column: 2; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .team-acts { margin-left: auto; }
+}
+/* Admin: long emails are cut with "…" so every column stays in view */
+.admin td .ad-person { display: inline-block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.admin .ad-ws b { max-width: 220px; }
+.admin td .ad-person { max-width: 220px; }
+.admin .data-table th, .admin .data-table td { padding-left: 10px; padding-right: 10px; }

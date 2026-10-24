@@ -16,14 +16,18 @@
   // creation date and each one steps the golden angle (137.5°) from the last, so neighbours
   // always differ. OKLCH keeps every hue at the same perceived lightness; yellows and greens
   // get a touch more light so they don't turn muddy. --fl / --fc are set per theme in style.css.
+  function folderColorAt(i) {
+    const hue = Math.round(20 + i * 137.508) % 360;
+    const lift = hue >= 70 && hue <= 150 ? 0.06 : hue >= 220 && hue <= 290 ? -0.01 : 0;
+    return `oklch(calc(var(--fl) + ${lift}) var(--fc) ${hue})`;
+  }
   function assignColors(list) {
     const order = [...list].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-    order.forEach((c, i) => {
-      const hue = Math.round(20 + i * 137.508) % 360;
-      const lift = hue >= 70 && hue <= 150 ? 0.06 : hue >= 220 && hue <= 290 ? -0.01 : 0;
-      folderColors.set(c.id, `oklch(calc(var(--fl) + ${lift}) var(--fc) ${hue})`);
-    });
+    order.forEach((c, i) => folderColors.set(c.id, folderColorAt(i)));
   }
+  // The overview's Recent campaigns uses the same colours and names (the server sends each campaign's colorIndex).
+  window.folderColorAt = folderColorAt;
+  window.campaignDisplayName = displayName;
   const colorOf = (c) => folderColors.get(c.id) || 'oklch(var(--fl) var(--fc) 250)';
   let pollTimer = null;
   const stop = () => { clearTimeout(pollTimer); pollTimer = null; };
@@ -149,7 +153,7 @@
     const isLive = live(c);
     return `<div class="cp-pin ${isLive ? 'is-live' : ''}" data-open="${c.id}">
       <span class="cp-pin-state">${isLive ? '<span class="cp-dot"></span>Sending now' : `${icon('clock', 13)}Scheduled`}</span>
-      <div class="cp-pin-main"><b>${esc(c.name)}</b><span>${esc(c.templateName)} · ${c.total.toLocaleString()} recipients${c.demo ? ' · demo' : ''}</span></div>
+      <div class="cp-pin-main"><b title="${esc(c.name)}">${esc(c.name)}</b><span title="${esc(c.templateName)}">${esc(c.templateName)} · ${c.total.toLocaleString()} recipients${c.demo ? ' · demo' : ''}</span></div>
       ${isLive
         ? `<div class="cp-pin-progress"><div class="pc-progress"><span style="width:${pctOf(done, c.total)}%"></span></div><span>${done.toLocaleString()} of ${c.total.toLocaleString()} · ${esc(eta(c))}</span></div>
            <button class="btn sm danger" data-act="stop" data-id="${c.id}">Stop</button>`
