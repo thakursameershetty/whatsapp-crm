@@ -41,6 +41,13 @@ Account emails: **confirm your email** (sent at sign-up, with a banner in the ap
 | `MAIL_FROM` | Sender, e.g. `WhatsApp Sender <hello@spotmies.com>`. The domain must be verified in Resend. |
 | `APP_URL` | Optional public address used in email links (otherwise taken from the request). |
 
+## Security
+
+- **Secrets are encrypted at rest** when `ENCRYPTION_KEY` is set (any long random string): WhatsApp access tokens and AI keys are stored AES-256-GCM encrypted in the database/files and decrypted in memory. Existing plain values are encrypted on the next start. **Keep the key safe and never change it**: without the same key the app refuses to start rather than lose the tokens.
+- Security headers, a same-origin check on every request that changes data (the webhook excepted), and rate limits per user (AI, sending, writes and reads), plus sign-in / sign-up / reset limits.
+- **Admin panel** at `/admin.html` for emails listed in `ADMIN_EMAILS` (comma-separated): every workspace with its members, numbers, contacts, messages sent (24h / 30 days), failures, last activity; set a workspace's daily limit or suspend it.
+- **Safety limits:** new workspaces can send `NEW_WORKSPACE_DAILY_LIMIT` (default 250) template messages per 24 hours until an admin raises it (the original workspace has no limit); a campaign pauses itself when over 30% of its first 40+ messages fail; sending from the Send page asks the sender to confirm the contacts opted in.
+
 ## Database
 
 Set `DATABASE_URL` to a PostgreSQL connection string to store everything in Postgres (recommended for anything public). Accounts live in `users`, `workspaces`, `members`, `invites` and `sessions`; every workspace record (contact, message, campaign, template, notification, chat…) is a row in `ws_items` keyed by workspace. The app keeps working data in memory and saves only the rows that changed, in a transaction. Tables are created on first start, and if the database is empty the existing JSON files in `data/` are imported (and kept as a backup). Without `DATABASE_URL` it uses JSON files in `data/`. Start with `npm start` (`node main.js`), which opens the database before the server starts.

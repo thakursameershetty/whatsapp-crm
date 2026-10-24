@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin · WhatsApp Sender</title>
+  <link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}</script>
+</head>
+<body class="admin-body">
+  <main class="admin">
+    <header class="admin-head">
+      <div class="brand"><img class="logo" src="/brand/logo-small.svg" alt="" /><span class="brand-name">Admin</span></div>
+      <div class="admin-sum" id="sum"></div>
+      <a class="btn quiet" href="/">Back to the app</a>
+    </header>
+    <div class="search-wrap"><input class="search" id="q" placeholder="Search workspace or email" /></div>
+    <div class="card admin-card"><div class="table-wrap"><table class="data-table" id="tbl"><thead><tr>
+      <th>Workspace</th><th>People</th><th class="num">Numbers</th><th class="num">Contacts</th><th class="num">Sent 24h</th><th class="num">Sent 30d</th><th class="num">Failed 30d</th><th>Daily limit</th><th>Last active</th><th>Status</th>
+    </tr></thead><tbody><tr><td colspan="10" class="table-empty">Loading…</td></tr></tbody></table></div></div>
+    <p class="sub">Daily limit: template messages a workspace can send in 24 hours (empty = no limit). New workspaces start at the server's default. Suspending stops sending and closes the dashboard for its members.</p>
+  </main>
+  <div id="toasts"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ago = (t) => { if (!t) return '—'; const m = (Date.now() - Date.parse(t)) / 60000; return m < 60 ? Math.round(m) + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
+function toast(msg, err) { const el = document.createElement('div'); el.className = 'toast' + (err ? ' error' : ''); el.textContent = msg; $('#toasts').append(el); setTimeout(() => el.remove(), 3500); }
+async function api(path, opts = {}) {
+  const r = await fetch('/api' + path, { method: opts.method || 'GET', headers: { 'Content-Type': 'application/json' }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+let all = [];
+function render() {
+  const q = $('#q').value.trim().toLowerCase();
+  const list = all.filter((w) => !q || w.name.toLowerCase().includes(q) || w.members.some((m) => (m.email || '').includes(q)));
+  $('#sum').textContent = `${all.length} workspaces · ${all.filter((w) => w.suspended).length} suspended · ${all.reduce((n, w) => n + w.sent30d, 0).toLocaleString()} messages in 30 days`;
+  $('#tbl tbody').innerHTML = list.map((w) => {
+    const rate = w.sent30d ? Math.round((100 * w.failed30d) / w.sent30d) : 0;
+    return `<tr class="${w.suspended ? 'ct-opted' : ''}">
+      <td><b>${esc(w.name)}</b>${w.legacy ? ' <span class="pill">original</span>' : ''}${w.demoMode ? ' <span class="pill demo">demo</span>' : ''}<br><span class="muted">since ${new Date(w.createdAt).toLocaleDateString()}</span></td>
+      <td>${w.members.map((m) => `${esc(m.email)}${m.role === 'owner' ? ' <span class="muted">owner</span>' : ''}`).join('<br>') || '<span class="muted">nobody yet</span>'}</td>
+      <td class="num">${w.numbers}</td><td class="num">${w.contacts.toLocaleString()}</td>
+      <td class="num">${w.sent24h.toLocaleString()}</td><td class="num">${w.sent30d.toLocaleString()}</td>
+      <td class="num ${rate > 20 ? 'bad' : ''}">${w.failed30d.toLocaleString()}${w.sent30d ? ` <span class="muted">(${rate}%)</span>` : ''}</td>
+      <td><input class="admin-limit" data-limit="${w.id}" value="${w.dailyLimit ?? ''}" placeholder="None" inputmode="numeric" /></td>
+      <td class="muted">${ago(w.lastActivity)}</td>
+      <td><button class="btn sm ${w.suspended ? '' : 'quiet danger'}" data-suspend="${w.id}" data-to="${!w.suspended}">${w.suspended ? 'Unsuspend' : 'Suspend'}</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="10" class="table-empty">No workspaces match.</td></tr>';
+}
+async function load() {
+  try { all = await api('/admin/workspaces'); render(); }
+  catch (e) { $('#tbl tbody').innerHTML = `<tr><td colspan="10" class="table-empty">${esc(e.message)}</td></tr>`; }
+}
+$('#q').addEventListener('input', render);
+$('#tbl').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-suspend]');
+  if (!b) return;
+  const to = b.dataset.to === 'true';
+  if (to && !confirm('Suspend this workspace? Its members are locked out and sending stops.')) return;
+  try { await api('/admin/workspaces/' + b.dataset.suspend, { method: 'PATCH', body: { suspended: to } }); toast(to ? 'Suspended' : 'Unsuspended'); load(); } catch (err) { toast(err.message, true); }
+});
+$('#tbl').addEventListener('change', async (e) => {
+  const i = e.target.closest('[data-limit]');
+  if (!i) return;
+  try { await api('/admin/workspaces/' + i.dataset.limit, { method: 'PATCH', body: { dailyLimit: i.value.trim() } }); toast('Daily limit saved'); load(); } catch (err) { toast(err.message, true); }
+});
+load();
+</script>
+</body>
+</html>

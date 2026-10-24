@@ -3087,3 +3087,18 @@ img.logo { width: 30px; height: 30px; border-radius: 8px; object-fit: contain; f
 .auth-mark img.logo { width: 40px; height: 40px; border-radius: 10px; margin-bottom: 12px; }
 /* The logo appears once, in the dark panel; not again above the form */
 .auth-mark { display: none !important; }
+
+/* Confirm dialog: a box to tick (consent) */
+.confirm-check { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px; border-radius: 10px; background: var(--sunk); font-size: 13.5px; color: var(--text); cursor: pointer; }
+.confirm-check input { margin-top: 2px; }
+
+/* Admin page (public/admin.html) */
+.admin-body { margin: 0; padding: 0 !important; background: var(--bg); color: var(--text); font-family: Inter, sans-serif; }
+.admin { max-width: 1320px; margin: 0 auto; padding: 24px 24px 48px; display: flex; flex-direction: column; gap: 14px; }
+.admin-head { display: flex; align-items: center; gap: 16px; }
+.admin-head .brand { padding: 0; }
+.admin-sum { margin-left: auto; color: var(--muted); font-size: 13.5px; }
+.admin .search { width: 320px; }
+.admin-card { padding: 0; overflow: hidden; }
+.admin-limit { width: 120px; height: 34px; margin: 0; }
+.admin td.bad { color: var(--danger); font-weight: 600; }

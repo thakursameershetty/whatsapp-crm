@@ -179,13 +179,16 @@ $('#modalClose').addEventListener('click', closeModal);
 $('#modal').addEventListener('click', (e) => e.target.id === 'modal' && closeModal());
 
 // Styled replacement for window.confirm(). Resolves true/false.
-function confirmDialog({ title, message = '', confirmText = 'OK', danger = false }) {
+// check: a label the person must tick before confirming (e.g. consent).
+function confirmDialog({ title, message = '', confirmText = 'OK', danger = false, check = '' }) {
   return new Promise((resolve) => {
     $('#confirmTitle').textContent = title;
-    $('#confirmMsg').innerHTML = message;
+    $('#confirmMsg').innerHTML = message + (check ? `<label class="confirm-check"><input type="checkbox" id="confirmCheck" /> <span>${check}</span></label>` : '');
     const yes = $('#confirmYes');
     yes.textContent = confirmText;
     yes.className = 'btn ' + (danger ? 'danger-solid' : 'primary');
+    yes.disabled = Boolean(check);
+    if (check) $('#confirmCheck').onchange = (e) => { yes.disabled = !e.target.checked; };
     $('#confirm').classList.remove('hidden');
     yes.focus();
     const done = (v) => {
@@ -1680,6 +1683,7 @@ $('#acctBtn').addEventListener('click', (e) => {
   const me = state.me;
   if (!me) return;
   const items = me.workspaces.map((w) => ({ label: `${w.id === me.workspace.id ? '✓ ' : ''}${w.name}`, action: () => w.id !== me.workspace.id && guard(async () => { await api('/workspace/switch', { method: 'POST', body: { id: w.id } }); location.reload(); }) }));
+  if (me.admin) items.push('-', { label: 'Admin: all workspaces…', action: () => (location.href = '/admin.html') });
   items.push('-', { label: 'Workspace & team…', action: () => { showTab('settings'); $('#acctCard').scrollIntoView({ behavior: 'smooth' }); } }, { label: 'Log out', action: () => (location.href = '/logout') });
   Sheet.Menu.open(r.left, r.top - 8 - (items.length * 34 + 12), items);
 });

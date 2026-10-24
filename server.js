@@ -54,6 +54,8 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
     // A campaign that was mid-run when the server stopped can't resume its in-memory loop.
     if (c.status === 'running') { c.status = 'stopped'; save(); }
   }
+  // Rewrite once so secrets stored before encryption was turned on get encrypted.
+  if (require('./secrets').enabled) save();
   for (const m of db.messages) if (m.wamid) inboxIndex.set(m.wamid, m);
 });
 
@@ -233,6 +235,12 @@ async function runCampaign(campaign) {
       }
       recount(campaign);
       save();
+      // Many failures usually means a bad list or a blocked number: stop before it hurts the number's quality.
+      const st = campaign.stats, done = (st.sent || 0) + (st.delivered || 0) + (st.read || 0) + (st.failed || 0);
+      if (!campaign.demo && !control.stop && done >= 40 && (st.failed || 0) / done > 0.3) {
+        control.stop = true;
+        campaign.pausedReason = `Paused automatically: ${Math.round((100 * st.failed) / done)}% of the first ${done} messages failed. Check the failures before sending the rest.`;
+      }
       if (delayMsPerNumber) await sleep(delayMsPerNumber);
     }
   };
@@ -254,6 +262,7 @@ async function runCampaign(campaign) {
   campaign.finishedAt = new Date().toISOString();
   save();
   notes?.campaignDone(campaign, { stopped: control.stop });
+  if (campaign.pausedReason) notes?.add({ kind: 'delivery_failed', title: `“${campaign.name}” was paused`, body: campaign.pausedReason, link: { tab: 'campaigns', id: campaign.id } });
   notes?.deliveryFailed(campaign);
 }
 
@@ -287,6 +296,11 @@ function simulateStatuses(campaign, i) {
 // ---------------------------------------------------------------------------
 
 const app = express();
+const security = require('./security');
+app.set('trust proxy', 1); // behind Railway's proxy: req.ip is the visitor, not the proxy
+app.disable('x-powered-by');
+app.use(security.headers);
+app.use(security.sameOrigin);
 
 // Webhook must stay reachable by Meta without the app password.
 // Every workspace uses this same URL; Meta's verify token says which one is setting it up.
@@ -353,6 +367,7 @@ app.use(express.json({ limit: '20mb' }));
 // The sign-in pages use these two files, so they load without signing in.
 const PUBLIC_FILES = new Set(['/style.css', '/gradient-ascii.js', '/brand/logo.svg', '/brand/logo-small.svg']);
 app.use((req, res, next) => (PUBLIC_FILES.has(req.path) ? next() : tenants.requireAuth(req, res, next)));
+app.use(security.rateLimit); // after sign-in, so limits are per user
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // D3 for the dashboard charts, served locally so it works offline.
@@ -554,6 +569,7 @@ function resolveRecipients(body, template) {
 
 app.post('/api/send/test', wrap(async (req, res) => {
   const { senderId, templateId, phone, values = {} } = req.body;
+  checkDailyLimit(1);
   const sender = db.senders.find((s) => s.id === senderId);
   const template = db.templates.find((t) => t.id === templateId);
   if (!sender || !template) throw fail('Pick a sender number and a template');
@@ -575,8 +591,24 @@ app.post('/api/send/test', wrap(async (req, res) => {
 
 // Validates and starts (or schedules) a campaign. Used by the Send page and by
 // assistant plans once the person approves them.
+// Template messages sent in the last 24 hours (campaigns and one-off sends), for the daily cap.
+function sentLast24h() {
+  const t = Date.now() - 86400000;
+  const recent = (ts) => ts && Date.parse(ts) >= t;
+  return db.campaigns.reduce((n, c) => n + (c.demo ? 0 : c.recipients.filter((r) => recent(r.sentAt)).length), 0)
+    + db.messages.filter((m) => m.dir === 'out' && m.type === 'template' && !m.demo && recent(m.ts)).length;
+}
+// Throws if sending `count` more would pass the workspace's daily limit (null = no limit).
+function checkDailyLimit(count) {
+  const limit = tenants.meta()?.dailyLimit;
+  if (limit == null || db.settings.demoMode) return;
+  const left = Math.max(0, limit - sentLast24h());
+  if (count > left) throw fail(`This workspace can send ${limit.toLocaleString()} messages a day, and ${left.toLocaleString()} are left right now. Send to fewer people, wait, or ask support to raise the limit.`);
+}
+
 function createCampaign(body) {
   const { name, templateId, senderIds = [] } = body;
+  if (tenants.meta()?.suspended) throw fail('This workspace is suspended', 403);
   const template = db.templates.find((t) => t.id === templateId);
   if (!template) throw fail('Pick a template');
   const senders = db.senders.filter((s) => senderIds.includes(s.id) && s.enabled);
@@ -588,6 +620,7 @@ function createCampaign(body) {
 
   const { recipients, skipped, vars } = resolveRecipients(body, template);
   if (!recipients.length) throw fail('No valid recipients');
+  checkDailyLimit(recipients.length);
   const missing = vars.find((v) => recipients.some((r) => !r.values[v.key]));
   if (missing) throw fail(`Variable "${missing.key}" is empty for some recipients — map it to a column or set a fixed value`);
 
@@ -625,6 +658,8 @@ function createCampaign(body) {
 
 app.post('/api/campaigns', wrap((req, res) => {
   const { skipped, source, ...body } = req.body;
+  // People must have agreed to get these messages (WhatsApp policy, and it keeps the number healthy).
+  if (body.consent !== true && !db.settings.demoMode) throw fail('Confirm that these contacts agreed to receive messages from you');
   res.json(summary(createCampaign(body)));
 }));
 
@@ -633,6 +668,7 @@ app.post('/api/campaigns', wrap((req, res) => {
 setInterval(() => {
   const now = Date.now();
   for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
+    if (ws.meta.suspended) return;
     for (const c of db.campaigns) {
       if (c.status === 'scheduled' && new Date(c.scheduledAt) <= now && !running.has(c.id)) runCampaign(c);
     }

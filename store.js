@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const secrets = require('./secrets');
 
 // Workspace collections stored one row per item, and the order to restore them in.
 const LISTS = {
@@ -42,14 +43,14 @@ function readFiles(dataDir) {
   const data = new Map();
   for (const meta of accounts.workspaces) {
     const f = path.join(wsDir, meta.id + '.json');
-    data.set(meta.id, fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {});
+    data.set(meta.id, secrets.openWorkspace(fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {}));
   }
   // Data from before workspaces existed becomes the first workspace, for whoever claims it.
   let legacy = null;
   if (!accounts.workspaces.length && fs.existsSync(legacyFile)) {
     legacy = { id: crypto.randomBytes(8).toString('hex'), name: 'Spotmies', createdAt: new Date().toISOString(), legacy: true };
     accounts.workspaces.push(legacy);
-    data.set(legacy.id, JSON.parse(fs.readFileSync(legacyFile, 'utf8')));
+    data.set(legacy.id, secrets.openWorkspace(JSON.parse(fs.readFileSync(legacyFile, 'utf8'))));
   }
   return { accounts, data, legacy, legacyFile };
 }
@@ -66,7 +67,7 @@ function fileStore(dataDir) {
   if (legacy) {
     fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
     fs.copyFileSync(legacyFile, path.join(dataDir, 'backups', `db-before-workspaces-${Date.now()}.json`));
-    writeJson(path.join(dataDir, 'workspaces', legacy.id + '.json'), data.get(legacy.id));
+    writeJson(path.join(dataDir, 'workspaces', legacy.id + '.json'), secrets.sealWorkspace(data.get(legacy.id)));
     fs.renameSync(legacyFile, legacyFile + '.migrated');
     writeJson(path.join(dataDir, 'accounts.json'), accounts);
   }
@@ -75,7 +76,7 @@ function fileStore(dataDir) {
     accounts,
     data,
     async saveAccounts(acc) { writeJson(path.join(dataDir, 'accounts.json'), acc); },
-    async saveWorkspace(id, db) { writeJson(path.join(dataDir, 'workspaces', id + '.json'), db); },
+    async saveWorkspace(id, db) { writeJson(path.join(dataDir, 'workspaces', id + '.json'), secrets.sealWorkspace(db)); },
     async close() {},
   };
 }
@@ -129,7 +130,7 @@ async function pgStore(url, dataDir) {
       else if (LISTS[r.kind]) (db[r.kind] ||= []).push(r.data);
       else if (r.kind === 'misc') db[r.id] = r.data.value;
     }
-    for (const db of data.values()) for (const [k, sort] of Object.entries(LISTS)) db[k]?.sort(sort);
+    for (const db of data.values()) { for (const [k, sort] of Object.entries(LISTS)) db[k]?.sort(sort); secrets.openWorkspace(db); }
     return { accounts, data };
   }
 
@@ -137,7 +138,8 @@ async function pgStore(url, dataDir) {
   function rowsOf(db) {
     const out = [];
     for (const [k, v] of Object.entries(db)) {
-      if (k === 'settings') out.push(['settings', 'settings', v]);
+      if (k === 'settings') out.push(['settings', 'settings', secrets.sealSettings(v)]);
+      else if (k === 'senders') for (const item of v || []) { item.id ||= crypto.randomBytes(8).toString('hex'); out.push([k, String(item.id), secrets.sealSender(item)]); }
       else if (k === 'chats') for (const [key, chat] of Object.entries(v || {})) out.push(['chats', key, chat]);
       else if (LISTS[k]) for (const item of v || []) { item.id ||= crypto.randomBytes(8).toString('hex'); out.push([k, String(item.id), item]); }
       else if (v !== undefined) out.push(['misc', k, { value: v }]);

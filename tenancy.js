@@ -15,6 +15,10 @@ const { AsyncLocalStorage } = require('async_hooks');
 const mail = require('./mail');
 
 const SESSION_DAYS = 30;
+// New workspaces may send this many template messages a day until an admin raises it.
+const NEW_WORKSPACE_DAILY_LIMIT = Number(process.env.NEW_WORKSPACE_DAILY_LIMIT || 250);
+const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '').toLowerCase().split(/[\s,]+/).filter(Boolean);
+const isAdmin = (user) => Boolean(user && ADMIN_EMAILS.includes(String(user.email).toLowerCase()));
 const RESET_MINUTES = 60;
 const VERIFY_DAYS = 7;
 const INVITE_DAYS = 7;
@@ -57,7 +61,7 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   for (const meta of accounts.workspaces) loadWorkspace(meta);
 
   function createWorkspace(name) {
-    const meta = { id: id(), name: String(name || 'My workspace').trim().slice(0, 80) || 'My workspace', createdAt: now() };
+    const meta = { id: id(), name: String(name || 'My workspace').trim().slice(0, 80) || 'My workspace', createdAt: now(), dailyLimit: NEW_WORKSPACE_DAILY_LIMIT };
     accounts.workspaces.push(meta);
     const ws = loadWorkspace(meta);
     ws.db.settings.webhookVerifyToken = crypto.randomBytes(12).toString('hex');
@@ -407,6 +411,12 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
     }
     if (session && session.wsId !== wsId) { session.wsId = wsId; saveAccounts(); }
     req.user = accounts.users.find((u) => u.id === userId);
+    req.admin = isAdmin(req.user);
+    // A suspended workspace is closed to its members (admins can still look in).
+    if (ws.meta.suspended && !req.admin) {
+      if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'This workspace is suspended. Contact support.' });
+      return res.status(403).send(messagePage('Suspended', 'This workspace is suspended', 'Sending and the dashboard are paused for this workspace. If you think this is a mistake, contact support.', '<a class="auth-btn" href="/logout">Log out</a>'));
+    }
     req.role = roleIn(userId, wsId);
     req.session = session;
     als.run(ws, next);
@@ -421,6 +431,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       const ws = current();
       res.json({
         user: { ...publicUser(req.user), emailVerified: req.user.emailVerified !== false },
+        admin: req.admin,
         mail: mail.enabled(),
         role: req.role,
         workspace: { id: ws.meta.id, name: ws.meta.name },
@@ -537,6 +548,43 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
       res.json({ user: { ...publicUser(u), emailVerified: u.emailVerified !== false } });
     }));
 
+    // --- Admin (people listed in ADMIN_EMAILS): every workspace, its usage, suspend and limits.
+    const adminOnly = (req) => { if (!req.admin) throw fail('Admins only', 403); };
+    app.get('/api/admin/workspaces', wrap((req, res) => {
+      adminOnly(req);
+      const day = Date.now() - 86400000, month = Date.now() - 30 * 86400000;
+      const after = (ts, t) => ts && Date.parse(ts) >= t;
+      res.json(allWorkspaces().map((ws) => {
+        const d = ws.db, m = ws.meta;
+        const recips = d.campaigns.filter((c) => !c.demo).flatMap((c) => c.recipients || []); // real sends only
+        const sent = (t) => recips.filter((r) => after(r.sentAt, t)).length + d.messages.filter((x) => x.dir === 'out' && x.type === 'template' && !x.demo && after(x.ts, t)).length;
+        const failed30 = recips.filter((r) => r.status === 'failed' && after(r.failedAt || r.sentAt, month)).length;
+        const last = [...d.messages.filter((x) => !x.demo).map((x) => x.ts), ...d.campaigns.filter((c) => !c.demo).map((c) => c.startedAt || c.createdAt)].filter(Boolean).sort().at(-1) || null;
+        return {
+          id: m.id, name: m.name, createdAt: m.createdAt, suspended: Boolean(m.suspended), dailyLimit: m.dailyLimit ?? null, legacy: Boolean(m.legacy),
+          members: accounts.members.filter((x) => x.wsId === m.id).map((x) => { const u = accounts.users.find((y) => y.id === x.userId); return { email: u?.email, role: x.role }; }),
+          demoMode: Boolean(d.settings.demoMode), numbers: d.senders.filter((s) => !s.seed).length, contacts: d.contacts.length,
+          campaigns: d.campaigns.filter((c) => !c.demo).length, sent24h: sent(day), sent30d: sent(month), failed30d: failed30, lastActivity: last,
+        };
+      }).sort((a, b) => String(b.lastActivity || b.createdAt).localeCompare(String(a.lastActivity || a.createdAt))));
+    }));
+    app.patch('/api/admin/workspaces/:id', wrap((req, res) => {
+      adminOnly(req);
+      const ws = loaded.get(req.params.id);
+      if (!ws) throw fail('Workspace not found', 404);
+      if (typeof req.body.suspended === 'boolean') {
+        ws.meta.suspended = req.body.suspended;
+        if (req.body.suspended) ws.meta.suspendedAt = now(); else delete ws.meta.suspendedAt;
+      }
+      if ('dailyLimit' in req.body) {
+        const n = req.body.dailyLimit === null || req.body.dailyLimit === '' ? null : Math.max(0, Math.floor(Number(req.body.dailyLimit)));
+        if (n !== null && !Number.isFinite(n)) throw fail('Enter a number, or leave it empty for no limit');
+        ws.meta.dailyLimit = n;
+      }
+      saveAccounts();
+      res.json({ ok: true });
+    }));
+
     app.post('/api/account/verify-email', wrap((req, res) => {
       if (req.user.emailVerified !== false) return res.json({ ok: true, already: true });
       if (tooMany(`${req.user.id}|verify`)) throw fail('Too many emails. Try again in a few minutes.', 429);
@@ -558,6 +606,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-bt
     db, save, id, current, forWorkspace, allWorkspaces, byPhoneNumberId, createWorkspace,
     mountAuth, requireAuth, mountAccountApi,
     wsId: () => current()?.meta.id || null,
+    meta: () => current()?.meta || null,
     isLegacy: () => Boolean(current()?.meta.legacy),
     async flush() { // write everything now (used on shutdown)
       if (accTimer) { clearTimeout(accTimer); accTimer = null; }
