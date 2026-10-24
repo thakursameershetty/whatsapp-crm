@@ -74,7 +74,7 @@ function showTab(name) {
   $$('.side-nav button[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   const wasHidden = $('#tab-' + name)?.classList.contains('hidden');
   $$('.tab').forEach((t) => t.classList.toggle('hidden', t.id !== 'tab-' + name));
-  if (wasHidden) Motion.enter($('#tab-' + name));
+  if (wasHidden) { Motion.enter($('#tab-' + name)); scrollTo(0, 0); } // a new page starts at the top
   state.tab = name;
   // The inbox fills the window and starts with the sidebar shrunk to icons.
   document.body.classList.toggle('inbox-open', name === 'inbox');
@@ -1729,7 +1729,7 @@ $('#acctBtn').addEventListener('click', (e) => {
       Sheet.Menu.close();
       if (ws.dataset.ws !== me.workspace.id) guard(async () => { await api('/workspace/switch', { method: 'POST', body: { id: ws.dataset.ws } }); location.reload(); });
     }
-    if (act === 'team') { Sheet.Menu.close(); showTab('settings'); $('#acctCard').scrollIntoView({ behavior: 'smooth' }); }
+    if (act === 'team') { Sheet.Menu.close(); showTab('settings'); scrollTo({ top: 0, behavior: 'smooth' }); } // Workspace & team is the first card
     if (act === 'admin') location.href = '/admin.html';
   });
 });

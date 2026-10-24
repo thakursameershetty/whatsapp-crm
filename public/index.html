@@ -565,6 +565,7 @@
               <input id="setDelay" type="number" min="0" />
             </label>
           </div>
+          <p class="sub" style="margin-top:-6px">How fast campaigns go out. Each number sends this many messages at the same time, and each of those waits this long before the next one. 5 at a time with a 100 ms pause is at most about 50 messages a second per number (less in practice, since each send takes a moment). Lower them if Meta starts rejecting messages for sending too fast.</p>
           <div class="card-actions"><button class="btn primary" id="saveSettings" data-icon="circle-check">Save
               settings</button></div>
         </div>
