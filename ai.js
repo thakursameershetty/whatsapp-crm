@@ -57,6 +57,7 @@ Cleaning and combining sheets: when the person wants their files tidied, merged 
    - Numbers with prefixes or punctuation ("p:+91…", "91-98765…", "098765…"): the phone transform handles these. A name and number in one cell: split or extract.
    - The same field with different names in each sheet (phone_number, Contact Phone Number, Mobile No.): map each one.
    - Codes instead of words (CREATED, y/n, short city names): map them to readable values when the person would want that.
+   - Only fill an output column from a source column that really holds that thing. Check its values (inspect_file examples, peek_rows), not just its name: an "Industry" or "Feedback" column is not a company, a city column full of "Hi" or "y" is not a city. If no sheet has what the person asked for, leave that column empty in those sheets and say so plainly in your reply (for example "None of the sheets has a company name, so Company is empty"); if it matters for what they want to do, ask whether to use something else.
    - Rows that were shifted a few columns to the right are fixed when the file is attached (the context block says how many); mention it in your reply.
 2. Decide the output columns: exactly the ones the person asked for, in their order and their wording. If they didn't say, pick the useful ones for sending (always a phone column, then name, plus what their templates' variables need) and say what you chose. Ask with ask_user only when it's genuinely unclear.
 3. Call build_sheet with a recipe for every sheet: for each output column, which source column(s) it comes from in that sheet and how to clean it. The server applies the recipe to every row, so never copy or retype data yourself. Never invent values that aren't in the files; leave a cell empty instead.
@@ -751,8 +752,17 @@ module.exports = function mountAi(app, ctx) {
     const sheet = { id: 'f_' + id().slice(0, 8), name: tidy(input.name) || 'Clean sheet', sheet: '', headers: cols, rows: out, phoneColumn: phoneCol, announced: true, built: true, summary: String(input.summary || '').slice(0, 600) };
     session.files.set(sheet.id, sheet);
     const empty = Object.fromEntries(cols.map((c) => [c, out.filter((r) => !r[c]).length]).filter(([, n]) => n));
+    // A column that should hold short values (a name, a company, a city) but is full of sentences or
+    // questions was probably filled from the wrong source column: flag it so the model rechecks.
+    const FREE_TEXT = /note|remark|feedback|comment|message|description|detail|summary|progress|answer|reason|requirement|query/i;
+    const suspicious = cols.filter((c) => c !== phoneCol && !FREE_TEXT.test(c)).map((c) => {
+      const vals = out.map((r) => r[c]).filter(Boolean);
+      const wordy = vals.filter((v) => v.split(/\s+/).length >= 5 || /\?|^(ok|okay|hi|hello|yes|no|y|n)$/i.test(v)).length;
+      return vals.length >= 5 && wordy / vals.length > 0.2 ? `"${c}": ${Math.round((100 * wordy) / vals.length)}% of its values look like sentences, questions or one-word replies (e.g. ${vals.filter((v) => v.split(/\s+/).length >= 5 || /\?|^(ok|okay|hi|hello|yes|no|y|n)$/i.test(v)).slice(0, 2).map((v) => JSON.stringify(v.slice(0, 60))).join(', ')}), not ${c} values. It was probably filled from the wrong source column: check, and if no sheet really has this, leave it empty and tell the person.` : null;
+    }).filter(Boolean);
+    const sourceFiles = new Set(input.sources.map((x) => x.file_id)).size;
     const card = {
-      id: sheet.id, replaces: prev?.id || null, name: sheet.name, columns: cols, phone_column: phoneCol, rows: out.length, summary: sheet.summary,
+      id: sheet.id, replaces: prev?.id || null, name: sheet.name, columns: cols, phone_column: phoneCol, rows: out.length, summary: sheet.summary, source_files: sourceFiles,
       sources: perSource, dropped: { no_valid_phone: noPhone, duplicates_merged: merged, filtered_out: filtered }, empty_cells: empty,
       preview: out.slice(0, 8),
     };
@@ -763,6 +773,7 @@ module.exports = function mountAi(app, ctx) {
         dropped: card.dropped, empty_cells_per_column: empty,
         sample_rows: out.slice(0, 10).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, maskPhones(v)]))),
         ...(out.length ? {} : { warning: 'No rows came out. Check the phone column and the filters.' }),
+        ...(suspicious.length ? { check_these_columns: suspicious } : {}),
         note: 'Shown to the person as a card with Open in Send and Download. Use file_id in propose_campaign to send to it.',
       },
     };

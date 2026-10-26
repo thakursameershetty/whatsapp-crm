@@ -562,8 +562,9 @@
     ].filter(Boolean);
     const empty = Object.entries(sh.empty_cells || {}).filter(([c]) => c !== sh.phone_column).map(([c, n]) => `${esc(c)} empty in ${n.toLocaleString()}`);
     const more = Math.max(0, sh.rows - (sh.preview || []).length);
+    const nFiles = sh.source_files ?? new Set((sh.sources || []).map((x) => x.file)).size;
     return `<div class="sheet-card" data-sheet="${esc(sh.id)}">
-      <div class="shc-head">${icon('file-spreadsheet', 18)}<div class="shc-title"><b>${esc(sh.name)}</b><span>${sh.rows.toLocaleString()} rows · ${sh.columns.length} columns · from ${(sh.sources || []).length} sheet${(sh.sources || []).length === 1 ? '' : 's'}</span></div><span class="shc-old hidden">Replaced by a newer version below</span></div>
+      <div class="shc-head">${icon('file-spreadsheet', 18)}<div class="shc-title"><b>${esc(sh.name)}</b><span>${sh.rows.toLocaleString()} rows · ${sh.columns.length} columns · from ${nFiles} sheet${nFiles === 1 ? '' : 's'}</span></div><span class="shc-old hidden">Replaced by a newer version below</span></div>
       ${sh.summary ? `<p class="shc-sum">${esc(sh.summary)}</p>` : ''}
       <div class="shc-table"><table><thead><tr>${sh.columns.map((c) => `<th>${c === sh.phone_column ? icon('phone', 11) : ''}${esc(c)}</th>`).join('')}</tr></thead>
         <tbody>${(sh.preview || []).map((r) => `<tr>${sh.columns.map((c) => `<td title="${esc(r[c])}">${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>
