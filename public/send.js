@@ -993,6 +993,15 @@
     toTable,
     openContacts,
     openRecipients,
+    // A finished table (e.g. one the Assistant built) as a new tab, with its phone column set.
+    openSheet(name, headers, rows, phoneName) {
+      const sh = makeSheet({ name, file: '', headers, rows });
+      if (phoneName && headers.includes(phoneName)) { sh.phoneName = phoneName; recheck(sh); }
+      SP.sheets.push(sh);
+      showTab('send');
+      activate(SP.sheets.length - 1);
+    },
+    loadXlsx: () => loadXlsxLib(),
     show() { fitSend(); renderChrome(); if (current()) grid.focus(); },
     // The default country code changes which numbers are valid.
     recheck() { SP.sheets.forEach(recheck); if (current()) grid.redraw(); renderChrome(); },

@@ -502,6 +502,7 @@
         break;
       }
       case 'stats': turn.add(statsHtml(ev.stats)); Motion.values(turn.el); break;
+      case 'sheet': supersede(ev.sheet.replaces); turn.add(sheetHtml(ev.sheet)); break;
       case 'error': turn.add(`<div class="ai-note warn">${icon('badge-alert', 16)}<div>${esc(ev.error)}</div></div>`); break;
     }
   }
@@ -546,6 +547,69 @@
   });
 
   // --- Stats card -----------------------------------------------------------------
+
+  // --- Clean sheet card (build_sheet): a preview of the table, and where it can go next ---------
+
+  function sheetHtml(sh) {
+    const d = sh.dropped || {};
+    const notes = [
+      d.no_valid_phone ? `${d.no_valid_phone.toLocaleString()} without a valid number left out` : '',
+      d.duplicates_merged ? `${d.duplicates_merged.toLocaleString()} duplicate number${d.duplicates_merged === 1 ? '' : 's'} merged` : '',
+      d.filtered_out ? `${d.filtered_out.toLocaleString()} filtered out` : '',
+    ].filter(Boolean);
+    const empty = Object.entries(sh.empty_cells || {}).filter(([c]) => c !== sh.phone_column).map(([c, n]) => `${esc(c)} empty in ${n.toLocaleString()}`);
+    const more = Math.max(0, sh.rows - (sh.preview || []).length);
+    return `<div class="sheet-card" data-sheet="${esc(sh.id)}">
+      <div class="shc-head">${icon('file-spreadsheet', 18)}<div class="shc-title"><b>${esc(sh.name)}</b><span>${sh.rows.toLocaleString()} rows · ${sh.columns.length} columns · from ${(sh.sources || []).length} sheet${(sh.sources || []).length === 1 ? '' : 's'}</span></div><span class="shc-old hidden">Replaced by a newer version below</span></div>
+      ${sh.summary ? `<p class="shc-sum">${esc(sh.summary)}</p>` : ''}
+      <div class="shc-table"><table><thead><tr>${sh.columns.map((c) => `<th>${c === sh.phone_column ? icon('phone', 11) : ''}${esc(c)}</th>`).join('')}</tr></thead>
+        <tbody>${(sh.preview || []).map((r) => `<tr>${sh.columns.map((c) => `<td title="${esc(r[c])}">${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>
+        ${more ? `<div class="shc-more">and ${more.toLocaleString()} more row${more === 1 ? '' : 's'}</div>` : ''}</div>
+      ${notes.length || empty.length ? `<div class="shc-notes">${[...notes, ...empty].map((n) => `<span>${n}</span>`).join('')}</div>` : ''}
+      <div class="shc-acts">
+        <button type="button" class="btn sm primary" data-sheet-act="send">${icon('send', 14)}Open in Send</button>
+        <button type="button" class="btn sm" data-sheet-act="xlsx">${icon('download', 14)}Excel</button>
+        <button type="button" class="btn sm quiet" data-sheet-act="csv">CSV</button>
+      </div>
+    </div>`;
+  }
+  function supersede(oldId) {
+    if (!oldId) return;
+    const el = document.querySelector(`.sheet-card[data-sheet="${CSS.escape(oldId)}"]`);
+    if (!el) return;
+    el.classList.add('superseded');
+    el.querySelector('.shc-old')?.classList.remove('hidden');
+  }
+  // The full table lives with the conversation on the server; fetched when it's opened or downloaded.
+  async function fullSheet(id) {
+    return api(`/ai/files/${encodeURIComponent(id)}?sessionId=${encodeURIComponent(AS.sessionId || '')}`);
+  }
+  const saveFile = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 60000); }; // released later: a quick release can cut a download short
+  const safeName = (n) => String(n || 'sheet').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'sheet';
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sheet-act]');
+    if (!b) return;
+    const id = b.closest('.sheet-card').dataset.sheet;
+    guard(async () => {
+      const t = await fullSheet(id);
+      if (b.dataset.sheetAct === 'send') {
+        SendPage.openSheet(t.name, t.headers, t.rows, t.phoneColumn);
+        toast(`Opened “${t.name}” on the Send page · ${t.rows.length.toLocaleString()} rows`);
+      } else if (b.dataset.sheetAct === 'csv') {
+        const cell = (v) => (/[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v);
+        const csv = [t.headers, ...t.rows].map((r) => r.map((v) => cell(String(v ?? ''))).join(',')).join('\r\n');
+        saveFile(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }), safeName(t.name) + '.csv');
+      } else {
+        const XLSX = await loadXlsxLib();
+        const ws = XLSX.utils.aoa_to_sheet([t.headers, ...t.rows]);
+        ws['!cols'] = t.headers.map((h, i) => ({ wch: Math.min(40, Math.max(h.length, ...t.rows.slice(0, 200).map((r) => String(r[i] ?? '').length)) + 2) }));
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, safeName(t.name).slice(0, 31));
+        const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+        saveFile(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), safeName(t.name) + '.xlsx');
+      }
+    }, b);
+  });
 
   function statsHtml(st) {
     const t = st.totals, p = st.prev;
@@ -1078,6 +1142,7 @@
         if (it.type === 'text') add(`<div class="ai-text">${md(it.text)}</div>`);
         else if (it.type === 'error') add(`<div class="ai-note warn">${icon('badge-alert', 16)}<div>${esc(it.text)}</div></div>`);
         else if (it.type === 'stats') { add(statsHtml(it.stats)); Motion.values(el); }
+        else if (it.type === 'sheet') { supersede(it.sheet.replaces); add(sheetHtml(it.sheet)); }
         else if (it.type === 'plan') { const pel = add('<div class="plan-card"></div>'); AS.openPlans.set(it.plan.id, { el: pel, plan: it.plan }); renderPlan(pel, it.plan); }
         else if (it.type === 'question') {
           const qel = add(questionHtml(it));

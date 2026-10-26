@@ -15,7 +15,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { GoogleGenAI, ApiError: GeminiError } = require('@google/genai');
 
 const CLAUDE_MODEL = 'claude-opus-5-5';
-const MAX_STEPS = 12; // model calls per turn, a backstop against loops
+const MAX_STEPS = 30; // model calls per turn, a backstop against loops (combining many messy sheets takes a few)
 const MAX_ROWS = 50000;
 const SESSION_TTL = 6 * 3600 * 1000;
 const MAX_SESSIONS = 40;
@@ -48,6 +48,13 @@ Saved contacts: to send to people saved on the Contacts page (for example "all c
 Several files and sheets: each sheet of an Excel workbook is attached as its own file (its name shows the workbook and sheet). Inspect every sheet that might be relevant. If the person says which sheets, use those; if they say "this file" and the workbook has several sheets with contacts, ask whether to use all of them or which ones. Put every chosen sheet in propose_campaign's sources, each with its own phone column.
 
 Consent: if the file has an opt-in / consent / subscription column, always apply it with propose_campaign's opt_in. If you can't tell which values mean "opted in", ask. When you combine sheets and some lack that column, their rows are skipped: before proposing, ask the person whether the people in those sheets opted in, and set include_sheets_without_column only if they say yes. Either way, say in the explanation what happens to those sheets.
+
+Cleaning and combining sheets: when the person wants their files tidied, merged or reformatted into one sheet (for example "combine these lead sheets into Name, Phone, City, Source", or just "clean these up for sending"):
+1. Read everything first, and take your time. Call inspect_file on every sheet, then peek_rows wherever the shape isn't obvious: headers that look wrong or missing, junk rows at the top, notes, totals or blank rows, a name and number in one cell, numbers in mixed formats, the same field named differently in each sheet. Look at every sheet before building.
+2. Decide the output columns: exactly the ones the person asked for, in their order and their wording. If they didn't say, pick the useful ones for sending (always a phone column, then name, plus what their templates' variables need) and say what you chose. Ask with ask_user only when it's genuinely unclear.
+3. Call build_sheet with a recipe for every sheet: for each output column, which source column(s) it comes from in that sheet and how to clean it. The server applies the recipe to every row, so never copy or retype data yourself. Never invent values that aren't in the files; leave a cell empty instead.
+4. Check the result it returns (sample rows, empty cells per column, dropped rows). If something looks wrong, call build_sheet again with the same name and a fixed recipe; it replaces the earlier version.
+5. Then reply in 2 to 4 short lines: what you combined, what you cleaned, and what was dropped and why. The card already shows the table with "Open in Send" and "Download", so don't list the rows. If they want to send to it, carry on with propose_campaign using the new sheet's file_id.
 
 If propose_campaign returns problems, fix what you can from the data. If fixing needs a decision from the person, ask.
 
@@ -113,6 +120,82 @@ const TOOLS = [
       type: 'object',
       properties: { file_id: { type: 'string', description: 'ID of the attached file, from the context block' } },
       required: ['file_id'],
+    },
+  },
+  {
+    name: 'peek_rows',
+    description: "Read more rows of an attached sheet than inspect_file shows (phone numbers are partly hidden). Use it to understand messy sheets before building a clean one: header rows, junk rows, mixed formats, several values in one cell.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        file_id: { type: 'string' },
+        start: { type: 'integer', minimum: 1, description: 'First row to read (1 = the first data row). Default 1.' },
+        count: { type: 'integer', minimum: 1, maximum: 60, description: 'How many rows. Default 30.' },
+        columns: { type: 'array', items: { type: 'string' }, description: 'Only these columns (default all)' },
+      },
+      required: ['file_id'],
+    },
+  },
+  {
+    name: 'build_sheet',
+    description: "Build one clean sheet from one or more attached sheets, from a recipe: the output columns, and for each source sheet where each output column comes from and how to clean it. The server applies it to every row (you never copy data), drops rows without a valid phone number, merges duplicate numbers, and shows the person the result as a card with Open in Send and Download. Returns a sample of the result so you can check it, plus a new file_id usable in propose_campaign. Calling it again with the same name replaces the earlier version.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Name of the new sheet, e.g. "Leads – combined"' },
+        columns: { type: 'array', minItems: 1, items: { type: 'string' }, description: 'Output column names, in order, exactly as the person wants them' },
+        phone_column: { type: 'string', description: 'Which output column holds the WhatsApp number (normalised to +countrycode…)' },
+        sources: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              file_id: { type: 'string' },
+              skip_first_rows: { type: 'integer', minimum: 0, description: 'Junk rows at the top to ignore (titles, notes)' },
+              where: {
+                type: 'array',
+                description: 'Only use rows matching all of these (columns of this source)',
+                items: {
+                  type: 'object',
+                  properties: {
+                    column: { type: 'string' },
+                    op: { type: 'string', enum: ['equals', 'not_equals', 'contains', 'not_contains', 'is_empty', 'not_empty', 'greater_than', 'less_than', 'matches'] },
+                    value: { type: 'string', description: 'For matches: a regular expression' },
+                  },
+                  required: ['column', 'op'],
+                },
+              },
+              fields: {
+                type: 'array',
+                description: 'One entry per output column you can fill from this source; columns left out stay empty for its rows',
+                items: {
+                  type: 'object',
+                  properties: {
+                    column: { type: 'string', description: 'Output column name' },
+                    from: { type: 'array', items: { type: 'string' }, description: 'Source column(s) of this sheet. Several are joined with sep. A column can also be given by letter, e.g. "C".' },
+                    sep: { type: 'string', description: 'Joins several source columns. Default a space.' },
+                    fixed: { type: 'string', description: 'The same text for every row of this source instead of a column (e.g. the source name "Facebook ads")' },
+                    split: { type: 'string', description: 'Split the value on this text and keep one part (e.g. " - " for "Ravi - 98765…")' },
+                    part: { type: 'integer', description: 'Which part after split: 0 = first, 1 = second, -1 = last. Default 0.' },
+                    extract: { type: 'string', description: 'Regular expression; keeps the first group (or the whole match). E.g. "(\\+?\\d[\\d\\s-]{8,})" for a number inside text.' },
+                    transform: { type: 'array', items: { type: 'string', enum: ['title_case', 'upper', 'lower', 'sentence_case', 'first_word', 'last_word', 'digits_only', 'phone', 'email', 'number', 'date', 'strip_emoji', 'strip_punctuation'] }, description: 'Applied in order, after split/extract. Spaces are always tidied.' },
+                    map: { type: 'array', items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] }, description: 'Replace whole values (case-insensitive), e.g. Y → Yes, blr → Bengaluru' },
+                    default: { type: 'string', description: 'Used when the result is empty' },
+                  },
+                  required: ['column'],
+                },
+              },
+            },
+            required: ['file_id', 'fields'],
+          },
+        },
+        dedupe_by_phone: { type: 'boolean', description: 'Merge rows with the same number into one, filling its empty cells from the others. Default true.' },
+        keep_rows_without_phone: { type: 'boolean', description: "Keep rows with no valid number (they can't be sent to). Default false." },
+        sort_by: { type: 'object', properties: { column: { type: 'string' }, order: { type: 'string', enum: ['asc', 'desc'] } }, required: ['column'] },
+        summary: { type: 'string', description: 'One or two plain sentences for the card: what was combined and cleaned' },
+      },
+      required: ['name', 'columns', 'phone_column', 'sources', 'summary'],
     },
   },
   {
@@ -249,6 +332,8 @@ const STEP_LABELS = {
   list_campaigns: ['searching', 'Looking at your campaigns'],
   get_app_status: ['searching', 'Checking your setup'],
   use_contacts: ['searching', 'Getting your contacts'],
+  peek_rows: ['searching', 'Reading more rows'],
+  build_sheet: ['working', 'Building the clean sheet'],
   propose_campaign: ['working', 'Checking the plan'],
 };
 
@@ -511,6 +596,170 @@ module.exports = function mountAi(app, ctx) {
     };
   }
 
+  // --- Reading more rows, and building one clean sheet from a recipe ------------------------
+
+  const fileOrThrow = (session, fileId) => {
+    const f = session.files.get(fileId);
+    if (!f) throw new Error(`No attached file with id "${fileId}". Attached: ${[...session.files.keys()].join(', ') || 'none'}`);
+    return f;
+  };
+  // A source column by name, or by spreadsheet letter ("C") when names are unhelpful.
+  const colLetter = (i) => { let n = i + 1, out = ''; while (n) { const m = (n - 1) % 26; out = String.fromCharCode(65 + m) + out; n = Math.floor((n - 1) / 26); } return out; };
+  function resolveCol(f, name) {
+    const n = String(name ?? '');
+    if (f.headers.includes(n)) return n;
+    const ci = f.headers.find((h) => h.toLowerCase().trim() === n.toLowerCase().trim());
+    if (ci) return ci;
+    const byLetter = f.headers.findIndex((_, i) => colLetter(i) === n.toUpperCase());
+    if (/^[A-Z]{1,2}$/i.test(n) && byLetter >= 0) return f.headers[byLetter];
+    return null;
+  }
+
+  function peekRows(session, input) {
+    const f = fileOrThrow(session, input.file_id);
+    const start = Math.max(1, input.start || 1), count = Math.min(60, Math.max(1, input.count || 30));
+    const cols = input.columns?.length ? input.columns.map((c) => resolveCol(f, c)).filter(Boolean) : f.headers;
+    return {
+      file_id: f.id, name: f.name, total_rows: f.rows.length,
+      columns: cols.map((h) => ({ name: h, letter: colLetter(f.headers.indexOf(h)) })),
+      rows: f.rows.slice(start - 1, start - 1 + count).map((r, i) => ({ row: start + i, ...Object.fromEntries(cols.map((h) => [h, maskPhones(r[h] ?? '')])) })),
+      note_on_privacy: 'Phone numbers are partly hidden; build_sheet works on the full numbers.',
+    };
+  }
+
+  const titleCase = (v) => v.toLowerCase().replace(/(^|[\s\-'’(./])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+  const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+  function toDate(v) {
+    const t = String(v).trim();
+    if (/^\d{5}(\.\d+)?$/.test(t)) { const d = new Date(Date.UTC(1899, 11, 30) + Number(t) * 86400000); return d.toISOString().slice(0, 10); } // Excel serial day
+    let m = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    m = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/); // day first, as written in India and the UK
+    if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+    m = t.match(/^(\d{1,2})\s*([a-z]{3,4})[a-z]*[\s,-]*(\d{2,4})/i);
+    if (m && MONTHS[m[2].toLowerCase()]) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${String(MONTHS[m[2].toLowerCase()]).padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+    return t;
+  }
+  const TRANSFORMS = {
+    title_case: titleCase,
+    upper: (v) => v.toUpperCase(),
+    lower: (v) => v.toLowerCase(),
+    sentence_case: (v) => v.charAt(0).toUpperCase() + v.slice(1).toLowerCase(),
+    first_word: (v) => v.split(/\s+/)[0] || '',
+    last_word: (v) => v.split(/\s+/).at(-1) || '',
+    digits_only: (v) => v.replace(/\D/g, ''),
+    phone: (v) => { const p = normalizePhone(v); return p ? '+' + p : ''; },
+    email: (v) => { const m = v.toLowerCase().match(/[^\s@<>,;:]+@[^\s@<>,;:]+\.[a-z]{2,}/); return m ? m[0] : ''; },
+    number: (v) => { const n = v.replace(/[^\d.\-]/g, ''); return n && !Number.isNaN(Number(n)) ? String(Number(n)) : ''; },
+    date: toDate,
+    strip_emoji: (v) => v.replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, ''),
+    strip_punctuation: (v) => v.replace(/[^\p{L}\p{N}\s+@.\-]/gu, ''),
+  };
+  const tidy = (v) => String(v ?? '').replace(/[\u00a0\t\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const regexOf = (src, what) => { try { return new RegExp(src, 'i'); } catch (e) { throw new Error(`${what}: "${src}" isn't a valid regular expression (${e.message})`); } };
+
+  function fieldValue(f, row, fd) {
+    let v;
+    if (fd.fixed != null) v = String(fd.fixed);
+    else {
+      const parts = (fd.from || []).map((c) => tidy(row[resolveCol(f, c)] ?? '')).filter(Boolean);
+      v = parts.join(fd.sep ?? ' ');
+    }
+    v = tidy(v);
+    if (v && fd.split) { const bits = v.split(fd.split).map(tidy); const k = fd.part ?? 0; v = (k < 0 ? bits[bits.length + k] : bits[k]) ?? ''; }
+    if (v && fd.extract) { const m = v.match(regexOf(fd.extract, `extract for "${fd.column}"`)); v = m ? tidy(m[1] ?? m[0]) : ''; }
+    for (const t of fd.transform || []) if (v && TRANSFORMS[t]) v = tidy(TRANSFORMS[t](v));
+    if (v && fd.map?.length) { const hit = fd.map.find((m) => String(m.from).toLowerCase().trim() === v.toLowerCase()); if (hit) v = String(hit.to); }
+    if (!v && fd.default != null) v = String(fd.default);
+    return v;
+  }
+  const passesWhere = (f, row, w) => {
+    const v = tidy(row[resolveCol(f, w.column)] ?? ''), x = String(w.value ?? ''), lv = v.toLowerCase(), lx = x.toLowerCase();
+    switch (w.op) {
+      case 'equals': return lv === lx;
+      case 'not_equals': return lv !== lx;
+      case 'contains': return lv.includes(lx);
+      case 'not_contains': return !lv.includes(lx);
+      case 'is_empty': return !v;
+      case 'not_empty': return Boolean(v);
+      case 'greater_than': return Number(v.replace(/[^\d.\-]/g, '')) > Number(x);
+      case 'less_than': return Number(v.replace(/[^\d.\-]/g, '')) < Number(x);
+      case 'matches': return regexOf(x, `where on "${w.column}"`).test(v);
+      default: return true;
+    }
+  };
+
+  function buildSheet(session, input) {
+    const cols = [...new Set((input.columns || []).map((c) => tidy(c)).filter(Boolean))];
+    if (!cols.length) throw new Error('Give at least one output column.');
+    const phoneCol = cols.find((c) => c.toLowerCase() === String(input.phone_column || '').toLowerCase());
+    if (!phoneCol) throw new Error(`phone_column must be one of the output columns: ${cols.join(', ')}`);
+    const problems = [];
+    for (const src of input.sources || []) {
+      const f = session.files.get(src.file_id);
+      if (!f) { problems.push(`No attached file "${src.file_id}"`); continue; }
+      for (const fd of src.fields || []) {
+        if (!cols.includes(fd.column)) problems.push(`${f.name}: "${fd.column}" isn't one of the output columns (${cols.join(', ')})`);
+        for (const c of fd.from || []) if (!resolveCol(f, c)) problems.push(`${f.name}: no column "${c}". Its columns: ${f.headers.map((h, i) => `${colLetter(i)} ${h}`).join(', ')}`);
+        if (fd.fixed == null && !(fd.from || []).length) problems.push(`${f.name}: "${fd.column}" needs from (source columns) or fixed`);
+      }
+      for (const w of src.where || []) if (!resolveCol(f, w.column)) problems.push(`${f.name}: no column "${w.column}" to filter on`);
+    }
+    if (problems.length) throw new Error('Fix the recipe:\n- ' + [...new Set(problems)].join('\n- '));
+
+    const out = [], byPhone = new Map(), perSource = [];
+    let noPhone = 0, merged = 0, filtered = 0;
+    for (const src of input.sources) {
+      const f = session.files.get(src.file_id);
+      let used = 0, skipped = 0;
+      const rows = f.rows.slice(src.skip_first_rows || 0);
+      for (const row of rows) {
+        if (Object.values(row).every((v) => !String(v ?? '').trim())) continue;
+        if ((src.where || []).some((w) => !passesWhere(f, row, w))) { skipped++; filtered++; continue; }
+        const rec = Object.fromEntries(cols.map((c) => [c, '']));
+        for (const fd of src.fields) rec[fd.column] = fieldValue(f, row, fd);
+        const p = normalizePhone(rec[phoneCol]);
+        rec[phoneCol] = p ? '+' + p : rec[phoneCol];
+        if (!p && !input.keep_rows_without_phone) { noPhone++; continue; }
+        if (p && input.dedupe_by_phone !== false && byPhone.has(p)) {
+          const first = byPhone.get(p);
+          for (const c of cols) if (!first[c] && rec[c]) first[c] = rec[c]; // fill gaps from the later copy
+          merged++;
+          continue;
+        }
+        if (p) byPhone.set(p, rec);
+        out.push(rec);
+        used++;
+      }
+      perSource.push({ file: f.name, rows_in: rows.length, rows_used: used, skipped_by_filter: skipped });
+    }
+    if (input.sort_by?.column && cols.includes(input.sort_by.column)) {
+      const k = input.sort_by.column, dir = input.sort_by.order === 'desc' ? -1 : 1;
+      out.sort((a, b) => dir * String(a[k]).localeCompare(String(b[k]), undefined, { numeric: true, sensitivity: 'base' }));
+    }
+    // Same name again: this version replaces the earlier one.
+    const prev = [...session.files.values()].find((x) => x.built && x.name === tidy(input.name));
+    if (prev) session.files.delete(prev.id);
+    const sheet = { id: 'f_' + id().slice(0, 8), name: tidy(input.name) || 'Clean sheet', sheet: '', headers: cols, rows: out, phoneColumn: phoneCol, announced: true, built: true, summary: String(input.summary || '').slice(0, 600) };
+    session.files.set(sheet.id, sheet);
+    const empty = Object.fromEntries(cols.map((c) => [c, out.filter((r) => !r[c]).length]).filter(([, n]) => n));
+    const card = {
+      id: sheet.id, replaces: prev?.id || null, name: sheet.name, columns: cols, phone_column: phoneCol, rows: out.length, summary: sheet.summary,
+      sources: perSource, dropped: { no_valid_phone: noPhone, duplicates_merged: merged, filtered_out: filtered }, empty_cells: empty,
+      preview: out.slice(0, 8),
+    };
+    return {
+      card,
+      result: {
+        file_id: sheet.id, name: sheet.name, rows: out.length, columns: cols, per_source: perSource,
+        dropped: card.dropped, empty_cells_per_column: empty,
+        sample_rows: out.slice(0, 10).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, maskPhones(v)]))),
+        ...(out.length ? {} : { warning: 'No rows came out. Check the phone column and the filters.' }),
+        note: 'Shown to the person as a card with Open in Send and Download. Use file_id in propose_campaign to send to it.',
+      },
+    };
+  }
+
   function statsFor(input) {
     const query = { range: input.range_days || 14, sender: input.sender_id || '', template: input.template_name || '' };
     const st = computeStats(query);
@@ -769,6 +1018,13 @@ module.exports = function mountAi(app, ctx) {
       }
       case 'inspect_file':
         return inspectFile(session, input.file_id);
+      case 'peek_rows':
+        return peekRows(session, input);
+      case 'build_sheet': {
+        const { card, result } = buildSheet(session, input);
+        emit({ type: 'sheet', sheet: card });
+        return result;
+      }
       case 'get_stats': {
         const out = statsFor(input);
         emit({ type: 'stats', stats: out._card });
@@ -969,7 +1225,7 @@ module.exports = function mountAi(app, ctx) {
         }
         try {
           const out = runTool(session, u.name, input, emit);
-          const detail = u.name === 'use_contacts' ? `${out.rows.toLocaleString()} contacts` : u.name === 'inspect_file' ? `${out.rows.toLocaleString()} rows · ${out.columns.length} columns` : u.name === 'list_templates' ? `${out.templates.length} found` : u.name === 'list_senders' ? `${out.senders.length} found` : '';
+          const detail = u.name === 'build_sheet' ? `${out.rows.toLocaleString()} rows` : u.name === 'peek_rows' ? `${out.rows.length} rows` : u.name === 'use_contacts' ? `${out.rows.toLocaleString()} contacts` : u.name === 'inspect_file' ? `${out.rows.toLocaleString()} rows · ${out.columns.length} columns` : u.name === 'list_templates' ? `${out.templates.length} found` : u.name === 'list_senders' ? `${out.senders.length} found` : '';
           emit({ type: 'step', id: stepId, status: 'done', detail });
           result(u, JSON.stringify(out));
         } catch (e) {
@@ -1023,6 +1279,14 @@ module.exports = function mountAi(app, ctx) {
       if (f.announced) f.phoneChanged = true;
     }
     res.json({ ok: true });
+  }));
+
+  // A sheet the assistant built, in full, for "Open in Send" and "Download".
+  app.get('/api/ai/files/:fileId', wrap((req, res) => {
+    const session = getSession(String(req.query.sessionId || ''), false);
+    const f = session.files.get(req.params.fileId);
+    if (!f || !f.built) throw fail('This sheet is no longer available (the server restarted or the chat timed out). Ask the assistant to build it again.', 404);
+    res.json({ name: f.name, headers: f.headers, rows: f.rows.map((r) => f.headers.map((h) => r[h] ?? '')), phoneColumn: f.phoneColumn });
   }));
 
   app.delete('/api/ai/files/:fileId', wrap((req, res) => {
@@ -1122,6 +1386,7 @@ module.exports = function mountAi(app, ctx) {
       else if (ev.type === 'question') reply.items.push({ type: 'question', id: ev.id, question: ev.question, options: ev.options });
       else if (ev.type === 'plan') reply.items.push({ type: 'plan', plan: ev.plan });
       else if (ev.type === 'stats') reply.items.push({ type: 'stats', stats: ev.stats });
+      else if (ev.type === 'sheet') reply.items.push({ type: 'sheet', sheet: ev.sheet });
     };
     const emit = (ev) => { record(ev); res.write(JSON.stringify(ev) + '\n'); };
     emit({ type: 'session', sessionId: session.id });
