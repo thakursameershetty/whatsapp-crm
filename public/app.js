@@ -266,7 +266,7 @@ function confirmDialog({ title, message = '', confirmText = 'OK', danger = false
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
     yes.onclick = () => done(true);
     $('#confirmNo').onclick = () => done(false);
-    $('#confirm').onclick = (e) => e.target.id === 'confirm' && done(false);
+    $('#confirm').onclick = (e) => { if (e.target.id === 'confirm') done(false); }; // (returning false from onclick would cancel every click inside, e.g. the checkbox)
     document.addEventListener('keydown', onKey, true);
   });
 }

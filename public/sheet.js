@@ -179,11 +179,17 @@
       });
     }
 
-    function insertCol(at, name) {
+    function insertCol(at, name) { run(insertColOp(at, name)); }
+    // Several columns as one step (one undo): the ops run in order and are undone in reverse.
+    function insertCols(at, n) {
+      const ops = [];
+      run({ kind: 'cols', do: () => { for (let k = 0; k < n; k++) { const op = insertColOp(at + k); ops.push(op); op.do(); } }, undo: () => { for (const op of [...ops].reverse()) op.undo(); ops.length = 0; } });
+    }
+    function insertColOp(at, name) {
       const sh = sheet();
       const nm = uniqueName(sh, name || `Column ${letter(sh.headers.length)}`);
       const shiftFilters = (d) => { const f = {}; for (const [c, v] of Object.entries(sh.filters)) f[+c >= at ? +c + d : c] = v; sh.filters = f; };
-      run({
+      return ({
         kind: 'cols',
         do: () => {
           sh.headers.splice(at, 0, nm);
@@ -203,13 +209,22 @@
     }
 
     function deleteCol(at) {
+      if (sheet().headers.length <= 1) return hooks.notify?.("A sheet needs at least one column");
+      run(deleteColOp(at));
+    }
+    function deleteCols(c1, c2) {
+      const sh = sheet(), n = c2 - c1 + 1;
+      if (sh.headers.length - n < 1) return hooks.notify?.("A sheet needs at least one column, so not every column can go");
+      const ops = [];
+      run({ kind: 'cols', do: () => { for (let c = c2; c >= c1; c--) { const op = deleteColOp(c); ops.push(op); op.do(); } }, undo: () => { for (const op of [...ops].reverse()) op.undo(); ops.length = 0; } });
+    }
+    function deleteColOp(at) {
       const sh = sheet();
-      if (sh.headers.length <= 1) return hooks.notify?.("A sheet needs at least one column");
       const name = sh.headers[at], width = sh.widths[at], vals = sh.rows.map((r) => r.cells[at] ?? ''), filter = sh.filters[at];
       // Filters are keyed by column index: drop this column's, shift the ones after it.
       const remove = () => { const f = {}; for (const [c, v] of Object.entries(sh.filters)) if (+c !== at) f[+c > at ? +c - 1 : c] = v; sh.filters = f; };
       const restore = () => { const f = {}; for (const [c, v] of Object.entries(sh.filters)) f[+c >= at ? +c + 1 : c] = v; if (filter) f[at] = filter; sh.filters = f; };
-      run({
+      return ({
         kind: 'cols',
         do: () => {
           sh.headers.splice(at, 1);
@@ -542,6 +557,10 @@
 
     function columnMenu(c, x, y) {
       const sh = sheet();
+      // Several columns selected and this is one of them: insert / delete act on all of them.
+      const rg = range(), many = c >= rg.c1 && c <= rg.c2 && rg.c2 > rg.c1, n = many ? rg.c2 - rg.c1 + 1 : 1;
+      const c1 = many ? rg.c1 : c, c2 = many ? rg.c2 : c;
+      const cols = (w) => (n === 1 ? `column${w ? ' ' + w : ''}` : `${n} columns${w ? ' ' + w : ''}`);
       Menu.open(x, y, [
         ...(hooks.columnMenuExtras?.(sh, c) || []),
         { label: 'Sort A → Z', action: () => sortBy(c, 1) },
@@ -549,10 +568,10 @@
         { label: sh.filters[c] ? 'Edit filter…' : 'Filter…', action: () => filterPopover(c, x, y) },
         ...(sh.filters[c] ? [{ label: 'Clear filter', action: () => { delete sh.filters[c]; after('filter'); } }] : []),
         ...(hooks.readOnly ? [] : ['-',
-        { label: 'Rename', action: () => startEdit(null, -1, c) },
-        { label: 'Insert column left', action: () => insertCol(c) },
-        { label: 'Insert column right', action: () => insertCol(c + 1) },
-        { label: 'Delete column', danger: true, action: () => deleteCol(c) }]),
+        ...(many ? [] : [{ label: 'Rename', action: () => startEdit(null, -1, c) }]),
+        { label: `Insert ${cols('left')}`, action: () => (many ? insertCols(c1, n) : insertCol(c)) },
+        { label: `Insert ${cols('right')}`, action: () => (many ? insertCols(c2 + 1, n) : insertCol(c + 1)) },
+        { label: many ? `Delete ${n} columns (${letter(c1)}–${letter(c2)})` : 'Delete column', danger: true, action: () => (many ? deleteCols(c1, c2) : deleteCol(c)) }]),
       ]);
     }
 

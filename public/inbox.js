@@ -29,6 +29,25 @@
   const daysAgo = (ts) => Math.round((startOfDay(Date.now()) - startOfDay(ts)) / DAY);
   const fmtTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
+  // Why a message wasn't delivered, in plain words (Meta's own text stays available on hover).
+  const FAIL_HELP = {
+    131049: ['Meta held this back', "WhatsApp limits how many marketing messages one person gets from businesses. Meta decided this person had enough for now — it isn't a problem with your number or template. Try again in a day or two, or switch this template's category to Utility if it's an update rather than an offer."],
+    131026: ['Not delivered', "This number isn't on WhatsApp, or their app is too old to receive it."],
+    131047: ['Reply window closed', 'More than 24 hours since they last wrote, so only a template can be sent.'],
+    131056: ['Too many messages too quickly', 'Wait a little before sending this person another message.'],
+    131048: ['Spam limit reached', 'Too many people blocked or reported this number recently. Meta is limiting what it can send.'],
+    130429: ['Sending too fast', 'Meta rate-limited this number. It will go through if you try again shortly.'],
+    132001: ['Template not found', "Meta doesn't have this template in this language. Sync templates and check its name."],
+    132015: ['Template paused', 'Meta paused this template because of low ratings. Use another one or edit it in WhatsApp Manager.'],
+  };
+  function failedNote(err) {
+    const code = (String(err).match(/\b(1\d{5})\b/) || [])[1];
+    const h = FAIL_HELP[code];
+    return h
+      ? `<div class="ib-err" title="${esc(err)}"><b>${esc(h[0])}</b> · ${esc(h[1])}</div>`
+      : `<div class="ib-err">Not delivered: ${esc(err)}</div>`;
+  }
+
   function listTime(ts) {
     if (!ts) return '';
     const d = daysAgo(ts);
@@ -493,7 +512,7 @@
         <div class="ib-bubble ${m.type}">${msgBody(m, byWamid)}${react ? `<span class="ib-reacts">${esc(react)}</span>` : ''}</div>
         ${m.wamid && m.dir === 'in' ? `<button class="ib-reply-btn" data-reply="${esc(m.wamid)}" title="Reply" aria-label="Reply">${icon('reply', 14)}</button>` : ''}
       </div>`;
-      if (m.status === 'failed' && m.error) html += `<div class="ib-err">Not delivered: ${esc(m.error)}</div>`;
+      if (m.status === 'failed' && m.error) html += failedNote(m.error);
       prev = m;
     }
     box.innerHTML = html ? html + '</section>' : '';
