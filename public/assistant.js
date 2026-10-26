@@ -115,6 +115,9 @@
           const many = sheets.length > 1;
           const f = { localId: 'l' + newId(), group, file: file.name, sheet: many ? sh.name : '', name: many ? `${file.name} · ${sh.name}` : file.name, headers, rows, phoneColumn: guessPhone(headers, rows), fileId: null };
           check(f);
+          // Rows pushed a few columns right (Meta exports that merge forms) are moved back straight away.
+          const shifted = shiftedIn(f).reduce((n, g) => n + g.idx.length, 0);
+          if (shifted) { fixShifted(f); f.autoFixed = shifted; }
           AS.files.set(f.localId, f);
           AS.pending.push(f);
           first ||= f;
@@ -298,7 +301,7 @@
     for (const f of AS.pending) {
       const r = await api('/ai/files', {
         method: 'POST',
-        body: { sessionId: AS.sessionId, name: f.name, sheet: f.sheet, workbook: f.sheet ? f.file : '', headers: f.headers, rows: f.rows, phoneColumn: f.phoneColumn },
+        body: { sessionId: AS.sessionId, name: f.name, sheet: f.sheet, workbook: f.sheet ? f.file : '', headers: f.headers, rows: f.rows, phoneColumn: f.phoneColumn, shiftedFixed: f.autoFixed || 0 },
       });
       AS.sessionId = r.sessionId;
       f.fileId = r.fileId;
@@ -883,6 +886,7 @@
     $('#fpPhone').innerHTML = f.headers.map((h) => `<option ${h === f.phoneColumn ? 'selected' : ''}>${esc(h)}</option>`).join('');
     // Same hints as the Send page: shifted rows, and numbers that seem to be in another column.
     const hints = [];
+    if (f.autoFixed) hints.push(`<span class="fp-hint ok">${icon('circle-check', 14)} ${f.autoFixed === 1 ? '1 shifted row was' : `${f.autoFixed.toLocaleString()} shifted rows were`} moved back under the right columns.</span>`);
     const groups = shiftedIn(f), nShift = groups.reduce((n, g) => n + g.idx.length, 0);
     if (nShift) {
       const k = groups.length === 1 ? groups[0].k : null;

@@ -50,7 +50,14 @@ Several files and sheets: each sheet of an Excel workbook is attached as its own
 Consent: if the file has an opt-in / consent / subscription column, always apply it with propose_campaign's opt_in. If you can't tell which values mean "opted in", ask. When you combine sheets and some lack that column, their rows are skipped: before proposing, ask the person whether the people in those sheets opted in, and set include_sheets_without_column only if they say yes. Either way, say in the explanation what happens to those sheets.
 
 Cleaning and combining sheets: when the person wants their files tidied, merged or reformatted into one sheet (for example "combine these lead sheets into Name, Phone, City, Source", or just "clean these up for sending"):
-1. Read everything first, and take your time. Call inspect_file on every sheet, then peek_rows wherever the shape isn't obvious: headers that look wrong or missing, junk rows at the top, notes, totals or blank rows, a name and number in one cell, numbers in mixed formats, the same field named differently in each sheet. Look at every sheet before building.
+1. Read everything first, and take your time. Call inspect_file on every sheet, then peek_rows wherever the shape isn't obvious: headers that look wrong or missing, junk rows at the top, notes, totals or blank rows, a name and number in one cell, numbers in mixed formats, the same field named differently in each sheet. Look at every sheet before building. Things to look for and handle in the recipe:
+   - Sheets with no header row (columns named "Column A", "Column B"…): work out what each column holds from peek_rows and refer to them by letter.
+   - Test or dummy rows (Meta's "<test lead: dummy data…>"), totals, sub-headings, notes and blank rows: filter them out with where.
+   - Notes stuck to values, like "Mohamed(4pm)" or "Kiran (ref)": strip_brackets, and keep the note in a notes column if there is one.
+   - Numbers with prefixes or punctuation ("p:+91…", "91-98765…", "098765…"): the phone transform handles these. A name and number in one cell: split or extract.
+   - The same field with different names in each sheet (phone_number, Contact Phone Number, Mobile No.): map each one.
+   - Codes instead of words (CREATED, y/n, short city names): map them to readable values when the person would want that.
+   - Rows that were shifted a few columns to the right are fixed when the file is attached (the context block says how many); mention it in your reply.
 2. Decide the output columns: exactly the ones the person asked for, in their order and their wording. If they didn't say, pick the useful ones for sending (always a phone column, then name, plus what their templates' variables need) and say what you chose. Ask with ask_user only when it's genuinely unclear.
 3. Call build_sheet with a recipe for every sheet: for each output column, which source column(s) it comes from in that sheet and how to clean it. The server applies the recipe to every row, so never copy or retype data yourself. Never invent values that aren't in the files; leave a cell empty instead.
 4. Check the result it returns (sample rows, empty cells per column, dropped rows). If something looks wrong, call build_sheet again with the same name and a fixed recipe; it replaces the earlier version.
@@ -179,7 +186,7 @@ const TOOLS = [
                     split: { type: 'string', description: 'Split the value on this text and keep one part (e.g. " - " for "Ravi - 98765…")' },
                     part: { type: 'integer', description: 'Which part after split: 0 = first, 1 = second, -1 = last. Default 0.' },
                     extract: { type: 'string', description: 'Regular expression; keeps the first group (or the whole match). E.g. "(\\+?\\d[\\d\\s-]{8,})" for a number inside text.' },
-                    transform: { type: 'array', items: { type: 'string', enum: ['title_case', 'upper', 'lower', 'sentence_case', 'first_word', 'last_word', 'digits_only', 'phone', 'email', 'number', 'date', 'strip_emoji', 'strip_punctuation'] }, description: 'Applied in order, after split/extract. Spaces are always tidied.' },
+                    transform: { type: 'array', items: { type: 'string', enum: ['title_case', 'upper', 'lower', 'sentence_case', 'first_word', 'last_word', 'digits_only', 'phone', 'email', 'number', 'date', 'strip_emoji', 'strip_punctuation', 'strip_brackets'] }, description: 'Applied in order, after split/extract. Spaces are always tidied.' },
                     map: { type: 'array', items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] }, description: 'Replace whole values (case-insensitive), e.g. Y → Yes, blr → Bengaluru' },
                     default: { type: 'string', description: 'Used when the result is empty' },
                   },
@@ -654,6 +661,7 @@ module.exports = function mountAi(app, ctx) {
     date: toDate,
     strip_emoji: (v) => v.replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, ''),
     strip_punctuation: (v) => v.replace(/[^\p{L}\p{N}\s+@.\-]/gu, ''),
+    strip_brackets: (v) => v.replace(/\s*[([{][^)\]}]*[)\]}]\s*/g, ' '), // "Mohamed(4pm)" → "Mohamed"
   };
   const tidy = (v) => String(v ?? '').replace(/[\u00a0\t\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
   const regexOf = (src, what) => { try { return new RegExp(src, 'i'); } catch (e) { throw new Error(`${what}: "${src}" isn't a valid regular expression (${e.message})`); } };
@@ -1072,7 +1080,7 @@ module.exports = function mountAi(app, ctx) {
     for (const f of fresh) {
       lines.push(f.announced
         ? `The person changed the phone column of file ${f.id} ("${f.name}") to "${f.phoneColumn}". Use that column.`
-        : `Attached file: id ${f.id}, "${f.name}"${f.sheet ? ` (sheet "${f.sheet}" of ${f.workbook || 'a workbook'})` : ''}, ${f.rows.length} rows, columns: ${f.headers.join(', ')}${f.phoneColumn ? `. The phone column looks like "${f.phoneColumn}".` : ''}`);
+        : `Attached file: id ${f.id}, "${f.name}"${f.sheet ? ` (sheet "${f.sheet}" of ${f.workbook || 'a workbook'})` : ''}, ${f.rows.length} rows, columns: ${f.headers.join(', ')}${f.phoneColumn ? `. The phone column looks like "${f.phoneColumn}".` : ''}${f.shiftedFixed ? ` ${f.shiftedFixed} row(s) were shifted a few columns to the right and have already been moved back; any extra answers that caused it are in "Extra answer" columns.` : ''}`);
       f.announced = true;
       f.phoneChanged = false;
     }
@@ -1248,7 +1256,7 @@ module.exports = function mountAi(app, ctx) {
   // --- Routes ---------------------------------------------------------------
 
   app.post('/api/ai/files', wrap((req, res) => {
-    const { sessionId, name, sheet, workbook, headers, rows, phoneColumn } = req.body;
+    const { sessionId, name, sheet, workbook, headers, rows, phoneColumn, shiftedFixed } = req.body;
     if (!Array.isArray(headers) || !headers.length || !Array.isArray(rows)) throw fail('The file has no columns');
     if (rows.length > MAX_ROWS) throw fail(`Files are limited to ${MAX_ROWS.toLocaleString()} rows`);
     const session = getSession(sessionId);
@@ -1262,6 +1270,7 @@ module.exports = function mountAi(app, ctx) {
       headers: cols,
       rows: rows.map((r) => Object.fromEntries(cols.map((h) => [h, String(r?.[h] ?? '')]))),
       phoneColumn: cols.includes(phoneColumn) ? phoneColumn : '',
+      shiftedFixed: Math.max(0, Number(shiftedFixed) || 0),
       announced: false,
     };
     session.files.set(f.id, f);
