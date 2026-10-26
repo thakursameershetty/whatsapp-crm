@@ -94,6 +94,16 @@
       const s = S();
       return { r1: Math.min(s.ar, s.fr), r2: Math.max(s.ar, s.fr), c1: Math.min(s.ac, s.fc), c2: Math.max(s.ac, s.fc) };
     };
+    // Cmd/Ctrl+click adds more ranges (like Sheets/Excel): s.extra holds the earlier ones, the current
+    // range is still anchor→focus. ranges() is all of them; inSel() asks whether a cell is in any.
+    const norm = (x) => ({ r1: Math.min(x.ar, x.fr), r2: Math.max(x.ar, x.fr), c1: Math.min(x.ac, x.fc), c2: Math.max(x.ac, x.fc) });
+    const ranges = () => [...(S().extra || []).map(norm), range()];
+    const inSel = (r, c) => ranges().some((g) => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2);
+    const rowOn = (r) => ranges().some((g) => r >= g.r1 && r <= g.r2);
+    const colOn = (c) => ranges().some((g) => c >= g.c1 && c <= g.c2);
+    // Every selected row (view indexes) and column, deduplicated and in order.
+    const selRows = () => [...new Set(ranges().flatMap((g) => Array.from({ length: g.r2 - g.r1 + 1 }, (_, i) => g.r1 + i)))].sort((a, b) => a - b);
+    const selCols = () => [...new Set(ranges().flatMap((g) => Array.from({ length: g.c2 - g.c1 + 1 }, (_, i) => g.c1 + i)))].sort((a, b) => a - b);
     function clampSel() {
       const s = S(), maxR = Math.max(0, view().length - 1), maxC = Math.max(0, nCols() - 1);
       s.ar = Math.min(Math.max(s.ar, 0), maxR); s.fr = Math.min(Math.max(s.fr, 0), maxR);
@@ -137,6 +147,7 @@
     }
     function after(kind) {
       hooks.prepare?.(sheet(), kind); // e.g. re-check phone numbers, before deciding what to show
+      if (kind !== 'cells') S().extra = []; // rows/columns moved: the other ranges no longer point at the same cells
       computeView();
       clampSel();
       hooks.changed?.(kind);
@@ -218,6 +229,12 @@
       const ops = [];
       run({ kind: 'cols', do: () => { for (let c = c2; c >= c1; c--) { const op = deleteColOp(c); ops.push(op); op.do(); } }, undo: () => { for (const op of [...ops].reverse()) op.undo(); ops.length = 0; } });
     }
+    function deleteColSet(list) {
+      const sh = sheet();
+      if (sh.headers.length - list.length < 1) return hooks.notify?.("A sheet needs at least one column, so not every column can go");
+      const ops = [], desc = [...list].sort((a, b) => b - a);
+      run({ kind: 'cols', do: () => { for (const c of desc) { const op = deleteColOp(c); ops.push(op); op.do(); } }, undo: () => { for (const op of [...ops].reverse()) op.undo(); ops.length = 0; } });
+    }
     function deleteColOp(at) {
       const sh = sheet();
       const name = sh.headers[at], width = sh.widths[at], vals = sh.rows.map((r) => r.cells[at] ?? ''), filter = sh.filters[at];
@@ -289,7 +306,7 @@
       if (corner) corner.indeterminate = all === null;
       renderBody();
     }
-    const inCols = (c) => { const r = range(); return c >= r.c1 && c <= r.c2; };
+    const inCols = (c) => colOn(c);
     // The columns keep their widths; a filler column takes whatever space is left.
     function sizeTable() {
       const sh = sheet();
@@ -309,12 +326,12 @@
       let html = `<tr class="sg-spacer" style="height:${first * RH}px"><td colspan="${nCols() + 2}"></td></tr>`;
       for (let r = first; r < last; r++) {
         const row = v[r];
-        const rowSel = r >= rg.r1 && r <= rg.r2;
+        const rowSel = rowOn(r);
         const meta = hooks.rowInfo?.(sh, row) || {};
         html += `<tr data-r="${r}" class="${meta.cls || ''}"><th class="sg-rh ${rowSel ? 'on' : ''}">${hooks.checkable ? `<input type="checkbox" class="cb sg-check" ${meta.checked ? 'checked' : ''} ${meta.disabled ? 'disabled' : ''} tabindex="-1" title="${escHtml(meta.checkTitle || '')}" />` : ''}<span>${(sh.index.get(row) ?? r) + 1}</span></th>`;
         for (let c = 0; c < sh.headers.length; c++) {
           const val = row.cells[c] ?? '';
-          const sel = rowSel && c >= rg.c1 && c <= rg.c2;
+          const sel = rowSel && inSel(r, c);
           const act = r === s.fr && c === s.fc;
           const cell = hooks.cellInfo?.(sh, row, c) || {};
           html += `<td data-c="${c}" class="${sel ? 'sel' : ''}${act ? ' act' : ''}${cell.cls ? ' ' + cell.cls : ''}"${cell.title ? ` title="${escHtml(cell.title)}"` : ''}>${escHtml(val)}</td>`;
@@ -346,8 +363,11 @@
       else if (x + w > root.scrollLeft + root.clientWidth) root.scrollLeft = x + w - root.clientWidth;
     }
 
-    function select(ar, ac, fr = ar, fc = ac, { scroll = true } = {}) {
-      Object.assign(S(), { ar, ac, fr, fc });
+    function select(ar, ac, fr = ar, fc = ac, { scroll = true, keep = false, add = false } = {}) {
+      const s = S();
+      if (add) s.extra = [...(s.extra || []), { ar: s.ar, ac: s.ac, fr: s.fr, fc: s.fc }];
+      else if (!keep) s.extra = [];
+      Object.assign(s, { ar, ac, fr, fc });
       clampSel();
       if (scroll) scrollToCell(S().fr, S().fc);
       renderSelection();
@@ -359,12 +379,12 @@
       for (const tr of tbody.children) {
         const r = Number(tr.dataset.r);
         if (Number.isNaN(r)) continue;
-        const rowSel = r >= rg.r1 && r <= rg.r2;
+        const rowSel = rowOn(r);
         tr.firstElementChild.classList.toggle('on', rowSel);
         for (const td of tr.children) {
           if (td.tagName !== 'TD') continue;
           const c = Number(td.dataset.c);
-          td.classList.toggle('sel', rowSel && c >= rg.c1 && c <= rg.c2);
+          td.classList.toggle('sel', rowSel && inSel(r, c));
           td.classList.toggle('act', r === s.fr && c === s.fc);
         }
       }
@@ -415,13 +435,16 @@
       const s = S();
       const r = Math.min(Math.max(s.fr + dr, 0), Math.max(0, view().length - 1));
       const c = Math.min(Math.max(s.fc + dc, 0), Math.max(0, nCols() - 1));
-      if (extend) select(s.ar, s.ac, r, c);
+      if (extend) select(s.ar, s.ac, r, c, { keep: true });
       else select(r, c);
     }
 
     function clearRange() {
-      const sh = sheet(), rg = range(), changes = [];
-      for (let r = rg.r1; r <= rg.r2; r++) for (let c = rg.c1; c <= rg.c2; c++) if (sh.view[r]) changes.push({ row: sh.view[r], c, v: '' });
+      const sh = sheet(), changes = [], seen = new Set();
+      for (const rg of ranges()) for (let r = rg.r1; r <= rg.r2; r++) for (let c = rg.c1; c <= rg.c2; c++) {
+        const k = r + ':' + c;
+        if (sh.view[r] && !seen.has(k)) { seen.add(k); changes.push({ row: sh.view[r], c, v: '' }); }
+      }
       setCells(changes, 'Clear');
     }
 
@@ -444,20 +467,22 @@
       if (hit) {
         e.preventDefault();
         root.focus({ preventScroll: true });
-        if (e.shiftKey) select(S().ar, S().ac, hit.r, hit.c, { scroll: false });
-        else select(hit.r, hit.c, hit.r, hit.c, { scroll: false });
+        const add = e.metaKey || e.ctrlKey;
+        if (e.shiftKey) select(S().ar, S().ac, hit.r, hit.c, { scroll: false, keep: true });
+        else select(hit.r, hit.c, hit.r, hit.c, { scroll: false, add });
         dragging = true;
       } else if (rh) {
         e.preventDefault();
         root.focus({ preventScroll: true });
         const r = Number(rh.parentElement.dataset.r);
-        select(e.shiftKey ? S().ar : r, 0, r, nCols() - 1, { scroll: false });
+        select(e.shiftKey ? S().ar : r, 0, r, nCols() - 1, { scroll: false, keep: e.shiftKey, add: !e.shiftKey && (e.metaKey || e.ctrlKey) });
         dragging = 'rows';
       } else if (name) {
         e.preventDefault();
         root.focus({ preventScroll: true });
         const c = Number(name.dataset.name ?? name.dataset.c);
-        select(0, e.shiftKey ? S().ac : c, last, c, { scroll: false });
+        select(0, e.shiftKey ? S().ac : c, last, c, { scroll: false, keep: e.shiftKey, add: !e.shiftKey && (e.metaKey || e.ctrlKey) });
+        dragging = 'cols';
       }
     });
     document.addEventListener('mousemove', (e) => {
@@ -466,11 +491,17 @@
       if (!el || !root.contains(el)) return;
       if (dragging === 'rows') {
         const tr = el.closest('tr[data-r]');
-        if (tr) select(S().ar, 0, Number(tr.dataset.r), nCols() - 1, { scroll: false });
+        if (tr) select(S().ar, 0, Number(tr.dataset.r), nCols() - 1, { scroll: false, keep: true });
+        return;
+      }
+      if (dragging === 'cols') {
+        const th = el.closest('th[data-c], th[data-name], td[data-c]');
+        const c = th && Number(th.dataset.c ?? th.dataset.name);
+        if (th && !Number.isNaN(c) && c !== S().fc) select(0, S().ac, Math.max(0, view().length - 1), c, { scroll: false, keep: true });
         return;
       }
       const hit = cellAt(el);
-      if (hit && (hit.r !== S().fr || hit.c !== S().fc)) select(S().ar, S().ac, hit.r, hit.c, { scroll: false });
+      if (hit && (hit.r !== S().fr || hit.c !== S().fc)) select(S().ar, S().ac, hit.r, hit.c, { scroll: false, keep: true });
     });
     document.addEventListener('mouseup', () => { dragging = false; });
 
@@ -532,35 +563,41 @@
       e.preventDefault();
       if (name) return columnMenu(Number(name.dataset.name ?? name.dataset.c), e.clientX, e.clientY);
       const r = hit ? hit.r : Number(rh.parentElement.dataset.r);
-      const rg = range();
-      if (r < rg.r1 || r > rg.r2) select(r, hit ? hit.c : 0, r, hit ? hit.c : nCols() - 1, { scroll: false });
+      if (hit ? !inSel(r, hit.c) : !rowOn(r)) select(r, hit ? hit.c : 0, r, hit ? hit.c : nCols() - 1, { scroll: false });
       rowMenu(e.clientX, e.clientY);
     });
 
     // --- Menus -----------------------------------------------------------------
 
     function rowMenu(x, y) {
-      const rg = range(), n = rg.r2 - rg.r1 + 1, sh = sheet();
-      const rows = sh.view.slice(rg.r1, rg.r2 + 1);
+      const sh = sheet(), rg = range(), single = !(S().extra || []).length;
+      const rowIdx = selRows(), rows = rowIdx.map((r) => sh.view[r]).filter(Boolean), n = rows.length;
+      const cells = ranges().reduce((t, g) => t + (g.r2 - g.r1 + 1) * (g.c2 - g.c1 + 1), 0);
       const at = (r) => sh.rows.indexOf(sh.view[r]);
+      const rowsWord = n > 1 ? n + ' rows' : 'row';
       if (hooks.readOnly) return Menu.open(x, y, [{ label: 'Copy', kbd: '⌘C', action: () => document.execCommand('copy') }, ...(hooks.rowMenuExtras?.(sh, rows) || [])]);
       Menu.open(x, y, [
-        { label: 'Copy', kbd: '⌘C', action: () => document.execCommand('copy') },
-        { label: 'Clear cells', kbd: '⌫', action: clearRange },
+        ...(single ? [{ label: 'Cut', kbd: '⌘X', action: () => document.execCommand('cut') }, { label: 'Copy', kbd: '⌘C', action: () => document.execCommand('copy') }] : []),
+        { label: cells > 1 ? `Clear ${cells} cells` : 'Clear cell', kbd: '⌫', action: clearRange },
         '-',
-        { label: `Insert ${n > 1 ? n + ' rows' : 'row'} above`, action: () => { insertRows(at(rg.r1), n); select(rg.r1, S().fc); } },
-        { label: `Insert ${n > 1 ? n + ' rows' : 'row'} below`, action: () => { insertRows(at(rg.r2) + 1, n); select(rg.r2 + 1, S().fc); } },
-        { label: `Delete ${n > 1 ? n + ' rows' : 'row'}`, danger: true, action: () => deleteRows(rows) },
+        // Inserting next to several separate ranges has no single place to go, so only for one range.
+        ...(single ? [
+          { label: `Insert ${rowsWord} above`, action: () => { insertRows(at(rg.r1), n); select(rg.r1, S().fc); } },
+          { label: `Insert ${rowsWord} below`, action: () => { insertRows(at(rg.r2) + 1, n); select(rg.r2 + 1, S().fc); } },
+        ] : []),
+        { label: `Delete ${rowsWord}`, danger: true, action: () => deleteRows(rows) },
         ...(hooks.rowMenuExtras?.(sh, rows) || []),
       ]);
     }
 
     function columnMenu(c, x, y) {
       const sh = sheet();
-      // Several columns selected and this is one of them: insert / delete act on all of them.
-      const rg = range(), many = c >= rg.c1 && c <= rg.c2 && rg.c2 > rg.c1, n = many ? rg.c2 - rg.c1 + 1 : 1;
-      const c1 = many ? rg.c1 : c, c2 = many ? rg.c2 : c;
+      // Several columns selected (in one range or several) and this is one of them: act on all of them.
+      const chosen = colOn(c) ? selCols() : [c], many = chosen.length > 1, n = chosen.length;
+      const contiguous = chosen[n - 1] - chosen[0] === n - 1, c1 = chosen[0], c2 = chosen[n - 1];
       const cols = (w) => (n === 1 ? `column${w ? ' ' + w : ''}` : `${n} columns${w ? ' ' + w : ''}`);
+      const names = contiguous ? (n > 1 ? `${letter(c1)}–${letter(c2)}` : letter(c1)) : chosen.map(letter).join(', ');
+      const clearCols = () => { const sh2 = sheet(), ch = []; for (const row of sh2.view) for (const k of chosen) ch.push({ row, c: k, v: '' }); setCells(ch, 'Clear'); };
       Menu.open(x, y, [
         ...(hooks.columnMenuExtras?.(sh, c) || []),
         { label: 'Sort A → Z', action: () => sortBy(c, 1) },
@@ -569,9 +606,12 @@
         ...(sh.filters[c] ? [{ label: 'Clear filter', action: () => { delete sh.filters[c]; after('filter'); } }] : []),
         ...(hooks.readOnly ? [] : ['-',
         ...(many ? [] : [{ label: 'Rename', action: () => startEdit(null, -1, c) }]),
-        { label: `Insert ${cols('left')}`, action: () => (many ? insertCols(c1, n) : insertCol(c)) },
-        { label: `Insert ${cols('right')}`, action: () => (many ? insertCols(c2 + 1, n) : insertCol(c + 1)) },
-        { label: many ? `Delete ${n} columns (${letter(c1)}–${letter(c2)})` : 'Delete column', danger: true, action: () => (many ? deleteCols(c1, c2) : deleteCol(c)) }]),
+        { label: many ? `Clear ${n} columns` : 'Clear column', action: clearCols },
+        ...(contiguous ? [
+          { label: `Insert ${cols('left')}`, action: () => (many ? insertCols(c1, n) : insertCol(c)) },
+          { label: `Insert ${cols('right')}`, action: () => (many ? insertCols(c2 + 1, n) : insertCol(c + 1)) },
+        ] : []),
+        { label: many ? `Delete ${n} columns (${names})` : 'Delete column', danger: true, action: () => (many ? deleteColSet(chosen) : deleteCol(c)) }]),
       ]);
     }
 
@@ -786,7 +826,10 @@
       clearHistory() { history = []; future = []; },
       select,
       range,
-      selectedRows() { const rg = range(); return view().slice(rg.r1, rg.r2 + 1); },
+      selectedRows() { return selRows().map((r) => view()[r]).filter(Boolean); },
+      selectedCols: () => selCols(),
+      clearSelection: () => clearRange(),
+      deleteColumns: (list) => deleteColSet(list ?? selCols()),
       activeRow: () => view()[S().fr] || null,
       insertRowsAt(where) {
         const sh = sheet(), rg = range(), n = rg.r2 - rg.r1 + 1;

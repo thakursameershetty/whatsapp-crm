@@ -3804,3 +3804,8 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .dt-foot b { color: var(--text); font-weight: 600; }
 @media (max-width: 480px) { .dt-main { grid-template-columns: 1fr; } .dt-times { flex-direction: row; overflow-x: auto; max-height: none; padding: 8px 0 0; box-shadow: 0 -1px 0 var(--hair); } .dt-time { padding: 0 10px; } }
 .ib-err b { font-weight: 600; } .ib-err { line-height: 1.45; }
+/* Sheet tabs: the × is always findable (faint until hover); a workbook's name has its own × to remove the file */
+.sp-tab-x { opacity: 0.45; }
+.sp-group { display: inline-flex; align-items: center; gap: 6px; }
+.sp-group-x { opacity: 0.45; margin-left: 2px; }
+.sp-group:hover .sp-group-x { opacity: 1; }

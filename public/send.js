@@ -237,6 +237,21 @@
     if (current()) grid.focus();
   }
 
+  // Remove sheets (one tab, or every sheet of an uploaded file). Only asks when there are edits to lose.
+  async function closeSheets(list, fileName = '') {
+    if (!list.length) return;
+    const edited = list.some((x) => x.dirty);
+    const what = fileName ? `“${fileName}”${list.length > 1 ? ` (${list.length} sheets)` : ''}` : `“${list[0].name}”`;
+    if (edited && !(await confirmDialog({ title: `Remove ${what}?`, message: 'Your edits will be lost. The original file on your computer is not changed.', confirmText: 'Remove', danger: true }))) return;
+    const activeSheet = SP.sheets[SP.active];
+    const firstIdx = SP.sheets.indexOf(list[0]);
+    SP.sheets = SP.sheets.filter((x) => !list.includes(x));
+    grid.clearHistory(); // undo steps may point at a removed sheet
+    const keep = SP.sheets.indexOf(activeSheet);
+    activate(keep >= 0 ? keep : Math.min(firstIdx, SP.sheets.length - 1));
+    toast(`Removed ${what}`);
+  }
+
   function renderTabs() {
     let html = '';
     SP.sheets.forEach((sh, i) => {
@@ -244,7 +259,7 @@
       const many = sh.file && SP.sheets.filter((x) => x.file === sh.file).length > 1;
       // A workbook with several sheets gets its name once, in front of its tabs.
       if (many && prev?.file !== sh.file) {
-        html += `<span class="sp-group" style="--tab-c:${colorOf(sh)}" title="${esc(sh.file)}"><i></i>${esc(sh.file)}</span>`;
+        html += `<span class="sp-group" style="--tab-c:${colorOf(sh)}" title="${esc(sh.file)}"><i></i>${esc(sh.file)}<button type="button" class="sp-tab-x sp-group-x" data-close-file="${esc(sh.file)}" aria-label="Remove ${esc(sh.file)} and all its sheets" title="Remove this file">×</button></span>`;
       }
       const label = many || !sh.file || sh.file === sh.name ? sh.name : `${sh.name} · ${sh.file}`;
       html += `
@@ -260,15 +275,9 @@
 
   $('#spTabs').addEventListener('click', async (e) => {
     const close = e.target.closest('[data-close]');
-    if (close) {
-      const i = Number(close.dataset.close), sh = SP.sheets[i];
-      if (sh.dirty && !(await confirmDialog({ title: `Close “${sh.name}”?`, message: 'Your edits to this sheet will be lost. The original file is not changed.', confirmText: 'Close', danger: true }))) return;
-      SP.sheets.splice(i, 1);
-      grid.clearHistory(); // undo steps may point at the closed sheet
-      // Stay on the same tab if another closed; otherwise move to its neighbour.
-      activate(SP.active > i ? SP.active - 1 : Math.min(SP.active, SP.sheets.length - 1));
-      return;
-    }
+    if (close) return closeSheets([SP.sheets[Number(close.dataset.close)]]);
+    const closeFile = e.target.closest('[data-close-file]');
+    if (closeFile) return closeSheets(SP.sheets.filter((x) => x.file === closeFile.dataset.closeFile), closeFile.dataset.closeFile);
     const inc = e.target.closest('[data-include]');
     if (inc) {
       SP.sheets[Number(inc.dataset.include)].included = inc.checked;
@@ -362,7 +371,23 @@
   $('#spRedo').addEventListener('click', () => { grid.redo(); grid.focus(); });
   $('#spAddRow').addEventListener('click', () => { grid.insertRowsAt('below'); grid.focus(); });
   $('#spAddCol').addEventListener('click', () => { grid.insertColumn(); grid.focus(); });
-  $('#spDelRows').addEventListener('click', () => { grid.deleteSelectedRows(); grid.focus(); });
+  // Delete: what's selected (cells, rows, columns), or the sheet / file itself.
+  $('#spDelRows').addEventListener('click', (e) => {
+    const sh = current(); if (!sh) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const rows = grid.selectedRows().length, cols = grid.selectedCols().length;
+    // Whole rows selected (every column): deleting columns isn't what's meant, and the other way round.
+    const wholeRows = cols === sh.headers.length && sh.headers.length > 1, wholeCols = rows === sh.view.length && rows > 1 && !wholeRows;
+    const fileSheets = sh.file ? SP.sheets.filter((x) => x.file === sh.file) : [];
+    Sheet.Menu.open(r.left, r.bottom + 6, [
+      { label: 'Clear selected cells', kbd: '⌫', action: () => { grid.clearSelection(); grid.focus(); } },
+      ...(wholeCols ? [] : [{ label: `Delete ${rows > 1 ? rows + ' rows' : 'row'}`, action: () => { grid.deleteSelectedRows(); grid.focus(); } }]),
+      ...(wholeRows ? [] : [{ label: `Delete ${cols > 1 ? cols + ' columns' : 'column'}`, action: () => { grid.deleteColumns(); grid.focus(); } }]),
+      '-',
+      { label: `Remove sheet “${sh.name}”`, danger: true, action: () => closeSheets([sh]) },
+      ...(fileSheets.length > 1 ? [{ label: `Remove file “${sh.file}” (${fileSheets.length} sheets)`, danger: true, action: () => closeSheets(fileSheets, sh.file) }] : []),
+    ]);
+  });
   $('#spExport').addEventListener('click', () => {
     const sh = current();
     if (!sh) return;
@@ -622,6 +647,7 @@
   // --- Chrome: toolbar state, tabs, summary ----------------------------------------------
 
   function renderChrome() {
+    Draft.save();
     const sh = current();
     const has = Boolean(sh);
     $('#spEmpty').classList.toggle('hidden', has);
@@ -721,6 +747,7 @@
   });
 
   function renderSummary() {
+    Draft.save();
     const { list, skip, sheets } = recipients();
     const count = list.length;
     const nums = state.selectedSenders.size;
@@ -891,7 +918,77 @@
     toast(`${list.length.toLocaleString()} recipient${list.length === 1 ? '' : 's'} ready${t ? ` with ${t.name}` : ''}. Check, then send.`);
   }
 
+  // --- Draft: the page's work survives switching tabs and reloading ------------------------------
+  // Kept in this browser (IndexedDB), one draft per workspace: sheets with their edits, the phone
+  // column, ticks, template, variables, numbers, campaign name and schedule. Saved shortly after
+  // each change; restored once at start-up. Logging out clears it.
+  const Draft = (() => {
+    const DB = 'ws-drafts', STORE = 'send';
+    let timer = 0, restoring = false, ready = false;
+    const open = () => new Promise((res, rej) => {
+      const r = indexedDB.open(DB, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    const tx = async (mode, fn) => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction(STORE, mode); const out = fn(t.objectStore(STORE)); t.oncomplete = () => res(out?.result); t.onerror = () => rej(t.error); }); };
+    const key = () => 'ws:' + (state.me?.workspace?.id || 'default');
+    // Only what's needed to rebuild; checks (st/phone) and views are worked out again.
+    const pack = () => ({
+      v: 1, savedAt: Date.now(), active: SP.active, mapping: SP.mapping,
+      sheets: SP.sheets.map((sh) => ({
+        name: sh.name, file: sh.file, headers: sh.headers, widths: sh.widths, phoneName: sh.phoneName, included: sh.included, dirty: sh.dirty,
+        rows: sh.rows.map((r) => [r.cells, r.on ? 1 : 0]),
+        filters: Object.fromEntries(Object.entries(sh.filters || {}).map(([c, x]) => [c, { text: x.text || '', values: x.values ? [...x.values] : null }])),
+      })),
+      templateId: $('#templateSelect').value, senders: [...state.selectedSenders], name: $('#campaignName').value,
+      mode: state.sendMode, at: $('#scheduleAt').value,
+    });
+    function save() {
+      if (!ready || restoring) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const data = pack();
+        const empty = !data.sheets.length && !data.templateId && !data.name;
+        tx('readwrite', (st) => (empty ? st.delete(key()) : st.put(data, key()))).catch(() => {});
+      }, 500);
+    }
+    async function restore() {
+      let d = null;
+      try { d = await tx('readonly', (st) => st.get(key())); } catch { /* private window etc.: start fresh */ }
+      ready = true;
+      if (!d || d.v !== 1) return false;
+      restoring = true;
+      try {
+        SP.sheets = d.sheets.map((x) => {
+          const sh = { id: nextId++, name: x.name, file: x.file, headers: x.headers, widths: x.widths, phoneName: x.phoneName, included: x.included, dirty: x.dirty,
+            rows: x.rows.map(([cells, on]) => ({ cells, on: Boolean(on) })),
+            filters: Object.fromEntries(Object.entries(x.filters || {}).map(([c, f]) => [c, { text: f.text, ...(f.values ? { values: new Set(f.values) } : {}) }])) };
+          recheck(sh);
+          return sh;
+        });
+        SP.mapping = d.mapping || {};
+        if (state.templates.some((t) => t.id === d.templateId)) $('#templateSelect').value = d.templateId;
+        const ids = new Set(state.senders.filter((x) => x.enabled).map((x) => x.id));
+        const keep = (d.senders || []).filter((id) => ids.has(id));
+        if (keep.length) state.selectedSenders = new Set(keep);
+        $('#campaignName').value = d.name || '';
+        if (d.mode === 'schedule' && d.at && new Date(d.at) > Date.now()) { $('#scheduleAt').value = d.at; $('#sendMode [data-mode=schedule]')?.click(); }
+        renderSenderChecks();
+        activate(Math.min(Math.max(0, d.active), SP.sheets.length - 1));
+      } finally { restoring = false; }
+      return SP.sheets.length > 0;
+    }
+    const clear = () => tx('readwrite', (st) => st.clear()).catch(() => {});
+    return { save, restore, clear };
+  })();
+  $('#campaignName').addEventListener('input', () => Draft.save());
+  $('#scheduleAt').addEventListener('change', () => Draft.save());
+  // Logging out: don't leave anyone's contact lists in this browser.
+  document.addEventListener('click', (e) => { if (e.target.closest('a[href="/logout"]')) Draft.clear(); }, true);
+
   window.SendPage = {
+    restoreDraft: () => Draft.restore(),
     readWorkbook,
     toTable,
     openContacts,

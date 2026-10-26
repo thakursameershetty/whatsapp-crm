@@ -93,13 +93,24 @@ function showTab(name) {
   else stopOverviewPolling();
   if (name === 'numbers') refreshStats().then(renderSenders).catch(() => {});
   hideTip();
-  history.replaceState(null, '', '#' + name);
+  // The address follows the page (/send, /inbox; the overview is just /), so Back and Forward move
+  // between pages and a reload stays where you are.
+  const path = name === 'overview' ? '/' : '/' + name;
+  if (location.pathname !== path || location.hash) history[showTab.replace ? 'replaceState' : 'pushState']({ tab: name }, '', path);
+  showTab.replace = false;
 }
+// Which page an address means: /send → send; old #send links still work.
+const tabFromUrl = () => {
+  const h = location.hash.slice(1), p = location.pathname.replace(/^\/+|\/+$/g, '');
+  const t = (h && $('#tab-' + h) && h) || (p && $('#tab-' + p) && p) || 'overview';
+  return t;
+};
 $$('.side-nav button[data-tab]').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
-window.addEventListener('hashchange', () => {
-  const tab = location.hash.slice(1);
-  if ($('#tab-' + tab)?.classList.contains('hidden')) showTab(tab);
+window.addEventListener('popstate', () => {
+  const tab = tabFromUrl();
+  if ($('#tab-' + tab)?.classList.contains('hidden')) { showTab.replace = true; showTab(tab); }
 });
+window.addEventListener('hashchange', () => { const tab = tabFromUrl(); showTab.replace = true; showTab(tab); });
 
 // Sidebar: collapses to icons. Remembered per browser; on the Inbox it starts collapsed
 // and the toggle only opens it for that visit.
@@ -2245,8 +2256,9 @@ $('#pwChange').addEventListener('click', () => {
     state.settings = await api('/settings');
     renderSettings();
     await Promise.all([loadSenders(), loadTemplates()]);
-    const tab = location.hash.slice(1);
-    showTab(tab && $('#tab-' + tab) ? tab : 'overview');
+    await window.SendPage?.restoreDraft().catch(() => false); // the Send page's sheets and settings from last time
+    showTab.replace = true; // the first page replaces the address (e.g. an old #send link becomes /send)
+    showTab(tabFromUrl());
   } catch (e) {
     toast('Could not reach the server: ' + e.message, 'error');
   }
