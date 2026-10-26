@@ -359,8 +359,11 @@
     const r = people[Math.min(CP.sample, people.length - 1)];
     $('#cdMsg').innerHTML = `
       <div class="cd-label">Message ${people.length > 1 ? `<span class="cd-flip"><button class="icon-btn" data-cd="prev" aria-label="Previous recipient">‹</button>${CP.sample + 1} / ${people.length}<button class="icon-btn" data-cd="next" aria-label="Next recipient">›</button></span>` : ''}</div>
-      <div class="phone"><div class="bubble">${t ? bubbleHtml(t, r?.values || {}) : `<span class="muted">Template “${esc(c.templateName)}” was removed</span>`}</div></div>
-      <p class="sub">${r ? `As sent to <b>${esc(r.name || '+' + r.phone)}</b>` : ''}</p>`;
+      <div class="phone ${CP.msgOpen ? 'open' : ''}"><div class="bubble">${t ? bubbleHtml(t, r?.values || {}) : `<span class="muted">Template “${esc(c.templateName)}” was removed</span>`}</div></div>
+      <div class="cd-msg-foot"><p class="sub">${r ? `As sent to <b>${esc(r.name || '+' + r.phone)}</b>` : ''}</p><button type="button" class="btn sm quiet cd-msg-more hidden" data-cd="msgmore">${CP.msgOpen ? 'Show less' : 'Show full message'}</button></div>`;
+    // Long messages are shown cut to the height of the results beside them; the button shows the rest.
+    const ph = $('#cdMsg .phone');
+    requestAnimationFrame(() => $('#cdMsg .cd-msg-more')?.classList.toggle('hidden', !CP.msgOpen && ph.scrollHeight <= ph.clientHeight + 2));
   }
 
   // Sent → delivered → read → replied → leads. Each bar is a share of what was sent.
@@ -524,6 +527,7 @@
     if (b.dataset.show) { CP.show = b.dataset.show; return renderRecipients(c, false); }
     const act = b.dataset.cd;
     if (act === 'back') return back();
+    if (act === 'msgmore') { CP.msgOpen = !CP.msgOpen; return renderMessage(c); }
     if (act === 'prev' || act === 'next') { const n = c.recipients.filter((r) => r.values).slice(0, 20).length; CP.sample = (CP.sample + (act === 'next' ? 1 : -1) + n) % n; return renderMessage(c); }
     if (act === 'chart-table') { CP.chartTable = !CP.chartTable; return renderChart(c); }
     if (act === 'follow') return followMenu(c, b);

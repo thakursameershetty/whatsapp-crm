@@ -3857,3 +3857,17 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .cd-why div { display: flex; flex-direction: column; gap: 2px; }
 .cd-why b { font-weight: 600; }
 .cd-why span { color: var(--text); }
+
+/* Campaign detail: message and results side by side, about the same height */
+.cd-top { align-items: stretch; }
+.cd-msg, .cd-funnel { display: flex; flex-direction: column; }
+.cd-msg .phone { position: relative; max-height: 380px; overflow: hidden; }
+.cd-msg .phone::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 56px; background: linear-gradient(transparent, var(--chat)); border-radius: 0 0 10px 10px; pointer-events: none; }
+.cd-msg .phone.open { max-height: none; }
+.cd-msg .phone.open::after { display: none; }
+.cd-msg-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.cd-msg-foot .sub { margin: 0; }
+/* the bars spread over the card instead of bunching at the top */
+.cd-funnel .cd-steps { flex: 1; justify-content: space-evenly; gap: 14px; }
+.cd-funnel .cd-foot { margin-top: 16px; }
+.cd-step-bar { height: 12px; }

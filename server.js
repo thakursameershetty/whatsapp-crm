@@ -52,6 +52,11 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
   for (const c of db.campaigns) {
     c.recipients.forEach((r, i) => r.messageId && messageIndex.set(r.messageId, { campaignId: c.id, index: i }));
     // A campaign that was mid-run when the server stopped can't resume its in-memory loop.
+    // Campaigns sent before names were picked up from columns like "Contact Name": take them from the greeting.
+    if (c.recipients.length && c.recipients.every((r) => !r.name)) {
+      const g = greetingVar(db.templates.find((t) => t.id === c.templateId));
+      if (g && c.recipients.some((r) => r.values?.[g])) { for (const r of c.recipients) r.name = String(r.values?.[g] || '').trim().slice(0, 120); save(); }
+    }
     if (c.status === 'running') { c.status = 'stopped'; c.pausedReason = 'Stopped because the server restarted while it was sending (for example a new deploy). Nothing was lost: press Resume to send the rest.'; save(); }
   }
   // Rewrite once so secrets stored before encryption was turned on get encrypted.
@@ -667,9 +672,30 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
 
 // --- Sending ----------------------------------------------------------------
 
+// Who a row is, for the campaign's recipient list: a name column by its usual names ("Contact Name",
+// "Full name", first + last…), else the value of a greeting variable ("Hi {{1}}" → {{1}} is the name).
+const norm = (h) => String(h).toLowerCase().replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim();
+const NAME_COLS = ['name', 'full name', 'fullname', 'contact name', 'customer name', 'client name', 'lead name', 'person name', 'your name', 'contact', 'customer'];
+const NOT_A_PERSON = /company|business|org|brand|shop|store|firm|file|template|campaign|\bad\b|adset|ad set|form|sheet|product|city|place|user ?name|nick/;
+function nameColumnOf(headers) {
+  const hs = headers.map((h) => [h, norm(h)]);
+  for (const want of NAME_COLS) { const hit = hs.find(([, n]) => n === want); if (hit) return { col: hit[0] }; }
+  const first = hs.find(([, n]) => /^(first name|firstname|given name|fname)$/.test(n)), last = hs.find(([, n]) => /^(last name|lastname|surname|family name|lname)$/.test(n));
+  if (first) return { col: first[0], last: last?.[0] };
+  const any = hs.find(([, n]) => /\bname\b/.test(n) && !NOT_A_PERSON.test(n));
+  return any ? { col: any[0] } : null;
+}
+// "Hi {{1}}", "Hello {{name}}", "Dear {{2}}": that body variable is the person's name.
+function greetingVar(template) {
+  const body = (template?.components || []).find((c) => String(c.type).toUpperCase() === 'BODY')?.text || '';
+  const m = body.match(/\b(hi|hello|hey|dear|namaste|hii)\b[\s,]*\{\{\s*(\w+)\s*\}\}/i);
+  return m ? 'body.' + m[2] : null;
+}
+
 function resolveRecipients(body, template) {
   const { rows = [], phoneColumn, mapping = {} } = body;
   const vars = templateVariables(template.components);
+  const nameCol = rows.length ? nameColumnOf(Object.keys(rows[0])) : null, greet = greetingVar(template);
   const seen = new Set();
   const recipients = [];
   const skipped = [];
@@ -684,7 +710,8 @@ function resolveRecipients(body, template) {
       const m = mapping[v.key] || {};
       values[v.key] = m.type === 'column' ? String(row[m.value] ?? '').trim() : String(m.value ?? '');
     }
-    recipients.push({ phone, values, name: row.name || row.Name || '' });
+    const fromCol = nameCol ? [row[nameCol.col], nameCol.last && row[nameCol.last]].filter(Boolean).join(' ').trim() : '';
+    recipients.push({ phone, values, name: String(fromCol || (greet && values[greet]) || '').trim().slice(0, 120) });
   }
   return { recipients, skipped, vars };
 }
