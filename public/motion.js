@@ -58,6 +58,9 @@
   function placeThumb(seg, instant) {
     const th = seg.__thumb;
     if (!th) return;
+    // A redraw of the buttons (innerHTML, e.g. live counts on a running campaign) removes the thumb:
+    // put it back, so it isn't left moving while detached (or stuck where the old buttons were).
+    if (th.parentNode !== seg) seg.prepend(th);
     const a = seg.querySelector(':scope > button.active');
     if (!a || !a.offsetWidth) { th.style.opacity = '0'; return; }
     if (seg.id) lastPos.set(seg.id, { w: a.offsetWidth, h: a.offsetHeight, x: a.offsetLeft, y: a.offsetTop });
@@ -79,7 +82,11 @@
     seg.prepend(th);
     seg.__thumb = th;
     seg.classList.add('has-thumb');
-    new MutationObserver(() => placeThumb(seg)).observe(seg, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    // Re-place on a new active button, and when the buttons are redrawn or their text (counts) changes width.
+    new MutationObserver((muts) => {
+      if (muts.every((m) => m.type === 'childList' && [...m.addedNodes, ...m.removedNodes].every((n) => n === th))) return; // our own re-attach
+      placeThumb(seg, muts.some((m) => m.type === 'childList' && m.target === seg));
+    }).observe(seg, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class'] });
     // A control inside something hidden (e.g. the expanded chart dialog) has no size yet;
     // place the thumb once it's shown or resized. (The first callback is just the initial size.)
     let seen = false;

@@ -52,7 +52,7 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
   for (const c of db.campaigns) {
     c.recipients.forEach((r, i) => r.messageId && messageIndex.set(r.messageId, { campaignId: c.id, index: i }));
     // A campaign that was mid-run when the server stopped can't resume its in-memory loop.
-    if (c.status === 'running') { c.status = 'stopped'; save(); }
+    if (c.status === 'running') { c.status = 'stopped'; c.pausedReason = 'Stopped because the server restarted while it was sending (for example a new deploy). Nothing was lost: press Resume to send the rest.'; save(); }
   }
   // Rewrite once so secrets stored before encryption was turned on get encrypted.
   if (require('./secrets').enabled) save();
@@ -208,10 +208,19 @@ const RETRYABLE = new Set([4, 80007, 130429, 131048, 131056]);
 const running = new Map(); // campaignId -> { stop: boolean }
 let notes = null; // notifications (notifications.js), mounted further down
 
+// Failures that say the list (or the number) is in trouble. Meta's marketing cap (131049) and rate
+// limits are Meta's choice about timing, not bad numbers, so they don't count towards auto-pausing.
+const NOT_LIST_PROBLEMS = /^(131049|130429|131056|4|80007):/;
+const listFailures = (c) => c.recipients.filter((r) => r.status === 'failed' && !NOT_LIST_PROBLEMS.test(String(r.error || ''))).length;
+const attempted = (c) => c.recipients.filter((r) => ['sent', 'delivered', 'read', 'failed'].includes(r.status)).length;
+
 async function runCampaign(campaign) {
   const control = { stop: false };
   running.set(campaign.id, control);
   campaign.status = 'running';
+  // This run is judged on its own messages: what went wrong before (and was resumed past) doesn't count again.
+  delete campaign.pausedReason;
+  const base = { done: attempted(campaign), failed: listFailures(campaign) };
   campaign.startedAt ||= new Date().toISOString();
   save();
   notes?.campaignStarted(campaign);
@@ -256,10 +265,10 @@ async function runCampaign(campaign) {
       recount(campaign);
       save();
       // Many failures usually means a bad list or a blocked number: stop before it hurts the number's quality.
-      const st = campaign.stats, done = (st.sent || 0) + (st.delivered || 0) + (st.read || 0) + (st.failed || 0);
-      if (!campaign.demo && !control.stop && done >= 40 && (st.failed || 0) / done > 0.3) {
+      const done = attempted(campaign) - base.done, bad = listFailures(campaign) - base.failed;
+      if (!campaign.demo && !control.stop && done >= 40 && bad / done > 0.3) {
         control.stop = true;
-        campaign.pausedReason = `Paused automatically: ${Math.round((100 * st.failed) / done)}% of the first ${done} messages failed. Check the failures before sending the rest.`;
+        campaign.pausedReason = `Paused automatically: ${Math.round((100 * bad) / done)}% of ${done} messages failed because the numbers couldn't receive them (not on WhatsApp, blocked, or wrong). Sending more to a list like this can lower your number's quality rating. Check the failures before sending the rest.`;
       }
       if (delayMsPerNumber) await sleep(delayMsPerNumber);
     }

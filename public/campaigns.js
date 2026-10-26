@@ -334,6 +334,8 @@
       : canResume ? `<button class="btn primary" data-cd="resume">${icon('send', 16)}${c.status === 'cancelled' ? 'Send now' : 'Resume'}</button>` : '';
     const nums = c.senderIds.map((id) => state.senders.find((x) => x.id === id)?.label).filter(Boolean);
     const when = c.status === 'scheduled' ? `sends ${relTime(c.scheduledAt)} (${fullDate(c.scheduledAt)})` : c.startedAt ? `started ${fullDate(c.startedAt)}${c.finishedAt ? ` · took ${duration(c.startedAt, c.finishedAt)}` : ''}` : `created ${fullDate(c.createdAt)}`;
+    // Why it stopped (auto-pause, or a server restart) and what to do, right under the title.
+    const why = c.status === 'stopped' && c.pausedReason ? `<div class="cd-why">${icon('badge-alert', 16)}<div><b>Why it stopped</b><span>${esc(c.pausedReason)}</span></div></div>` : '';
     $('#cdHead').innerHTML = `
       <button class="btn ghost sm cd-back" data-cd="back">${icon('arrow-left', 15)}Campaigns</button>
       <div class="cd-title">
@@ -342,7 +344,7 @@
         <div class="cd-actions">${primary}
           <button class="btn" data-cd="follow" ${sentOf(s) || s.failed ? '' : 'disabled'}>Follow up ${icon('chevron-down', 14)}</button>
           <button class="btn quiet cd-more" data-cd="more" aria-label="More actions">⋯</button></div>
-      </div>`;
+      </div>${why}`;
     LA.hydrate($('#cdHead'));
   }
   function duration(a, b) {

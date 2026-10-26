@@ -3852,3 +3852,8 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .shv-table tbody tr:hover td { background: color-mix(in srgb, var(--sunk) 60%, transparent); }
 .shv-n { width: 1%; color: var(--faint); font-variant-numeric: tabular-nums; text-align: right !important; }
 .shv-none { text-align: center !important; color: var(--muted); padding: 24px !important; }
+.cd-why { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 4px; padding: 12px 14px; border-radius: var(--r-md); background: var(--warn-soft); color: var(--warn); font-size: 13px; line-height: 1.5; }
+.cd-why svg { flex: none; margin-top: 2px; }
+.cd-why div { display: flex; flex-direction: column; gap: 2px; }
+.cd-why b { font-weight: 600; }
+.cd-why span { color: var(--text); }
