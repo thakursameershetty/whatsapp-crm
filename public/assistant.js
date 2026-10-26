@@ -564,7 +564,7 @@
     const more = Math.max(0, sh.rows - (sh.preview || []).length);
     const nFiles = sh.source_files ?? new Set((sh.sources || []).map((x) => x.file)).size;
     return `<div class="sheet-card" data-sheet="${esc(sh.id)}">
-      <div class="shc-head">${icon('file-spreadsheet', 18)}<div class="shc-title"><b>${esc(sh.name)}</b><span>${sh.rows.toLocaleString()} rows · ${sh.columns.length} columns · from ${nFiles} sheet${nFiles === 1 ? '' : 's'}</span></div><span class="shc-old hidden">Replaced by a newer version below</span></div>
+      <div class="shc-head">${icon('file-spreadsheet', 18)}<button type="button" class="icon-btn shc-max" data-sheet-act="view" title="See every row" aria-label="See every row">${icon('maximize-2', 15)}</button><div class="shc-title"><b>${esc(sh.name)}</b><span>${sh.rows.toLocaleString()} rows · ${sh.columns.length} columns · from ${nFiles} sheet${nFiles === 1 ? '' : 's'}</span></div><span class="shc-old hidden">Replaced by a newer version below</span></div>
       ${sh.summary ? `<p class="shc-sum">${esc(sh.summary)}</p>` : ''}
       <div class="shc-table"><table><thead><tr>${sh.columns.map((c) => `<th>${c === sh.phone_column ? icon('phone', 11) : ''}${esc(c)}</th>`).join('')}</tr></thead>
         <tbody>${(sh.preview || []).map((r) => `<tr>${sh.columns.map((c) => `<td title="${esc(r[c])}">${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>
@@ -574,8 +574,38 @@
         <button type="button" class="btn sm primary" data-sheet-act="send">${icon('send', 14)}Open in Send</button>
         <button type="button" class="btn sm" data-sheet-act="xlsx">${icon('download', 14)}Excel</button>
         <button type="button" class="btn sm quiet" data-sheet-act="csv">CSV</button>
+        <button type="button" class="btn sm quiet shc-expand" data-sheet-act="view">${icon('maximize-2', 14)}Expand</button>
       </div>
     </div>`;
+  }
+  // The whole sheet in a large popup: search across every column, all rows (drawn in pages as you scroll).
+  function viewSheet(t, id) {
+    const body = openModal(t.name, `
+      <div class="shv-bar"><div class="search-wrap">${icon('search', 15)}<input class="search" id="shvQ" placeholder="Search ${t.rows.length.toLocaleString()} rows" autocomplete="off" /></div><span class="shv-count" id="shvCount"></span>
+        <span class="shv-acts"><button type="button" class="btn sm" data-sheet-act="xlsx">${icon('download', 14)}Excel</button><button type="button" class="btn sm primary" data-sheet-act="send">${icon('send', 14)}Open in Send</button></span></div>
+      <div class="shv-table" id="shvWrap"><table><thead><tr><th class="shv-n">#</th>${t.headers.map((h) => `<th>${h === t.phoneColumn ? icon('phone', 11) : ''}${esc(h)}</th>`).join('')}</tr></thead><tbody id="shvBody"></tbody></table></div>`);
+    body.closest('.modal-box').classList.add('shv-box');
+    body.dataset.sheetCard = id; // the buttons inside work like the card's
+    body.classList.add('sheet-card-proxy');
+    const PAGE = 300;
+    let list = t.rows.map((r, i) => [i, r]), shown = 0;
+    const tb = $('#shvBody', body), wrap = $('#shvWrap', body);
+    const more = () => {
+      const html = list.slice(shown, shown + PAGE).map(([i, r]) => `<tr><td class="shv-n">${i + 1}</td>${r.map((v) => `<td title="${esc(v)}">${esc(v)}</td>`).join('')}</tr>`).join('');
+      tb.insertAdjacentHTML('beforeend', html);
+      shown = Math.min(list.length, shown + PAGE);
+    };
+    const draw = () => {
+      const q = $('#shvQ', body).value.trim().toLowerCase();
+      list = t.rows.map((r, i) => [i, r]).filter(([, r]) => !q || r.some((v) => String(v).toLowerCase().includes(q)));
+      tb.innerHTML = list.length ? '' : `<tr><td colspan="${t.headers.length + 1}" class="shv-none">No rows match.</td></tr>`;
+      shown = 0; more(); wrap.scrollTop = 0;
+      $('#shvCount', body).textContent = q ? `${list.length.toLocaleString()} of ${t.rows.length.toLocaleString()}` : `${t.rows.length.toLocaleString()} rows`;
+    };
+    wrap.addEventListener('scroll', () => { if (shown < list.length && wrap.scrollTop + wrap.clientHeight > wrap.scrollHeight - 400) more(); });
+    $('#shvQ', body).addEventListener('input', draw);
+    draw();
+    setTimeout(() => $('#shvQ', body).focus({ preventScroll: true }), 30);
   }
   function supersede(oldId) {
     if (!oldId) return;
@@ -593,9 +623,12 @@
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-sheet-act]');
     if (!b) return;
-    const id = b.closest('.sheet-card').dataset.sheet;
+    const id = b.closest('.sheet-card')?.dataset.sheet || b.closest('.sheet-card-proxy')?.dataset.sheetCard;
+    if (!id) return;
+    if (b.closest('.sheet-card-proxy') && b.dataset.sheetAct === 'send') closeModal();
     guard(async () => {
       const t = await fullSheet(id);
+      if (b.dataset.sheetAct === 'view') return viewSheet(t, id);
       if (b.dataset.sheetAct === 'send') {
         SendPage.openSheet(t.name, t.headers, t.rows, t.phoneColumn);
         toast(`Opened “${t.name}” on the Send page · ${t.rows.length.toLocaleString()} rows`);

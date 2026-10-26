@@ -226,6 +226,7 @@ function addPasswordEyes(root) {
 }
 function openModal(title, html) {
   $('#modalTitle').textContent = title;
+  $('#modal .modal-box').className = 'modal-box'; // a size class from the last popup (wide, ci-box) doesn't carry over
   $('#modalBody').innerHTML = html;
   LA.hydrate($('#modalBody'));
   addPasswordEyes($('#modalBody'));
