@@ -162,6 +162,8 @@ h1 { font-size: 22px; letter-spacing: -0.02em; margin: 0 0 4px; font-weight: 700
 h2 { font-size: 15px; letter-spacing: -0.01em; margin: 0 0 16px; display: flex; align-items: center; gap: 10px; font-weight: 600; }
 h3 { font-weight: 600; }
 .hidden { display: none !important; }
+/* The Assistant and AI settings are admin-only for now (app.js sets this from /api/me). */
+body.no-ai [data-tab="assistant"], body.no-ai [data-goto="assistant"], body.no-ai .ai-settings, body.no-ai .lead-settings { display: none !important; }
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
 .sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }

@@ -62,10 +62,11 @@ const TOOLS = [{
 }];
 
 module.exports = function mountLead(app, ctx) {
-  const { db, save, id, wrap, fail, aiConfig, broadcast, contacts, notes, sendText } = ctx;
+  const { db, save, id, wrap, fail, aiConfig, aiAllowed, broadcast, contacts, notes, sendText } = ctx;
   const timers = new Map();
 
-  const settings = () => db.settings.leadAgent || {};
+  // Off in workspaces without an admin: the AI features are admin-only for now.
+  const settings = () => (aiAllowed() && db.settings.leadAgent) || {};
   const chatOf = (key) => (db.chats[key] ||= { lastReadAt: null });
   const aiOf = (key) => (chatOf(key).ai ||= {});
   const splitKey = (key) => { const i = String(key).lastIndexOf(':'); return { senderId: key.slice(0, i), wa: key.slice(i + 1) }; };

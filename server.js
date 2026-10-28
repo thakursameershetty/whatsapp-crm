@@ -402,6 +402,9 @@ app.use(express.json({ limit: '20mb' }));
 const PUBLIC_FILES = new Set(['/style.css', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg']);
 app.use((req, res, next) => (PUBLIC_FILES.has(req.path) ? next() : tenants.requireAuth(req, res, next)));
 app.use(security.rateLimit); // after sign-in, so limits are per user
+// The AI features (the Assistant and the Inbox lead assistant) are admin-only for now.
+const AI_PATHS = ['/api/ai', /^\/api\/inbox\/[^/]+\/(draft|ai)$/];
+app.use(AI_PATHS, (req, res, next) => (req.admin ? next() : res.status(403).json({ error: 'The AI assistant isn’t available on this account' })));
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // Each page has its own address (/send, /inbox…): they're all the one app page, which shows the right one.
@@ -430,11 +433,13 @@ function aiConfig() {
   const provider = AI_PROVIDERS.includes(db.settings.aiProvider) ? db.settings.aiProvider : keys.gemini || !keys.claude ? 'gemini' : 'claude';
   return { provider, key: keys[provider], keys, geminiModel: db.settings.geminiModel || DEFAULT_GEMINI_MODEL };
 }
-function publicSettings() {
-  const { anthropicApiKey, geminiApiKey, ...rest } = db.settings;
+function publicSettings(req) {
+  const { anthropicApiKey, geminiApiKey, leadAgent, aiProvider, geminiModel, ...rest } = db.settings;
+  if (!req.admin) return { ...rest, demoAllowed: tenants.demoAllowed() }; // AI is admin-only
   const ai = aiConfig();
   return {
     ...rest,
+    leadAgent,
     demoAllowed: tenants.demoAllowed(),
     aiProvider: ai.provider,
     geminiModel: ai.geminiModel,
@@ -447,7 +452,7 @@ function publicSettings() {
   };
 }
 
-app.get('/api/settings', (req, res) => res.json(publicSettings()));
+app.get('/api/settings', (req, res) => res.json(publicSettings(req)));
 
 app.put('/api/settings', (req, res) => {
   const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'defaultCountry', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber'];
@@ -458,13 +463,20 @@ app.put('/api/settings', (req, res) => {
   if (!tenants.demoAllowed()) db.settings.demoMode = false;
   db.settings.concurrencyPerNumber = Math.min(50, Math.max(1, Number(db.settings.concurrencyPerNumber) || 1));
   db.settings.delayMsPerNumber = Math.max(0, Number(db.settings.delayMsPerNumber) || 0);
+  if (req.admin) saveAiSettings(req.body);
+  save();
+  res.json(publicSettings(req));
+});
+
+// AI keys, provider and the lead assistant (admin-only, see AI_PATHS).
+function saveAiSettings(body) {
   // Blank means "keep the saved key"; removing it is an explicit flag.
-  if (typeof req.body.anthropicApiKey === 'string' && req.body.anthropicApiKey.trim()) db.settings.anthropicApiKey = req.body.anthropicApiKey.trim();
-  if (req.body.removeAnthropicApiKey) delete db.settings.anthropicApiKey;
-  if (typeof req.body.geminiApiKey === 'string' && req.body.geminiApiKey.trim()) db.settings.geminiApiKey = req.body.geminiApiKey.trim();
-  if (req.body.removeGeminiApiKey) delete db.settings.geminiApiKey;
-  if (req.body.leadAgent && typeof req.body.leadAgent === 'object') {
-    const l = req.body.leadAgent;
+  if (typeof body.anthropicApiKey === 'string' && body.anthropicApiKey.trim()) db.settings.anthropicApiKey = body.anthropicApiKey.trim();
+  if (body.removeAnthropicApiKey) delete db.settings.anthropicApiKey;
+  if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.trim()) db.settings.geminiApiKey = body.geminiApiKey.trim();
+  if (body.removeGeminiApiKey) delete db.settings.geminiApiKey;
+  if (body.leadAgent && typeof body.leadAgent === 'object') {
+    const l = body.leadAgent;
     db.settings.leadAgent = {
       enabled: Boolean(l.enabled),
       autoReply: Boolean(l.enabled && l.autoReply),
@@ -472,15 +484,13 @@ app.put('/api/settings', (req, res) => {
       qualified: String(l.qualified ?? db.settings.leadAgent?.qualified ?? '').slice(0, 4000),
     };
   }
-  if (AI_PROVIDERS.includes(req.body.aiProvider)) db.settings.aiProvider = req.body.aiProvider;
-  if (typeof req.body.geminiModel === 'string') {
-    const m = req.body.geminiModel.trim().replace(/^models\//, '');
+  if (AI_PROVIDERS.includes(body.aiProvider)) db.settings.aiProvider = body.aiProvider;
+  if (typeof body.geminiModel === 'string') {
+    const m = body.geminiModel.trim().replace(/^models\//, '');
     if (!m) delete db.settings.geminiModel;
     else if (/^[\w.-]{1,80}$/.test(m)) db.settings.geminiModel = m;
   }
-  save();
-  res.json(publicSettings());
-});
+}
 
 // --- Sender numbers ---------------------------------------------------------
 
@@ -1086,7 +1096,7 @@ app.get('/api/inbox/:key', wrap((req, res) => {
     }
   }
   const messages = [...own, ...sent].sort((a, b) => a.ts.localeCompare(b.ts));
-  res.json({ conversation: conversationInfo(key, own, recipientNames()), messages, ai: leadApi.stateFor(key), contact: contactsApi.byPhone(wa) || null, tags: db.tags });
+  res.json({ conversation: conversationInfo(key, own, recipientNames()), messages, ai: req.admin ? leadApi.stateFor(key) : null, contact: contactsApi.byPhone(wa) || null, tags: db.tags });
 }));
 
 // Mark a conversation read here, and (live) send blue ticks to the person.
@@ -1542,7 +1552,7 @@ function removeSeedData() {
 
 notes = require('./notifications')(app, { db, save, id, wrap, broadcast });
 const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast });
-const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, broadcast, contacts: contactsApi, notes, sendText: (key, text, opts) => sendInboxText(key, text, opts) });
+const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, sendText: (key, text, opts) => sendInboxText(key, text, opts) });
 
 // --- AI assistant -------------------------------------------------------------
 

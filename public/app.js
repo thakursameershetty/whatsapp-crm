@@ -71,6 +71,7 @@ async function guard(fn, btn) {
 // ---------------------------------------------------------------------------
 
 function showTab(name) {
+  if (name === 'assistant' && !state.me?.admin) name = 'overview'; // the AI features are admin-only
   $$('.side-nav button[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   const wasHidden = $('#tab-' + name)?.classList.contains('hidden');
   $$('.tab').forEach((t) => t.classList.toggle('hidden', t.id !== 'tab-' + name));
@@ -1842,6 +1843,7 @@ async function loadMe() {
   const initials = (user.name || user.email).split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
   $('#acctAv').textContent = initials;
   $('#acctAv').setAttribute('style', avatarStyle(user.email));
+  document.body.classList.toggle('no-ai', !state.me.admin); // hides the Assistant and AI settings
   $('#acctWs').textContent = workspace.name;
   $('#acctUser').textContent = user.name || user.email;
   $('#wsName').value = workspace.name;

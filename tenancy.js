@@ -891,6 +891,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     }));
   }
 
+  const ours = (ws) => Boolean(ws && (ws.meta.legacy || accounts.members.some((m) => m.wsId === ws.meta.id && isAdmin(accounts.users.find((u) => u.id === m.userId)))));
+
   return {
     db, save, id, current, forWorkspace, allWorkspaces, byPhoneNumberId, createWorkspace,
     mountAuth, requireAuth, mountAccountApi,
@@ -900,7 +902,10 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     adminCount: ADMIN_EMAILS.length,
     // Demo mode (simulated sends, sample data) is for us, not customers: only the original
     // workspace and workspaces an admin belongs to get it.
-    demoAllowed: (ws = current()) => Boolean(ws && (ws.meta.legacy || accounts.members.some((m) => m.wsId === ws.meta.id && isAdmin(accounts.users.find((u) => u.id === m.userId))))),
+    demoAllowed: (ws = current()) => ours(ws),
+    // The AI features too (the Assistant and the Inbox lead assistant). Pages and APIs check
+    // req.admin; this is for work with no one signed in, like drafting a reply to a webhook.
+    aiAllowed: (ws = current()) => ours(ws),
     async flush() { // write everything now (used on shutdown)
       if (accTimer) { clearTimeout(accTimer); accTimer = null; }
       await store.saveAccounts(accounts);
