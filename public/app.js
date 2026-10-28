@@ -1013,12 +1013,37 @@ function realignShiftedRows(headers, rows, groups) {
 
 const varLabel = (v) => (v.media ? `header ${v.media} URL` : `${v.where} {{${v.name}}}`);
 
+// WhatsApp formatting on already-escaped text, the way the phone shows it: *bold*, _italic_, ~strike~,
+// ```monospace```, and links (with or without https://, e.g. youtube.com) that open in a new tab.
+const WA_LINK = /((?:https?:\/\/|www\.)[^\s<]+|(?<![@\w.\/-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|in|org|net|io|co|app|dev|me|ai|edu|gov|info|biz|ly|gl|be|link|site|shop|store|xyz|tv)\b(?:\/[^\s<]*)?)/gi;
+function waFormat(html) {
+  return html
+    .split(WA_LINK)
+    .map((part, i) => {
+      if (i % 2) {
+        const [, url, tail] = part.match(/^(.*?)([.,!?:;)\]]*)$/); // a full stop after a link isn't part of it
+        return `<a href="${/^https?:\/\//i.test(url) ? url : 'https://' + url}" target="_blank" rel="noopener">${url}</a>${tail}`;
+      }
+      return part
+        .replace(/```([^`]+)```/g, '<code>$1</code>')
+        .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
+        .replace(/(^|\W)_([^_\n]+)_(?=\W|$)/g, '$1<i>$2</i>')
+        .replace(/~([^~\n]+)~/g, '<s>$1</s>');
+    })
+    .join('');
+}
+
+// Template text with {{variables}} filled in (or shown as chips) and WhatsApp formatting applied.
+// Variables are swapped out while formatting so their markup and values are never touched by it.
 function fill(text, where, values, neutral = false) {
-  return esc(text).replace(/{{\s*([\w]+)\s*}}/g, (_, name) => {
+  const chips = [];
+  const marked = esc(text).replace(/{{\s*([\w]+)\s*}}/g, (_, name) => {
     const val = values[`${where}.${name}`];
     const key = `data-var="${esc(`${where}.${name}`)}"`;
-    return val ? `<span class="var" ${key}>${esc(val)}</span>` : `<span class="var ${neutral ? '' : 'empty'}" ${key}>{{${esc(name)}}}</span>`;
+    chips.push(val ? `<span class="var" ${key}>${esc(val)}</span>` : `<span class="var ${neutral ? '' : 'empty'}" ${key}>{{${esc(name)}}}</span>`);
+    return `\u0001${chips.length - 1}\u0001`;
   });
+  return waFormat(marked).replace(/\u0001(\d+)\u0001/g, (_, n) => chips[n]);
 }
 
 // WhatsApp bubble for a template. Unfilled variables show as {{name}} chips.

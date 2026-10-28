@@ -1239,7 +1239,8 @@ body.inbox-open .banner { max-width: none; width: auto; margin: 12px 16px; }
 .ib-bubble.sticker::before { display: none; }
 
 .ib-text { white-space: pre-wrap; }
-.ib-text a { color: var(--accent-text); }
+.ib-text a, .bubble a { color: var(--info); text-decoration: underline; text-underline-offset: 2px; }
+.ib-text code, .bubble code { font-family: ui-monospace, Menlo, monospace; font-size: 0.92em; }
 .ib-spacer { display: inline-block; width: 52px; height: 1px; }
 .ib-spacer.out { width: 72px; }
 .ib-unsupported { font-style: italic; color: var(--muted); }

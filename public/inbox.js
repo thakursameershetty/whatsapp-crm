@@ -75,20 +75,8 @@
     return esc((parts[0][0] + (parts[1]?.[0] || '')).toUpperCase());
   }
 
-  // WhatsApp-style *bold* _italic_ ~strike~ and clickable links.
-  function fmtText(text) {
-    return esc(text)
-      .split(/(https?:\/\/[^\s<]+)/g)
-      .map((part, i) =>
-        i % 2
-          ? `<a href="${part}" target="_blank" rel="noopener">${part}</a>`
-          : part
-              .replace(/\*([^*\n]+)\*/g, '<b>$1</b>')
-              .replace(/(^|\W)_([^_\n]+)_(?=\W|$)/g, '$1<i>$2</i>')
-              .replace(/~([^~\n]+)~/g, '<s>$1</s>')
-      )
-      .join('');
-  }
+  // WhatsApp-style *bold* _italic_ ~strike~ and clickable links (shared with template bubbles).
+  const fmtText = (text) => waFormat(esc(text));
 
   const MEDIA_LABEL = { image: '📷 Photo', video: '🎥 Video', audio: '🎤 Audio', sticker: '💟 Sticker', location: '📍 Location' };
   function previewText(m) {
