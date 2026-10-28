@@ -633,7 +633,7 @@ function senderForm(s = null) {
     <form id="senderForm" novalidate>
       <label>Label <span class="opt">up to 40 characters</span><input name="label" required maxlength="40" placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
       <label>Phone number ID <input name="phoneNumberId" required inputmode="numeric" data-digits maxlength="17" placeholder="From Meta → WhatsApp → API Setup (digits)" value="${esc(s?.phoneNumberId)}" /></label>
-      <label>WhatsApp Business Account ID <input name="wabaId" inputmode="numeric" data-digits maxlength="17" placeholder="Needed to sync templates (digits)" value="${esc(s?.wabaId)}" /></label>
+      <label>WhatsApp Business Account ID <span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span><input name="wabaId" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Leave blank, or paste the Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" /></label>
       ${s?.hasToken
         ? `<div class="field-label">Access token</div>
            <div class="sf-token" id="sfSaved"><span>${icon('lock', 14)}Saved token ending in <b>${esc((s.accessTokenMasked || '').slice(-4))}</b></span><button type="button" class="btn sm" id="sfReplace">Replace token</button></div>
@@ -670,6 +670,7 @@ function senderForm(s = null) {
       const r = await api('/senders/verify', { method: 'POST', body: { ...fields(), senderId: s?.id } });
       const i = r.info;
       $('[name=displayPhone]', body).value = i.displayPhone;
+      if (i.wabaId) $('[name=wabaId]', body).value = i.wabaId;
       show('ok', `${icon('circle-check', 15)}<span><b>Connected</b> · ${esc(i.verifiedName || 'WhatsApp number')} · ${esc(i.displayPhone)}${i.qualityRating ? ` · quality ${esc(String(i.qualityRating).toLowerCase())}` : ''}${r.sharedToken ? '<br>Using the token saved for your other number in this Business Account.' : ''}</span>`);
       return true;
     } catch (err) { show('bad', esc(err.message)); return false; }
@@ -682,15 +683,17 @@ function senderForm(s = null) {
     const btn = $('button.primary', form);
     guard(async () => {
       if (live) show('busy', '<span class="sf-spin"></span>Checking with Meta, then saving…');
+      let saved;
       try {
-        if (s) await api('/senders/' + s.id, { method: 'PUT', body: fields() });
+        if (s) saved = await api('/senders/' + s.id, { method: 'PUT', body: fields() });
         else {
-          const added = await api('/senders', { method: 'POST', body: fields() });
-          state.selectedSenders.add(added.id);
+          saved = await api('/senders', { method: 'POST', body: fields() });
+          state.selectedSenders.add(saved.id);
         }
       } catch (err) { show('bad', esc(err.message)); return; } // the problem stays in the popup, next to the fields
       closeModal();
-      toast(s ? 'Saved' : live ? 'Number connected and added' : 'Number added');
+      if (saved.warning) toast(saved.warning, 'error', { duration: 15000 });
+      else toast(s ? 'Saved' : live ? 'Number connected and added' : 'Number added');
       await loadSenders();
     }, btn);
   });

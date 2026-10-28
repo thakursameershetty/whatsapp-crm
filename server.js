@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const DATA_DIR = path.join(__dirname, 'data');
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads'); // template header files (served at /u/…)
 
 // ---------------------------------------------------------------------------
 // Storage
@@ -398,6 +399,13 @@ function handleWebhookChange(change) {
 tenants.mountAuth(app, express);
 
 app.use(express.json({ limit: '20mb' }));
+// Images and files uploaded for template headers. Meta fetches them by link without signing in,
+// so they're public; the random names keep them unguessable.
+app.get('/u/:file', (req, res) => {
+  if (!/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(req.params.file)) return res.status(404).end();
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(path.join(UPLOAD_DIR, req.params.file), (err) => err && !res.headersSent && res.status(404).end());
+});
 // The sign-in pages use these two files, so they load without signing in.
 const PUBLIC_FILES = new Set(['/style.css', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg']);
 app.use((req, res, next) => (PUBLIC_FILES.has(req.path) ? next() : tenants.requireAuth(req, res, next)));
@@ -531,13 +539,46 @@ async function verifyWithMeta({ phoneNumberId, wabaId, accessToken }) {
   try { info = await graph(who, `${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating,messaging_limit_tier`); }
   catch (e) { throw fail(say(e, "Meta has no WhatsApp number with this phone number ID that this token can use. Copy the ID from Meta → WhatsApp → API Setup (it isn't the phone number itself).")); }
   if (!info.display_phone_number) throw fail("That ID isn't a WhatsApp phone number ID. Copy the Phone number ID from Meta → WhatsApp → API Setup.");
-  if (wabaId) {
-    let list;
-    try { list = await graph(who, `${encodeURIComponent(wabaId)}/phone_numbers?fields=id&limit=200`); }
-    catch (e) { throw fail(say(e, "Meta has no WhatsApp Business Account with this ID that this token can use. Copy it from Meta → WhatsApp → API Setup.")); }
-    if (!(list.data || []).some((x) => x.id === String(phoneNumberId))) throw fail("This number isn't in that WhatsApp Business Account. Check both IDs in Meta → WhatsApp → API Setup.");
+  const found = await findWaba(who, phoneNumberId, wabaId, say);
+  return { displayPhone: info.display_phone_number, verifiedName: info.verified_name || '', qualityRating: info.quality_rating, messagingLimit: info.messaging_limit_tier, ...(found ? { wabaId: found } : {}) };
+}
+// Works out which WhatsApp Business Account holds the number, so nobody has to dig the ID out of Meta.
+// `given` may be the account ID, the Business portfolio ID (the business_id= in business.facebook.com links,
+// which people paste by mistake) or blank, in which case the token's own permissions are asked.
+async function findWaba(who, phoneNumberId, given, say) {
+  const holds = async (waba) => (await graph(who, `${encodeURIComponent(waba)}/phone_numbers?fields=id&limit=200`)).data?.some((x) => x.id === String(phoneNumberId));
+  const firstHolding = async (ids) => { for (const w of ids) if (await holds(w).catch(() => false)) return w; return ''; };
+  if (given) {
+    try {
+      if (await holds(given)) return given;
+      throw fail("This number isn't in that WhatsApp Business Account. Paste your Business portfolio ID instead (the business_id= in business.facebook.com links) and the right account is found from it.");
+    } catch (e) {
+      if (e.code !== 100) throw e.httpStatus ? e : fail(say(e,"Meta has no WhatsApp Business Account with this ID that this token can use. Paste your Business portfolio ID instead (the business_id= in business.facebook.com links) and the right account is found from it."));
+    }
+    // Code 100 "nonexisting field": a real ID, but not a WhatsApp Business Account. Try it as a Business portfolio.
+    const accounts = [];
+    for (const edge of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
+      try { accounts.push(...((await graph(who, `${encodeURIComponent(given)}/${edge}?fields=id&limit=200`)).data || []).map((x) => x.id)); } catch {}
+    }
+    const w = await firstHolding(accounts);
+    if (w) return w;
+    throw fail("That isn't a WhatsApp Business Account ID, and no account under it holds this number. Paste your Business portfolio ID instead (the business_id= in business.facebook.com links) and the right account is found from it.");
   }
-  return { displayPhone: info.display_phone_number, verifiedName: info.verified_name || '', qualityRating: info.quality_rating, messagingLimit: info.messaging_limit_tier };
+  // Blank: tokens limited to particular accounts list them in their permissions. Unrestricted tokens don't,
+  // so the field just stays empty; it's only needed for syncing templates.
+  try {
+    const d = (await graph(who, `debug_token?input_token=${encodeURIComponent(who.accessToken)}`)).data || {};
+    const ids = [...new Set((d.granular_scopes || []).filter((g) => /^whatsapp_business_/.test(g.scope)).flatMap((g) => g.target_ids || []))];
+    return await firstHolding(ids);
+  } catch { return ''; }
+}
+// Meta only sends a Business Account's webhooks (replies, delivered/read) to apps it's linked to, and new
+// accounts usually aren't. Linking again is harmless, so it's done on every save. A failure doesn't stop the
+// number being saved (sending works without it); it comes back as a warning to show.
+async function linkWebhooks(s) {
+  if (!s.wabaId || db.settings.demoMode) return '';
+  try { await graph(s, `${encodeURIComponent(s.wabaId)}/subscribed_apps`, { method: 'POST' }); return ''; }
+  catch (e) { return `Saved, but Meta wouldn't link this Business Account to your app, so replies and delivered/read ticks won't arrive (Meta said: ${e.message}). Give the token the whatsapp_business_management permission and save again.`; }
 }
 // The token to check with: the one typed in, else the number's saved one, else one shared by a number in the same Business Account.
 function tokenFor(body, existing) {
@@ -573,7 +614,7 @@ app.post('/api/senders', wrap(async (req, res) => {
   }
   db.senders.push(s);
   save();
-  res.json(publicSender(s));
+  res.json({ ...publicSender(s), warning: await linkWebhooks(s) });
 }));
 
 app.put('/api/senders/:id', wrap(async (req, res) => {
@@ -594,7 +635,7 @@ app.put('/api/senders/:id', wrap(async (req, res) => {
   if (req.body.accessToken) s.accessToken = req.body.accessToken.trim();
   if (checked) Object.assign(s, checked, { lastCheckedAt: new Date().toISOString() });
   save();
-  res.json(publicSender(s));
+  res.json({ ...publicSender(s), warning: checked ? await linkWebhooks(s) : '' });
 }));
 
 app.delete('/api/senders/:id', (req, res) => {
@@ -1229,6 +1270,26 @@ app.get('/api/media/:mid', wrap(async (req, res) => {
   res.type(mime || 'application/octet-stream');
   if (req.query.name) res.attachment(String(req.query.name));
   res.sendFile(file);
+}));
+
+// Upload a template header image, video or document from the computer. Returns a public link to put in
+// the header, the same as a link pasted by hand. Types and sizes are what WhatsApp accepts for each.
+const UPLOAD_TYPES = {
+  'image/jpeg': ['jpg', 5], 'image/png': ['png', 5],
+  'video/mp4': ['mp4', 16], 'video/3gpp': ['3gp', 16],
+  'application/pdf': ['pdf', 16],
+};
+app.post('/api/uploads', express.raw({ type: () => true, limit: '16mb' }), wrap((req, res) => {
+  const mime = String(req.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  const kind = UPLOAD_TYPES[mime];
+  if (!kind) throw fail('WhatsApp accepts JPG or PNG images, MP4 videos and PDF documents for template headers.');
+  const [ext, maxMb] = kind;
+  if (!req.body?.length) throw fail('The file is empty');
+  if (req.body.length > maxMb * 1024 * 1024) throw fail(`WhatsApp accepts ${mime.split('/')[0] === 'image' ? 'images' : 'files'} like this up to ${maxMb} MB. Make it smaller and try again.`);
+  const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  fs.writeFileSync(path.join(UPLOAD_DIR, name), req.body);
+  res.json({ url: `${req.protocol}://${req.get('host')}/u/${name}` });
 }));
 
 // --- Dashboard stats ----------------------------------------------------------

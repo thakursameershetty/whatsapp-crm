@@ -65,6 +65,7 @@
     const sheet = () => hooks.sheet();
     const S = () => {
       const sh = sheet();
+      if (!sh) return { ar: 0, ac: 0, fr: 0, fc: 0 }; // the last sheet was just closed
       sh.sel ||= { ar: 0, ac: 0, fr: 0, fc: 0 }; // anchor and focus, in view rows
       return sh.sel;
     };
@@ -446,6 +447,13 @@
         if (sh.view[r] && !seen.has(k)) { seen.add(k); changes.push({ row: sh.view[r], c, v: '' }); }
       }
       setCells(changes, 'Clear');
+    }
+    // Every cell in the sheet, filtered-out rows too; the column names stay. Undoable like any edit.
+    function clearAll() {
+      const changes = [];
+      for (const row of sheet()?.rows || []) row.cells.forEach((v, c) => { if (v !== '' && v != null) changes.push({ row, c, v: '' }); });
+      if (changes.length) setCells(changes, 'Clear all');
+      return changes.length;
     }
 
     // --- Mouse ----------------------------------------------------------------
@@ -829,6 +837,7 @@
       selectedRows() { return selRows().map((r) => view()[r]).filter(Boolean); },
       selectedCols: () => selCols(),
       clearSelection: () => clearRange(),
+      clearAll,
       deleteColumns: (list) => deleteColSet(list ?? selCols()),
       activeRow: () => view()[S().fr] || null,
       insertRowsAt(where) {

@@ -1724,6 +1724,8 @@ svg.la-panel-left.on .a-chev { animation: la-nudge 0.5s ease-in-out; }
 .sp-map { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 6px 10px; align-items: center; padding: 6px 0; }
 .sp-map select, .sp-map input { margin: 0 !important; height: 34px; font-size: 13px; }
 .sp-map .m-val { grid-column: 2; }
+.sp-map .m-upload { grid-column: 2; justify-self: start; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.sp-map .m-upload.busy { opacity: 0.6; pointer-events: none; }
 .sp-panel .phone { padding: 14px 12px; min-height: 0; }
 .sp-panel .toggle-item { padding: 6px 6px 6px 12px; }
 .sp-test summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 6px; }

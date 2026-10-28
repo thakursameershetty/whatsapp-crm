@@ -381,6 +381,7 @@
     const fileSheets = sh.file ? SP.sheets.filter((x) => x.file === sh.file) : [];
     Sheet.Menu.open(r.left, r.bottom + 6, [
       { label: 'Clear selected cells', kbd: '⌫', action: () => { grid.clearSelection(); grid.focus(); } },
+      { label: 'Clear all data', action: () => { if (grid.clearAll()) toast('Cleared every cell · ⌘Z to undo'); grid.focus(); } },
       ...(wholeCols ? [] : [{ label: `Delete ${rows > 1 ? rows + ' rows' : 'row'}`, action: () => { grid.deleteSelectedRows(); grid.focus(); } }]),
       ...(wholeRows ? [] : [{ label: `Delete ${cols > 1 ? cols + ' columns' : 'column'}`, action: () => { grid.deleteColumns(); grid.focus(); } }]),
       '-',
@@ -534,6 +535,9 @@
   $('#mapping').addEventListener('focusin', (e) => { const r = e.target.closest('.sp-map'); if (r) flashVar(r.dataset.key); });
   $('#mapping').addEventListener('focusout', () => setTimeout(() => { if (!$('#mapping').contains(document.activeElement)) flashVar(null); }, 0));
 
+  // What the header upload button lets you pick, per header type.
+  const UPLOAD_ACCEPT = { image: 'image/jpeg,image/png', video: 'video/mp4,video/3gpp', document: 'application/pdf' };
+
   function renderMapping() {
     const t = currentTemplate();
     const el = $('#mapping');
@@ -553,10 +557,31 @@
           <option value="fixed" ${fixed ? 'selected' : ''}>Same text for everyone…</option>
         </select>
         ${fixed ? `<input class="m-val" value="${esc(m.value)}" placeholder="${v.media ? 'https://…/image.jpg' : 'Type the text'}" aria-label="Text for ${esc(varLabel(v))}" />` : ''}
+        ${fixed && v.media ? `<label class="btn sm m-upload" title="Upload a ${esc(v.media)} from this computer">${icon('upload', 14)}Upload ${esc(v.media)}<input type="file" hidden accept="${esc(UPLOAD_ACCEPT[v.media] || '')}" /></label>` : ''}
       </div>`;
     }).join('');
   }
+  // Header image/video/document from the computer: the server keeps it and gives back a public link,
+  // which goes in the field like a pasted one.
+  $('#mapping').addEventListener('change', async (e) => {
+    if (!e.target.matches('.m-upload input[type=file]')) return;
+    const file = e.target.files[0], row = e.target.closest('.sp-map'), btn = e.target.closest('.m-upload');
+    e.target.value = '';
+    if (!file || !row) return;
+    btn.classList.add('busy');
+    try {
+      const res = await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || (res.status === 413 ? 'That file is too big for WhatsApp' : `Upload failed (${res.status})`));
+      SP.mapping[row.dataset.key] = { type: 'fixed', value: json.url };
+      renderMapping();
+      renderPreview();
+      renderSummary();
+      toast(`Uploaded ${file.name}`);
+    } catch (err) { toast(err.message, 'error'); btn.classList.remove('busy'); }
+  });
   $('#mapping').addEventListener('input', (e) => {
+    if (e.target.type === 'file') return;
     const row = e.target.closest('.sp-map');
     if (!row) return;
     const key = row.dataset.key;
