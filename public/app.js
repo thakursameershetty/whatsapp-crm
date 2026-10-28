@@ -1034,13 +1034,14 @@ function waFormat(html) {
 }
 
 // Template text with {{variables}} filled in (or shown as chips) and WhatsApp formatting applied.
-// Variables are swapped out while formatting so their markup and values are never touched by it.
+// Variables are swapped out while the template text is formatted so their markup isn't touched by it;
+// a filled-in value is formatted on its own (a link or *bold* in it shows the way the phone shows it).
 function fill(text, where, values, neutral = false) {
   const chips = [];
   const marked = esc(text).replace(/{{\s*([\w]+)\s*}}/g, (_, name) => {
     const val = values[`${where}.${name}`];
     const key = `data-var="${esc(`${where}.${name}`)}"`;
-    chips.push(val ? `<span class="var" ${key}>${esc(val)}</span>` : `<span class="var ${neutral ? '' : 'empty'}" ${key}>{{${esc(name)}}}</span>`);
+    chips.push(val ? `<span class="var" ${key}>${waFormat(esc(val))}</span>` : `<span class="var ${neutral ? '' : 'empty'}" ${key}>{{${esc(name)}}}</span>`);
     return `\u0001${chips.length - 1}\u0001`;
   });
   return waFormat(marked).replace(/\u0001(\d+)\u0001/g, (_, n) => chips[n]);
@@ -1055,7 +1056,8 @@ function bubbleHtml(t, values, neutral = false) {
     else {
       const url = values['header.media'];
       const isImg = h.format === 'IMAGE' && /^https?:\/\//.test(url || '');
-      html += `<div class="media" ${isImg ? `style="background-image:url('${esc(url)}')"` : ''}>${isImg ? '' : esc(h.format.toLowerCase())}</div>`;
+      // A real image keeps its own shape, like on the phone; until there is one, a placeholder box.
+      html += isImg ? `<img class="media-img" src="${esc(url)}" alt="" loading="lazy" />` : `<div class="media">${esc(h.format.toLowerCase())}</div>`;
     }
   }
   html += `<div>${fill(comp(t, 'BODY')?.text || '', 'body', values, neutral)}</div>`;

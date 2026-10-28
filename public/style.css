@@ -452,6 +452,8 @@ main { max-width: 1600px; margin: 0 auto; padding: 24px 28px 40px; } /* wide eno
   max-width: 92%; box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.13); white-space: pre-wrap; word-wrap: break-word; font-size: 14px;
 }
 .bubble .hdr { font-weight: 700; margin-bottom: 4px; }
+/* An uploaded or linked header image keeps its own shape; very tall ones are capped and shown whole. */
+.bubble .media-img { display: block; width: 100%; height: auto; max-height: 340px; object-fit: contain; border-radius: 8px; margin-bottom: 6px; }
 .bubble .media { background: var(--sunk); border-radius: 8px; height: 120px; display: grid; place-items: center; color: var(--muted); margin-bottom: 6px; font-size: 12px; background-size: cover; background-position: center; }
 .bubble .ftr { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
 .bubble .btns { margin: 7px -11px -7px; box-shadow: 0 -1px 0 var(--hair); }
@@ -1725,7 +1727,8 @@ svg.la-panel-left.on .a-chev { animation: la-nudge 0.5s ease-in-out; }
 .sp-map { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 6px 10px; align-items: center; padding: 6px 0; }
 .sp-map select, .sp-map input { margin: 0 !important; height: 34px; font-size: 13px; }
 .sp-map .m-val { grid-column: 2; }
-.sp-map .m-upload { grid-column: 2; justify-self: start; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.sp-map .m-upload-row { grid-column: 2; display: flex; gap: 6px; flex-wrap: wrap; }
+.sp-map .m-upload, .sp-map .m-unupload { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .sp-map .m-upload.busy { opacity: 0.6; pointer-events: none; }
 .sp-panel .phone { padding: 14px 12px; min-height: 0; }
 .sp-panel .toggle-item { padding: 6px 6px 6px 12px; }

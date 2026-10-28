@@ -1291,6 +1291,15 @@ app.post('/api/uploads', express.raw({ type: () => true, limit: '16mb' }), wrap(
   fs.writeFileSync(path.join(UPLOAD_DIR, name), req.body);
   res.json({ url: `${req.protocol}://${req.get('host')}/u/${name}` });
 }));
+// Removing an upload from the Send page. A file a campaign or message already used is kept: scheduled
+// sends still need Meta to fetch it, and the Inbox shows sent messages from the same link.
+app.delete('/api/uploads/:file', wrap((req, res) => {
+  const name = req.params.file;
+  if (!/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(name)) throw fail('Not found', 404);
+  const used = db.campaigns.some((c) => JSON.stringify(c.recipients).includes(name)) || db.messages.some((m) => JSON.stringify(m.values || {}).includes(name));
+  if (!used) fs.rmSync(path.join(UPLOAD_DIR, name), { force: true });
+  res.json({ ok: true, deleted: !used });
+}));
 
 // --- Dashboard stats ----------------------------------------------------------
 

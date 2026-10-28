@@ -535,6 +535,8 @@
   $('#mapping').addEventListener('focusin', (e) => { const r = e.target.closest('.sp-map'); if (r) flashVar(r.dataset.key); });
   $('#mapping').addEventListener('focusout', () => setTimeout(() => { if (!$('#mapping').contains(document.activeElement)) flashVar(null); }, 0));
 
+  // The file name when a link is one of our uploads (…/u/<name>), so Remove can delete it.
+  const uploadedName = (url) => String(url || '').match(new RegExp(`^${location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/u/([0-9a-f]{32}\\.[a-z0-9]{2,4})$`))?.[1] || '';
   // What the header upload button lets you pick, per header type.
   const UPLOAD_ACCEPT = { image: 'image/jpeg,image/png', video: 'video/mp4,video/3gpp', document: 'application/pdf' };
 
@@ -557,7 +559,7 @@
           <option value="fixed" ${fixed ? 'selected' : ''}>Same text for everyone…</option>
         </select>
         ${fixed ? `<input class="m-val" value="${esc(m.value)}" placeholder="${v.media ? 'https://…/image.jpg' : 'Type the text'}" aria-label="Text for ${esc(varLabel(v))}" />` : ''}
-        ${fixed && v.media ? `<label class="btn sm m-upload" title="Upload a ${esc(v.media)} from this computer">${icon('upload', 14)}Upload ${esc(v.media)}<input type="file" hidden accept="${esc(UPLOAD_ACCEPT[v.media] || '')}" /></label>` : ''}
+        ${fixed && v.media ? `<div class="m-upload-row"><label class="btn sm m-upload" title="Upload a ${esc(v.media)} from this computer">${icon('upload', 14)}${uploadedName(m.value) ? 'Replace' : 'Upload'} ${esc(v.media)}<input type="file" hidden accept="${esc(UPLOAD_ACCEPT[v.media] || '')}" /></label>${m.value ? `<button type="button" class="btn sm quiet m-unupload" title="Take this ${esc(v.media)} out of the message">${icon('delete', 14)}Remove</button>` : ''}</div>` : ''}
       </div>`;
     }).join('');
   }
@@ -579,6 +581,18 @@
       renderSummary();
       toast(`Uploaded ${file.name}`);
     } catch (err) { toast(err.message, 'error'); btn.classList.remove('busy'); }
+  });
+  // Remove: clears the field, and deletes the file too when it's one uploaded here (the server keeps it if
+  // a campaign already used it).
+  $('#mapping').addEventListener('click', (e) => {
+    const b = e.target.closest('.m-unupload');
+    if (!b) return;
+    const key = b.closest('.sp-map').dataset.key, file = uploadedName(SP.mapping[key]?.value);
+    SP.mapping[key] = { type: 'fixed', value: '' };
+    renderMapping();
+    renderPreview();
+    renderSummary();
+    if (file) api('/uploads/' + file, { method: 'DELETE' }).catch(() => {});
   });
   $('#mapping').addEventListener('input', (e) => {
     if (e.target.type === 'file') return;
