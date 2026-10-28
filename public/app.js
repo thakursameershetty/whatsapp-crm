@@ -1048,7 +1048,8 @@ function fill(text, where, values, neutral = false) {
 }
 
 // WhatsApp bubble for a template. Unfilled variables show as {{name}} chips.
-function bubbleHtml(t, values, neutral = false) {
+// `meta` (the Inbox's time and ticks) goes under the text and above the buttons, as on the phone.
+function bubbleHtml(t, values, neutral = false, meta = '') {
   let html = '';
   const h = comp(t, 'HEADER');
   if (h) {
@@ -1063,8 +1064,10 @@ function bubbleHtml(t, values, neutral = false) {
   html += `<div>${fill(comp(t, 'BODY')?.text || '', 'body', values, neutral)}</div>`;
   const f = comp(t, 'FOOTER');
   if (f) html += `<div class="ftr">${esc(f.text)}</div>`;
+  html += meta;
   const b = comp(t, 'BUTTONS');
-  if (b?.buttons?.length) html += `<div class="btns">${b.buttons.map((x) => `<div>${x.type === 'URL' ? '↗ ' : x.type === 'PHONE_NUMBER' ? '✆ ' : '↩ '}${esc(x.text)}</div>`).join('')}</div>`;
+  // The same icons WhatsApp puts on each kind of button: reply arrow, open-link box, phone.
+  if (b?.buttons?.length) html += `<div class="btns">${b.buttons.map((x) => `<div>${icon(x.type === 'URL' ? 'external-link' : x.type === 'PHONE_NUMBER' ? 'phone' : 'reply', 16)}${esc(x.text)}</div>`).join('')}</div>`;
   return html;
 }
 

@@ -457,7 +457,8 @@ main { max-width: 1600px; margin: 0 auto; padding: 24px 28px 40px; } /* wide eno
 .bubble .media { background: var(--sunk); border-radius: 8px; height: 120px; display: grid; place-items: center; color: var(--muted); margin-bottom: 6px; font-size: 12px; background-size: cover; background-position: center; }
 .bubble .ftr { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
 .bubble .btns { margin: 7px -11px -7px; box-shadow: 0 -1px 0 var(--hair); }
-.bubble .btns div { text-align: center; color: #0a84ff; padding: 8px; font-weight: 500; box-shadow: 0 -1px 0 var(--hair); }
+.bubble .btns div { display: flex; align-items: center; justify-content: center; gap: 7px; color: #0a84ff; padding: 8px; font-weight: 500; box-shadow: 0 -1px 0 var(--hair); }
+.bubble .btns svg { flex: none; }
 .bubble .var { background: var(--accent-soft); color: var(--accent-text); border-radius: 4px; padding: 0 3px; }
 .bubble .var.empty { background: var(--danger-soft); color: var(--danger); }
 .phone + .sub { margin-top: 10px; }

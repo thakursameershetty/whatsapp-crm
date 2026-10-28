@@ -527,8 +527,8 @@
       case 'template': {
         const t = state.templates.find((x) => x.id === m.templateId);
         h += `<div class="ib-label">${icon('send', 11)}${esc(m.campaign === 'Test send' ? 'Test send · ' + m.templateName : m.campaign ? 'Campaign · ' + m.campaign : 'Template · ' + m.templateName)}</div>`;
-        h += t ? `<div class="bubble">${bubbleHtml(t, m.values || {})}</div>` : `<div class="ib-text">Template <code>${esc(m.templateName)}</code></div>`;
-        return h + `<span class="ib-meta static">${fmtTime(m.ts)}${tick(m.status, m.error)}</span>`;
+        const meta = `<span class="ib-meta static">${fmtTime(m.ts)}${tick(m.status, m.error)}</span>`;
+        return h + (t ? `<div class="bubble">${bubbleHtml(t, m.values || {}, false, meta)}</div>` : `<div class="ib-text">Template <code>${esc(m.templateName)}</code></div>${meta}`);
       }
       case 'image':
       case 'sticker':
