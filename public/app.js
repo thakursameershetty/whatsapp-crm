@@ -569,20 +569,20 @@ function renderSenders() {
     .map(
       (s) => `
     <div class="card sender-card">
-      <div class="li-head">
-        <h3 title="${esc(s.label)}"><span class="li-name">${esc(s.label)}</span></h3>
-        <label title="${s.enabled ? 'Number is in use' : 'Number is switched off'}">${toggleHtml({ checked: s.enabled, attrs: `data-enable="${s.id}"`, size: 'sm' })}</label>
-      </div>
       <div class="sender-id">
         ${senderPhotoHtml(s)}
-        <div class="num">${esc(s.displayPhone || '—')}</div>
+        <div class="sender-who">
+          <b class="sender-vname" title="${s.verifiedName ? 'The business name customers see on WhatsApp' : esc(s.label)}">${esc(s.verifiedName || s.label)}</b>
+          <span class="sender-num">${esc(s.displayPhone || '—')}</span>
+        </div>
+        <label title="${s.enabled ? 'Number is in use' : 'Number is switched off'}">${toggleHtml({ checked: s.enabled, attrs: `data-enable="${s.id}"`, size: 'sm' })}</label>
       </div>
       ${numStats(s)}
       <dl class="kv">
+        ${s.verifiedName ? `<dt>Label</dt><dd>${esc(s.label)}</dd>` : ''}
         <dt>Phone number ID</dt><dd>${esc(s.phoneNumberId)}</dd>
         <dt>WABA ID</dt><dd>${esc(s.wabaId || '—')}</dd>
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
-        ${s.verifiedName ? `<dt>Verified name</dt><dd>${esc(s.verifiedName)}</dd>` : ''}
         ${s.qualityRating ? `<dt>Quality</dt><dd>${esc(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Daily limit</dt><dd>${esc(s.messagingLimit)}</dd>` : ''}
         ${s.lastCheckedAt ? `<dt>Connection</dt><dd class="kv-ok">Connected · checked ${esc(relTime(s.lastCheckedAt))}</dd>` : ''}
@@ -626,8 +626,19 @@ function photoEditor(sender) {
           <div class="pe-preview">
             <div class="pe-chat"><span class="pe-small"><canvas width="112" height="112"></canvas></span><div><b>${name}</b><small>How it looks in a chat list</small></div></div>
           </div>
-          <label class="pe-ctl"><span>Zoom</span><input type="range" id="peZoom" min="1" max="4" step="0.01" value="1"></label>
-          <label class="pe-ctl"><span>Straighten <output id="peTiltOut">0°</output></span><input type="range" id="peTilt" min="-15" max="15" step="0.5" value="0"></label>
+          <div class="pe-ctl">
+            <label for="peZoom">Zoom <output id="peZoomOut">1.0×</output></label>
+            <div class="pe-zoom">
+              <button type="button" class="pe-step" data-pe="out" aria-label="Zoom out">−</button>
+              <input type="range" class="pe-range" id="peZoom" min="1" max="4" step="0.01" value="1">
+              <button type="button" class="pe-step" data-pe="in" aria-label="Zoom in">+</button>
+            </div>
+          </div>
+          <div class="pe-ctl">
+            <label for="peTilt">Straighten <output id="peTiltOut">0°</output></label>
+            <input type="range" class="pe-ruler" id="peTilt" min="-15" max="15" step="0.5" value="0" title="Double-click to set back to 0°">
+            <div class="pe-ruler-scale" aria-hidden="true"><span>−15°</span><span>−10°</span><span>−5°</span><span>0°</span><span>+5°</span><span>+10°</span><span>+15°</span></div>
+          </div>
           <div class="pe-tools">
             <button type="button" class="btn sm" data-pe="left" title="Rotate left">${icon('undo-2', 14)}Rotate</button>
             <button type="button" class="btn sm" data-pe="right" title="Rotate right">${icon('redo-2', 14)}Rotate</button>
@@ -674,13 +685,22 @@ function photoEditor(sender) {
       g.drawImage(img, -img.naturalWidth * sc / 2, -img.naturalHeight * sc / 2, img.naturalWidth * sc, img.naturalHeight * sc);
       g.restore();
     };
+    // Sliders and their readouts follow the editor's state, whatever changed it (drag, wheel, buttons, Reset).
+    const sync = () => {
+      zoomEl.value = zoom;
+      zoomEl.style.setProperty('--p', `${((zoom - 1) / 3) * 100}%`);
+      $('#peZoomOut', el).textContent = `${zoom.toFixed(1)}×`;
+      tiltEl.value = tilt;
+      $('#peTiltOut', el).textContent = `${tilt > 0 ? '+' : tilt < 0 ? '−' : ''}${Math.abs(tilt)}°`;
+    };
     const draw = () => {
+      sync();
       if (!img) return;
       clamp();
       paint(stage, V);
       for (const p of previews) paint(p, p.width);
     };
-    const reset = () => { zoom = 1; quarter = 0; tilt = 0; x = y = 0; zoomEl.value = 1; tiltEl.value = 0; $('#peTiltOut', el).textContent = '0°'; draw(); };
+    const reset = () => { zoom = 1; quarter = 0; tilt = 0; x = y = 0; draw(); };
     const load = (src, isNew) => new Promise((ok) => {
       const im = new Image();
       im.onload = () => {
@@ -703,7 +723,8 @@ function photoEditor(sender) {
     load(`/api/senders/${sender.id}/photo/file?t=${Date.now()}`, false);
 
     zoomEl.addEventListener('input', () => { zoom = Number(zoomEl.value); draw(); });
-    tiltEl.addEventListener('input', () => { tilt = Number(tiltEl.value); $('#peTiltOut', el).textContent = `${tilt > 0 ? '+' : ''}${tilt}°`; draw(); });
+    tiltEl.addEventListener('input', () => { tilt = Number(tiltEl.value); draw(); });
+    tiltEl.addEventListener('dblclick', () => { tilt = 0; draw(); });
     let drag = null;
     stage.addEventListener('pointerdown', (e) => { if (!img) return; drag = { px: e.clientX, py: e.clientY, x, y }; stage.setPointerCapture(e.pointerId); });
     stage.addEventListener('pointermove', (e) => {
@@ -714,7 +735,7 @@ function photoEditor(sender) {
       draw();
     });
     stage.addEventListener('pointerup', () => { drag = null; });
-    stage.addEventListener('wheel', (e) => { if (!img) return; e.preventDefault(); zoom = Math.max(1, Math.min(4, zoom - e.deltaY * 0.002)); zoomEl.value = zoom; draw(); }, { passive: false });
+    stage.addEventListener('wheel', (e) => { if (!img) return; e.preventDefault(); zoom = Math.max(1, Math.min(4, zoom - e.deltaY * 0.002)); draw(); }, { passive: false });
     $('#peFile', el).addEventListener('change', (e) => {
       const f = e.target.files?.[0];
       e.target.value = '';
@@ -733,6 +754,7 @@ function photoEditor(sender) {
       const act = b.dataset.pe;
       if (act === 'close') return done(null);
       if (act === 'reset') return reset();
+      if (act === 'in' || act === 'out') { zoom = Math.max(1, Math.min(4, Math.round((zoom + (act === 'in' ? 0.25 : -0.25)) * 4) / 4)); return draw(); }
       if (act === 'left' || act === 'right') { quarter = (quarter + (act === 'left' ? 3 : 1)) % 4; return draw(); }
       if (act === 'save' && img) { draw(); stage.toBlob((blob) => done(blob), 'image/jpeg', 0.92); }
     });

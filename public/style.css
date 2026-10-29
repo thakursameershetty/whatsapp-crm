@@ -3881,8 +3881,14 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .cd-funnel .cd-foot { margin-top: 16px; }
 .cd-step-bar { height: 12px; }
 /* Numbers: the WhatsApp profile photo next to the number. */
-.sender-id { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 6px 0 12px; }
-.sender-id .num { margin: 0; flex: 1; white-space: nowrap; }
+.sender-id { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.sender-id > label { margin: 0; display: inline-flex; flex: none; }
+/* Who customers see: the verified business name (or the label until there is one), the number under it.
+   The photo matches the two lines' height. */
+.sender-who { display: grid; gap: 1px; min-width: 0; flex: 1; line-height: 1.3; }
+.sender-vname { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sender-num { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sender-card .sender-photo { width: 40px; height: 40px; font-size: 16px; }
 .sender-photo { position: relative; flex: none; width: 44px; height: 44px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-text); font-weight: 700; font-size: 18px; }
 .sender-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .sender-photo-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; flex: none; }
@@ -3916,13 +3922,45 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .pe-chat b { font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pe-chat small { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pe-chat time { align-self: start; font-size: 11.5px; color: var(--muted); }
-.pe-ctl { display: grid; gap: 6px; margin: 0; font-size: 13px; color: var(--muted); }
-.pe-ctl > span { display: flex; justify-content: space-between; }
-.pe-ctl output { font-variant-numeric: tabular-nums; color: var(--text); }
-.pe-ctl input { width: 100%; margin: 0; }
+.pe-ctl { display: grid; gap: 8px; }
+.pe-ctl > label { display: flex; justify-content: space-between; align-items: baseline; margin: 0; font-size: 13px; color: var(--muted); }
+.pe-ctl output { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); padding: 1px 8px; border-radius: 99px; background: var(--sunk); font-size: 12.5px; }
+
+/* Zoom: a slim track that fills as you zoom, a white knob, − and + to step. */
+.pe-zoom { display: flex; align-items: center; gap: 10px; }
+.pe-step { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--sunk); color: var(--text); font: 600 16px/1 var(--font, inherit); cursor: pointer; display: grid; place-items: center; transition: background 0.15s, transform 0.15s; }
+.pe-step:hover { background: var(--hair); }
+.pe-step:active { transform: scale(0.92); }
+.pe-range { --p: 0%; flex: 1; min-width: 0; height: 28px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; cursor: pointer; }
+.pe-range::-webkit-slider-runnable-track { height: 6px; border-radius: 99px; background: linear-gradient(to right, var(--accent) 0 var(--p), var(--hair) var(--p) 100%); }
+.pe-range::-moz-range-track { height: 6px; border-radius: 99px; background: var(--hair); }
+.pe-range::-moz-range-progress { height: 6px; border-radius: 99px; background: var(--accent); }
+.pe-range::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: -7px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); transition: transform 0.15s, box-shadow 0.15s; }
+.pe-range::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+.pe-range:active::-webkit-slider-thumb { transform: scale(1.12); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 7px color-mix(in srgb, var(--accent) 25%, transparent); }
+.pe-range:focus-visible { outline: none; }
+.pe-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--accent); }
+
+/* Straighten: a ruler with a tick per degree, longer ticks every 5°, a mark at 0 and a slim pointer. */
+.pe-ruler { width: 100%; height: 34px; margin: 0; -webkit-appearance: none; appearance: none; cursor: ew-resize; border-radius: 8px;
+  background:
+    linear-gradient(var(--muted), var(--muted)) center bottom / 2px 22px no-repeat,
+    repeating-linear-gradient(to right, var(--muted) 0 1px, transparent 1px calc((100% - 1px) / 6)) left bottom / 100% 14px no-repeat,
+    repeating-linear-gradient(to right, color-mix(in srgb, var(--muted) 55%, transparent) 0 1px, transparent 1px calc((100% - 1px) / 30)) left bottom / 100% 8px no-repeat,
+    var(--sunk); }
+.pe-ruler::-webkit-slider-runnable-track { height: 34px; background: transparent; }
+.pe-ruler::-moz-range-track { height: 34px; background: transparent; }
+.pe-ruler::-webkit-slider-thumb { -webkit-appearance: none; width: 4px; height: 34px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.pe-ruler::-moz-range-thumb { width: 4px; height: 34px; border: 0; border-radius: 3px; background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.pe-ruler:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pe-ruler-scale { display: flex; justify-content: space-between; margin-top: -2px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pe-ruler-scale span { width: 0; display: flex; justify-content: center; white-space: nowrap; }
 .pe-tools { display: flex; gap: 8px; flex-wrap: wrap; }
 .pe-tools .btn, .pe-choose { display: inline-flex; align-items: center; gap: 6px; }
 .pe-choose { justify-self: start; cursor: pointer; }
 .pe-hint { margin: 0; font-size: 12.5px; }
 .pe-warn { margin: 0; font-size: 12.5px; color: var(--warn, #a15c00); }
 @media (max-width: 680px) { .pe-body { grid-template-columns: 1fr; } }
+/* The app's general input styling (fill, border, padding) doesn't belong on the editor's sliders. */
+#photoModal .pe-range, #photoModal .pe-ruler { border: 0 !important; padding: 0 !important; box-shadow: none !important; min-height: 0; }
+#photoModal .pe-range { background: transparent !important; }
