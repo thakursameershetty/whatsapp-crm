@@ -497,9 +497,19 @@
   }
   $('#templateSelect').addEventListener('change', onTemplateChange);
 
+  // A "Visit website" button whose link is …/go/{{1}} (see goCode on the server) takes a full link.
+  const goButton = (t, v) => {
+    const i = /^button(\d+)$/.exec(v.where)?.[1];
+    const b = i != null && comp(t, 'BUTTONS')?.buttons?.[Number(i)];
+    return Boolean(b && b.type === 'URL' && /\/go\/{{\s*\w+\s*}}$/.test(b.url || ''));
+  };
   function autoMap(v) {
     const match = columns().find((h) => h.toLowerCase() === String(v.name).toLowerCase());
-    return match ? { type: 'column', value: match } : { type: 'fixed', value: '' };
+    if (match) return { type: 'column', value: match };
+    // Such a button usually opens the same link as the message's one variable: reuse it.
+    const t = currentTemplate(), body = (t?.variables || []).filter((x) => x.where === 'body');
+    if (t && goButton(t, v) && body.length === 1) return { type: 'same', value: body[0].key };
+    return { type: 'fixed', value: '' };
   }
 
   function onTemplateChange() {
@@ -550,15 +560,18 @@
     for (const v of t.variables) if (SP.mapping[v.key]?.type === 'column' && !cols.includes(SP.mapping[v.key].value)) SP.mapping[v.key] = autoMap(v);
     el.innerHTML = t.variables.map((v) => {
       const m = SP.mapping[v.key];
-      const fixed = m.type !== 'column';
+      const fixed = m.type === 'fixed';
       const where = v.media ? 'header' : v.where.startsWith('button') ? 'button link' : v.where;
+      const go = goButton(t, v);
+      const sameOpts = go ? t.variables.filter((x) => x.where === 'body').map((x) => `<option value="s:${esc(x.key)}" ${m.type === 'same' && m.value === x.key ? 'selected' : ''}>Same link as {{${esc(x.name)}}} in the message</option>`).join('') : '';
       return `<div class="sp-map" data-key="${esc(v.key)}">
         <div class="var-key">${esc(v.media ? v.media + ' URL' : `{{${v.name}}}`)}<small>${esc(where)}</small></div>
         <select class="m-src" aria-label="Value for ${esc(varLabel(v))}">
-          ${cols.length ? `<optgroup label="Column">${cols.map((c) => `<option value="c:${esc(c)}" ${!fixed && c === m.value ? 'selected' : ''}>${esc(c)}</option>`).join('')}</optgroup>` : ''}
-          <option value="fixed" ${fixed ? 'selected' : ''}>Same text for everyone…</option>
+          ${sameOpts}
+          ${cols.length ? `<optgroup label="Column">${cols.map((c) => `<option value="c:${esc(c)}" ${m.type === 'column' && c === m.value ? 'selected' : ''}>${esc(c)}</option>`).join('')}</optgroup>` : ''}
+          <option value="fixed" ${fixed ? 'selected' : ''}>${go ? 'Paste a link for everyone…' : 'Same text for everyone…'}</option>
         </select>
-        ${fixed ? `<input class="m-val" value="${esc(m.value)}" placeholder="${v.media ? 'https://…/image.jpg' : 'Type the text'}" aria-label="Text for ${esc(varLabel(v))}" />` : ''}
+        ${fixed ? `<input class="m-val" value="${esc(m.value)}" placeholder="${v.media ? 'https://…/image.jpg' : go ? 'https://… (any full link)' : 'Type the text'}" aria-label="Text for ${esc(varLabel(v))}" />` : ''}
         ${fixed && v.media ? `<div class="m-upload-row"><label class="btn sm m-upload" title="Upload a ${esc(v.media)} from this computer">${icon('upload', 14)}${uploadedName(m.value) ? 'Replace' : 'Upload'} ${esc(v.media)}<input type="file" hidden accept="${esc(UPLOAD_ACCEPT[v.media] || '')}" /></label>${m.value ? `<button type="button" class="btn sm quiet m-unupload" title="Take this ${esc(v.media)} out of the message">${icon('delete', 14)}Remove</button>` : ''}</div>` : ''}
       </div>`;
     }).join('');
@@ -601,7 +614,7 @@
     const key = row.dataset.key;
     if (e.target.classList.contains('m-src')) {
       const v = e.target.value;
-      SP.mapping[key] = v === 'fixed' ? { type: 'fixed', value: '' } : { type: 'column', value: v.slice(2) };
+      SP.mapping[key] = v === 'fixed' ? { type: 'fixed', value: '' } : v.startsWith('s:') ? { type: 'same', value: v.slice(2) } : { type: 'column', value: v.slice(2) };
       renderMapping();
       if (v === 'fixed') $(`.sp-map[data-key="${CSS.escape(key)}"] .m-val`)?.focus();
     } else SP.mapping[key].value = e.target.value;
@@ -614,8 +627,9 @@
     const out = {};
     for (const v of currentTemplate()?.variables || []) {
       const m = SP.mapping[v.key] || {};
-      out[v.key] = m.type === 'column' ? obj?.[m.value] ?? '' : m.value || '';
+      out[v.key] = m.type === 'column' ? obj?.[m.value] ?? '' : m.type === 'same' ? '' : m.value || '';
     }
+    for (const v of currentTemplate()?.variables || []) if (SP.mapping[v.key]?.type === 'same') out[v.key] = out[SP.mapping[v.key].value] ?? '';
     return out;
   };
 
@@ -791,7 +805,7 @@
     const count = list.length;
     const nums = state.selectedSenders.size;
     const t = currentTemplate();
-    const emptyFixed = t?.variables.find((v) => { const m = SP.mapping[v.key]; return !m || (m.type !== 'column' && !String(m.value).trim()); });
+    const emptyFixed = t?.variables.find((v) => { const m = SP.mapping[v.key]; return !m || (m.type === 'fixed' && !String(m.value).trim()); });
     const missing = Object.entries(skip.missing);
     const missLabel = (key) => { const v = t?.variables.find((x) => x.key === key); return v ? (v.media ? v.media + ' URL' : `{{${v.name}}}`) : key; };
 

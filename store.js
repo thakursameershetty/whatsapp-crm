@@ -21,6 +21,7 @@ const LISTS = {
   tags: (a, b) => cmp(a.createdAt, b.createdAt),
   notifications: (a, b) => cmp(b.ts, a.ts), // newest first
   aiChats: (a, b) => cmp(b.updatedAt, a.updatedAt),
+  links: (a, b) => cmp(a.createdAt, b.createdAt),
 };
 const cmp = (a, b) => String(a ?? '').localeCompare(String(b ?? ''));
 const ACCOUNT_TABLES = {

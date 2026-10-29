@@ -36,6 +36,8 @@ const DEFAULT_DB = {
   // Address book (contacts.js), keyed by phone number.
   contacts: [],
   tags: [],
+  // Redirect links for "Visit website" buttons: { id: code, url, createdAt, clicks }. See /go/:code.
+  links: [],
 };
 
 // One workspace per business; `db` always means the current request's workspace.
@@ -158,9 +160,26 @@ function buildComponents(template, values) {
   const buttons = comps.find((c) => (c.type || '').toUpperCase() === 'BUTTONS');
   (buttons?.buttons || []).forEach((b, i) => {
     const bv = vars.filter((v) => v.where === `button${i}`);
-    if (bv.length) out.push({ type: 'button', sub_type: 'url', index: String(i), parameters: bv.map((v) => ({ type: 'text', text: String(values[v.key] ?? '') })) });
+    const viaGo = isGoButton(b);
+    if (bv.length) out.push({ type: 'button', sub_type: 'url', index: String(i), parameters: bv.map((v) => ({ type: 'text', text: viaGo ? goCode(values[v.key]) : String(values[v.key] ?? '') })) });
   });
   return out;
+}
+
+// "Visit website" buttons can only change the end of their link, so a template whose button is
+// https://<this app>/go/{{1}} gets a short code, and /go/<code> sends people on to the full link
+// pasted when sending. That way the button can open any link, not just one site's pages.
+const isGoButton = (b) => b.type === 'URL' && /\/go\/{{\s*\w+\s*}}$/.test(b.url || '');
+function goCode(value) {
+  const url = String(value ?? '').trim();
+  if (!/^https?:\/\/\S+$/i.test(url)) return url; // already a code (or the end of a link): sent as is
+  const found = db.links.find((l) => l.url === url);
+  if (found) return found.id;
+  let code;
+  do code = crypto.randomBytes(6).toString('base64url').replace(/[-_]/g, '').slice(0, 7).toLowerCase(); while (code.length < 7 || tenants.allWorkspaces().some((ws) => ws.db.links?.some((l) => l.id === code)));
+  db.links.push({ id: code, url, createdAt: new Date().toISOString(), clicks: 0 });
+  save();
+  return code;
 }
 
 async function graph(sender, pathname, options = {}) {
@@ -405,6 +424,18 @@ app.get('/u/:file', (req, res) => {
   if (!/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(req.params.file)) return res.status(404).end();
   res.set('Cache-Control', 'public, max-age=31536000, immutable');
   res.sendFile(path.join(UPLOAD_DIR, req.params.file), (err) => err && !res.headersSent && res.status(404).end());
+});
+// A template button's redirect link (see goCode). Public: the people tapping it aren't signed in.
+app.get('/go/:code', (req, res) => {
+  const code = String(req.params.code).toLowerCase();
+  for (const ws of tenants.allWorkspaces()) {
+    const link = ws.db.links?.find((l) => l.id === code);
+    if (!link) continue;
+    tenants.forWorkspace(ws, () => { link.clicks = (link.clicks || 0) + 1; link.lastClickAt = new Date().toISOString(); save(); });
+    res.set('Cache-Control', 'no-store');
+    return res.redirect(302, link.url);
+  }
+  res.status(404).send('This link has expired or never existed.');
 });
 // The sign-in pages use these two files, so they load without signing in.
 const PUBLIC_FILES = new Set(['/style.css', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg']);
@@ -759,8 +790,10 @@ function resolveRecipients(body, template) {
     const values = {};
     for (const v of vars) {
       const m = mapping[v.key] || {};
-      values[v.key] = m.type === 'column' ? String(row[m.value] ?? '').trim() : String(m.value ?? '');
+      values[v.key] = m.type === 'column' ? String(row[m.value] ?? '').trim() : m.type === 'same' ? '' : String(m.value ?? '');
     }
+    // "Same as another variable" (a button reusing the message's link) once the others are filled.
+    for (const v of vars) if (mapping[v.key]?.type === 'same') values[v.key] = values[mapping[v.key].value] ?? '';
     const fromCol = nameCol ? [row[nameCol.col], nameCol.last && row[nameCol.last]].filter(Boolean).join(' ').trim() : '';
     recipients.push({ phone, values, name: String(fromCol || (greet && values[greet]) || '').trim().slice(0, 120) });
   }
