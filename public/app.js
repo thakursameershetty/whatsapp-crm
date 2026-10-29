@@ -573,7 +573,10 @@ function renderSenders() {
         <h3 title="${esc(s.label)}"><span class="li-name">${esc(s.label)}</span></h3>
         <label title="${s.enabled ? 'Number is in use' : 'Number is switched off'}">${toggleHtml({ checked: s.enabled, attrs: `data-enable="${s.id}"`, size: 'sm' })}</label>
       </div>
-      <div class="num">${esc(s.displayPhone || '—')}</div>
+      <div class="sender-id">
+        ${senderPhotoHtml(s)}
+        <div class="num">${esc(s.displayPhone || '—')}</div>
+      </div>
       ${numStats(s)}
       <dl class="kv">
         <dt>Phone number ID</dt><dd>${esc(s.phoneNumberId)}</dd>
@@ -593,8 +596,156 @@ function renderSenders() {
     )
     .join('');
   Motion.values(list);
+  // Numbers whose photo hasn't been read yet: ask Meta once, quietly.
+  if (!state.settings.demoMode) for (const s of state.senders) if (s.hasToken && !s.photoCheckedAt && !photoAsked.has(s.id)) {
+    photoAsked.add(s.id);
+    api(`/senders/${s.id}/photo/refresh`, { method: 'POST' }).then((x) => { if (x.photoUrl) loadSenders(); }).catch(() => {});
+  }
+}
+const photoAsked = new Set();
+
+const senderPhotoHtml = (s) => `<span class="sender-photo">${s?.photoUrl ? `<img src="${esc(s.photoUrl)}" alt="" onerror="this.remove()">` : ''}<b>${esc((s?.label || '?').trim().charAt(0).toUpperCase())}</b></span>`;
+// The profile photo editor: its own popup above Edit number. It opens on the number's current photo;
+// drag to move, zoom, rotate and straighten, or choose another picture. Resolves with a 640×640 JPG
+// (a size WhatsApp takes as is), or null when closed without saving.
+function photoEditor(sender) {
+  return new Promise((resolve) => {
+    let el = $('#photoModal');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'photoModal';
+      el.className = 'modal hidden';
+      document.body.append(el);
+    }
+    const name = esc(sender.verifiedName || sender.label || '');
+    el.innerHTML = `<div class="modal-box pe-box" role="dialog" aria-labelledby="peTitle">
+      <div class="modal-head"><h2 id="peTitle">Edit profile photo</h2><button type="button" class="icon-btn" data-pe="close" aria-label="Close">${icon('x', 18)}</button></div>
+      <div class="pe-body">
+        <div class="pe-stage" id="peStage"><canvas width="640" height="640"></canvas><div class="pe-empty hidden" id="peEmpty">${icon('upload', 22)}<span>Loading the current photo…</span></div></div>
+        <div class="pe-side">
+          <div class="pe-preview">
+            <div class="pe-chat"><span class="pe-small"><canvas width="112" height="112"></canvas></span><div><b>${name}</b><small>How it looks in a chat list</small></div></div>
+          </div>
+          <label class="pe-ctl"><span>Zoom</span><input type="range" id="peZoom" min="1" max="4" step="0.01" value="1"></label>
+          <label class="pe-ctl"><span>Straighten <output id="peTiltOut">0°</output></span><input type="range" id="peTilt" min="-15" max="15" step="0.5" value="0"></label>
+          <div class="pe-tools">
+            <button type="button" class="btn sm" data-pe="left" title="Rotate left">${icon('undo-2', 14)}Rotate</button>
+            <button type="button" class="btn sm" data-pe="right" title="Rotate right">${icon('redo-2', 14)}Rotate</button>
+            <button type="button" class="btn quiet sm" data-pe="reset">Reset</button>
+          </div>
+          <label class="btn sm pe-choose">${icon('upload', 14)}Choose another photo<input type="file" hidden accept="image/*" id="peFile"></label>
+          <p class="sub pe-hint">Drag the photo to move it. Use your own logo or brand image: WhatsApp's business rules don't allow other brands' logos or misleading pictures.</p>
+          <p class="pe-warn hidden" id="peWarn">This picture is small and may look blurry. Use one at least 640 pixels wide if you can.</p>
+        </div>
+      </div>
+      <div class="modal-actions"><button type="button" class="btn quiet" data-pe="close">Cancel</button><button type="button" class="btn primary" data-pe="save" disabled>Save photo</button></div>
+    </div>`;
+    el.classList.remove('hidden');
+
+    const V = 640; // the square that's uploaded, in pixels
+    const stage = $('#peStage canvas', el), ctx = stage.getContext('2d');
+    const previews = [$('.pe-small canvas', el)];
+    const zoomEl = $('#peZoom', el), tiltEl = $('#peTilt', el), saveBtn = $('[data-pe="save"]', el);
+    let img = null, zoom = 1, quarter = 0, tilt = 0, x = 0, y = 0; // x, y: photo centre offset, in square pixels
+
+    // The photo's scale that fills the square at zoom 1, for the current angle (so rotating never shows corners).
+    const angle = () => (quarter * 90 + tilt) * Math.PI / 180;
+    const fit = () => {
+      const c = Math.abs(Math.cos(angle())), s = Math.abs(Math.sin(angle()));
+      return V * (c + s) / Math.min(img.naturalWidth, img.naturalHeight);
+    };
+    // Keep the square inside the photo: limit the offset in the photo's own (rotated) frame.
+    const clamp = () => {
+      const a = angle(), k = fit() * zoom, c = Math.abs(Math.cos(a)) + Math.abs(Math.sin(a));
+      const w = img.naturalWidth * k, h = img.naturalHeight * k;
+      const u = x * Math.cos(-a) - y * Math.sin(-a), v = x * Math.sin(-a) + y * Math.cos(-a);
+      const lu = Math.max(0, (w - V * c) / 2), lv = Math.max(0, (h - V * c) / 2);
+      const cu = Math.max(-lu, Math.min(lu, u)), cv = Math.max(-lv, Math.min(lv, v));
+      x = cu * Math.cos(a) - cv * Math.sin(a); y = cu * Math.sin(a) + cv * Math.cos(a);
+    };
+    const paint = (c, size) => {
+      const g = c.getContext('2d'), k = size / V, sc = fit() * zoom * k;
+      g.save();
+      g.fillStyle = '#fff';
+      g.fillRect(0, 0, size, size);
+      g.translate(size / 2 + x * k, size / 2 + y * k);
+      g.rotate(angle());
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(img, -img.naturalWidth * sc / 2, -img.naturalHeight * sc / 2, img.naturalWidth * sc, img.naturalHeight * sc);
+      g.restore();
+    };
+    const draw = () => {
+      if (!img) return;
+      clamp();
+      paint(stage, V);
+      for (const p of previews) paint(p, p.width);
+    };
+    const reset = () => { zoom = 1; quarter = 0; tilt = 0; x = y = 0; zoomEl.value = 1; tiltEl.value = 0; $('#peTiltOut', el).textContent = '0°'; draw(); };
+    const load = (src, isNew) => new Promise((ok) => {
+      const im = new Image();
+      im.onload = () => {
+        img = im;
+        $('#peEmpty', el).classList.add('hidden');
+        $('#peWarn', el).classList.toggle('hidden', Math.min(im.naturalWidth, im.naturalHeight) >= 192);
+        saveBtn.disabled = false;
+        reset();
+        ok(true);
+      };
+      im.onerror = () => {
+        if (isNew) toast("That file isn't a picture this browser can open. Use a JPG or PNG.", 'error');
+        else showEmpty('No profile photo yet. Choose one to start.');
+        ok(false);
+      };
+      im.src = src;
+    });
+    const showEmpty = (text) => { const e = $('#peEmpty', el); e.classList.remove('hidden'); $('span', e).textContent = text; };
+    showEmpty('Loading the current photo…');
+    load(`/api/senders/${sender.id}/photo/file?t=${Date.now()}`, false);
+
+    zoomEl.addEventListener('input', () => { zoom = Number(zoomEl.value); draw(); });
+    tiltEl.addEventListener('input', () => { tilt = Number(tiltEl.value); $('#peTiltOut', el).textContent = `${tilt > 0 ? '+' : ''}${tilt}°`; draw(); });
+    let drag = null;
+    stage.addEventListener('pointerdown', (e) => { if (!img) return; drag = { px: e.clientX, py: e.clientY, x, y }; stage.setPointerCapture(e.pointerId); });
+    stage.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const r = V / stage.getBoundingClientRect().width; // screen pixels to square pixels
+      x = drag.x + (e.clientX - drag.px) * r;
+      y = drag.y + (e.clientY - drag.py) * r;
+      draw();
+    });
+    stage.addEventListener('pointerup', () => { drag = null; });
+    stage.addEventListener('wheel', (e) => { if (!img) return; e.preventDefault(); zoom = Math.max(1, Math.min(4, zoom - e.deltaY * 0.002)); zoomEl.value = zoom; draw(); }, { passive: false });
+    $('#peFile', el).addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      e.target.value = '';
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      load(url, true).finally(() => URL.revokeObjectURL(url));
+    });
+
+    const done = (v) => { document.removeEventListener('keydown', onKey, true); hideOverlay(el); resolve(v); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
+    document.addEventListener('keydown', onKey, true);
+    el.addEventListener('click', (e) => {
+      if (e.target === el) return done(null); // clicking outside the box
+      const b = e.target.closest('[data-pe]');
+      if (!b) return;
+      const act = b.dataset.pe;
+      if (act === 'close') return done(null);
+      if (act === 'reset') return reset();
+      if (act === 'left' || act === 'right') { quarter = (quarter + (act === 'left' ? 3 : 1)) % 4; return draw(); }
+      if (act === 'save' && img) { draw(); stage.toBlob((blob) => done(blob), 'image/jpeg', 0.92); }
+    });
+  });
 }
 
+// Change the WhatsApp profile photo (JPG or PNG; Meta shows it as a circle, so square works best).
+async function uploadSenderPhoto(id, file) {
+  const res = await fetch(`/api/senders/${id}/photo`, { method: 'POST', headers: { 'Content-Type': file.type || 'image/jpeg' }, body: file });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || (res.status === 413 ? 'That photo is too big: WhatsApp accepts up to 5 MB' : `Upload failed (${res.status})`));
+  return json;
+}
 $('#senderList').addEventListener('change', (e) => {
   const id = e.target.dataset.enable;
   if (!id) return;
@@ -631,6 +782,7 @@ function senderForm(s = null) {
   const shared = !s && state.senders.find((x) => x.hasToken && x.wabaId);
   const body = openModal(s ? 'Edit number' : 'Add sender number', `
     <form id="senderForm" novalidate>
+      ${s && live && s.hasToken ? `<div class="sf-photo"><span id="sfPhoto">${senderPhotoHtml(s)}</span><div><b>WhatsApp profile photo</b><span class="sub">What customers see on this number's chat. Use your own logo or brand image.</span></div><button type="button" class="btn sm sender-photo-btn" id="sfPhotoBtn">${icon('square-pen', 14)}Edit</button></div>` : ''}
       <label>Label <span class="opt">up to 40 characters</span><input name="label" required maxlength="40" placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
       <label>Phone number ID <input name="phoneNumberId" required inputmode="numeric" data-digits maxlength="17" placeholder="From Meta → WhatsApp → API Setup (digits)" value="${esc(s?.phoneNumberId)}" /></label>
       <label>WhatsApp Business Account ID <span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span><input name="wabaId" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Leave blank, or paste the Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" /></label>
@@ -651,6 +803,20 @@ function senderForm(s = null) {
   const form = $('#senderForm', body), status = $('#sfStatus', body);
   // Prefill WABA from an existing number to make adding more numbers quicker.
   if (!s && state.senders[0]?.wabaId) $('[name=wabaId]', body).value = state.senders[0].wabaId;
+  $('#sfPhotoBtn', body)?.addEventListener('click', () => {
+    const btn = $('#sfPhotoBtn', body);
+    guard(async () => {
+      const cropped = await photoEditor(s);
+      if (!cropped) return;
+      btn.classList.add('busy');
+      try {
+        const updated = await uploadSenderPhoto(s.id, cropped);
+        $('#sfPhoto', body).innerHTML = senderPhotoHtml(updated);
+        toast('Profile photo updated. Customers see it on their next look at the chat.');
+        loadSenders();
+      } catch (err) { toast(err.message, 'error'); } finally { btn.classList.remove('busy'); }
+    });
+  });
   $('#sfReplace', body)?.addEventListener('click', () => { $('#sfSaved', body).classList.add('hidden'); $('#sfTokenWrap', body).classList.remove('hidden'); $('[name=accessToken]', body).focus(); });
   const show = (kind, html) => { status.className = 'sf-status ' + kind; status.innerHTML = html; };
   // Editing the number or token means the last check no longer applies.

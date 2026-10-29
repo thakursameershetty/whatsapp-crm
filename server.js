@@ -686,8 +686,66 @@ app.post('/api/senders/:id/test', wrap(async (req, res) => {
   s.qualityRating = info.quality_rating;
   s.messagingLimit = info.messaging_limit_tier;
   s.lastCheckedAt = new Date().toISOString();
+  await readProfilePhoto(s);
   save();
   res.json({ ok: true, info, sender: publicSender(s) });
+}));
+
+// --- WhatsApp profile photo -------------------------------------------------
+// The picture customers see on the business's chat. Meta's link to it expires after a while, so it's
+// read again on Test connection, after a change, and when the Numbers page finds it missing.
+async function readProfilePhoto(s) {
+  try {
+    const p = (await graph(s, `${s.phoneNumberId}/whatsapp_business_profile?fields=profile_picture_url`)).data?.[0] || {};
+    s.photoUrl = p.profile_picture_url || '';
+  } catch { /* the photo is a nicety: a failed read leaves the old one */ }
+  s.photoCheckedAt = new Date().toISOString();
+}
+app.post('/api/senders/:id/photo/refresh', wrap(async (req, res) => {
+  const s = db.senders.find((x) => x.id === req.params.id);
+  if (!s) throw fail('Not found', 404);
+  if (s.accessToken && !db.settings.demoMode) await readProfilePhoto(s);
+  save();
+  res.json(publicSender(s));
+}));
+// The current photo itself, passed through this server so the photo editor can work on it (the browser
+// won't let a page edit a picture loaded straight from WhatsApp's image server).
+app.get('/api/senders/:id/photo/file', wrap(async (req, res) => {
+  const s = db.senders.find((x) => x.id === req.params.id);
+  if (!s) throw fail('Not found', 404);
+  const get = () => (s.photoUrl ? fetch(s.photoUrl) : null);
+  let r = await get();
+  if (!r?.ok && s.accessToken && !db.settings.demoMode) { await readProfilePhoto(s); save(); r = await get(); } // the link had expired
+  if (!r?.ok) throw fail('This number has no profile photo yet', 404);
+  res.type(r.headers.get('content-type') || 'image/jpeg');
+  res.set('Cache-Control', 'no-store');
+  res.send(Buffer.from(await r.arrayBuffer()));
+}));
+// Changing it takes three calls: start an upload on the token's app, send the file to get a handle,
+// then set that handle as the number's profile picture.
+app.post('/api/senders/:id/photo', express.raw({ type: () => true, limit: '5mb' }), wrap(async (req, res) => {
+  const s = db.senders.find((x) => x.id === req.params.id);
+  if (!s) throw fail('Not found', 404);
+  if (db.settings.demoMode) throw fail('Profile photos can only be changed for real numbers, not in demo mode');
+  if (!s.accessToken) throw fail('No access token saved for this number');
+  const mime = String(req.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!['image/jpeg', 'image/png'].includes(mime)) throw fail('WhatsApp profile photos must be JPG or PNG');
+  if (!req.body?.length) throw fail('The file is empty');
+  const base = `https://graph.facebook.com/${db.settings.graphVersion}`;
+  const call = async (url, init) => {
+    const r = await fetch(url, init);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw fail(`Meta didn't accept the photo: ${j.error?.error_user_msg || j.error?.message || 'HTTP ' + r.status}`);
+    return j;
+  };
+  const appId = (await graph(s, `debug_token?input_token=${encodeURIComponent(s.accessToken)}`)).data?.app_id;
+  if (!appId) throw fail("Couldn't tell which Meta app this token belongs to");
+  const session = await call(`${base}/${appId}/uploads?file_length=${req.body.length}&file_type=${encodeURIComponent(mime)}`, { method: 'POST', headers: { Authorization: `Bearer ${s.accessToken}` } });
+  const { h } = await call(`${base}/${session.id}`, { method: 'POST', headers: { Authorization: `OAuth ${s.accessToken}`, file_offset: '0', 'Content-Type': mime }, body: req.body });
+  await call(`${base}/${s.phoneNumberId}/whatsapp_business_profile`, { method: 'POST', headers: { Authorization: `Bearer ${s.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ messaging_product: 'whatsapp', profile_picture_handle: h }) });
+  await readProfilePhoto(s);
+  save();
+  res.json(publicSender(s));
 }));
 
 // --- Templates --------------------------------------------------------------
