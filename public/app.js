@@ -978,7 +978,7 @@ function tplSpec(t) {
     body: { text: b?.text || '', samples: b?.example?.body_text?.[0] || [] },
     footer: f?.text || '',
     // A website button shows the link it opens (kept with the template), never the short link Meta has.
-    buttons: btns.map((x, i) => x.type === 'URL' ? { type: 'URL', text: x.text, url: isGoUrl(x.url) ? t?.linkDefaults?.[i] || '' : x.url }
+    buttons: btns.map((x, i) => x.type === 'URL' ? { type: 'URL', text: x.text, mode: isGoUrl(x.url) ? 'dynamic' : 'static', url: isGoUrl(x.url) ? t?.linkDefaults?.[i] || '' : x.url }
       : x.type === 'PHONE_NUMBER' ? { type: 'PHONE_NUMBER', text: x.text, phone: x.phone_number || '' } : { type: 'QUICK_REPLY', text: x.text }),
   };
 }
@@ -1089,11 +1089,12 @@ function templateEditor(t = null) {
     box.innerHTML = spec.buttons.map((b, i) => `<div class="te-btn" data-i="${i}">
       <span class="te-btn-kind">${icon(b.type === 'URL' ? 'external-link' : b.type === 'PHONE_NUMBER' ? 'phone' : 'reply', 14)}${b.type === 'URL' ? 'Website' : b.type === 'PHONE_NUMBER' ? 'Call' : 'Quick reply'}</span>
       <input data-bf="text" maxlength="25" value="${esc(b.text)}" placeholder="${b.type === 'URL' ? 'Register Now' : b.type === 'PHONE_NUMBER' ? 'Call us' : 'Interested'}" aria-label="Button text">
-      ${b.type === 'URL' ? `<input data-bf="url" value="${esc(b.url)}" placeholder="https://example.com/page" inputmode="url" aria-label="Link the button opens">` : ''}
+      ${b.type === 'URL' ? `<input data-bf="url" value="${esc(b.url)}" placeholder="https://example.com/page" inputmode="url" aria-label="Link the button opens">
+        <div class="te-mode"><div class="seg" role="radiogroup" aria-label="Link type">${[['static', 'Static'], ['dynamic', 'Dynamic']].map(([m, l]) => `<button type="button" data-bmode="${m}" class="${b.mode === m ? 'active' : ''}" role="radio" aria-checked="${b.mode === m}">${l}</button>`).join('')}</div>
+        <small>${b.mode === 'static' ? '<b>Static:</b> this exact link is part of the template. It can’t be changed when sending.' : '<b>Dynamic:</b> this is the starting link; you can change it for each campaign when sending.'}</small></div>` : ''}
       ${b.type === 'PHONE_NUMBER' ? `<input data-bf="phone" value="${esc(b.phone)}" placeholder="+91 98765 43210" inputmode="tel">` : ''}
       <button type="button" class="icon-btn te-btn-x" data-rmbtn="${i}" aria-label="Remove button">${icon('x', 14)}</button>
     </div>`).join('');
-    if (spec.buttons.some((b) => b.type === 'URL')) box.insertAdjacentHTML('beforeend', '<p class="sub te-note">You can use a different link for each campaign when sending.</p>');
     $('.te-addbtns', body).classList.toggle('hidden', spec.buttons.length >= 10);
   };
 
@@ -1152,12 +1153,14 @@ function templateEditor(t = null) {
     const add = e.target.closest('[data-addbtn]');
     if (add) {
       const type = add.dataset.addbtn;
-      spec.buttons.push(type === 'URL' ? { type, text: '', url: '' } : type === 'PHONE_NUMBER' ? { type, text: '', phone: '' } : { type, text: '' });
+      spec.buttons.push(type === 'URL' ? { type, text: '', mode: 'dynamic', url: '' } : type === 'PHONE_NUMBER' ? { type, text: '', phone: '' } : { type, text: '' });
       renderButtons();
       renderPreview();
       $(`.te-btn[data-i="${spec.buttons.length - 1}"] [data-bf=text]`, body)?.focus();
       return;
     }
+    const bm = e.target.closest('[data-bmode]');
+    if (bm) { spec.buttons[Number(bm.closest('.te-btn').dataset.i)].mode = bm.dataset.bmode; renderButtons(); return; }
     const rm = e.target.closest('[data-rmbtn]');
     if (rm) { spec.buttons.splice(Number(rm.dataset.rmbtn), 1); renderButtons(); renderPreview(); }
   });
@@ -1169,8 +1172,8 @@ function templateEditor(t = null) {
     else if (el.name === 'footer') spec.footer = el.value;
     else if (el.name === 'headerText') { spec.header.text = el.value; if (Boolean(tplVarNums(el.value).length) !== Boolean($('[name=headerSample]', body))) { renderHeader(); $('[name=headerText]', body).focus(); } }
     else if (el.name === 'headerSample') spec.header.sample = el.value;
-    else if (el.dataset.sample != null) spec.body.samples[Number(el.dataset.sample)] = el.value;
-    else if (el.dataset.bf) { const b = spec.buttons[Number(el.closest('.te-btn').dataset.i)]; b[el.dataset.bf] = el.value; }
+    else if (el.dataset.sample != null) { spec.body.samples[Number(el.dataset.sample)] = el.value; el.classList.toggle('bad', Boolean(linkProblem(el.value))); el.title = linkProblem(el.value) ? `This ${linkProblem(el.value)}. Write the full link, e.g. https://example.com` : ''; }
+    else if (el.dataset.bf) { const b = spec.buttons[Number(el.closest('.te-btn').dataset.i)]; b[el.dataset.bf] = el.value; if (el.dataset.bf === 'url') { const bad = el.value.trim() && linkProblem(el.value, true); el.classList.toggle('bad', Boolean(bad)); el.title = bad ? 'Write the full link, starting with https://' : ''; } }
     renderPreview();
   });
   form.addEventListener('change', (e) => { if (e.target.name === 'language') spec.language = e.target.value; });
@@ -1278,6 +1281,20 @@ function normalizePhone(input) {
   return phoneCandidates(input)[0] || null;
 }
 
+// Links typed as values must be complete. `mustBeLink`: a button link or header file (only a full http(s) address
+// works there). Otherwise only text that looks like a link without its https:// ("cal.com/demo", "www.x.com") is a
+// problem: WhatsApp wouldn't make it tappable. Returns what's wrong, or ''. Keep in step with linkProblem in server.js.
+function linkProblem(value, mustBeLink = false) {
+  const v = String(value ?? '').trim();
+  if (!v) return '';
+  const full = /^https?:\/\/(?:[^\s/?#]+\.[^\s/?#]{2,}|localhost(?::\d+)?)(?:[/?#]\S*)?$/i.test(v);
+  if (mustBeLink) return full ? '' : /^(https?:)?\/\//i.test(v) ? 'is not a complete link' : 'must start with https:// or http://';
+  const word = v.split(/\s+/).find((w) => /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(\/\S*)?$/i.test(w) && !/^https?:\/\//i.test(w) && !/@/.test(w) && /^www\.|\//i.test(w));
+  const isFull = (w) => /^https?:\/\/(?:[^\s/?#]+\.[^\s/?#]{2,}|localhost(?::\d+)?)(?:[/?#]\S*)?$/i.test(w);
+  const broken = v.split(/\s+/).find((w) => /^h?tt?ps?[:/]/i.test(w) && !isFull(w)); // "https//x", "htps://x", "https://"
+  if (broken) return `has a broken link (${broken})`;
+  return word ? `has a link without https:// (${word})` : '';
+}
 // A sheet value for a {{variable}}: bracketed notes dropped ("Sourceways (unclear)" → "Sourceways"), and
 // placeholders like "Not Captured", "N/A" or "-" count as empty, so a fallback can step in.
 // Keep in step with cleanCell in server.js.

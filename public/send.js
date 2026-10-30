@@ -598,6 +598,19 @@
         ${m.type === 'column' && !v.media ? fallbackHtml(v, m) : ''}
       </div>${v.media === 'document' ? fileNameRow() : ''}`;
     }).join('');
+    markLinks();
+  }
+  // A typed value with a link problem gets a red note right under it (sending is blocked in the summary too).
+  function markLinks() {
+    const t = currentTemplate();
+    for (const inp of $$('#mapping .sp-map .m-val')) {
+      const v = t?.variables.find((x) => x.key === inp.closest('.sp-map').dataset.key);
+      const bad = v ? linkProblem(inp.value, Boolean(v.media) || /^button/.test(v.where)) : '';
+      inp.classList.toggle('bad', Boolean(bad));
+      let note = inp.nextElementSibling?.classList.contains('m-err') ? inp.nextElementSibling : null;
+      if (bad && !note) { note = document.createElement('small'); note.className = 'm-err'; inp.after(note); }
+      if (note) { note.textContent = bad ? `This ${bad}. Write the full link, e.g. https://example.com` : ''; if (!bad) note.remove(); }
+    }
   }
   // Rows about to be sent whose cell in `col` is empty or a placeholder ("Not Captured", "N/A"…).
   function blankRows(col) {
@@ -672,7 +685,7 @@
       SP.mapping[key] = v === 'fixed' ? { type: 'fixed', value: '' } : v.startsWith('s:') ? { type: 'same', value: v.slice(2) } : { type: 'column', value: v.slice(2) };
       renderMapping();
       if (v === 'fixed') $(`.sp-map[data-key="${CSS.escape(key)}"] .m-val`)?.focus();
-    } else SP.mapping[key].value = e.target.value;
+    } else { SP.mapping[key].value = e.target.value; markLinks(); }
     renderPreview();
     flashVar(key);
     renderSummary();
@@ -884,6 +897,16 @@
     const missing = Object.entries(skip.missing);
     const missLabel = (key) => { const v = t?.variables.find((x) => x.key === key); return v ? (v.media ? v.media + ' URL' : `{{${v.name}}}`) : key; };
 
+    // A link typed (or in a column) without https://, or a broken one, would reach people untappable: stop here.
+    let badLink = '';
+    if (t) for (const r of list) {
+      const vals = valuesFor(r.obj);
+      for (const v of t.variables) {
+        const bad = linkProblem(vals[v.key], Boolean(v.media) || /^button/.test(v.where));
+        if (bad) { badLink = `${v.media ? `Header ${v.media} link` : /^button/.test(v.where) ? 'Button link' : `{{${v.name}}}`} ${bad}${SP.mapping[v.key]?.type === 'column' ? ` (row with +${r.obj.__phone})` : ''}`; break; }
+      }
+      if (badLink) break;
+    }
     const why =
       !SP.sheets.length ? 'Open a contact list' :
       !sheets ? 'Tick at least one sheet tab to send to' :
@@ -891,6 +914,7 @@
       !t ? 'Choose a template in the Message panel' :
       !nums ? 'Turn on at least one sender number' :
       emptyFixed ? `Fill in ${missLabel(emptyFixed.key)} in the Message panel` :
+      badLink ? badLink :
       !count ? `Every row is missing a value for ${missLabel(missing[0][0])}` : '';
 
     const notes = [

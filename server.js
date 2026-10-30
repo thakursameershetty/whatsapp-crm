@@ -127,6 +127,28 @@ function cleanCell(v) {
   return !s || FILLER.test(s) ? '' : s;
 }
 
+// Links typed as values must be complete. `mustBeLink`: a button link or header file (only a full http(s) address
+// works there). Otherwise only text that looks like a link without its https:// ("cal.com/demo", "www.x.com") is a
+// problem: WhatsApp wouldn't make it tappable. Returns what's wrong, or ''. Keep in step with linkProblem in public/app.js.
+function linkProblem(value, mustBeLink = false) {
+  const v = String(value ?? '').trim();
+  if (!v) return '';
+  const full = /^https?:\/\/(?:[^\s/?#]+\.[^\s/?#]{2,}|localhost(?::\d+)?)(?:[/?#]\S*)?$/i.test(v);
+  if (mustBeLink) return full ? '' : /^(https?:)?\/\//i.test(v) ? 'is not a complete link' : 'must start with https:// or http://';
+  const word = v.split(/\s+/).find((w) => /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(\/\S*)?$/i.test(w) && !/^https?:\/\//i.test(w) && !/@/.test(w) && /^www\.|\//i.test(w));
+  const isFull = (w) => /^https?:\/\/(?:[^\s/?#]+\.[^\s/?#]{2,}|localhost(?::\d+)?)(?:[/?#]\S*)?$/i.test(w);
+  const broken = v.split(/\s+/).find((w) => /^h?tt?ps?[:/]/i.test(w) && !isFull(w)); // "https//x", "htps://x", "https://"
+  if (broken) return `has a broken link (${broken})`;
+  return word ? `has a link without https:// (${word})` : '';
+}
+// Every value a message would be sent with, checked: the first problem as "{{2}} has a link without https://…".
+function valuesProblem(template, values) {
+  for (const v of templateVariables(template.components)) {
+    const bad = linkProblem(values[v.key], Boolean(v.media) || /^button/.test(v.where));
+    if (bad) return `${v.media ? `The header ${v.media} link` : /^button/.test(v.where) ? 'The button link' : `{{${v.name}}}`} ${bad}`;
+  }
+  return '';
+}
 // The name WhatsApp shows on a document header (otherwise it says "Untitled"): the one typed on the Send page,
 // else the name at the end of the link (uploads keep the original there), else "Document.pdf".
 function safeFileName(name, ext = 'pdf') {
@@ -893,6 +915,7 @@ function templateComponents(spec, { handle, linkBase }) {
   const n = checkVars(body, 'Message');
   const samples = (spec.body?.samples || []).map((x) => String(x ?? '').trim()).slice(0, n);
   if (n && (samples.length < n || samples.some((x) => !x))) throw fail('Add a sample for every variable in the message: Meta needs them to review the template');
+  samples.forEach((x, i) => { const bad = linkProblem(x); if (bad) throw fail(`The sample for {{${i + 1}}} ${bad}`); });
   out.push({ type: 'BODY', text: body, ...(n ? { example: { body_text: [samples] } } : {}) });
   const footer = String(spec.footer || '').trim();
   if (footer) {
@@ -911,12 +934,13 @@ function templateComponents(spec, { handle, linkBase }) {
       if (!phone) throw fail(`"${text}": enter the phone number to call, with its country code`);
       buttons.push({ type: 'PHONE_NUMBER', text, phone_number: '+' + phone });
     } else if (b.type === 'URL') {
-      // Every website button opens its link through the short-link service in the background (see goCode), so
-      // the link can change per campaign and taps are counted. People only ever see their own link: it's kept
-      // as the button's default (linkDefaults) and filled in when sending.
       const url = String(b.url || '').trim();
-      if (!/^https?:\/\/\S+\.\S+/.test(url) || varsIn(url).length) throw fail(`"${text}": enter the full website link, starting with https://`);
-      buttons.push({ type: 'URL', text, url: `${linkBase}/go/{{1}}`, example: [`${linkBase}/go/${goCode(url)}`], _link: url });
+      if (linkProblem(url, true) || varsIn(url).length) throw fail(`"${text}": enter the full website link, starting with https://`);
+      // Static: the link itself is part of the template, exactly as typed.
+      if (b.mode === 'static') buttons.push({ type: 'URL', text, url });
+      // Dynamic: opened through the short-link service in the background (see goCode), so it can change per
+      // campaign. People only ever see their own link: it's kept as the default (linkDefaults) for sending.
+      else buttons.push({ type: 'URL', text, url: `${linkBase}/go/{{1}}`, example: [`${linkBase}/go/${goCode(url)}`], _link: url });
     } else throw fail('Unknown button type');
   }
   // Meta's rules: buttons grouped by kind (website and call buttons together, quick replies together),
@@ -952,7 +976,7 @@ const SHORT_LINK_BASE = process.env.SHORT_LINK_DOMAIN || 'https://url-analytics.
 // already point at this app: a test link is opened on it and must get this app's answer (see /go/:code).
 // Only needed when the template has such a button.
 async function linkBaseFor(req, spec) {
-  if (!(spec.buttons || []).some((b) => b.type === 'URL')) return '';
+  if (!(spec.buttons || []).some((b) => b.type === 'URL' && b.mode !== 'static')) return '';
   const d = String(db.settings.linkDomain || SHORT_LINK_BASE).trim().replace(/\/+$/, '');
   if (!db.settings.demoMode) {
     const r = await fetch(`${d}/go/zzzzzzz`, { redirect: 'manual', signal: AbortSignal.timeout(8000) }).catch(() => null);
@@ -1106,6 +1130,8 @@ app.post('/api/send/test', wrap(async (req, res) => {
   if (phoneErr) throw fail(phoneErr);
   const to = normalizePhone(phone);
   if (!db.settings.demoMode && !sender.accessToken) throw fail('This sender has no access token');
+  const linkErr = valuesProblem(template, withLinkDefaults(template, values));
+  if (linkErr) throw fail(linkErr);
   const messageId = await sendTemplate(sender, template, to, withLinkDefaults(template, values));
   // Keep test sends in the Inbox thread too, so the conversation shows everything that went out.
   const demo = db.settings.demoMode;
@@ -1152,6 +1178,8 @@ function createCampaign(body) {
   if (!recipients.length) throw fail('No valid recipients');
   checkDailyLimit(recipients.length);
   const missing = vars.find((v) => recipients.some((r) => !r.values[v.key]));
+  const badRow = recipients.find((r) => valuesProblem(template, r.values));
+  if (badRow) throw fail(`+${badRow.phone}: ${valuesProblem(template, badRow.values)}. Fix it on the Send page.`);
   if (missing) throw fail(`Variable "${missing.key}" is empty for some recipients — map it to a column or set a fixed value`);
 
   // Spread recipients evenly across the chosen numbers (round-robin).
@@ -1503,6 +1531,8 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
     const filled = withLinkDefaults(template, values);
     const empty = templateVariables(template.components).find((v) => !String(filled[v.key] ?? '').trim());
     if (empty) throw fail(`Fill in ${empty.where} ${empty.name}`);
+    const linkErr = valuesProblem(template, filled);
+    if (linkErr) throw fail(linkErr);
     const wamid = await sendTemplate(sender, template, wa, filled, demo);
     msg = { type: 'template', templateId, templateName: template.name, values, wamid };
     res.json(recordOut(key, msg));
