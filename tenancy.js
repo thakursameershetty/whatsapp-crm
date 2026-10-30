@@ -10,6 +10,8 @@
 // its own workspace. Background work (webhooks, scheduler, startup) runs inside forWorkspace().
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { AsyncLocalStorage } = require('async_hooks');
 
 const mail = require('./mail');
@@ -600,23 +602,68 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     }
     req.role = roleIn(userId, wsId);
     req.session = session;
+    // A workspace with a password: its data stays closed until it's entered in this sign-in. The page itself loads
+    // (it shows the password screen), and so do the calls that screen needs.
+    if (isLocked(ws, session) && req.path.startsWith('/api/') && !LOCK_OPEN.includes(req.path) && !req.path.startsWith('/api/avatar/')) {
+      return res.status(423).json({ error: `“${ws.meta.name}” is protected. Enter its password to open it.`, locked: true });
+    }
     als.run(ws, next);
+  }
+  // Workspace passwords (set by an owner). Each sign-in unlocks a workspace once; changing the password locks it
+  // again for everyone (the version is part of what's remembered).
+  const LOCK_OPEN = ['/api/me', '/api/workspace/unlock', '/api/workspace/switch', '/api/account/photo'];
+  const lockKey = (ws) => `${ws.meta.id}:${ws.meta.lock?.v || 0}`;
+  const isLocked = (ws, session) => Boolean(ws.meta.lock) && !(session?.unlocked || []).includes(lockKey(ws));
+  function unlockFor(session, ws) {
+    if (!session) return;
+    session.unlocked = [...(session.unlocked || []).filter((k) => !k.startsWith(ws.meta.id + ':')), lockKey(ws)];
   }
 
   // Account, workspace and team endpoints (inside a workspace).
+  // Profile photos: data/avatars/<userId>.jpg (on the volume), shown to people who share a workspace with them.
+  const AVATAR_DIR = path.join(__dirname, 'data', 'avatars');
+  const avatarFile = (userId) => path.join(AVATAR_DIR, String(userId).replace(/[^\w-]/g, '') + '.jpg');
+  const photoUrl = (u) => (u?.photoAt ? `/api/avatar/${u.id}?v=${encodeURIComponent(u.photoAt)}` : null);
+
   function mountAccountApi(app, { wrap, fail }) {
+    const express = require('express');
+    // Your own photo: a square JPG or PNG (the page crops and shrinks it first), up to 2 MB.
+    app.post('/api/account/photo', express.raw({ type: ['image/jpeg', 'image/png'], limit: '2mb' }), wrap((req, res) => {
+      if (!Buffer.isBuffer(req.body) || !req.body.length) throw fail('Choose a JPG or PNG photo');
+      fs.mkdirSync(AVATAR_DIR, { recursive: true });
+      fs.writeFileSync(avatarFile(req.user.id), req.body);
+      req.user.photoAt = now();
+      saveAccounts();
+      res.json({ photo: photoUrl(req.user) });
+    }));
+    app.delete('/api/account/photo', wrap((req, res) => {
+      fs.rmSync(avatarFile(req.user.id), { force: true });
+      delete req.user.photoAt;
+      saveAccounts();
+      res.json({ photo: null });
+    }));
+    app.get('/api/avatar/:userId', (req, res) => {
+      const them = req.params.userId;
+      const shared = them === req.user.id || membershipsOf(req.user.id).some((m) => roleIn(them, m.wsId));
+      const file = avatarFile(them);
+      if (!shared || !fs.existsSync(file)) return res.status(404).end();
+      res.set('Cache-Control', 'private, max-age=31536000, immutable'); // the ?v= changes with each new photo
+      res.type('image/jpeg').sendFile(file);
+    });
+
     const ownerOnly = (req) => { if (req.role !== 'owner') throw fail('Only the workspace owner can do that', 403); };
-    const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email });
+    const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, photo: photoUrl(u) });
 
     app.get('/api/me', (req, res) => {
       const ws = current();
       res.json({
-        user: { ...publicUser(req.user), emailVerified: req.user.emailVerified !== false, createdAt: req.user.createdAt, deletionRequest: req.user.deletionRequest || null },
+        user: { ...publicUser(req.user), photo: photoUrl(req.user), emailVerified: req.user.emailVerified !== false, createdAt: req.user.createdAt, deletionRequest: req.user.deletionRequest || null },
         admin: req.admin,
         mail: mail.enabled(),
         role: req.role,
-        workspace: { id: ws.meta.id, name: ws.meta.name },
-        workspaces: membershipsOf(req.user.id).map((m) => ({ id: m.wsId, name: accounts.workspaces.find((w) => w.id === m.wsId)?.name, role: m.role })),
+        workspace: { id: ws.meta.id, name: ws.meta.name, protected: Boolean(ws.meta.lock) },
+        locked: isLocked(ws, req.session),
+        workspaces: membershipsOf(req.user.id).map((m) => ({ id: m.wsId, name: accounts.workspaces.find((w) => w.id === m.wsId)?.name, role: m.role, protected: Boolean(loaded.get(m.wsId)?.meta.lock) })),
         workspaceLimit: workspaceLimit(req.user), workspacesOwned: ownedCount(req.user.id),
       });
     });
@@ -645,9 +692,72 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       res.json({ id: ws.meta.id, name: ws.meta.name });
     }));
 
+    // Delete the current workspace for everyone in it: its numbers, templates, contacts, campaigns, inbox and
+    // AI chats. Owners only, after typing its name. Not while messages are going out, and not your last workspace
+    // (there'd be nowhere to land). Members are moved to another workspace they belong to, or signed out of it.
+    app.delete('/api/workspace', wrap(async (req, res) => {
+      ownerOnly(req);
+      const ws = current(), wsId = ws.meta.id;
+      if (String(req.body?.confirm || '').trim() !== ws.meta.name) throw fail('Type the workspace name exactly to confirm');
+      const busy = ws.db.campaigns.filter((c) => ['running', 'queued', 'scheduled'].includes(c.status));
+      if (busy.length) throw fail(`${busy.length} campaign${busy.length > 1 ? 's are' : ' is'} sending or scheduled here. Stop or cancel ${busy.length > 1 ? 'them' : 'it'} on the Campaigns page first.`);
+      const next = membershipsOf(req.user.id).find((m) => m.wsId !== wsId && loaded.get(m.wsId));
+      if (!next) throw fail('This is your only workspace. Create another one first, or delete your account instead (Settings → Account).');
+      if (ws.timer) { clearTimeout(ws.timer); ws.timer = null; }
+      loaded.delete(wsId);
+      accounts.workspaces = accounts.workspaces.filter((w) => w.id !== wsId);
+      accounts.invites = accounts.invites.filter((i) => i.wsId !== wsId);
+      accounts.members = accounts.members.filter((m) => m.wsId !== wsId);
+      // Everyone signed in to it lands in another workspace of theirs; with none left, that session ends.
+      accounts.sessions = accounts.sessions.filter((s) => {
+        if (s.wsId !== wsId) return true;
+        const other = membershipsOf(s.userId)[0];
+        if (other) s.wsId = other.wsId;
+        return Boolean(other);
+      });
+      for (const u of accounts.users) if (u.lastWsId === wsId) u.lastWsId = membershipsOf(u.id)[0]?.wsId || null;
+      if (req.session) req.session.wsId = next.wsId;
+      req.user.lastWsId = next.wsId;
+      saveAccounts();
+      await store.deleteWorkspace(wsId);
+      fs.rmSync(path.join(__dirname, 'data', 'ai-files', wsId.replace(/[^\w-]/g, '')), { recursive: true, force: true }); // its assistant files
+      res.json({ ok: true, to: { id: next.wsId, name: accounts.workspaces.find((w) => w.id === next.wsId)?.name || '' } });
+    }));
+
+    function checkLockPassword(req, ws) {
+      const key = `${req.user.id}|lock|${ws.meta.id}`;
+      if (tooMany(key)) throw fail('Too many wrong passwords. Try again in a few minutes.', 429);
+      if (!checkPassword(String(req.body.password || ''), ws.meta.lock.hash)) { noteTry(key); throw fail('That password isn’t right', 403); }
+    }
+    app.post('/api/workspace/unlock', wrap((req, res) => {
+      const ws = current();
+      if (!ws.meta.lock) return res.json({ ok: true });
+      checkLockPassword(req, ws);
+      unlockFor(req.session, ws);
+      saveAccounts();
+      res.json({ ok: true });
+    }));
+    // Owners set, change or remove the password (empty removes it). Everyone else enters it on their next visit.
+    app.put('/api/workspace/lock', wrap((req, res) => {
+      ownerOnly(req);
+      const ws = current(), pw = String(req.body.password || '');
+      if (!pw) { delete ws.meta.lock; saveAccounts(); return res.json({ protected: false }); }
+      if (pw.length < 4) throw fail('Use at least 4 characters');
+      ws.meta.lock = { hash: hashPassword(pw), v: (ws.meta.lock?.v || 0) + 1, setBy: req.user.id, at: now() };
+      unlockFor(req.session, ws); // the owner who set it stays in
+      saveAccounts();
+      res.json({ protected: true });
+    }));
+
     app.post('/api/workspace/switch', wrap((req, res) => {
       const wsId = String(req.body.id || '');
       if (!roleIn(req.user.id, wsId) || !loaded.get(wsId)) throw fail('You are not a member of that workspace', 403);
+      const target = loaded.get(wsId);
+      if (isLocked(target, req.session)) {
+        if (req.body.password == null) return res.status(423).json({ error: 'This workspace is protected', locked: true, name: target.meta.name });
+        checkLockPassword(req, target);
+        unlockFor(req.session, target);
+      }
       if (req.session) req.session.wsId = wsId;
       req.user.lastWsId = wsId;
       saveAccounts();
@@ -828,6 +938,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       accounts.sessions = accounts.sessions.filter((x) => x.userId !== user.id);
       accounts.invites = accounts.invites.filter((i) => i.email !== user.email);
       accounts.users = accounts.users.filter((u) => u.id !== user.id);
+      fs.rmSync(avatarFile(user.id), { force: true });
       codes.delete(user.email);
       saveAccounts();
       return plan;

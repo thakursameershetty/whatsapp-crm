@@ -1108,7 +1108,7 @@ function resolveRecipients(body, template) {
     const values = {};
     for (const v of vars) {
       const m = mapping[v.key] || {};
-      values[v.key] = m.type === 'column' ? cleanCell(row[m.value]) || String(m.fallback ?? '').trim() : m.type === 'same' ? '' : String(m.value ?? '');
+      values[v.key] = m.type === 'column' ? (m.keepFiller ? String(row[m.value] ?? '').trim() : cleanCell(row[m.value])) || String(m.fallback ?? '').trim() : m.type === 'same' ? '' : String(m.value ?? '');
     }
     // "Same as another variable" (a button reusing the message's link) once the others are filled.
     for (const v of vars) if (mapping[v.key]?.type === 'same') values[v.key] = values[mapping[v.key].value] ?? '';
@@ -1653,9 +1653,10 @@ app.post('/api/uploads', express.raw({ type: () => true, limit: '16mb' }), wrap(
   const [ext, maxMb] = kind;
   if (!req.body?.length) throw fail('The file is empty');
   if (req.body.length > maxMb * 1024 * 1024) throw fail(`WhatsApp accepts ${mime.split('/')[0] === 'image' ? 'images' : 'files'} like this up to ${maxMb} MB. Make it smaller and try again.`);
-  const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
+  // Named by a fingerprint of the contents: the same file uploaded again (under any name) is stored once.
+  const name = `${crypto.createHash('sha256').update(req.body).digest('hex').slice(0, 32)}.${ext}`;
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  fs.writeFileSync(path.join(UPLOAD_DIR, name), req.body);
+  if (!fs.existsSync(path.join(UPLOAD_DIR, name))) fs.writeFileSync(path.join(UPLOAD_DIR, name), req.body);
   // The original file name rides along at the end of the link (see /u/:file/:name and docFileName).
   const original = safeFileName(decodeURIComponent(String(req.get('x-file-name') || '')), ext);
   res.json({ url: `${req.protocol}://${req.get('host')}/u/${name}${original ? '/' + encodeURIComponent(original) : ''}`, fileName: original });
@@ -1665,7 +1666,8 @@ app.post('/api/uploads', express.raw({ type: () => true, limit: '16mb' }), wrap(
 app.delete('/api/uploads/:file', wrap((req, res) => {
   const name = req.params.file;
   if (!/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(name)) throw fail('Not found', 404);
-  const used = db.campaigns.some((c) => JSON.stringify(c.recipients).includes(name)) || db.messages.some((m) => JSON.stringify(m.values || {}).includes(name));
+  // Identical files share one copy (named by contents), possibly across workspaces: keep it while anyone uses it.
+  const used = tenants.allWorkspaces().some(({ db: w }) => w.campaigns.some((c) => JSON.stringify(c.recipients).includes(name)) || w.messages.some((m) => JSON.stringify(m.values || {}).includes(name)));
   if (!used) fs.rmSync(path.join(UPLOAD_DIR, name), { force: true });
   res.json({ ok: true, deleted: !used });
 }));

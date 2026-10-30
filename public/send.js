@@ -484,7 +484,7 @@
         const obj = {};
         sh.headers.forEach((h, i) => { obj[h] = String(row.cells[i] ?? '').trim(); });
         // A column value that's empty or a placeholder ("Not Captured") uses the variable's fallback, if it has one.
-        const miss = vars.find((v) => { const m = SP.mapping[v.key]; return m?.type === 'column' && !cleanCell(obj[m.value]) && !String(m.fallback || '').trim(); });
+        const miss = vars.find((v) => { const m = SP.mapping[v.key]; return m?.type === 'column' && !cellValue(m, obj[m.value]) && !String(m.fallback || '').trim(); });
         if (miss) { skip.missing[miss.key] = (skip.missing[miss.key] || 0) + 1; continue; }
         // One message per chosen number (usually one: the suggested first number).
         for (const p of nums) { seen.add(p); out.push({ sheet: sh, row, obj: { ...obj, __phone: p } }); }
@@ -613,13 +613,16 @@
     }
   }
   // Rows about to be sent whose cell in `col` is empty or a placeholder ("Not Captured", "N/A"…).
-  function blankRows(col) {
+  // A column's value for a variable: placeholders like "Not Captured" or "N/A" count as empty unless that's turned off
+  // for the variable (keepFiller), e.g. when "Na" is someone's real name. Same rule on the server.
+  const cellValue = (m, v) => (m?.keepFiller ? String(v ?? '').trim() : cleanCell(v));
+  function blankRows(col, m = Object.values(SP.mapping).find((x) => x?.type === 'column' && x.value === col)) {
     const out = [];
     for (const sh of SP.sheets) {
       if (!sh.included) continue;
       const i = sh.headers.indexOf(col);
       if (i < 0) continue;
-      for (const row of sh.rows) if (row.st === 'valid' && row.on && !cleanCell(row.cells[i])) out.push({ sh, row, c: i });
+      for (const row of sh.rows) if (row.st === 'valid' && row.on && !cellValue(m, row.cells[i])) out.push({ sh, row, c: i });
     }
     return out;
   }
@@ -628,7 +631,7 @@
   $('#mapping').addEventListener('click', (e) => {
     const b = e.target.closest('[data-show-blank]');
     if (!b) return;
-    const col = b.dataset.showBlank, list = blankRows(col);
+    const col = b.dataset.showBlank, list = blankRows(col, SP.mapping[b.closest('.sp-map').dataset.key]);
     if (!list.length) return renderMapping();
     const k = (blankAt[col] = ((blankAt[col] ?? -1) + 1) % list.length);
     const { sh, row, c } = list[k];
@@ -639,9 +642,15 @@
   });
   // What a column variable says when the cell has nothing usable, e.g. "your organisation" for a company.
   function fallbackHtml(v, m) {
-    const n = blankRows(m.value).length;
-    return `<input class="m-fb" value="${esc(m.fallback || '')}" placeholder="If empty or “Not Captured”, use…" aria-label="Fallback for ${esc(varLabel(v))}" />
-      <small class="m-hint">${n ? `${n.toLocaleString()} row${n > 1 ? 's have' : ' has'} no value here (empty, “Not Captured”, “N/A”…). <span class="m-fb-what">${m.fallback ? 'They get the text above.' : 'Without text above, they’re left out.'}</span> <button type="button" class="m-show" data-show-blank="${esc(m.value)}">${icon('eye', 13)}<span>${n > 1 ? `Show the ${n.toLocaleString()} rows` : 'Show the row'}</span></button>` : 'Every row has a value here.'}</small>`;
+    const n = blankRows(m.value, m).length;
+    // Rows whose cell has a placeholder ("Not Captured", "N/A", "Na"…) rather than nothing at all.
+    const filler = blankRows(m.value, { ...m, keepFiller: false }).length - blankRows(m.value, { ...m, keepFiller: true }).length;
+    const toggle = filler || m.keepFiller
+      ? `<label class="m-keep"><input type="checkbox" data-keep-filler ${m.keepFiller ? '' : 'checked'} /><span>Treat “Not Captured”, “N/A”, “Na”… as empty <i>${filler.toLocaleString()} row${filler === 1 ? '' : 's'}</i></span></label>`
+      : '';
+    return `<input class="m-fb" value="${esc(m.fallback || '')}" placeholder="${m.keepFiller ? 'If empty, use…' : 'If empty or “Not Captured”, use…'}" aria-label="Fallback for ${esc(varLabel(v))}" />
+      ${toggle}
+      <small class="m-hint">${n ? `${n.toLocaleString()} row${n > 1 ? 's have' : ' has'} no value here${m.keepFiller ? ' (empty cells)' : ' (empty, “Not Captured”, “N/A”…)'}. <span class="m-fb-what">${m.fallback ? 'They get the text above.' : 'Without text above, they’re left out.'}</span> <button type="button" class="m-show" data-show-blank="${esc(m.value)}">${icon('eye', 13)}<span>${n > 1 ? `Show the ${n.toLocaleString()} rows` : 'Show the row'}</span></button>` : `Every row has a value here${m.keepFiller && filler ? ', including placeholders like “N/A”, sent as written' : ''}.`}</small>`;
   }
   // The name WhatsApp shows on a PDF header (without one it says "Untitled"). Upload fills in the original name.
   function fileNameRow() {
@@ -685,8 +694,16 @@
     renderSummary();
     if (file) api('/uploads/' + file, { method: 'DELETE' }).catch(() => {});
   });
+  // Placeholders as empty, or sent as written (e.g. "Na" is a real name here).
+  $('#mapping').addEventListener('change', (e) => {
+    if (!e.target.matches('[data-keep-filler]')) return;
+    SP.mapping[e.target.closest('.sp-map').dataset.key].keepFiller = !e.target.checked;
+    renderMapping();
+    renderPreview();
+    renderSummary();
+  });
   $('#mapping').addEventListener('input', (e) => {
-    if (e.target.type === 'file') return;
+    if (e.target.type === 'file' || e.target.type === 'checkbox') return;
     const row = e.target.closest('.sp-map');
     if (!row) return;
     const key = row.dataset.key;
@@ -710,7 +727,7 @@
     const out = {};
     for (const v of currentTemplate()?.variables || []) {
       const m = SP.mapping[v.key] || {};
-      out[v.key] = m.type === 'column' ? cleanCell(obj?.[m.value]) || String(m.fallback || '').trim() : m.type === 'same' ? '' : m.value || '';
+      out[v.key] = m.type === 'column' ? cellValue(m, obj?.[m.value]) || String(m.fallback || '').trim() : m.type === 'same' ? '' : m.value || '';
     }
     for (const v of currentTemplate()?.variables || []) if (SP.mapping[v.key]?.type === 'same') out[v.key] = out[SP.mapping[v.key].value] ?? '';
     if (SP.mapping['header.filename']?.value) out['header.filename'] = SP.mapping['header.filename'].value;

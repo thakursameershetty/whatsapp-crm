@@ -11,6 +11,9 @@
 // can be picked up again later; attached files aren't saved). Each turn streams
 // progress to the browser as newline-delimited JSON events.
 
+const fs = require('fs');
+const crypto = require('crypto');
+const path = require('path');
 const Anthropic = require('@anthropic-ai/sdk');
 const { GoogleGenAI, ApiError: GeminiError } = require('@google/genai');
 
@@ -462,6 +465,50 @@ module.exports = function mountAi(app, ctx) {
   const sessions = new Map();
   const plans = new Map(); // planId -> plan (also referenced from its session)
 
+  // Files in a chat (uploaded, or built by the assistant) are kept on disk, so a chat still has them after a restart,
+  // a deploy, or hours idle. Contents are stored once per workspace under a fingerprint of the data itself (SHA-256 of
+  // the columns and rows), so the same file uploaded again, under any name or in any chat, takes no extra space.
+  // Each chat keeps a small list of its files (name, sheet, fingerprint): data/ai-files/<workspace>/chats/<chat>.json.
+  const FILE_DIR = path.join(__dirname, 'data', 'ai-files');
+  const safe = (x) => String(x).replace(/[^\w-]/g, '');
+  const wsDir = () => path.join(FILE_DIR, safe(wsId()));
+  const contentPath = (hash) => path.join(wsDir(), 'contents', safe(hash) + '.json');
+  const chatIndexPath = (chatId) => path.join(wsDir(), 'chats', safe(chatId) + '.json');
+  const fingerprint = (headers, rows) => crypto.createHash('sha256').update(JSON.stringify([headers, rows.map((r) => headers.map((h) => r[h] ?? ''))])).digest('hex');
+  const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
+  const writeJson = (p, data) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(data)); };
+  const META = ['id', 'name', 'sheet', 'workbook', 'phoneColumn', 'shiftedFixed', 'built', 'summary', 'announced'];
+  function keepFile(session, f) {
+    try {
+      f.hash ||= fingerprint(f.headers, f.rows);
+      if (!fs.existsSync(contentPath(f.hash))) writeJson(contentPath(f.hash), { headers: f.headers, rows: f.rows });
+      const index = readJson(chatIndexPath(session.id)) || {};
+      index[f.id] = { ...Object.fromEntries(META.map((k) => [k, f[k]])), hash: f.hash };
+      writeJson(chatIndexPath(session.id), index);
+    } catch (e) { console.error('Keeping a chat file failed:', e.message); }
+  }
+  // A saved chat's files, back from disk.
+  function restoreFiles(chatId) {
+    const files = new Map();
+    for (const meta of Object.values(readJson(chatIndexPath(chatId)) || {})) {
+      const data = readJson(contentPath(meta.hash));
+      if (data) files.set(meta.id, { ...meta, ...data, announced: true });
+    }
+    return files;
+  }
+  // A deleted chat's list goes, and any stored contents no other chat of this workspace uses.
+  function forgetChatFiles(chatId) {
+    try {
+      fs.rmSync(chatIndexPath(chatId), { force: true });
+      const dir = path.join(wsDir(), 'chats');
+      const used = new Set();
+      for (const n of fs.existsSync(dir) ? fs.readdirSync(dir) : []) for (const m of Object.values(readJson(path.join(dir, n)) || {})) used.add(m.hash);
+      const cdir = path.join(wsDir(), 'contents');
+      for (const n of fs.existsSync(cdir) ? fs.readdirSync(cdir) : []) if (!used.has(n.replace(/\.json$/, ''))) fs.rmSync(path.join(cdir, n), { force: true });
+    } catch (e) { console.error('Cleaning up chat files failed:', e.message); }
+  }
+
+
   function prune() {
     const now = Date.now();
     for (const [sid, s] of sessions) if (now - s.updatedAt > SESSION_TTL && !s.busy) dropSession(sid);
@@ -482,7 +529,7 @@ module.exports = function mountAi(app, ctx) {
     const saved = !s && sid && chatById(sid);
     if (saved) {
       prune();
-      s = { id: saved.id, ws: wsId(), provider: saved.provider, history: structuredClone(saved.history || []), said: [...(saved.said || [])], files: new Map(), planIds: [], pending: null, busy: false, updatedAt: Date.now(), restored: true };
+      s = { id: saved.id, ws: wsId(), provider: saved.provider, history: structuredClone(saved.history || []), said: [...(saved.said || [])], files: restoreFiles(saved.id), planIds: [], pending: null, busy: false, updatedAt: Date.now(), restored: true };
       sessions.set(s.id, s);
     }
     if (!s && sid && !create) throw fail('This conversation has expired. Start a new one.', 410);
@@ -751,6 +798,7 @@ module.exports = function mountAi(app, ctx) {
     if (prev) session.files.delete(prev.id);
     const sheet = { id: 'f_' + id().slice(0, 8), name: tidy(input.name) || 'Clean sheet', sheet: '', headers: cols, rows: out, phoneColumn: phoneCol, announced: true, built: true, summary: String(input.summary || '').slice(0, 600) };
     session.files.set(sheet.id, sheet);
+    keepFile(session, sheet);
     const empty = Object.fromEntries(cols.map((c) => [c, out.filter((r) => !r[c]).length]).filter(([, n]) => n));
     // A column that should hold short values (a name, a company, a city) but is full of sentences or
     // questions was probably filled from the wrong source column: flag it so the model rechecks.
@@ -1073,6 +1121,7 @@ module.exports = function mountAi(app, ctx) {
           announced: true, // the tool result describes it, so the context block needn't
         };
         session.files.set(f.id, f);
+        keepFile(session, f);
         return inspectFile(session, f.id);
       }
       default:
@@ -1284,7 +1333,12 @@ module.exports = function mountAi(app, ctx) {
       shiftedFixed: Math.max(0, Number(shiftedFixed) || 0),
       announced: false,
     };
+    // The same data already in this chat (same contents and sheet, whatever the file is called): use that one.
+    f.hash = fingerprint(f.headers, f.rows);
+    const same = [...session.files.values()].find((x) => !x.built && x.hash === f.hash && x.sheet === f.sheet);
+    if (same) return res.json({ sessionId: session.id, fileId: same.id, rows: same.rows.length, existing: true });
     session.files.set(f.id, f);
+    keepFile(session, f);
     res.json({ sessionId: session.id, fileId: f.id, rows: f.rows.length });
   }));
 
@@ -1297,6 +1351,7 @@ module.exports = function mountAi(app, ctx) {
     if (f.phoneColumn !== col) {
       f.phoneColumn = col;
       if (f.announced) f.phoneChanged = true;
+      keepFile(session, f);
     }
     res.json({ ok: true });
   }));
@@ -1305,7 +1360,7 @@ module.exports = function mountAi(app, ctx) {
   app.get('/api/ai/files/:fileId', wrap((req, res) => {
     const session = getSession(String(req.query.sessionId || ''), false);
     const f = session.files.get(req.params.fileId);
-    if (!f || !f.built) throw fail('This sheet is no longer available (the server restarted or the chat timed out). Ask the assistant to build it again.', 404);
+    if (!f || !f.built) throw fail('This sheet is no longer available. Ask the assistant to build it again.', 404);
     res.json({ name: f.name, headers: f.headers, rows: f.rows.map((r) => f.headers.map((h) => r[h] ?? '')), phoneColumn: f.phoneColumn });
   }));
 
@@ -1326,7 +1381,7 @@ module.exports = function mountAi(app, ctx) {
       const title = String(firstText || '').replace(/\s+/g, ' ').trim().slice(0, 70) || 'New chat';
       c = { id: session.id, title, provider: session.provider, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), messages: [], history: [], said: [] };
       db.aiChats.unshift(c);
-      if (db.aiChats.length > MAX_CHATS) db.aiChats.length = MAX_CHATS;
+      for (const gone of db.aiChats.splice(MAX_CHATS)) forgetChatFiles(gone.id); // oldest chats drop off, with their files
     }
     return c;
   }
@@ -1377,6 +1432,7 @@ module.exports = function mountAi(app, ctx) {
     if (s?.busy) throw fail('Wait for the current reply to finish', 409);
     dropSession(req.params.id);
     db.aiChats = db.aiChats.filter((c) => c.id !== req.params.id);
+    forgetChatFiles(req.params.id); // its files go with it
     save();
     res.json({ ok: true });
   }));

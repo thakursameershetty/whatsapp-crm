@@ -4074,3 +4074,48 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .sp-map .m-show { display: flex; width: max-content; align-items: center; gap: 5px; margin-top: 6px; height: 24px; padding: 0 10px; border: 0; border-radius: 99px; background: var(--info-soft); color: var(--info); font: 600 11.5px/1 Inter, sans-serif; cursor: pointer; font-variant-numeric: tabular-nums; transition: background 0.15s; }
 .sp-map .m-show:hover { background: color-mix(in srgb, var(--info) 22%, transparent); }
 .sp-map .m-show svg { flex: none; }
+/* Settings → Workspace: delete it (owners only). */
+.ws-danger { display: flex; align-items: center; gap: 14px; margin-top: 22px; padding: 12px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent); background: color-mix(in srgb, var(--danger) 5%, transparent); }
+.ws-danger > div { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: 13px; }
+.ws-danger span { color: var(--muted); font-size: 12.5px; }
+.ws-danger .btn { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+/* Per variable: count placeholders like "N/A" as empty, or send them as written. */
+.sp-map .m-keep { grid-column: 2; display: flex; align-items: flex-start; gap: 7px; margin: 0; font-size: 12px; color: var(--text); cursor: pointer; line-height: 1.35; }
+.sp-map .m-keep input { width: 14px; height: 14px; margin: 1px 0 0 !important; flex: none; accent-color: var(--accent); }
+.sp-map .m-keep i { font-style: normal; color: var(--muted); margin-left: 4px; }
+/* Avatars with photos. */
+.acct-av.has-photo, .tm-face.has-photo { padding: 0; overflow: hidden; background: var(--sunk); }
+.acct-av img, .tm-face img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: inherit; }
+/* Bottom left: the workspace's letter, with your face as a small badge. */
+.acct-av.ws-av { position: relative; overflow: visible; }
+.acct-av .acct-me-badge { position: absolute; right: -4px; bottom: -4px; width: 16px; height: 16px; font-size: 7.5px; box-shadow: 0 0 0 2px var(--surface); }
+/* Your account: the photo with an upload button on it. */
+.acct-photo { position: relative; flex: none; }
+.acct-photo-btn { position: absolute; right: -4px; bottom: -4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); color: var(--text); box-shadow: var(--sh-raised); cursor: pointer; margin: 0; }
+.acct-photo-btn:hover { box-shadow: var(--sh-raised-hi); }
+/* Settings → Workspace: password protection. */
+.ws-protect { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 22px; padding: 12px 14px; border-radius: 12px; background: var(--sunk); }
+.ws-protect > div { flex: 1; min-width: 200px; display: grid; gap: 2px; font-size: 13px; }
+.ws-protect span { color: var(--muted); font-size: 12.5px; }
+.ws-protect .btn { display: inline-flex; align-items: center; gap: 6px; }
+.ws-lock-tag { display: inline-flex; margin-left: 6px; color: var(--muted); vertical-align: -1px; }
+/* The screen shown inside a protected workspace until its password is entered. */
+.ws-lock { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--bg, #f3f5f7) 70%, transparent); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.ws-lock-box { width: min(380px, 100%); display: grid; gap: 12px; justify-items: center; text-align: center; padding: 28px; border-radius: 18px; background: var(--surface); box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.35); }
+.ws-lock-box h2 { margin: 0; font-size: 18px; }
+.ws-lock-box .sub { margin: 0; }
+.ws-lock-box input, .ws-lock-box .btn.primary, .ws-lock-box .sf-status { width: 100%; }
+.ws-lock-ic { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: var(--sunk); }
+.ws-lock-alt { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; font-size: 12.5px; color: var(--muted); }
+.ws-lock-alt .btn { display: inline-flex; align-items: center; gap: 5px; }
+.ws-lock-out { font-size: 12.5px; }
+
+/* Workspace settings popup */
+.wss-sec { display: grid; gap: 8px; margin-top: 14px; padding: 14px; border-radius: 12px; background: var(--sunk); }
+.wss-sec .sub { margin: 0; font-size: 12.5px; }
+.wss-head { display: flex; align-items: center; gap: 10px; }
+.wss-head > div { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.wss-ic { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); color: var(--text); flex: none; }
+.wss-sec .btn { display: inline-flex; align-items: center; gap: 6px; }
+.wss-danger { background: color-mix(in srgb, var(--danger) 6%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 25%, transparent); }
+.wss-danger .wss-ic { color: var(--danger); }

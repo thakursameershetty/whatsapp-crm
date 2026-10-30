@@ -513,6 +513,7 @@
           <div class="acct-actions">
             <button class="btn" id="acctEdit" data-icon="square-pen" data-icon-size="14">Edit profile</button>
             <button class="btn" id="pwChange" data-icon="lock" data-icon-size="14">Change password</button>
+            <button class="btn quiet danger hidden" id="acctPhotoRm" data-icon="delete" data-icon-size="14">Remove photo</button>
           </div>
           <div class="acct-del-note hidden" id="acctDelNote"></div>
           <div class="acct-foot">
@@ -523,7 +524,8 @@
         <div class="card la-host acct-card" id="acctCard">
           <div class="card-head">
             <h2 data-icon="users">Workspace &amp; team</h2>
-            <button class="btn quiet sm" id="wsNew" data-icon="plus" data-icon-size="14">New workspace</button>
+            <div class="row tight"><button class="btn quiet sm hidden" id="wsSettings" data-icon="settings" data-icon-size="14">Workspace settings</button>
+            <button class="btn quiet sm" id="wsNew" data-icon="plus" data-icon-size="14">New workspace</button></div>
           </div>
           <p class="sub acct-lead">Numbers, templates, contacts, campaigns, inbox and AI settings belong to this workspace. Invite teammates to share it.</p>
           <div class="field-label">Workspace name</div>
@@ -532,127 +534,6 @@
           <div id="wsList" class="ws-list"></div>
           <div class="field-label acct-gap">Team <span class="opt" id="teamCount"></span></div>
           <div id="teamRow" class="tm-row" aria-label="Team"></div>
-        </div>
-      </div>
-      <div class="grid-2">
-        <div class="card la-host">
-          <h2 data-icon="settings">General</h2>
-          <div class="setting-row" id="demoRow">
-            <div>
-              <div class="setting-title">Demo mode</div>
-              <div class="sub">Simulate sending. Switch off to send real WhatsApp messages.</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="setDemo" />
-              <span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span
-                  class="knob"></span></span>
-            </label>
-          </div>
-          <div class="row set-row">
-            <div class="set-field">
-              <div class="field-label">Default country <span class="opt">added to 10-digit numbers</span></div>
-              <button type="button" class="cc-pick" id="ccPick" aria-haspopup="listbox"></button>
-              <input type="hidden" id="setCC" /><input type="hidden" id="setCountry" />
-            </div>
-            <label>Graph API version
-              <input id="setGraph" placeholder="v21.0" />
-            </label>
-          </div>
-          <div class="row set-row">
-            <label>Parallel sends per number
-              <input id="setConc" type="number" min="1" max="50" />
-            </label>
-            <label>Delay between sends (ms)
-              <input id="setDelay" type="number" min="0" />
-            </label>
-          </div>
-          <p class="sub set-help">How fast campaigns go out: how many messages each number sends at once, and the pause after each. 5 with 100 ms is at most about 50 a second per number. Lower them if Meta rejects messages for sending too fast.</p>
-          <div class="card-actions"><button class="btn primary" id="saveSettings" data-icon="circle-check">Save
-              settings</button></div>
-        </div>
-
-        <div class="card la-host">
-          <h2 data-icon="zap">Webhook (delivery status and Inbox)</h2>
-          <p class="sub">To see <em>delivered</em>, <em>read</em> and <em>failed</em>, and to receive replies in the
-            Inbox, add this in Meta App Dashboard →
-            WhatsApp → Configuration → Webhook and subscribe to the <code>messages</code> field. It must be a public
-            HTTPS address (deploy the app, or use ngrok while testing).</p>
-          <label>Callback URL
-            <div class="input-group"><input id="webhookUrl" readonly /><button class="btn sm copy"
-                data-copy="webhookUrl" data-icon="copy" data-icon-size="14">Copy</button></div>
-          </label>
-          <label>Verify token
-            <div class="input-group"><input id="setVerify" /><button class="btn sm copy" data-copy="setVerify"
-                data-icon="copy" data-icon-size="14">Copy</button></div>
-          </label>
-        </div>
-
-        <div class="card span-2 la-host ai-settings">
-          <h2><svg class="orb-icon" data-orb-icon="16" aria-hidden="true"></svg>AI assistant</h2>
-          <div class="ai-set-grid">
-            <div>
-              <div class="ai-help" data-for="gemini">
-                <p class="sub">Gemini by Google has a free tier, which is enough for development and demos. To get a
-                  key:</p>
-                <ol class="guide ai-steps-list">
-                  <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank"
-                      rel="noopener">aistudio.google.com/apikey</a>
-                    and sign in with a Google account.</li>
-                  <li>Click <strong>Create API key</strong> and copy it.</li>
-                  <li>Paste it here, click <strong>Save</strong>, then <strong>Test</strong>.</li>
-                </ol>
-                <p class="sub">On the free tier Google may use what you send to improve its products, and there's a
-                  limit
-                  on requests per minute and per day. Avoid real customer data, or switch to Claude.</p>
-              </div>
-              <div class="ai-help hidden" data-for="claude">
-                <p class="sub">Claude by Anthropic is paid per use (a few cents per request) and isn't included in a
-                  Claude.ai subscription. To get a key:</p>
-                <ol class="guide ai-steps-list">
-                  <li>Sign in or sign up at <a href="https://console.anthropic.com" target="_blank"
-                      rel="noopener">console.anthropic.com</a>.</li>
-                  <li>Add credit under <strong>Settings → Billing</strong>; you can set a monthly limit there.</li>
-                  <li>Open <strong>Settings → API keys → Create key</strong> and copy it. It's only shown once.</li>
-                  <li>Paste it here, click <strong>Save</strong>, then <strong>Test</strong>.</li>
-                </ol>
-              </div>
-              <p class="sub">Either way, for an attached file the assistant only sees the column names, the first five
-                rows
-                (with phone numbers partly hidden) and summary counts. It can't send anything on its own: every
-                campaign it plans waits for your approval.</p>
-            </div>
-            <div>
-              <label>AI provider</label>
-              <div class="seg ai-provider" id="aiProviderSeg" role="radiogroup" aria-label="AI provider">
-                <button type="button" data-provider="gemini"><img class="prov-logo" src="/brand/gemini.svg" alt="" />Gemini <span class="opt">free tier</span></button>
-                <button type="button" data-provider="claude"><img class="prov-logo" src="/brand/claude.svg" alt="" />Claude</button>
-              </div>
-              <div class="ai-fields" data-for="gemini">
-                <label><span class="prov-label"><img class="prov-logo" src="/brand/gemini.svg" alt="" />Gemini API key</span> <span class="opt" id="geminiKeyState"></span>
-                  <input id="setGeminiKey" type="password" autocomplete="off" spellcheck="false"
-                    placeholder="Paste your key" />
-                </label>
-                <label>Model <span class="opt">from Google AI Studio</span>
-                  <input id="setGeminiModel" list="geminiModels" spellcheck="false" placeholder="gemini-3.8-flash" />
-                  <datalist id="geminiModels">
-                    <option value="gemini-3.8-flash"></option>
-                    <option value="gemini-3.6-flash"></option>
-                    <option value="gemini-3.5-flash-lite"></option>
-                    <option value="gemini-2.5-flash"></option>
-                  </datalist>
-                </label>
-              </div>
-              <div class="ai-fields hidden" data-for="claude">
-                <label><span class="prov-label"><img class="prov-logo" src="/brand/claude.svg" alt="" />Anthropic API key</span> <span class="opt" id="aiKeyState"></span>
-                  <input id="setAiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" />
-                </label>
-                <p class="sub">Uses Claude Opus 5.5.</p>
-              </div>
-              <div class="card-actions row tight"><button class="btn quiet danger sm hidden" id="removeAiKey">Remove
-                  key</button><button class="btn" id="testAiKey">Test</button><button class="btn primary" id="saveAiKey"
-                  data-icon="circle-check">Save</button></div>
-            </div>
-          </div>
         </div>
 
         <div class="card span-2 la-host lead-settings">

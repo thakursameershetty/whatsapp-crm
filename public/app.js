@@ -2327,18 +2327,23 @@ $('#unseedBtn').addEventListener('click', (e) =>
 LA.hydrate();
 
 // --- Account, workspace and team (tenancy.js) -----------------------------------
+// A person's avatar: their photo if they added one, else initials on their colour.
+const personInitials = (u) => (u.name || u.email || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const faceHtml = (u, cls = '') => `<span class="acct-av ${cls}${u.photo ? ' has-photo' : ''}" style="${avatarStyle(u.email)}">${u.photo ? `<img src="${esc(u.photo)}" alt="" />` : esc(personInitials(u))}</span>`;
 async function loadMe() {
   state.me = await api('/me');
   const { user, workspace } = state.me;
-  const initials = (user.name || user.email).split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
-  $('#acctAv').textContent = initials;
-  $('#acctAv').setAttribute('style', avatarStyle(user.email));
+  // Bottom left: the workspace you're in (its letter and colour, as in Your workspaces), with your own face on it.
+  $('#acctAv').className = 'acct-av ws-av';
+  $('#acctAv').setAttribute('style', avatarStyle(workspace.id));
+  $('#acctAv').innerHTML = `${esc((workspace.name || '?').slice(0, 1).toUpperCase())}${faceHtml(user, 'acct-me-badge')}`;
   document.body.classList.toggle('no-ai', !state.me.admin); // hides the Assistant and AI settings
   $('#acctWs').textContent = workspace.name;
   $('#acctUser').textContent = user.name || user.email;
   $('#wsName').value = workspace.name;
   $('#wsName').disabled = $('#wsSave').disabled = state.me.role !== 'owner';
-  $('#acctMe').innerHTML = `<span class="acct-av lg" style="${avatarStyle(user.email)}">${esc(initials)}</span><span class="acct-text"><b>${esc(user.name || user.email)}</b><span>${esc(user.email)}</span></span><span class="pill ${state.me.role === 'owner' ? 'scheduled' : ''}">${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
+  $('#acctMe').innerHTML = `<span class="acct-photo">${faceHtml(user, 'lg')}<label class="acct-photo-btn" title="${user.photo ? 'Change your photo' : 'Add a photo'}">${icon('upload', 13)}<input type="file" hidden accept="image/*" id="acctPhotoFile" /></label></span><span class="acct-text"><b>${esc(user.name || user.email)}</b><span>${esc(user.email)}</span></span><span class="pill ${state.me.role === 'owner' ? 'scheduled' : ''}">${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
+  $('#acctPhotoRm').classList.toggle('hidden', !user.photo);
   const n = state.me.workspaces.length;
   $('#acctFacts').innerHTML = `<div><dt>Email</dt><dd>${user.emailVerified ? '<span class="acct-ok">Confirmed</span>' : 'Not confirmed yet'}</dd></div>
     <div><dt>Workspaces</dt><dd>${n} ${n === 1 ? 'workspace' : 'workspaces'}</dd></div>
@@ -2376,7 +2381,7 @@ function teamPeople() {
   ];
 }
 function tmAvatar(p, size = '') {
-  return `<span class="tm-face ${size}" style="${p.kind === 'invite' ? '' : avatarStyle(p.email)}">${p.kind === 'invite' ? icon('user', size ? 16 : 20) : esc(initials2(p.name || p.email))}</span>`;
+  return `<span class="tm-face ${size}${p.photo ? ' has-photo' : ''}" style="${p.kind === 'invite' ? '' : avatarStyle(p.email)}">${p.kind === 'invite' ? icon('user', size ? 16 : 20) : p.photo ? `<img src="${esc(p.photo)}" alt="" />` : esc(initials2(p.name || p.email))}</span>`;
 }
 function renderTeam() {
   const t = state.team, people = teamPeople(), owner = t.role === 'owner';
@@ -2585,7 +2590,7 @@ $('#acctBtn').addEventListener('click', (e) => {
   const btn = e.currentTarget, r = btn.getBoundingClientRect();
   const cur = document.documentElement.dataset.theme;
   const el = Sheet.Menu.panel(r.left, 0, `
-    <div class="acct-pop-me"><span class="acct-av" style="${avatarStyle(me.user.email)}">${esc($('#acctAv').textContent)}</span><span class="acct-text"><b>${esc(me.user.name || me.user.email)}</b><span>${esc(me.user.email)}</span></span></div>
+    <div class="acct-pop-me">${faceHtml(me.user)}<span class="acct-text"><b>${esc(me.user.name || me.user.email)}</b><span>${esc(me.user.email)}</span></span></div>
     <hr />
     <div class="acct-pop-label">Workspaces</div>
     ${me.workspaces.map((w) => `<button type="button" class="acct-pop-item" data-ws="${w.id}"><span>${esc(w.name)}</span>${w.id === me.workspace.id ? TICK_SVG : ''}</button>`).join('')}
@@ -2637,10 +2642,66 @@ $('#wsSave').addEventListener('click', (e) => guard(async () => { await api('/wo
 function switchWorkspace(id, kind = 'switched') {
   const w = state.me.workspaces.find((x) => x.id === id);
   return guard(async () => {
-    await api('/workspace/switch', { method: 'POST', body: { id } });
+    // A protected workspace asks for its password first (once per sign-in).
+    const body = { id };
+    if (w?.protected) {
+      try { await api('/workspace/switch', { method: 'POST', body }); }
+      catch {
+        const pw = await askWorkspacePassword(w.name, (password) => api('/workspace/switch', { method: 'POST', body: { id, password } }));
+        if (pw == null) return;
+      }
+    } else await api('/workspace/switch', { method: 'POST', body });
     try { sessionStorage.setItem('wsNotice', JSON.stringify({ kind, name: w?.name || '' })); } catch {}
     location.reload();
   });
+}
+// Asks for a protected workspace's password; `tryIt(password)` checks it (throws when wrong). Resolves with the
+// password once it works, or null if cancelled.
+function askWorkspacePassword(name, tryIt) {
+  return new Promise((resolve) => {
+    const body = openModal(`Open “${name}”`, `
+      <p class="sub">${icon('lock', 14)} This workspace is protected. Enter its password to open it. You'll only be asked once until you sign out.</p>
+      <label>Workspace password<input type="password" id="wpPw" autocomplete="off" /></label>
+      <div class="sf-status hidden" id="wpStatus" role="status"></div>
+      <div class="modal-actions"><button type="button" class="btn quiet" id="wpCancel">Cancel</button><button type="button" class="btn primary" id="wpGo">Open</button></div>`);
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; closeModal(); resolve(v); };
+    const go = () => guard(async () => {
+      const pw = $('#wpPw', body).value;
+      try { await tryIt(pw); finish(pw); }
+      catch (err) { const st = $('#wpStatus', body); st.className = 'sf-status bad'; st.textContent = err.message; $('#wpPw', body).select(); }
+    }, $('#wpGo', body));
+    $('#wpGo', body).onclick = go;
+    $('#wpPw', body).addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    $('#wpCancel', body).onclick = () => finish(null);
+    $('#modalClose').addEventListener('click', () => finish(null), { once: true });
+    $('#wpPw', body).focus();
+  });
+}
+// Opening the app (or reloading) inside a protected workspace that this sign-in hasn't unlocked yet.
+function showLockScreen() {
+  const me = state.me, others = me.workspaces.filter((w) => w.id !== me.workspace.id);
+  const el = document.createElement('div');
+  el.className = 'ws-lock';
+  el.innerHTML = `<div class="ws-lock-box">
+    <span class="ws-lock-ic">${icon('lock', 22)}</span>
+    <h2>${esc(me.workspace.name)} is protected</h2>
+    <p class="sub">Enter the workspace password to open it. You'll only be asked once until you sign out.</p>
+    <input type="password" id="wlPw" placeholder="Workspace password" autocomplete="off" />
+    <div class="sf-status hidden" id="wlStatus" role="status"></div>
+    <button class="btn primary" id="wlGo">Open workspace</button>
+    ${others.length ? `<div class="ws-lock-alt"><span>Or go to</span>${others.map((w) => `<button type="button" class="btn sm" data-ws-go="${w.id}">${w.protected ? icon('lock', 12) : ''}${esc(w.name)}</button>`).join('')}</div>` : ''}
+    <a class="link ws-lock-out" href="/logout">Log out</a>
+  </div>`;
+  document.body.append(el);
+  const go = () => guard(async () => {
+    try { await api('/workspace/unlock', { method: 'POST', body: { password: $('#wlPw', el).value } }); location.reload(); }
+    catch (err) { const st = $('#wlStatus', el); st.className = 'sf-status bad'; st.textContent = err.message; $('#wlPw', el).select(); }
+  }, $('#wlGo', el));
+  $('#wlGo', el).onclick = go;
+  $('#wlPw', el).addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  el.addEventListener('click', (e) => { const b = e.target.closest('[data-ws-go]'); if (b) switchWorkspace(b.dataset.wsGo); });
+  $('#wlPw', el).focus();
 }
 function renderWorkspaces() {
   const me = state.me, lim = me.workspaceLimit;
@@ -2649,15 +2710,107 @@ function renderWorkspaces() {
     const cur = w.id === me.workspace.id;
     return `<div class="ws-row ${cur ? 'current' : ''}">
       <span class="acct-av sm" style="${avatarStyle(w.id)}">${esc((w.name || '?').slice(0, 1).toUpperCase())}</span>
-      <span class="ws-who"><b title="${esc(w.name)}">${esc(w.name)}</b><span>${w.role === 'owner' ? 'Owner' : 'Member'}</span></span>
+      <span class="ws-who"><b title="${esc(w.name)}">${esc(w.name)}${w.protected ? `<span class="ws-lock-tag" title="Password protected">${icon('lock', 11)}</span>` : ''}</b><span>${w.role === 'owner' ? 'Owner' : 'Member'}</span></span>
       ${cur ? '<span class="pill scheduled ws-here">You\'re here</span>' : `<button class="btn sm" data-switch-ws="${w.id}">Switch</button>`}
     </div>`;
   }).join('');
+  $('#wsSettings').classList.toggle('hidden', me.role !== 'owner'); // password and deleting are for owners
   const full = lim != null && me.workspacesOwned >= lim;
   $('#wsNew').disabled = full;
   $('#wsNew').title = full ? `You can own up to ${lim} workspaces` : 'Create a workspace for another business';
 }
 $('#wsList').addEventListener('click', (e) => { const b = e.target.closest('[data-switch-ws]'); if (b) switchWorkspace(b.dataset.switchWs); });
+// Workspace settings (owners): one popup for the workspace's password and for deleting it.
+function workspaceSettings() {
+  const ws = state.me.workspace;
+  const body = openModal('Workspace settings', `
+    <p class="sub">For “${esc(ws.name)}”. Only owners see these.</p>
+    <section class="wss-sec">
+      <div class="wss-head"><span class="wss-ic">${icon('lock', 16)}</span><div><b>Password protection</b><span class="pill ${ws.protected ? 'APPROVED' : ''}">${ws.protected ? 'On' : 'Off'}</span></div></div>
+      <p class="sub">${ws.protected ? 'Everyone in the team enters the password once per sign-in to open this workspace. Changing it asks everyone again.' : 'Anyone in the team opens this workspace straight away. Add a password so everyone has to enter it once per sign-in.'}</p>
+      <div class="row tight"><button type="button" class="btn sm" id="wssLock">${icon('lock', 14)}${ws.protected ? 'Change password' : 'Set a password'}</button>${ws.protected ? `<button type="button" class="btn quiet sm" id="wssUnlock">Turn off</button>` : ''}</div>
+    </section>
+    <section class="wss-sec wss-danger">
+      <div class="wss-head"><span class="wss-ic">${icon('delete', 16)}</span><div><b>Delete this workspace</b></div></div>
+      <p class="sub">Removes its numbers, templates, contacts, campaigns, inbox and AI chats for everyone in it. This can't be undone.</p>
+      <div class="row tight"><button type="button" class="btn danger sm" id="wssDelete">${icon('delete', 14)}Delete workspace</button></div>
+    </section>
+    <div class="modal-actions"><button type="button" class="btn quiet" onclick="closeModal()">Close</button></div>`);
+  $('#wssLock', body).onclick = workspacePassword;
+  $('#wssUnlock', body)?.addEventListener('click', workspacePasswordOff);
+  $('#wssDelete', body).onclick = deleteWorkspace;
+}
+$('#wsSettings').addEventListener('click', workspaceSettings);
+// Password protection: set, change or turn off.
+function workspacePassword() {
+  const body = openModal(state.me.workspace.protected ? 'Change the workspace password' : 'Protect this workspace', `
+    <p class="sub">Everyone in the team, you included, enters this password once per sign-in to open “${esc(state.me.workspace.name)}”. Share it only with people who should see this workspace. Changing it asks everyone again.</p>
+    <label>Password <span class="opt">at least 4 characters</span><input type="password" id="lkPw" autocomplete="new-password" /></label>
+    <label>Type it again<input type="password" id="lkPw2" autocomplete="new-password" /></label>
+    <div class="sf-status hidden" id="lkStatus" role="status"></div>
+    <div class="modal-actions"><button type="button" class="btn quiet" id="lkBack">Back</button><button type="button" class="btn primary" id="lkGo">Save password</button></div>`);
+  $('#lkBack', body).onclick = workspaceSettings;
+  $('#lkPw', body).focus();
+  $('#lkGo', body).onclick = () => guard(async () => {
+    const a = $('#lkPw', body).value, b = $('#lkPw2', body).value, st = $('#lkStatus', body);
+    if (a !== b) { st.className = 'sf-status bad'; st.textContent = "The two passwords don't match"; return; }
+    try { await api('/workspace/lock', { method: 'PUT', body: { password: a } }); }
+    catch (err) { st.className = 'sf-status bad'; st.textContent = err.message; return; }
+    toast('Workspace password saved'); await loadMe(); workspaceSettings();
+  }, $('#lkGo', body));
+}
+function workspacePasswordOff() {
+  guard(async () => {
+    const ok = await confirmDialog({ title: 'Turn off the password?', message: `Anyone in the team will open “${esc(state.me.workspace.name)}” without a password.`, confirmText: 'Turn off', danger: true });
+    if (!ok) return;
+    await api('/workspace/lock', { method: 'PUT', body: { password: '' } });
+    toast('Password turned off'); await loadMe(); workspaceSettings();
+  });
+}
+// Your profile photo: cropped to a centred square and shrunk to 320 px before uploading.
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'acctPhotoFile') return;
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  guard(async () => {
+    const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error("That file isn't a picture this browser can open")); i.src = URL.createObjectURL(f); });
+    const side = Math.min(img.naturalWidth, img.naturalHeight), c = document.createElement('canvas');
+    c.width = c.height = 320;
+    c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 320, 320);
+    URL.revokeObjectURL(img.src);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.88));
+    const res = await fetch('/api/account/photo', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed');
+    toast('Profile photo updated');
+    await loadMe(); loadTeam().catch(() => {});
+  });
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#acctPhotoRm')) return;
+  guard(async () => { await api('/account/photo', { method: 'DELETE' }); toast('Photo removed'); await loadMe(); loadTeam().catch(() => {}); });
+});
+// Delete the current workspace: confirm by typing its name, then land in another workspace.
+function deleteWorkspace() {
+  const me = state.me, name = me.workspace.name;
+  if (me.workspaces.length < 2) return toast('This is your only workspace. Create another one first, or delete your account instead.', 'error');
+  const body = openModal(`Delete “${name}”?`, `
+    <p class="sub">Everything in this workspace is removed for everyone in it: WhatsApp numbers, templates, contacts, campaigns and their results, the inbox and AI chats. Your Meta account and WhatsApp numbers themselves aren't touched. <b>This can't be undone.</b></p>
+    <label>Type <b>${esc(name)}</b> to confirm<input id="wdName" autocomplete="off" placeholder="${esc(name)}" /></label>
+    <div class="sf-status hidden" id="wdStatus" role="status"></div>
+    <div class="modal-actions"><button type="button" class="btn quiet" id="wdBack">Back</button><button type="button" class="btn danger-solid" id="wdGo" disabled>Delete workspace</button></div>`);
+  $('#wdBack', body).onclick = workspaceSettings;
+  const inp = $('#wdName', body), go = $('#wdGo', body), status = $('#wdStatus', body);
+  inp.addEventListener('input', () => { go.disabled = inp.value.trim() !== name; });
+  inp.focus();
+  go.addEventListener('click', () => guard(async () => {
+    try {
+      const r = await api('/workspace', { method: 'DELETE', body: { confirm: inp.value.trim() } });
+      try { sessionStorage.setItem('wsNotice', JSON.stringify({ kind: 'deleted', name, to: r.to.name })); } catch {}
+      location.reload();
+    } catch (err) { status.className = 'sf-status bad'; status.textContent = err.message; }
+  }, go));
+}
 $('#wsNew').addEventListener('click', async () => {
   const me = state.me, lim = me.workspaceLimit;
   const body = openModal('New workspace', `
@@ -2683,8 +2836,8 @@ function showWorkspaceNotice() {
   const el = document.createElement('div');
   el.className = 'ws-notice';
   el.setAttribute('role', 'status');
-  el.innerHTML = `<span class="ws-notice-ic">${icon('circle-check', 18)}</span><div><b>${n.kind === 'created' ? `Workspace “${esc(name)}” created` : `Switched to “${esc(name)}”`}</b>
-    <span>${n.kind === 'created' ? 'It starts empty. Add a WhatsApp number to get going. ' : ''}Switch workspaces any time from your name at the bottom of the sidebar.</span></div>
+  el.innerHTML = `<span class="ws-notice-ic">${icon('circle-check', 18)}</span><div><b>${n.kind === 'created' ? `Workspace “${esc(name)}” created` : n.kind === 'deleted' ? `Workspace “${esc(n.name)}” deleted` : `Switched to “${esc(name)}”`}</b>
+    <span>${n.kind === 'created' ? 'It starts empty. Add a WhatsApp number to get going. ' : n.kind === 'deleted' ? `You're now in “${esc(name)}”. ` : ''}Switch workspaces any time from your name at the bottom of the sidebar.</span></div>
     <button class="icon-btn" aria-label="Close">${icon('x', 16)}</button>`;
   document.body.append(el);
   const close = () => { el.classList.add('out'); setTimeout(() => el.remove(), 300); document.body.classList.remove('ws-hint'); };
@@ -2744,6 +2897,7 @@ $('#pwChange').addEventListener('click', () => {
 (async () => {
   try {
     await loadMe().catch(() => {});
+    if (state.me?.locked) return showLockScreen(); // nothing else loads until the password is entered
     showWorkspaceNotice();
     loadTeam().catch(() => {});
     state.settings = await api('/settings');
