@@ -3964,3 +3964,48 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 /* The app's general input styling (fill, border, padding) doesn't belong on the editor's sliders. */
 #photoModal .pe-range, #photoModal .pe-ruler { border: 0 !important; padding: 0 !important; box-shadow: none !important; min-height: 0; }
 #photoModal .pe-range { background: transparent !important; }
+
+/* Template editor: the form on the left, the message as WhatsApp shows it on the right. */
+.modal-box.te-box { max-width: 1040px; }
+.te { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 8px 28px; align-items: start; }
+.te-form { display: grid; gap: 16px; min-width: 0; }
+.te-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+.te-row > label, .te-field { margin: 0; display: grid; gap: 6px; }
+.te-name input[readonly] { color: var(--muted); }
+.te-seg { flex-wrap: wrap; max-width: 100%; }
+.te-sec { display: grid; gap: 8px; padding-top: 14px; border-top: 1px solid var(--hair); }
+.te-sec-h { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+.te-count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.te-count.warn { color: var(--warn); }
+.te-tools { display: flex; gap: 4px; flex-wrap: wrap; }
+.te-tools > button { min-width: 32px; height: 30px; padding: 0 9px; border: 0; border-radius: 8px; background: var(--sunk); color: var(--text); cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.te-tools > button:hover { background: var(--hair); }
+.te-tools code { font-size: 11.5px; }
+.te-tools .te-addvar { margin-left: auto; font-weight: 600; color: var(--accent-text); }
+.te textarea[name=bodyText] { resize: vertical; min-height: 150px; line-height: 1.5; }
+.te-samples { display: grid; gap: 8px; }
+.te-samples:empty { display: none; }
+.te-cap { font-size: 12px; color: var(--muted); }
+.te-sample { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 10px; margin: 0; font-size: 13px; }
+.te-sample code { justify-self: start; }
+.te-domain { display: grid; gap: 6px; margin: 0; padding-top: 4px; font-size: 13px; }
+.te-media { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.te-media .btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.te-media .sub { margin: 0; font-size: 12.5px; }
+.te-buttons { display: grid; gap: 8px; }
+.te-btn { display: grid; grid-template-columns: 112px minmax(0, 1fr) minmax(0, 1fr) 28px; gap: 8px; align-items: center; padding: 8px 8px 8px 12px; border-radius: 12px; background: var(--sunk); }
+.te-btn-kind { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.te-btn input, .te-btn select { margin: 0 !important; height: 34px; font-size: 13px; }
+.te-btn .te-wide { grid-column: 2 / 4; }
+.te-btn:not(:has(select)):not(:has([data-bf=phone])) input[data-bf=text] { grid-column: 2 / 4; }
+.te-btn .te-btn-x { grid-column: 4; grid-row: 1; display: grid; place-items: center; width: 28px; height: 28px; }
+.te-addbtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.te-addbtns .btn { display: inline-flex; align-items: center; gap: 6px; }
+.te-preview { position: sticky; top: 0; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.te-preview .sub { margin: 0; font-size: 12.5px; }
+.te-chat { background: #e9e1d6; border-radius: 14px; padding: 18px 16px; min-height: 200px; display: flex; align-items: flex-start; }
+.te-chat .bubble { width: 100%; max-width: none; min-width: 0; overflow-wrap: anywhere; }
+.te-actions { grid-column: 1 / -1; }
+.tpl-reason { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--danger-soft); color: var(--danger); font-size: 12.5px; }
+.tpl-reason svg { flex: none; margin-top: 1px; }
+@media (max-width: 860px) { .te { grid-template-columns: 1fr; } .te-preview { position: static; } .te-row { grid-template-columns: 1fr; } .te-btn { grid-template-columns: 1fr 28px; } .te-btn > * { grid-column: 1 !important; } .te-btn .te-btn-x { grid-column: 2 !important; } }

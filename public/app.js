@@ -908,8 +908,8 @@ function renderTemplates() {
     list.innerHTML = emptyState({
       icon: 'template',
       title: 'No templates yet',
-      text: 'WhatsApp only lets you start conversations with templates Meta has approved. Create one in Meta, then click Sync from Meta to bring it in.',
-      actions: `<button class="btn primary" onclick="templateGuide()">${icon('plus', 16)}Add a template</button><button class="btn" onclick="document.getElementById('syncTemplates').click()">${icon('refresh-cw', 16)}Sync from Meta</button>`,
+      text: 'WhatsApp only lets you start conversations with templates Meta has approved. Create one here and send it to Meta for review, or sync the ones you already have.',
+      actions: `<button class="btn primary" onclick="templateEditor()">${icon('plus', 16)}New template</button><button class="btn" onclick="document.getElementById('syncTemplates').click()">${icon('refresh-cw', 16)}Sync from Meta</button>`,
     });
     return;
   }
@@ -918,13 +918,15 @@ function renderTemplates() {
     <div class="card tpl-card">
       <div class="li-head">
         <h3>${esc(t.name)}</h3>
-        <span class="pill ${esc(t.status)}">${esc(t.status)}</span>
+        <span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span>
       </div>
-      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'synced from Meta' : 'added manually'}</div>
+      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
+      ${t.rejectedReason ? `<div class="tpl-reason">${icon('badge-alert', 14)}<span>Meta's reason: ${esc(t.rejectedReason.toLowerCase().replace(/_/g, ' '))}. Edit it and submit again.</span></div>` : ''}
       <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
       ${t.variables.length ? `<div class="var-chips">${[...new Set(t.variables.map((v) => (v.media ? v.media + ' URL' : `{{${v.name}}}`)))].map((label) => `<span class="var-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
       <div class="row tight">
         <button class="btn sm" data-use="${t.id}">${icon('send', 15)}Use for sending</button>
+        ${(() => { const why = tplEditBlock(t); return `<button class="btn quiet sm" data-tedit="${t.id}" ${why ? `disabled title="${esc(why)}"` : ''}>${icon('square-pen', 15)}Edit</button>`; })()}
         <button class="btn quiet danger sm" data-del="${t.id}" style="margin-left:auto">${icon('delete', 15)}Delete</button>
       </div>
     </div>`)
@@ -934,6 +936,7 @@ function renderTemplates() {
 $('#templateList').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.tedit) return templateEditor(state.templates.find((x) => x.id === b.dataset.tedit));
   if (b.dataset.use) {
     $('#templateSelect').value = b.dataset.use;
     onTemplateChange();
@@ -959,77 +962,259 @@ $('#syncTemplates').addEventListener('click', (e) =>
   }, e.target)
 );
 
-function templateForm() {
-  openModal('Add template manually', `
-    <form id="tplForm">
-      <p class="sub" style="margin-bottom:16px">The name and language must exactly match an approved template in WhatsApp Manager for live sending. Use <code>{{1}}</code>, <code>{{2}}</code>… (or named like <code>{{name}}</code>) for variables.</p>
-      <div class="row">
-        <label>Template name <input name="name" required placeholder="order_update" pattern="[a-z0-9_]+" title="lowercase letters, numbers and underscores" /></label>
-        <label>Language code <input name="language" required value="en" placeholder="en, en_US, hi" /></label>
+// --- Template editor: create a template in Meta, or edit one ------------------------------------------
+// One popup for both: the form on the left, the message as WhatsApp shows it on the right (with the
+// sample values). Meta reviews every new or edited template; the result arrives by itself (webhook).
+const TPL_LANGS = [['en', 'English'], ['en_US', 'English (US)'], ['en_GB', 'English (UK)'], ['hi', 'Hindi'], ['te', 'Telugu'], ['ta', 'Tamil'], ['kn', 'Kannada'], ['ml', 'Malayalam'], ['mr', 'Marathi'], ['bn', 'Bengali'], ['gu', 'Gujarati'], ['pa', 'Punjabi'], ['ur', 'Urdu'], ['ar', 'Arabic'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['pt_BR', 'Portuguese (Brazil)'], ['id', 'Indonesian']];
+const TPL_STATUS = { APPROVED: 'Approved', PENDING: 'In review', REJECTED: 'Rejected', PAUSED: 'Paused', DISABLED: 'Disabled', FLAGGED: 'Flagged', IN_APPEAL: 'In appeal', PENDING_DELETION: 'Being deleted', MANUAL: 'Demo' };
+const isGoUrl = (url) => /\/go\/{{\s*\w+\s*}}$/.test(url || '');
+// What the editor works on, from a saved template (or blank for a new one).
+function tplSpec(t) {
+  const c = (type) => (t?.components || []).find((x) => String(x.type).toUpperCase() === type);
+  const h = c('HEADER'), b = c('BODY'), f = c('FOOTER'), btns = c('BUTTONS')?.buttons || [];
+  return {
+    name: t?.name || '', language: t?.language || 'en', category: t?.category || 'MARKETING',
+    header: { format: h ? h.format : 'NONE', text: h?.text || '', sample: h?.example?.header_text?.[0] || '', file: null, preview: '' },
+    body: { text: b?.text || '', samples: b?.example?.body_text?.[0] || [] },
+    footer: f?.text || '',
+    buttons: btns.map((x) => x.type === 'URL' ? { type: 'URL', text: x.text, mode: isGoUrl(x.url) ? 'go' : 'fixed', url: isGoUrl(x.url) ? '' : x.url }
+      : x.type === 'PHONE_NUMBER' ? { type: 'PHONE_NUMBER', text: x.text, phone: x.phone_number || '' } : { type: 'QUICK_REPLY', text: x.text }),
+  };
+}
+const tplVarNums = (text) => [...new Set([...String(text || '').matchAll(/{{\s*(\d+)\s*}}/g)].map((m) => Number(m[1])))].sort((a, b) => a - b);
+// When an approved template can next be edited (Meta allows one edit a day), or null if it can be now.
+function tplEditBlock(t) {
+  if (t.source !== 'synced' || !t.metaId) return null;
+  const st = String(t.status).toUpperCase();
+  if (!['APPROVED', 'REJECTED', 'PAUSED'].includes(st)) return `Meta doesn't allow edits while a template is ${(TPL_STATUS[st] || st).toLowerCase()}`;
+  if (st === 'APPROVED' && t.editedAt && Date.now() - new Date(t.editedAt) < 864e5) return `Edited in the last day. Meta allows one edit a day: you can edit again ${relTime(new Date(new Date(t.editedAt).getTime() + 864e5))}`;
+  return null;
+}
+
+function templateEditor(t = null) {
+  const live = !state.settings.demoMode;
+  const spec = tplSpec(t);
+  let linkDomain = state.settings.linkDomain || location.origin; // kept here so redrawing the buttons doesn't reset it
+  const accounts = [...new Map(state.senders.filter((x) => x.wabaId && x.hasToken).map((x) => [x.wabaId, x])).values()];
+  const body = openModal(t ? `Edit ${t.name}` : 'New template', `
+    <form id="teForm" class="te" novalidate>
+      <div class="te-form">
+        <div class="te-row">
+          <label class="te-name">Name ${t ? '' : '<span class="opt">lowercase, numbers, underscores</span>'}<input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="webinar_invite" maxlength="60" autocomplete="off"></label>
+          <label>Language<select name="language" ${t ? 'disabled' : ''}>${TPL_LANGS.map(([v, l]) => `<option value="${v}" ${v === spec.language ? 'selected' : ''}>${l}</option>`).join('')}${TPL_LANGS.some(([v]) => v === spec.language) ? '' : `<option value="${esc(spec.language)}" selected>${esc(spec.language)}</option>`}</select></label>
+        </div>
+        <div class="te-row">
+          <div class="te-field"><span class="field-label">Category</span><div class="seg te-seg" data-seg="category">${[['MARKETING', 'Marketing', 'Offers, events, news'], ['UTILITY', 'Utility', 'Updates on something they did']].map(([v, l, d]) => `<button type="button" data-v="${v}" class="${spec.category === v ? 'active' : ''}" title="${d}">${l}</button>`).join('')}</div></div>
+          ${live && !t && accounts.length > 1 ? `<label>Business Account<select name="senderId">${accounts.map((x) => `<option value="${x.id}">${esc(x.verifiedName || x.label)}</option>`).join('')}</select></label>` : ''}
+        </div>
+
+        <section class="te-sec">
+          <div class="te-sec-h"><b>Header</b><span class="opt">optional</span></div>
+          <div class="seg te-seg" data-seg="header">${[['NONE', 'None'], ['TEXT', 'Text'], ['IMAGE', 'Image'], ['VIDEO', 'Video'], ['DOCUMENT', 'PDF']].map(([v, l]) => `<button type="button" data-v="${v}" class="${spec.header.format === v ? 'active' : ''}">${l}</button>`).join('')}</div>
+          <div id="teHeaderBox"></div>
+        </section>
+
+        <section class="te-sec">
+          <div class="te-sec-h"><b>Message</b><span class="te-count" id="teBodyCount"></span></div>
+          <div class="te-tools">
+            <button type="button" data-wrap="*" title="Bold"><b>B</b></button><button type="button" data-wrap="_" title="Italic"><i>I</i></button><button type="button" data-wrap="~" title="Strikethrough"><s>S</s></button><button type="button" data-wrap="\`\`\`" title="Monospace"><code>&lt;/&gt;</code></button>
+            <button type="button" class="te-addvar" data-addvar title="Add a variable: a value filled in for each person when sending">${icon('plus', 13)}Variable</button>
+          </div>
+          <textarea name="bodyText" rows="8" maxlength="1024" placeholder="Hi {{1}}, our webinar on sports biomechanics is on Saturday at 7 PM. Register here: {{2}}">${esc(spec.body.text)}</textarea>
+          <div id="teSamples" class="te-samples"></div>
+        </section>
+
+        <section class="te-sec">
+          <div class="te-sec-h"><b>Footer</b><span class="opt">optional</span><span class="te-count" id="teFooterCount"></span></div>
+          <input name="footer" maxlength="60" value="${esc(spec.footer)}" placeholder="Reply STOP to stop these messages">
+        </section>
+
+        <section class="te-sec">
+          <div class="te-sec-h"><b>Buttons</b><span class="opt">optional, up to 10</span></div>
+          <div id="teButtons" class="te-buttons"></div>
+          <div class="te-addbtns"><button type="button" class="btn sm" data-addbtn="QUICK_REPLY">${icon('reply', 14)}Quick reply</button><button type="button" class="btn sm" data-addbtn="URL">${icon('external-link', 14)}Website</button><button type="button" class="btn sm" data-addbtn="PHONE_NUMBER">${icon('phone', 14)}Call</button></div>
+        </section>
+        <div class="sf-status hidden" id="teStatus" role="status" aria-live="polite"></div>
       </div>
-      <div class="row">
-        <label>Category
-          <select name="category"><option>MARKETING</option><option>UTILITY</option><option>AUTHENTICATION</option></select>
-        </label>
-        <label>Header
-          <select name="headerFormat" id="hf"><option value="NONE">None</option><option value="TEXT">Text</option><option value="IMAGE">Image</option><option value="VIDEO">Video</option><option value="DOCUMENT">Document</option></select>
-        </label>
-      </div>
-      <label id="htWrap" class="hidden">Header text <input name="headerText" placeholder="Hi {{1}}!" /></label>
-      <label>Body <textarea name="bodyText" rows="5" required placeholder="Hello {{1}}, your order {{2}} has shipped!"></textarea></label>
-      <label>Footer <span class="opt">optional</span><input name="footerText" placeholder="Reply STOP to unsubscribe" /></label>
-      <div class="row">
-        <label>URL button text <span class="opt">optional</span><input name="btnText" placeholder="Track order" /></label>
-        <label>Button URL <input name="btnUrl" placeholder="https://example.com/track/{{1}}" /></label>
-      </div>
-      <div class="modal-actions">
+      <aside class="te-preview">
+        <span class="te-cap">Preview with the sample values</span>
+        <div class="te-chat"><div class="bubble" id="tePreview"></div></div>
+        <p class="sub">${live ? 'Meta reviews every new or edited template, usually within minutes and at most a day. Its status updates here by itself.' : 'Demo mode: the template is saved here for practice and nothing goes to Meta.'}</p>
+      </aside>
+      <div class="modal-actions te-actions">
         <button type="button" class="btn quiet" onclick="closeModal()">Cancel</button>
-        <button class="btn primary">Add template</button>
+        <button class="btn primary">${t ? 'Save changes' : live ? 'Submit for review' : 'Save template'}</button>
       </div>
     </form>`);
-  $('#hf').addEventListener('change', (e) => $('#htWrap').classList.toggle('hidden', e.target.value !== 'TEXT'));
-  $('#tplForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const d = Object.fromEntries(new FormData(e.target));
-    d.urlButtons = d.btnText && d.btnUrl ? [{ text: d.btnText, url: d.btnUrl }] : [];
-    guard(async () => {
-      const t = await api('/templates', { method: 'POST', body: d });
-      closeModal();
-      toast('Template added');
-      await loadTemplates();
-      if (!$('#templateSelect').value || state.templates.length === 1) {
-        $('#templateSelect').value = t.id;
-        onTemplateChange();
-      }
-    }, $('button.primary', e.target));
+  $('#modal .modal-box').classList.add('te-box');
+  const form = $('#teForm', body), ta = $('[name=bodyText]', form);
+  const status = $('#teStatus', body);
+  const show = (kind, html) => { status.className = 'sf-status ' + kind; status.innerHTML = html; };
+
+  // --- Header ---
+  const MEDIA_ACCEPT = { IMAGE: 'image/jpeg,image/png', VIDEO: 'video/mp4', DOCUMENT: 'application/pdf' };
+  const MEDIA_MAX = { IMAGE: 5, VIDEO: 16, DOCUMENT: 15 };
+  const renderHeader = () => {
+    const h = spec.header, box = $('#teHeaderBox', body);
+    if (h.format === 'TEXT') {
+      box.innerHTML = `<input name="headerText" maxlength="60" value="${esc(h.text)}" placeholder="SWOT Sportech webinar" autocomplete="off">
+        ${tplVarNums(h.text).length ? `<label class="te-sample">Sample for {{1}}<input name="headerSample" value="${esc(h.sample)}" placeholder="What {{1}} could be"></label>` : ''}`;
+    } else if (MEDIA_ACCEPT[h.format]) {
+      const kind = h.format === 'DOCUMENT' ? 'PDF' : h.format.toLowerCase();
+      box.innerHTML = `<div class="te-media"><label class="btn sm">${icon('upload', 14)}${h.file ? 'Replace' : 'Upload'} sample ${kind}<input type="file" hidden accept="${MEDIA_ACCEPT[h.format]}" id="teHeaderFile"></label>
+        <span class="sub">${h.file ? esc(h.file.name) : t && tplSpec(t).header.format === h.format ? 'Keeping the current sample' : `For Meta's review only. The real ${kind} is chosen when sending.`}</span></div>`;
+      $('#teHeaderFile', box).addEventListener('change', (e) => {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        if (f.size > MEDIA_MAX[h.format] * 1048576) return toast(`WhatsApp accepts header ${kind}s up to ${MEDIA_MAX[h.format]} MB`, 'error');
+        if (h.preview) URL.revokeObjectURL(h.preview);
+        h.file = f;
+        h.preview = h.format === 'IMAGE' ? URL.createObjectURL(f) : '';
+        renderHeader();
+        renderPreview();
+      });
+    } else box.innerHTML = '';
+  };
+
+  // --- Variable samples ---
+  const renderSamples = () => {
+    const nums = tplVarNums(spec.body.text);
+    const box = $('#teSamples', body);
+    box.innerHTML = nums.length ? `<span class="te-cap">Samples for Meta's review <span class="opt">shown in the preview, never sent</span></span>` + nums.map((n) => `<label class="te-sample"><code>{{${n}}}</code><input data-sample="${n - 1}" value="${esc(spec.body.samples[n - 1] || '')}" placeholder="${n === 1 ? 'e.g. Rahul' : 'e.g. a real-looking value'}"></label>`).join('') : '';
+  };
+
+  // --- Buttons ---
+  const renderButtons = () => {
+    const box = $('#teButtons', body);
+    const anyGo = spec.buttons.some((b) => b.type === 'URL' && b.mode === 'go');
+    box.innerHTML = spec.buttons.map((b, i) => `<div class="te-btn" data-i="${i}">
+      <span class="te-btn-kind">${icon(b.type === 'URL' ? 'external-link' : b.type === 'PHONE_NUMBER' ? 'phone' : 'reply', 14)}${b.type === 'URL' ? 'Website' : b.type === 'PHONE_NUMBER' ? 'Call' : 'Quick reply'}</span>
+      <input data-bf="text" maxlength="25" value="${esc(b.text)}" placeholder="${b.type === 'URL' ? 'Register Now' : b.type === 'PHONE_NUMBER' ? 'Call us' : 'Interested'}" aria-label="Button text">
+      ${b.type === 'URL' ? `<select data-bf="mode" aria-label="Which link"><option value="go" ${b.mode === 'go' ? 'selected' : ''}>Any link, chosen when sending</option><option value="fixed" ${b.mode === 'fixed' ? 'selected' : ''}>The same link every time</option></select>
+        ${b.mode === 'fixed' ? `<input data-bf="url" class="te-wide" value="${esc(b.url)}" placeholder="https://swotsportech.in/register">` : ''}` : ''}
+      ${b.type === 'PHONE_NUMBER' ? `<input data-bf="phone" value="${esc(b.phone)}" placeholder="+91 98765 43210" inputmode="tel">` : ''}
+      <button type="button" class="icon-btn te-btn-x" data-rmbtn="${i}" aria-label="Remove button">${icon('x', 14)}</button>
+    </div>`).join('');
+    box.insertAdjacentHTML('beforeend', anyGo ? `<label class="te-domain"><span>Short link domain <span class="opt">customers see it when they tap the website button</span></span><input name="linkDomain" value="${esc(linkDomain)}" placeholder="https://link.yourcompany.com"></label>` : '');
+    $('.te-addbtns', body).classList.toggle('hidden', spec.buttons.length >= 10);
+  };
+
+  // --- Preview: the template as it would be saved, filled with the samples ---
+  const asTemplate = () => {
+    const comps = [];
+    const h = spec.header;
+    if (h.format === 'TEXT' && h.text.trim()) comps.push({ type: 'HEADER', format: 'TEXT', text: h.text });
+    else if (MEDIA_ACCEPT[h.format]) comps.push({ type: 'HEADER', format: h.format });
+    comps.push({ type: 'BODY', text: spec.body.text || ' ' });
+    if (spec.footer.trim()) comps.push({ type: 'FOOTER', text: spec.footer });
+    // Shown in the order Meta keeps them: website and call buttons first, then quick replies.
+    const ordered = [...spec.buttons].sort((a, b) => (a.type === 'QUICK_REPLY') - (b.type === 'QUICK_REPLY'));
+    if (ordered.length) comps.push({ type: 'BUTTONS', buttons: ordered.map((b) => ({ type: b.type, text: b.text || '…' })) });
+    return { components: comps };
+  };
+  const renderPreview = () => {
+    const values = {};
+    tplVarNums(spec.body.text).forEach((n) => { if (spec.body.samples[n - 1]) values[`body.${n}`] = spec.body.samples[n - 1]; });
+    if (spec.header.sample) values['header.1'] = spec.header.sample;
+    if (spec.header.preview) values['header.media'] = spec.header.preview;
+    $('#tePreview', body).innerHTML = bubbleHtml(asTemplate(), values);
+    const n = spec.body.text.length;
+    $('#teBodyCount', body).textContent = `${n} / 1024`;
+    $('#teBodyCount', body).classList.toggle('warn', n > 1000);
+    $('#teFooterCount', body).textContent = spec.footer ? `${spec.footer.length} / 60` : '';
+  };
+
+  // --- Events ---
+  form.addEventListener('click', (e) => {
+    const seg = e.target.closest('[data-seg] button');
+    if (seg) {
+      const which = seg.parentElement.dataset.seg;
+      seg.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === seg));
+      if (which === 'category') spec.category = seg.dataset.v;
+      else { spec.header.format = seg.dataset.v; renderHeader(); renderPreview(); }
+      return;
+    }
+    const wrap = e.target.closest('[data-wrap]');
+    if (wrap) {
+      const m = wrap.dataset.wrap, [a, z] = [ta.selectionStart, ta.selectionEnd];
+      const sel = ta.value.slice(a, z) || 'text';
+      ta.setRangeText(m + sel + m, a, z, 'select');
+      ta.focus();
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    if (e.target.closest('[data-addvar]')) {
+      const next = (tplVarNums(ta.value).at(-1) || 0) + 1;
+      ta.setRangeText(`{{${next}}}`, ta.selectionStart, ta.selectionEnd, 'end');
+      ta.focus();
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    const add = e.target.closest('[data-addbtn]');
+    if (add) {
+      const type = add.dataset.addbtn;
+      spec.buttons.push(type === 'URL' ? { type, text: '', mode: 'go', url: '' } : type === 'PHONE_NUMBER' ? { type, text: '', phone: '' } : { type, text: '' });
+      renderButtons();
+      renderPreview();
+      $(`.te-btn[data-i="${spec.buttons.length - 1}"] [data-bf=text]`, body)?.focus();
+      return;
+    }
+    const rm = e.target.closest('[data-rmbtn]');
+    if (rm) { spec.buttons.splice(Number(rm.dataset.rmbtn), 1); renderButtons(); renderPreview(); }
   });
+  form.addEventListener('input', (e) => {
+    const el = e.target;
+    status.className = 'sf-status hidden';
+    if (el.name === 'name') { const v = el.value.toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, ''); if (v !== el.value) el.value = v; spec.name = v; }
+    else if (el.name === 'bodyText') { spec.body.text = el.value; if (tplVarNums(el.value).join() !== $$('[data-sample]', body).map((x) => Number(x.dataset.sample) + 1).join()) renderSamples(); }
+    else if (el.name === 'footer') spec.footer = el.value;
+    else if (el.name === 'headerText') { spec.header.text = el.value; if (Boolean(tplVarNums(el.value).length) !== Boolean($('[name=headerSample]', body))) { renderHeader(); $('[name=headerText]', body).focus(); } }
+    else if (el.name === 'headerSample') spec.header.sample = el.value;
+    else if (el.name === 'linkDomain') linkDomain = el.value.trim();
+    else if (el.dataset.sample != null) spec.body.samples[Number(el.dataset.sample)] = el.value;
+    else if (el.dataset.bf) { const b = spec.buttons[Number(el.closest('.te-btn').dataset.i)]; b[el.dataset.bf] = el.value; if (el.dataset.bf === 'mode') { renderButtons(); } }
+    renderPreview();
+  });
+  form.addEventListener('change', (e) => { if (e.target.name === 'language') spec.language = e.target.value; });
+
+  const fileData = (f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(f); });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const btn = $('.te-actions .btn.primary', body);
+    guard(async () => {
+      if (t && String(t.status).toUpperCase() === 'APPROVED' && live && t.metaId) {
+        const ok = await confirmDialog({ title: `Send ${esc(t.name)} back to review?`, message: "Meta reviews every edit. Until it's approved again, this template can't be sent, and Meta allows one edit a day.", confirmText: 'Save and submit' });
+        if (!ok) return;
+      }
+      show('busy', `<span class="sf-spin"></span>${live && (!t || t.metaId) ? 'Sending to Meta…' : 'Saving…'}`);
+      const h = spec.header;
+      const payload = {
+        name: spec.name, language: $('[name=language]', form).value, category: spec.category, senderId: $('[name=senderId]', form)?.value,
+        header: { format: h.format, text: h.text, sample: h.sample, file: h.file ? { mime: h.file.type, data: await fileData(h.file) } : null },
+        body: { text: spec.body.text, samples: tplVarNums(spec.body.text).map((n) => spec.body.samples[n - 1] || '') },
+        footer: spec.footer, buttons: spec.buttons, linkDomain: spec.buttons.some((b) => b.type === 'URL' && b.mode === 'go') ? linkDomain : '',
+      };
+      try {
+        await api(t ? `/templates/${t.id}/meta` : '/templates/meta', { method: t ? 'PUT' : 'POST', body: payload });
+      } catch (err) { show('bad', esc(err.message)); return; }
+      if (h.preview) URL.revokeObjectURL(h.preview);
+      closeModal();
+      toast(live && (t?.metaId || !t) ? `${t ? 'Changes sent' : 'Template sent'} to Meta for review. You'll see the result here.` : 'Template saved');
+      if (payload.linkDomain) state.settings.linkDomain = payload.linkDomain.replace(/\/+$/, '');
+      await loadTemplates();
+    }, btn);
+  });
+
+  renderHeader();
+  renderSamples();
+  renderButtons();
+  renderPreview();
+  if (!t) $('[name=name]', form).focus();
 }
-window.templateForm = templateForm;
-// "Add": Meta only sends templates it has approved, and they're created in WhatsApp Manager, so this
-// explains how to make one there and then syncs it in. (A hand-made template is for demo mode only.)
-function templateGuide() {
-  const waba = state.senders.find((x) => x.wabaId)?.wabaId;
-  const manager = 'https://business.facebook.com/wa/manage/message-templates/' + (waba ? '?waba_id=' + encodeURIComponent(waba) : '');
-  const body = openModal('Add a template', `
-    <p class="tg-lead">WhatsApp only delivers templates that Meta has approved, so they're created in Meta's WhatsApp Manager. It takes a few minutes; approval usually comes within a few minutes to a day.</p>
-    <ol class="tg-steps">
-      <li><b>Open WhatsApp Manager → Message templates</b><span>Sign in with the Facebook account that manages your WhatsApp Business Account${waba ? ` (ID <code>${esc(waba)}</code>)` : ''}.</span></li>
-      <li><b>Click Create template</b><span>Pick a category: <i>Marketing</i> for offers, <i>Utility</i> for order and account updates, <i>Authentication</i> for codes.</span></li>
-      <li><b>Name it and choose the language</b><span>Lowercase letters, numbers and underscores only, e.g. <code>diwali_offer</code>.</span></li>
-      <li><b>Write the message</b><span>Use <code>{{1}}</code>, <code>{{2}}</code>… where each person's details go (name, order number). Add a header image or buttons if you like.</span></li>
-      <li><b>Submit it for review</b><span>Its status shows <i>In review</i>, then <i>Active</i> once approved.</span></li>
-      <li><b>Come back and click Sync from Meta</b><span>Approved templates appear here, ready to use on the Send page.</span></li>
-    </ol>
-    <div class="modal-actions">
-      ${state.settings.demoMode ? '<button type="button" class="btn quiet" id="tgManual" style="margin-right:auto">Practice template (demo)</button>' : ''}
-      <button type="button" class="btn quiet" id="tgSync" data-icon="refresh-cw">Sync from Meta</button>
-      <a class="btn primary" href="${esc(manager)}" target="_blank" rel="noopener" data-icon="external-link">Open WhatsApp Manager</a>
-    </div>`);
-  $('#tgSync', body).onclick = () => { closeModal(); $('#syncTemplates').click(); };
-  $('#tgManual', body)?.addEventListener('click', () => templateForm());
-}
-window.templateGuide = templateGuide;
-$('#addTemplate').addEventListener('click', () => templateGuide());
+window.templateEditor = templateEditor;
+$('#addTemplate').addEventListener('click', () => templateEditor());
+// Meta's review results come in live (webhook): refresh the list when one arrives.
+document.addEventListener('live', (e) => { if (e.detail?.kind === 'templates') loadTemplates().catch(() => {}); });
 
 // ---------------------------------------------------------------------------
 // Shared: reading contact files, phone numbers, template bubbles
@@ -1244,7 +1429,7 @@ function bubbleHtml(t, values, neutral = false, meta = '') {
     if (h.format === 'TEXT') html += `<div class="hdr">${fill(h.text, 'header', values, neutral)}</div>`;
     else {
       const url = values['header.media'];
-      const isImg = h.format === 'IMAGE' && /^https?:\/\//.test(url || '');
+      const isImg = h.format === 'IMAGE' && /^(https?:\/\/|blob:)/.test(url || '');
       // A real image keeps its own shape, like on the phone; until there is one, a placeholder box.
       html += isImg ? `<img class="media-img" src="${esc(url)}" alt="" loading="lazy" />` : `<div class="media">${esc(h.format.toLowerCase())}</div>`;
     }

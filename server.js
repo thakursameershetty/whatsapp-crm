@@ -369,6 +369,12 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
   res.sendStatus(200);
   for (const entry of req.body?.entry || []) {
     for (const change of entry.changes || []) {
+      if (change.field === 'message_template_status_update') {
+        // No phone number here: the entry is the Business Account.
+        const ws = tenants.allWorkspaces().find((w) => w.db.senders.some((x) => x.wabaId === String(entry.id)) || w.db.templates.some((x) => x.metaId === String(change.value?.message_template_id)));
+        if (ws) tenants.forWorkspace(ws, () => handleTemplateStatus(String(entry.id), change.value || {}));
+        continue;
+      }
       const ws = tenants.byPhoneNumberId(change.value?.metadata?.phone_number_id);
       if (ws) tenants.forWorkspace(ws, () => handleWebhookChange(change));
     }
@@ -494,10 +500,11 @@ function publicSettings(req) {
 app.get('/api/settings', (req, res) => res.json(publicSettings(req)));
 
 app.put('/api/settings', (req, res) => {
-  const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'defaultCountry', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber'];
+  const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'defaultCountry', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber', 'linkDomain'];
   // A calling code is 1–3 digits; the country is its two-letter ISO code (it tells +1 US from +1 Canada).
   if ('defaultCountryCode' in req.body && !/^\d{1,3}$/.test(String(req.body.defaultCountryCode))) return res.status(400).json({ error: 'The country code should be 1–3 digits, e.g. 91 for India' });
   if ('defaultCountry' in req.body && req.body.defaultCountry && !/^[A-Z]{2}$/.test(String(req.body.defaultCountry))) return res.status(400).json({ error: 'Pick a country from the list' });
+  if ('linkDomain' in req.body && req.body.linkDomain && !/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(req.body.linkDomain))) return res.status(400).json({ error: 'The short link domain should look like https://link.yourcompany.com' });
   for (const k of allowed) if (k in req.body) db.settings[k] = req.body[k];
   if (!tenants.demoAllowed()) db.settings.demoMode = false;
   db.settings.concurrencyPerNumber = Math.min(50, Math.max(1, Number(db.settings.concurrencyPerNumber) || 1));
@@ -721,8 +728,22 @@ app.get('/api/senders/:id/photo/file', wrap(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.send(Buffer.from(await r.arrayBuffer()));
 }));
-// Changing it takes three calls: start an upload on the token's app, send the file to get a handle,
-// then set that handle as the number's profile picture.
+// Meta's "resumable upload": start an upload on the token's app, send the file, get back a handle that
+// other calls accept in place of the file (a profile picture, a template's sample header).
+async function metaCall(url, init, what) {
+  const r = await fetch(url, init);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) throw fail(`Meta didn't accept the ${what}: ${j.error?.error_user_msg || j.error?.message || 'HTTP ' + r.status}`);
+  return j;
+}
+async function metaUploadHandle(s, buf, mime, what) {
+  const base = `https://graph.facebook.com/${db.settings.graphVersion}`;
+  const appId = (await graph(s, `debug_token?input_token=${encodeURIComponent(s.accessToken)}`)).data?.app_id;
+  if (!appId) throw fail("Couldn't tell which Meta app this token belongs to");
+  const session = await metaCall(`${base}/${appId}/uploads?file_length=${buf.length}&file_type=${encodeURIComponent(mime)}`, { method: 'POST', headers: { Authorization: `Bearer ${s.accessToken}` } }, what);
+  return (await metaCall(`${base}/${session.id}`, { method: 'POST', headers: { Authorization: `OAuth ${s.accessToken}`, file_offset: '0', 'Content-Type': mime }, body: buf }, what)).h;
+}
+// Changing it: upload the file for a handle, then set that handle as the number's profile picture.
 app.post('/api/senders/:id/photo', express.raw({ type: () => true, limit: '5mb' }), wrap(async (req, res) => {
   const s = db.senders.find((x) => x.id === req.params.id);
   if (!s) throw fail('Not found', 404);
@@ -731,18 +752,8 @@ app.post('/api/senders/:id/photo', express.raw({ type: () => true, limit: '5mb' 
   const mime = String(req.get('content-type') || '').split(';')[0].trim().toLowerCase();
   if (!['image/jpeg', 'image/png'].includes(mime)) throw fail('WhatsApp profile photos must be JPG or PNG');
   if (!req.body?.length) throw fail('The file is empty');
-  const base = `https://graph.facebook.com/${db.settings.graphVersion}`;
-  const call = async (url, init) => {
-    const r = await fetch(url, init);
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || j.error) throw fail(`Meta didn't accept the photo: ${j.error?.error_user_msg || j.error?.message || 'HTTP ' + r.status}`);
-    return j;
-  };
-  const appId = (await graph(s, `debug_token?input_token=${encodeURIComponent(s.accessToken)}`)).data?.app_id;
-  if (!appId) throw fail("Couldn't tell which Meta app this token belongs to");
-  const session = await call(`${base}/${appId}/uploads?file_length=${req.body.length}&file_type=${encodeURIComponent(mime)}`, { method: 'POST', headers: { Authorization: `Bearer ${s.accessToken}` } });
-  const { h } = await call(`${base}/${session.id}`, { method: 'POST', headers: { Authorization: `OAuth ${s.accessToken}`, file_offset: '0', 'Content-Type': mime }, body: req.body });
-  await call(`${base}/${s.phoneNumberId}/whatsapp_business_profile`, { method: 'POST', headers: { Authorization: `Bearer ${s.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ messaging_product: 'whatsapp', profile_picture_handle: h }) });
+  const h = await metaUploadHandle(s, req.body, mime, 'photo');
+  await metaCall(`https://graph.facebook.com/${db.settings.graphVersion}/${s.phoneNumberId}/whatsapp_business_profile`, { method: 'POST', headers: { Authorization: `Bearer ${s.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ messaging_product: 'whatsapp', profile_picture_handle: h }) }, 'photo');
   await readProfilePhoto(s);
   save();
   res.json(publicSender(s));
@@ -790,12 +801,12 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
   const errors = [];
   for (const [wabaId, sender] of accounts) {
     try {
-      let next = `${wabaId}/message_templates?fields=name,language,status,category,components,parameter_format&limit=100`;
+      let next = `${wabaId}/message_templates?fields=name,language,status,category,components,parameter_format,rejected_reason&limit=100`;
       while (next) {
         const page = await graph(sender, next);
         for (const t of page.data || []) {
           const existing = db.templates.find((x) => x.source === 'synced' && x.wabaId === wabaId && x.name === t.name && x.language === t.language);
-          const data = { name: t.name, language: t.language, category: t.category, status: t.status, components: t.components, parameterFormat: t.parameter_format || 'POSITIONAL', source: 'synced', wabaId, metaId: t.id, updatedAt: new Date().toISOString() };
+          const data = { name: t.name, language: t.language, category: t.category, status: t.status, rejectedReason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : '', components: t.components, parameterFormat: t.parameter_format || 'POSITIONAL', source: 'synced', wabaId, metaId: t.id, updatedAt: new Date().toISOString() };
           if (existing) Object.assign(existing, data);
           else db.templates.push({ id: id(), ...data });
           synced++;
@@ -809,6 +820,173 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
   save();
   res.json({ synced, errors, templates: db.templates.map(publicTemplate) });
 }));
+
+// --- Creating and editing templates in Meta --------------------------------
+// The editor sends a plain description ({ name, language, category, header, body, footer, buttons }); this turns
+// it into Meta's template format, with the sample values Meta's review needs. Variables are numbered {{1}}, {{2}}…
+const TEMPLATE_LIMITS = { header: 60, body: 1024, footer: 60, button: 25, buttons: 10 };
+const varsIn = (text) => [...String(text || '').matchAll(/{{\s*(\w+)\s*}}/g)].map((m) => m[1]);
+function templateComponents(spec, { handle, linkBase }) {
+  const out = [];
+  const checkVars = (text, where) => {
+    const v = varsIn(text);
+    if (v.some((x) => !/^\d+$/.test(x))) throw fail(`${where}: use numbered variables like {{1}}, {{2}}`);
+    const nums = [...new Set(v.map(Number))].sort((a, b) => a - b);
+    if (nums.some((n, i) => n !== i + 1)) throw fail(`${where}: number the variables in order, starting at {{1}}`);
+    return nums.length;
+  };
+  const h = spec.header || {}, format = String(h.format || 'NONE').toUpperCase();
+  if (format === 'TEXT') {
+    const text = String(h.text || '').trim();
+    if (!text) throw fail('Write the header text, or set the header to None');
+    if (text.length > TEMPLATE_LIMITS.header) throw fail(`The header can be up to ${TEMPLATE_LIMITS.header} characters`);
+    const n = checkVars(text, 'Header');
+    if (n > 1) throw fail('The header can have one variable at most');
+    if (n && !String(h.sample || '').trim()) throw fail('Add a sample for the header variable: Meta needs it to review the template');
+    out.push({ type: 'HEADER', format: 'TEXT', text, ...(n ? { example: { header_text: [String(h.sample).trim()] } } : {}) });
+  } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(format)) {
+    if (!handle) throw fail(`Upload a sample ${format.toLowerCase()} for the header: Meta needs it to review the template`);
+    out.push({ type: 'HEADER', format, example: { header_handle: [handle] } });
+  }
+  const body = String(spec.body?.text || '').trim();
+  if (!body) throw fail('Write the message');
+  if (body.length > TEMPLATE_LIMITS.body) throw fail(`The message can be up to ${TEMPLATE_LIMITS.body} characters`);
+  if (/^{{\s*\w+\s*}}/.test(body) || /{{\s*\w+\s*}}$/.test(body)) throw fail("Meta doesn't accept a variable at the very start or end of the message. Add a word or a full stop around it.");
+  const n = checkVars(body, 'Message');
+  const samples = (spec.body?.samples || []).map((x) => String(x ?? '').trim()).slice(0, n);
+  if (n && (samples.length < n || samples.some((x) => !x))) throw fail('Add a sample for every variable in the message: Meta needs them to review the template');
+  out.push({ type: 'BODY', text: body, ...(n ? { example: { body_text: [samples] } } : {}) });
+  const footer = String(spec.footer || '').trim();
+  if (footer) {
+    if (footer.length > TEMPLATE_LIMITS.footer) throw fail(`The footer can be up to ${TEMPLATE_LIMITS.footer} characters`);
+    if (varsIn(footer).length) throw fail("The footer can't have variables");
+    out.push({ type: 'FOOTER', text: footer });
+  }
+  const buttons = [];
+  for (const b of (spec.buttons || []).slice(0, TEMPLATE_LIMITS.buttons)) {
+    const text = String(b.text || '').trim();
+    if (!text) throw fail('Every button needs its text');
+    if (text.length > TEMPLATE_LIMITS.button) throw fail(`Button text can be up to ${TEMPLATE_LIMITS.button} characters ("${text}")`);
+    if (b.type === 'QUICK_REPLY') buttons.push({ type: 'QUICK_REPLY', text });
+    else if (b.type === 'PHONE_NUMBER') {
+      const phone = normalizePhone(b.phone);
+      if (!phone) throw fail(`"${text}": enter the phone number to call, with its country code`);
+      buttons.push({ type: 'PHONE_NUMBER', text, phone_number: '+' + phone });
+    } else if (b.type === 'URL' && b.mode === 'go') {
+      // Opens any link chosen when sending, through this app's short links (see goCode).
+      buttons.push({ type: 'URL', text, url: `${linkBase}/go/{{1}}`, example: [`${linkBase}/go/register`] });
+    } else if (b.type === 'URL') {
+      const url = String(b.url || '').trim();
+      if (!/^https?:\/\/\S+\.\S+/.test(url)) throw fail(`"${text}": enter the full website link, starting with https://`);
+      if (varsIn(url).length) throw fail(`"${text}": for a link that changes per campaign, choose "Any link, chosen when sending"`);
+      buttons.push({ type: 'URL', text, url });
+    } else throw fail('Unknown button type');
+  }
+  // Meta's rules: buttons grouped by kind (website and call buttons together, quick replies together),
+  // at most 2 website buttons and 1 call button.
+  if (buttons.filter((b) => b.type === 'URL').length > 2) throw fail('A template can have 2 website buttons at most');
+  if (buttons.filter((b) => b.type === 'PHONE_NUMBER').length > 1) throw fail('A template can have 1 call button at most');
+  buttons.sort((a, b) => (a.type === 'QUICK_REPLY') - (b.type === 'QUICK_REPLY'));
+  if (buttons.length) out.push({ type: 'BUTTONS', buttons });
+  return out;
+}
+// The number (and so the Business Account and token) a template is made with.
+function templateSender(spec, t) {
+  const usable = db.senders.filter((x) => x.wabaId && x.accessToken);
+  const s = t ? usable.find((x) => x.wabaId === t.wabaId) : usable.find((x) => x.id === spec.senderId) || usable[0];
+  if (!s) throw fail(t ? "No number with a token is connected to this template's Business Account" : 'Add a sender number with its WhatsApp Business Account ID first (Numbers page)');
+  return s;
+}
+// Short links for "any link" buttons use the workspace's own domain when set (Settings), else this app's address.
+function linkBaseFor(req) {
+  const d = String(req.body.linkDomain || db.settings.linkDomain || '').trim().replace(/\/+$/, '');
+  if (d && !/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) throw fail('The short link domain should look like https://link.yourcompany.com');
+  if (d && d !== db.settings.linkDomain) db.settings.linkDomain = d; // remembered for next time
+  return d || `${req.protocol}://${req.get('host')}`;
+}
+async function headerHandle(s, spec, t) {
+  const f = spec.header?.file;
+  const format = String(spec.header?.format || 'NONE').toUpperCase();
+  if (!['IMAGE', 'VIDEO', 'DOCUMENT'].includes(format)) return '';
+  if (f?.data) {
+    const buf = Buffer.from(String(f.data), 'base64');
+    const mime = String(f.mime || '').toLowerCase();
+    const ok = { IMAGE: ['image/jpeg', 'image/png'], VIDEO: ['video/mp4'], DOCUMENT: ['application/pdf'] }[format];
+    if (!ok.includes(mime)) throw fail(`The header sample must be ${format === 'IMAGE' ? 'a JPG or PNG' : format === 'VIDEO' ? 'an MP4 video' : 'a PDF'}`);
+    return metaUploadHandle(s, buf, mime, 'header sample');
+  }
+  // Editing without a new file: keep the sample Meta already has.
+  const old = (t?.components || []).find((c) => String(c.type).toUpperCase() === 'HEADER' && c.format === format);
+  return old?.example?.header_handle?.[0] || '';
+}
+const TEMPLATE_CATEGORIES = ['MARKETING', 'UTILITY'];
+
+app.post('/api/templates/meta', wrap(async (req, res) => {
+  const spec = req.body;
+  const name = String(spec.name || '').trim();
+  if (!/^[a-z0-9_]{1,512}$/.test(name)) throw fail('Name the template with lowercase letters, numbers and underscores, e.g. webinar_invite');
+  const language = String(spec.language || '').trim();
+  if (!/^[a-z]{2,3}(_[A-Z]{2})?$/.test(language)) throw fail('Pick the language');
+  const category = String(spec.category || '').toUpperCase();
+  if (!TEMPLATE_CATEGORIES.includes(category)) throw fail('Pick Marketing or Utility');
+  const now = new Date().toISOString();
+  if (db.settings.demoMode) {
+    // Demo: nothing goes to Meta; the template is kept here as if approved, for practice sends.
+    const components = templateComponents(spec, { handle: 'demo', linkBase: linkBaseFor(req) });
+    if (db.templates.some((x) => x.name === name && x.language === language)) throw fail('A template with this name and language already exists');
+    const t = { id: id(), name, language, category, status: 'MANUAL', source: 'manual', parameterFormat: 'POSITIONAL', components, updatedAt: now };
+    db.templates.push(t);
+    save();
+    return res.json(publicTemplate(t));
+  }
+  const s = templateSender(spec);
+  if (db.templates.some((x) => x.wabaId === s.wabaId && x.name === name && x.language === language)) throw fail('A template with this name and language already exists. Pick another name, or edit that one.');
+  const components = templateComponents(spec, { handle: await headerHandle(s, spec), linkBase: linkBaseFor(req) });
+  const r = await graph(s, `${encodeURIComponent(s.wabaId)}/message_templates`, { method: 'POST', body: JSON.stringify({ name, language, category, components }) });
+  const t = { id: id(), name, language, category: r.category || category, status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, submittedAt: now, updatedAt: now };
+  db.templates.push(t);
+  save();
+  res.json(publicTemplate(t));
+}));
+
+// Edit: Meta allows it for approved, rejected and paused templates; the name and language stay. An approved one can
+// be edited once a day and 10 times a month, and goes back to review.
+const EDITABLE = ['APPROVED', 'REJECTED', 'PAUSED'];
+app.put('/api/templates/:id/meta', wrap(async (req, res) => {
+  const t = db.templates.find((x) => x.id === req.params.id);
+  if (!t) throw fail('Not found', 404);
+  const spec = req.body;
+  const category = String(spec.category || t.category || '').toUpperCase();
+  if (t.source !== 'synced' || !t.metaId) {
+    // A demo template: just change it here.
+    Object.assign(t, { category, components: templateComponents(spec, { handle: 'demo', linkBase: linkBaseFor(req) }), updatedAt: new Date().toISOString() });
+    save();
+    return res.json(publicTemplate(t));
+  }
+  if (!EDITABLE.includes(String(t.status).toUpperCase())) throw fail(`Meta doesn't allow editing a template while it's ${String(t.status).toLowerCase().replace(/_/g, ' ')}. Try again once it's approved or rejected.`);
+  const s = templateSender(spec, t);
+  const components = templateComponents(spec, { handle: await headerHandle(s, spec, t), linkBase: linkBaseFor(req) });
+  await graph(s, encodeURIComponent(t.metaId), { method: 'POST', body: JSON.stringify({ components, ...(category !== t.category ? { category } : {}) }) });
+  const now = new Date().toISOString();
+  Object.assign(t, { components, category, status: 'PENDING', rejectedReason: '', editedAt: now, updatedAt: now });
+  save();
+  res.json(publicTemplate(t));
+}));
+
+// Meta's review results arrive on the webhook (field message_template_status_update), keyed by Business Account.
+const TEMPLATE_EVENT_TEXT = { APPROVED: 'approved', REJECTED: 'rejected', PAUSED: 'paused', DISABLED: 'disabled', FLAGGED: 'flagged for low quality', PENDING_DELETION: 'being deleted', REINSTATED: 'approved again' };
+function handleTemplateStatus(wabaId, v) {
+  const t = db.templates.find((x) => x.metaId === String(v.message_template_id)) ||
+    db.templates.find((x) => x.wabaId === wabaId && x.name === v.message_template_name && x.language === v.message_template_language);
+  if (!t) return;
+  const event = String(v.event || '').toUpperCase();
+  t.status = event === 'REINSTATED' ? 'APPROVED' : event;
+  t.rejectedReason = event === 'REJECTED' && v.reason && v.reason !== 'NONE' ? String(v.reason) : '';
+  t.updatedAt = new Date().toISOString();
+  save();
+  if (TEMPLATE_EVENT_TEXT[event]) notes?.add({ kind: event === 'APPROVED' || event === 'REINSTATED' ? 'template_approved' : 'template_problem', title: `Template ${t.name} was ${TEMPLATE_EVENT_TEXT[event]}`, body: t.rejectedReason ? `Meta's reason: ${t.rejectedReason.toLowerCase().replace(/_/g, ' ')}` : event === 'APPROVED' ? 'It can be used for sending now.' : '', link: { tab: 'templates', id: t.id } });
+  broadcast({ kind: 'templates' });
+}
 
 // --- Sending ----------------------------------------------------------------
 
