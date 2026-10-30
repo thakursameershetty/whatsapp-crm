@@ -559,6 +559,8 @@
 
   // The file name when a link is one of our uploads (…/u/<name>), so Remove can delete it.
   const uploadedName = (url) => String(url || '').match(new RegExp(`^${location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/u/([0-9a-f]{32}\\.[a-z0-9]{2,4})(/[^/]*)?$`))?.[1] || '';
+  // The header link box's example, for the kind of file the template takes.
+  const MEDIA_EXAMPLE = { image: 'https://…/photo.jpg (JPG or PNG)', video: 'https://…/video.mp4', document: 'https://…/brochure.pdf' };
   // What the header upload button lets you pick, per header type.
   const UPLOAD_ACCEPT = { image: 'image/jpeg,image/png', video: 'video/mp4,video/3gpp', document: 'application/pdf' };
 
@@ -583,7 +585,7 @@
           ${cols.length ? `<optgroup label="Column">${cols.map((c) => `<option value="c:${esc(c)}" ${m.type === 'column' && c === m.value ? 'selected' : ''}>${esc(c)}</option>`).join('')}</optgroup>` : ''}
           <option value="fixed" ${fixed ? 'selected' : ''}>${go ? 'Paste a link for everyone…' : 'Same text for everyone…'}</option>
         </select>
-        ${fixed ? `<input class="m-val" value="${esc(m.value)}" placeholder="${v.media ? 'https://…/image.jpg' : go ? 'https://… (any full link)' : 'Type the text'}" aria-label="Text for ${esc(varLabel(v))}" />` : ''}
+        ${fixed ? `<input class="m-val" value="${esc(m.value)}" placeholder="${v.media ? MEDIA_EXAMPLE[v.media] || 'https://…' : go ? 'https://… (any full link)' : 'Type the text'}" aria-label="Text for ${esc(varLabel(v))}" />` : ''}
         ${fixed && v.media ? `<div class="m-upload-row"><label class="btn sm m-upload" title="Upload a ${esc(v.media)} from this computer">${icon('upload', 14)}${uploadedName(m.value) ? 'Replace' : 'Upload'} ${esc(v.media)}<input type="file" hidden accept="${esc(UPLOAD_ACCEPT[v.media] || '')}" /></label>${m.value ? `<button type="button" class="btn sm quiet m-unupload" title="Take this ${esc(v.media)} out of the message">${icon('delete', 14)}Remove</button>` : ''}</div>` : ''}
         ${m.type === 'column' && !v.media ? fallbackHtml(v, m) : ''}
       </div>${v.media === 'document' ? fileNameRow() : ''}`;
