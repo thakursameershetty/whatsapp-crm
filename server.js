@@ -106,6 +106,22 @@ function normalizePhone(input) {
   return digits.length >= 8 && digits.length <= 15 ? digits : null;
 }
 
+// The name WhatsApp shows on a document header (otherwise it says "Untitled"): the one typed on the Send page,
+// else the name at the end of the link (uploads keep the original there), else "Document.pdf".
+function safeFileName(name, ext = 'pdf') {
+  let n = String(name || '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').replace(/\s+\./g, '.').trim().slice(0, 100);
+  if (!n) return '';
+  if (!new RegExp(`\\.${ext}$`, 'i').test(n)) n += '.' + ext;
+  return n;
+}
+function docFileName(values) {
+  const typed = safeFileName(values['header.filename']);
+  if (typed) return typed;
+  let last = '';
+  try { last = decodeURIComponent(new URL(values['header.media']).pathname.split('/').filter(Boolean).pop() || ''); } catch {}
+  return /^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(last) || !/\.[a-z0-9]{2,4}$/i.test(last) ? 'Document.pdf' : safeFileName(last, last.split('.').pop());
+}
+
 // Extract the variables ({{1}} or {{name}}) a template needs, as a flat list.
 function templateVariables(components = []) {
   const vars = [];
@@ -151,7 +167,7 @@ function buildComponents(template, values) {
     const media = header.find((v) => v.media);
     out.push({
       type: 'header',
-      parameters: media ? [{ type: media.media, [media.media]: { link: values[media.key] } }] : header.map(param),
+      parameters: media ? [{ type: media.media, [media.media]: { link: values[media.key], ...(media.media === 'document' ? { filename: docFileName(values) } : {}) } }] : header.map(param),
     });
   }
   const body = vars.filter((v) => v.where === 'body');
@@ -426,7 +442,8 @@ tenants.mountAuth(app, express);
 app.use(express.json({ limit: '20mb' }));
 // Images and files uploaded for template headers. Meta fetches them by link without signing in,
 // so they're public; the random names keep them unguessable.
-app.get('/u/:file', (req, res) => {
+// A document's link ends with its file name (/u/<file>/<name>), which WhatsApp shows instead of "Untitled".
+app.get(['/u/:file', '/u/:file/:name'], (req, res) => {
   if (!/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(req.params.file)) return res.status(404).end();
   res.set('Cache-Control', 'public, max-age=31536000, immutable');
   res.sendFile(path.join(UPLOAD_DIR, req.params.file), (err) => err && !res.headersSent && res.status(404).end());
@@ -1039,6 +1056,7 @@ function resolveRecipients(body, template) {
     }
     // "Same as another variable" (a button reusing the message's link) once the others are filled.
     for (const v of vars) if (mapping[v.key]?.type === 'same') values[v.key] = values[mapping[v.key].value] ?? '';
+    if (mapping['header.filename']?.value) values['header.filename'] = String(mapping['header.filename'].value).trim(); // a document's shown name
     const fromCol = nameCol ? [row[nameCol.col], nameCol.last && row[nameCol.last]].filter(Boolean).join(' ').trim() : '';
     recipients.push({ phone, values, name: String(fromCol || (greet && values[greet]) || '').trim().slice(0, 120) });
   }
@@ -1567,7 +1585,9 @@ app.post('/api/uploads', express.raw({ type: () => true, limit: '16mb' }), wrap(
   const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   fs.writeFileSync(path.join(UPLOAD_DIR, name), req.body);
-  res.json({ url: `${req.protocol}://${req.get('host')}/u/${name}` });
+  // The original file name rides along at the end of the link (see /u/:file/:name and docFileName).
+  const original = safeFileName(decodeURIComponent(String(req.get('x-file-name') || '')), ext);
+  res.json({ url: `${req.protocol}://${req.get('host')}/u/${name}${original ? '/' + encodeURIComponent(original) : ''}`, fileName: original });
 }));
 // Removing an upload from the Send page. A file a campaign or message already used is kept: scheduled
 // sends still need Meta to fetch it, and the Inbox shows sent messages from the same link.

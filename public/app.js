@@ -1431,7 +1431,11 @@ function bubbleHtml(t, values, neutral = false, meta = '') {
       const url = values['header.media'];
       const isImg = h.format === 'IMAGE' && /^(https?:\/\/|blob:)/.test(url || '');
       // A real image keeps its own shape, like on the phone; until there is one, a placeholder box.
-      html += isImg ? `<img class="media-img" src="${esc(url)}" alt="" loading="lazy" />` : `<div class="media">${esc(h.format.toLowerCase())}</div>`;
+      let docName = h.format === 'DOCUMENT' && url ? String(values['header.filename'] || '').trim() || decodeURIComponent(String(url).split('/').pop() || '') : '';
+      if (docName && !/\.[a-z0-9]{2,4}$/i.test(docName)) docName += '.pdf'; // the server adds it when sending, too
+      html += isImg ? `<img class="media-img" src="${esc(url)}" alt="" loading="lazy" />`
+        : docName && !/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(docName) ? `<div class="media media-doc">${icon('file-text', 22)}<span>${esc(docName)}</span></div>`
+        : `<div class="media">${esc(h.format.toLowerCase())}</div>`;
     }
   }
   html += `<div>${fill(comp(t, 'BODY')?.text || '', 'body', values, neutral)}</div>`;

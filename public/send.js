@@ -516,6 +516,7 @@
     const t = currentTemplate();
     const next = {};
     for (const v of t?.variables || []) next[v.key] = SP.mapping[v.key] || autoMap(v);
+    if (SP.mapping['header.filename'] && t?.variables.some((v) => v.media === 'document')) next['header.filename'] = SP.mapping['header.filename'];
     SP.mapping = next;
     renderMapping();
     renderPreview();
@@ -546,7 +547,7 @@
   $('#mapping').addEventListener('focusout', () => setTimeout(() => { if (!$('#mapping').contains(document.activeElement)) flashVar(null); }, 0));
 
   // The file name when a link is one of our uploads (…/u/<name>), so Remove can delete it.
-  const uploadedName = (url) => String(url || '').match(new RegExp(`^${location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/u/([0-9a-f]{32}\\.[a-z0-9]{2,4})$`))?.[1] || '';
+  const uploadedName = (url) => String(url || '').match(new RegExp(`^${location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/u/([0-9a-f]{32}\\.[a-z0-9]{2,4})(/[^/]*)?$`))?.[1] || '';
   // What the header upload button lets you pick, per header type.
   const UPLOAD_ACCEPT = { image: 'image/jpeg,image/png', video: 'video/mp4,video/3gpp', document: 'application/pdf' };
 
@@ -573,8 +574,17 @@
         </select>
         ${fixed ? `<input class="m-val" value="${esc(m.value)}" placeholder="${v.media ? 'https://…/image.jpg' : go ? 'https://… (any full link)' : 'Type the text'}" aria-label="Text for ${esc(varLabel(v))}" />` : ''}
         ${fixed && v.media ? `<div class="m-upload-row"><label class="btn sm m-upload" title="Upload a ${esc(v.media)} from this computer">${icon('upload', 14)}${uploadedName(m.value) ? 'Replace' : 'Upload'} ${esc(v.media)}<input type="file" hidden accept="${esc(UPLOAD_ACCEPT[v.media] || '')}" /></label>${m.value ? `<button type="button" class="btn sm quiet m-unupload" title="Take this ${esc(v.media)} out of the message">${icon('delete', 14)}Remove</button>` : ''}</div>` : ''}
-      </div>`;
+      </div>${v.media === 'document' ? fileNameRow() : ''}`;
     }).join('');
+  }
+  // The name WhatsApp shows on a PDF header (without one it says "Untitled"). Upload fills in the original name.
+  function fileNameRow() {
+    SP.mapping['header.filename'] ||= { type: 'fixed', value: '' };
+    return `<div class="sp-map" data-key="header.filename">
+      <div class="var-key">file name<small>header</small></div>
+      <input class="m-val" value="${esc(SP.mapping['header.filename'].value)}" placeholder="e.g. Brochure.pdf" maxlength="100" aria-label="File name customers see" />
+      <small class="m-hint">What customers see on the PDF. Leave empty to use the uploaded file's name.</small>
+    </div>`;
   }
   // Header image/video/document from the computer: the server keeps it and gives back a public link,
   // which goes in the field like a pasted one.
@@ -585,10 +595,11 @@
     if (!file || !row) return;
     btn.classList.add('busy');
     try {
-      const res = await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+      const res = await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) }, body: file });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || (res.status === 413 ? 'That file is too big for WhatsApp' : `Upload failed (${res.status})`));
       SP.mapping[row.dataset.key] = { type: 'fixed', value: json.url };
+      if (json.fileName && row.dataset.key === 'header.media' && file.type === 'application/pdf') SP.mapping['header.filename'] = { type: 'fixed', value: json.fileName };
       renderMapping();
       renderPreview();
       renderSummary();
@@ -602,6 +613,7 @@
     if (!b) return;
     const key = b.closest('.sp-map').dataset.key, file = uploadedName(SP.mapping[key]?.value);
     SP.mapping[key] = { type: 'fixed', value: '' };
+    if (key === 'header.media' && SP.mapping['header.filename']) SP.mapping['header.filename'].value = '';
     renderMapping();
     renderPreview();
     renderSummary();
@@ -630,6 +642,7 @@
       out[v.key] = m.type === 'column' ? obj?.[m.value] ?? '' : m.type === 'same' ? '' : m.value || '';
     }
     for (const v of currentTemplate()?.variables || []) if (SP.mapping[v.key]?.type === 'same') out[v.key] = out[SP.mapping[v.key].value] ?? '';
+    if (SP.mapping['header.filename']?.value) out['header.filename'] = SP.mapping['header.filename'].value;
     return out;
   };
 
