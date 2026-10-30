@@ -4070,3 +4070,7 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .te-mode small b { color: var(--text); font-weight: 600; }
 .te-req { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 99px; background: var(--warn-soft); color: var(--warn); font-size: 11px; font-weight: 600; vertical-align: 1px; }
 .te-name input::placeholder { color: var(--faint, #a3acb4); font-style: italic; }
+/* "Show the rows": a small pill under the note that jumps to rows with no value. */
+.sp-map .m-show { display: flex; width: max-content; align-items: center; gap: 5px; margin-top: 6px; height: 24px; padding: 0 10px; border: 0; border-radius: 99px; background: var(--info-soft); color: var(--info); font: 600 11.5px/1 Inter, sans-serif; cursor: pointer; font-variant-numeric: tabular-nums; transition: background 0.15s; }
+.sp-map .m-show:hover { background: color-mix(in srgb, var(--info) 22%, transparent); }
+.sp-map .m-show svg { flex: none; }

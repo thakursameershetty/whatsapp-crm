@@ -614,20 +614,34 @@
   }
   // Rows about to be sent whose cell in `col` is empty or a placeholder ("Not Captured", "N/A"…).
   function blankRows(col) {
-    let n = 0;
+    const out = [];
     for (const sh of SP.sheets) {
       if (!sh.included) continue;
       const i = sh.headers.indexOf(col);
       if (i < 0) continue;
-      for (const row of sh.rows) if (row.st === 'valid' && row.on && !cleanCell(row.cells[i])) n++;
+      for (const row of sh.rows) if (row.st === 'valid' && row.on && !cleanCell(row.cells[i])) out.push({ sh, row, c: i });
     }
-    return n;
+    return out;
   }
+  // "Show": jump to the next row with no value in that column and select the cell (each click goes to the next one).
+  const blankAt = {};
+  $('#mapping').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-show-blank]');
+    if (!b) return;
+    const col = b.dataset.showBlank, list = blankRows(col);
+    if (!list.length) return renderMapping();
+    const k = (blankAt[col] = ((blankAt[col] ?? -1) + 1) % list.length);
+    const { sh, row, c } = list[k];
+    if (current() !== sh) activate(SP.sheets.indexOf(sh));
+    if (!sh.view.includes(row)) { sh.show = 'all'; grid.refilter(); renderChrome(); }
+    grid.select(sh.view.indexOf(row), c);
+    b.querySelector('span').textContent = list.length > 1 ? `Next · ${k + 1} of ${list.length}` : 'Showing it';
+  });
   // What a column variable says when the cell has nothing usable, e.g. "your organisation" for a company.
   function fallbackHtml(v, m) {
-    const n = blankRows(m.value);
+    const n = blankRows(m.value).length;
     return `<input class="m-fb" value="${esc(m.fallback || '')}" placeholder="If empty or “Not Captured”, use…" aria-label="Fallback for ${esc(varLabel(v))}" />
-      <small class="m-hint">${n ? `${n.toLocaleString()} row${n > 1 ? 's have' : ' has'} no value here (empty, “Not Captured”, “N/A”…). ${m.fallback ? 'They get the text above.' : 'Without text above, they’re left out.'}` : 'Every row has a value here.'}</small>`;
+      <small class="m-hint">${n ? `${n.toLocaleString()} row${n > 1 ? 's have' : ' has'} no value here (empty, “Not Captured”, “N/A”…). <span class="m-fb-what">${m.fallback ? 'They get the text above.' : 'Without text above, they’re left out.'}</span> <button type="button" class="m-show" data-show-blank="${esc(m.value)}">${icon('eye', 13)}<span>${n > 1 ? `Show the ${n.toLocaleString()} rows` : 'Show the row'}</span></button>` : 'Every row has a value here.'}</small>`;
   }
   // The name WhatsApp shows on a PDF header (without one it says "Untitled"). Upload fills in the original name.
   function fileNameRow() {
@@ -679,7 +693,8 @@
     if (e.target.classList.contains('m-fb')) {
       SP.mapping[key].fallback = e.target.value;
       const hint = e.target.nextElementSibling;
-      if (hint?.classList.contains('m-hint')) hint.textContent = hint.textContent.replace(/(They get the text above\.|Without text above, they’re left out\.)$/, e.target.value.trim() ? 'They get the text above.' : 'Without text above, they’re left out.');
+      const what = hint?.querySelector('.m-fb-what');
+      if (what) what.textContent = e.target.value.trim() ? 'They get the text above.' : 'Without text above, they’re left out.';
     } else if (e.target.classList.contains('m-src')) {
       const v = e.target.value;
       SP.mapping[key] = v === 'fixed' ? { type: 'fixed', value: '' } : v.startsWith('s:') ? { type: 'same', value: v.slice(2) } : { type: 'column', value: v.slice(2) };
