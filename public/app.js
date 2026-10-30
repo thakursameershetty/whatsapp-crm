@@ -994,13 +994,13 @@ function tplEditBlock(t) {
 function templateEditor(t = null) {
   const live = !state.settings.demoMode;
   const spec = tplSpec(t);
-  let linkDomain = state.settings.linkDomain || location.origin; // kept here so redrawing the buttons doesn't reset it
+  let linkDomain = state.settings.linkDomain || ''; // kept here so redrawing the buttons doesn't reset it
   const accounts = [...new Map(state.senders.filter((x) => x.wabaId && x.hasToken).map((x) => [x.wabaId, x])).values()];
   const body = openModal(t ? `Edit ${t.name}` : 'New template', `
     <form id="teForm" class="te" novalidate>
       <div class="te-form">
         <div class="te-row">
-          <label class="te-name">Name<input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="webinar_invite" maxlength="60" autocomplete="off">${t ? '' : '<span class="te-hint">Lowercase letters, numbers and underscores</span>'}</label>
+          <label class="te-name">Name<input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="order_update" maxlength="60" autocomplete="off">${t ? '' : '<span class="te-hint">Lowercase letters, numbers and underscores</span>'}</label>
           <label>Language<select name="language" ${t ? 'disabled' : ''}>${TPL_LANGS.map(([v, l]) => `<option value="${v}" ${v === spec.language ? 'selected' : ''}>${l}</option>`).join('')}${TPL_LANGS.some(([v]) => v === spec.language) ? '' : `<option value="${esc(spec.language)}" selected>${esc(spec.language)}</option>`}</select></label>
         </div>
         <div class="te-row">
@@ -1020,7 +1020,7 @@ function templateEditor(t = null) {
             <button type="button" data-wrap="*" title="Bold"><b>B</b></button><button type="button" data-wrap="_" title="Italic"><i>I</i></button><button type="button" data-wrap="~" title="Strikethrough"><s>S</s></button><button type="button" data-wrap="\`\`\`" title="Monospace"><code>&lt;/&gt;</code></button>
             <button type="button" class="te-addvar" data-addvar title="Add a variable: a value filled in for each person when sending">${icon('plus', 13)}Variable</button>
           </div>
-          <textarea name="bodyText" rows="8" maxlength="1024" placeholder="Hi {{1}}, our webinar on sports biomechanics is on Saturday at 7 PM. Register here: {{2}}">${esc(spec.body.text)}</textarea>
+          <textarea name="bodyText" rows="8" maxlength="1024" placeholder="Hi {{1}}, your order {{2}} is on its way. Track it here: {{3}}">${esc(spec.body.text)}</textarea>
           <div id="teSamples" class="te-samples"></div>
         </section>
 
@@ -1057,7 +1057,7 @@ function templateEditor(t = null) {
   const renderHeader = () => {
     const h = spec.header, box = $('#teHeaderBox', body);
     if (h.format === 'TEXT') {
-      box.innerHTML = `<input name="headerText" maxlength="60" value="${esc(h.text)}" placeholder="SWOT Sportech webinar" autocomplete="off">
+      box.innerHTML = `<input name="headerText" maxlength="60" value="${esc(h.text)}" placeholder="Your order is on its way" autocomplete="off">
         ${tplVarNums(h.text).length ? `<label class="te-sample">Sample for {{1}}<input name="headerSample" value="${esc(h.sample)}" placeholder="What {{1}} could be"></label>` : ''}`;
     } else if (MEDIA_ACCEPT[h.format]) {
       const kind = h.format === 'DOCUMENT' ? 'PDF' : h.format.toLowerCase();
@@ -1091,11 +1091,11 @@ function templateEditor(t = null) {
       <span class="te-btn-kind">${icon(b.type === 'URL' ? 'external-link' : b.type === 'PHONE_NUMBER' ? 'phone' : 'reply', 14)}${b.type === 'URL' ? 'Website' : b.type === 'PHONE_NUMBER' ? 'Call' : 'Quick reply'}</span>
       <input data-bf="text" maxlength="25" value="${esc(b.text)}" placeholder="${b.type === 'URL' ? 'Register Now' : b.type === 'PHONE_NUMBER' ? 'Call us' : 'Interested'}" aria-label="Button text">
       ${b.type === 'URL' ? `<select data-bf="mode" aria-label="Which link"><option value="go" ${b.mode === 'go' ? 'selected' : ''}>Any link, chosen when sending</option><option value="fixed" ${b.mode === 'fixed' ? 'selected' : ''}>The same link every time</option></select>
-        ${b.mode === 'fixed' ? `<input data-bf="url" class="te-wide" value="${esc(b.url)}" placeholder="https://swotsportech.in/register">` : ''}` : ''}
+        ${b.mode === 'fixed' ? `<input data-bf="url" class="te-wide" value="${esc(b.url)}" placeholder="https://example.com/page">` : ''}` : ''}
       ${b.type === 'PHONE_NUMBER' ? `<input data-bf="phone" value="${esc(b.phone)}" placeholder="+91 98765 43210" inputmode="tel">` : ''}
       <button type="button" class="icon-btn te-btn-x" data-rmbtn="${i}" aria-label="Remove button">${icon('x', 14)}</button>
     </div>`).join('');
-    box.insertAdjacentHTML('beforeend', anyGo ? `<label class="te-domain"><span>Short link domain <span class="opt">customers see it when they tap the website button</span></span><input name="linkDomain" value="${esc(linkDomain)}" placeholder="https://link.yourcompany.com"></label>` : '');
+    box.insertAdjacentHTML('beforeend', anyGo ? `<label class="te-domain"><span>Short link domain <span class="opt">your own domain, connected to this app. Customers see it when they tap.</span></span><input name="linkDomain" value="${esc(linkDomain)}" placeholder="https://link.yourcompany.com" inputmode="url"></label>` : '');
     $('.te-addbtns', body).classList.toggle('hidden', spec.buttons.length >= 10);
   };
 

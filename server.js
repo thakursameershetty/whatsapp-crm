@@ -897,12 +897,21 @@ function templateSender(spec, t) {
   if (!s) throw fail(t ? "No number with a token is connected to this template's Business Account" : 'Add a sender number with its WhatsApp Business Account ID first (Numbers page)');
   return s;
 }
-// Short links for "any link" buttons use the workspace's own domain when set (Settings), else this app's address.
-function linkBaseFor(req) {
+// Short links for "any link" buttons run on the company's own domain (customers see it when they tap), which must
+// already point at this app: a test link is opened on it and must get this app's answer (see /go/:code).
+// Only needed when the template has such a button.
+async function linkBaseFor(req, spec) {
+  if (!(spec.buttons || []).some((b) => b.type === 'URL' && b.mode === 'go')) return '';
   const d = String(req.body.linkDomain || db.settings.linkDomain || '').trim().replace(/\/+$/, '');
-  if (d && !/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) throw fail('The short link domain should look like https://link.yourcompany.com');
-  if (d && d !== db.settings.linkDomain) db.settings.linkDomain = d; // remembered for next time
-  return d || `${req.protocol}://${req.get('host')}`;
+  if (!d) throw fail('Enter your short link domain, e.g. https://link.yourcompany.com. It has to be connected to this app first.');
+  if (!/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) throw fail('The short link domain should look like https://link.yourcompany.com');
+  if (!db.settings.demoMode) {
+    const r = await fetch(`${d}/go/zzzzzzz`, { redirect: 'manual', signal: AbortSignal.timeout(8000) }).catch(() => null);
+    const text = r ? await r.text().catch(() => '') : '';
+    if (!r || r.status !== 404 || !text.includes('This link has expired or never existed.')) throw fail(`${d.replace(/^https:\/\//, '')} isn't connected to this app yet, so the button wouldn't open anything. Point it at this app (a DNS record) and try again once it's live.`);
+  }
+  if (d !== db.settings.linkDomain) db.settings.linkDomain = d; // remembered for next time
+  return d;
 }
 async function headerHandle(s, spec, t) {
   const f = spec.header?.file;
@@ -924,7 +933,7 @@ const TEMPLATE_CATEGORIES = ['MARKETING', 'UTILITY'];
 app.post('/api/templates/meta', wrap(async (req, res) => {
   const spec = req.body;
   const name = String(spec.name || '').trim();
-  if (!/^[a-z0-9_]{1,512}$/.test(name)) throw fail('Name the template with lowercase letters, numbers and underscores, e.g. webinar_invite');
+  if (!/^[a-z0-9_]{1,512}$/.test(name)) throw fail('Name the template with lowercase letters, numbers and underscores, e.g. order_update');
   const language = String(spec.language || '').trim();
   if (!/^[a-z]{2,3}(_[A-Z]{2})?$/.test(language)) throw fail('Pick the language');
   const category = String(spec.category || '').toUpperCase();
@@ -932,7 +941,7 @@ app.post('/api/templates/meta', wrap(async (req, res) => {
   const now = new Date().toISOString();
   if (db.settings.demoMode) {
     // Demo: nothing goes to Meta; the template is kept here as if approved, for practice sends.
-    const components = templateComponents(spec, { handle: 'demo', linkBase: linkBaseFor(req) });
+    const components = templateComponents(spec, { handle: 'demo', linkBase: await linkBaseFor(req, spec) });
     if (db.templates.some((x) => x.name === name && x.language === language)) throw fail('A template with this name and language already exists');
     const t = { id: id(), name, language, category, status: 'MANUAL', source: 'manual', parameterFormat: 'POSITIONAL', components, updatedAt: now };
     db.templates.push(t);
@@ -941,7 +950,7 @@ app.post('/api/templates/meta', wrap(async (req, res) => {
   }
   const s = templateSender(spec);
   if (db.templates.some((x) => x.wabaId === s.wabaId && x.name === name && x.language === language)) throw fail('A template with this name and language already exists. Pick another name, or edit that one.');
-  const components = templateComponents(spec, { handle: await headerHandle(s, spec), linkBase: linkBaseFor(req) });
+  const components = templateComponents(spec, { handle: await headerHandle(s, spec), linkBase: await linkBaseFor(req, spec) });
   const r = await graph(s, `${encodeURIComponent(s.wabaId)}/message_templates`, { method: 'POST', body: JSON.stringify({ name, language, category, components }) });
   const t = { id: id(), name, language, category: r.category || category, status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, submittedAt: now, updatedAt: now };
   db.templates.push(t);
@@ -959,13 +968,13 @@ app.put('/api/templates/:id/meta', wrap(async (req, res) => {
   const category = String(spec.category || t.category || '').toUpperCase();
   if (t.source !== 'synced' || !t.metaId) {
     // A demo template: just change it here.
-    Object.assign(t, { category, components: templateComponents(spec, { handle: 'demo', linkBase: linkBaseFor(req) }), updatedAt: new Date().toISOString() });
+    Object.assign(t, { category, components: templateComponents(spec, { handle: 'demo', linkBase: await linkBaseFor(req, spec) }), updatedAt: new Date().toISOString() });
     save();
     return res.json(publicTemplate(t));
   }
   if (!EDITABLE.includes(String(t.status).toUpperCase())) throw fail(`Meta doesn't allow editing a template while it's ${String(t.status).toLowerCase().replace(/_/g, ' ')}. Try again once it's approved or rejected.`);
   const s = templateSender(spec, t);
-  const components = templateComponents(spec, { handle: await headerHandle(s, spec, t), linkBase: linkBaseFor(req) });
+  const components = templateComponents(spec, { handle: await headerHandle(s, spec, t), linkBase: await linkBaseFor(req, spec) });
   await graph(s, encodeURIComponent(t.metaId), { method: 'POST', body: JSON.stringify({ components, ...(category !== t.category ? { category } : {}) }) });
   const now = new Date().toISOString();
   Object.assign(t, { components, category, status: 'PENDING', rejectedReason: '', editedAt: now, updatedAt: now });
