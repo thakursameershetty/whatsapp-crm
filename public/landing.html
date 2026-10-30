@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WhatsApp Sender · Campaigns and replies on the official WhatsApp API</title>
+<meta name="description" content="Send WhatsApp campaigns from a spreadsheet, track delivered and read, and answer every reply in one inbox, with AI help. Built on the official WhatsApp Business API.">
+<link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+/* Layout: one centred column (1200px) of sections on a faint grid, a floating pill nav, and a product mock built in HTML. */
+:root {
+  --bg: #f4f5f6; --bg-2: #eceef0; --surface: #ffffff; --raised: #fbfbfc;
+  --ink: #111417; --ink-2: #3a4148; --muted: #6b737b; --faint: #9aa1a8;
+  --line: #e3e6e9; --line-2: #d6dadd; --grid: rgba(17, 20, 23, 0.035);
+  --wa: #25d366; --wa-ink: #0f7a3d; --wa-soft: #dcf8e6; --chat: #efe7dc; --bubble-out: #d9fdd3;
+  --blue: #2f6fe4; --amber: #b7791f;
+  --shadow: 0 1px 2px rgba(17, 20, 23, 0.05), 0 12px 40px -12px rgba(17, 20, 23, 0.18);
+  --display: "General Sans", system-ui, -apple-system, sans-serif;
+  --body: "General Sans", system-ui, -apple-system, sans-serif;
+  --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d0f11; --bg-2: #14171a; --surface: #16191c; --raised: #1b1f23;
+    --ink: #f1f3f5; --ink-2: #c7cdd3; --muted: #8d959d; --faint: #626a72;
+    --line: #23282d; --line-2: #2d3339; --grid: rgba(255, 255, 255, 0.03);
+    --wa-ink: #4ade80; --wa-soft: #12301f; --chat: #1d2125; --bubble-out: #144d37;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 18px 50px -14px rgba(0, 0, 0, 0.7);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 96px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
+
+a { color: inherit; text-decoration: none; }
+img, svg { max-width: 100%; }
+.wrap { position: relative; z-index: 1; width: 100%; max-width: 1200px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+.mono { font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; margin: 0; }
+p { margin: 0; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 8px; }
+
+/* ---- Floating nav ---- */
+.nav-shell { position: fixed; z-index: 50; top: calc(14px + env(safe-area-inset-top)); left: 0; right: 0; display: flex; justify-content: center; padding: 0 max(14px, env(safe-area-inset-left)); pointer-events: none; }
+.nav { pointer-events: auto; width: 100%; max-width: 1080px; display: flex; align-items: center; gap: 8px; height: 56px; padding: 0 8px 0 16px; border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent); border: 1px solid color-mix(in srgb, var(--line-2) 70%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4); box-shadow: 0 1px 2px rgba(17,20,23,.04); transition: box-shadow .25s, background .25s, max-width .35s cubic-bezier(.2,.8,.2,1); }
+.nav.scrolled { box-shadow: var(--shadow); background: color-mix(in srgb, var(--surface) 86%, transparent); max-width: 980px; }
+.nav.on-dark, .nav.on-dark.scrolled { background: rgba(20,22,25,.6); box-shadow: none; border-color: rgba(255,255,255,.1); color: #f2f4f5; }
+.nav.on-dark .nav-links a, .nav.on-dark .btn.ghost { color: #c9cfd4; }
+.nav.on-dark .nav-links a:hover, .nav.on-dark .btn.ghost:hover { background: rgba(255,255,255,.08); color: #fff; }
+.nav.on-dark .btn.dark { background: #f2f4f5; color: #0b0d0f; }
+.nav.on-dark .menu-btn { color: #f2f4f5; }
+.brand { display: flex; align-items: center; gap: 9px; font: 600 15px var(--display); letter-spacing: -0.01em; white-space: nowrap; }
+.brand img { width: 28px; height: 28px; border-radius: 8px; }
+.nav-links { display: flex; gap: 2px; margin: 0 auto; }
+.nav-links a { padding: 8px 14px; border-radius: 999px; font-size: 14px; color: var(--ink-2); transition: background .15s, color .15s; }
+.nav-links a:hover { background: var(--bg-2); color: var(--ink); }
+.nav-cta { display: flex; gap: 6px; align-items: center; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 18px; border-radius: 999px; font: 600 14px var(--body); border: 1px solid transparent; cursor: pointer; transition: transform .15s, box-shadow .15s, background .15s; white-space: nowrap; }
+.btn.dark { background: var(--ink); color: var(--bg); box-shadow: 0 1px 0 rgba(255,255,255,.15) inset, 0 6px 16px -6px rgba(17,20,23,.5); }
+.btn.dark:hover { transform: translateY(-1px); }
+.btn.ghost { color: var(--ink-2); }
+.btn.ghost:hover { background: var(--bg-2); }
+.btn.line { border-color: var(--line-2); background: var(--surface); color: var(--ink); }
+.btn.line:hover { border-color: var(--faint); }
+.btn.lg { height: 48px; padding: 0 24px; font-size: 15px; }
+.menu-btn { display: none; width: 40px; height: 40px; border: 0; border-radius: 50%; background: none; color: var(--ink); cursor: pointer; }
+.mobile-menu { display: none; }
+@media (max-width: 860px) {
+  .nav-links, .nav-cta .ghost { display: none; }
+  .menu-btn { display: grid; place-items: center; }
+  .nav { padding-right: 6px; height: 52px; }
+  .nav .btn.dark { height: 36px; padding: 0 14px; font-size: 13px; }
+  .brand { font-size: 14px; }
+  .hero { padding-top: 132px; }
+  .mobile-menu { pointer-events: auto; position: absolute; top: 64px; left: 14px; right: 14px; display: grid; gap: 2px; padding: 8px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); opacity: 0; transform: translateY(-6px) scale(.98); visibility: hidden; transition: opacity .18s, transform .18s, visibility .18s; }
+  .mobile-menu.open { opacity: 1; transform: none; visibility: visible; }
+  .mobile-menu a { padding: 12px 14px; border-radius: 12px; font-size: 15px; }
+  .mobile-menu a:hover { background: var(--bg-2); }
+}
+
+/* ---- Hero ---- */
+/* Hero: a dark band, the headline left and a slowly turning block of tiles right, under a soft light sweep. */
+.hero { position: relative; z-index: 1; overflow: hidden; background: #050607; color: #f2f4f5; padding: 150px 0 170px; isolation: isolate; border-radius: 0 0 36px 36px; }
+.hero-glow { position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(60% 50% at 72% 45%, rgba(255,255,255,.07), transparent 70%), radial-gradient(40% 30% at 70% 60%, rgba(37,211,102,.10), transparent 70%),
+    linear-gradient(170deg, transparent 58%, rgba(255,255,255,.05) 64%, transparent 72%); }
+.hero-grid { display: grid; grid-template-columns: 1.25fr 1fr; align-items: center; gap: 40px; min-height: 520px; }
+.hero-copy { min-width: 0; }
+.badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 7px; border-radius: 999px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.14); font-size: 13px; color: #c9cfd4; transition: border-color .2s, background .2s; }
+.badge:hover { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.07); }
+.badge i { width: 19px; height: 19px; border-radius: 50%; background: var(--wa); display: grid; place-items: center; }
+.hero h1 { margin-top: 28px; font-family: var(--serif); font-weight: 400; font-size: clamp(44px, 6.4vw, 86px); line-height: 1; letter-spacing: -0.02em;
+  background: linear-gradient(180deg, #ffffff 30%, #9aa1a8 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero h1 em { font-style: italic; }
+.hero h1 span { display: block; white-space: nowrap; }
+.hero .lead { margin-top: 24px; max-width: 470px; font-size: 17px; line-height: 1.55; color: #9ea6ad; }
+.hero-cta { margin-top: 36px; display: flex; gap: 6px; flex-wrap: wrap; }
+.btn.glow { background: rgba(255,255,255,.06); color: #fff; border-color: rgba(255,255,255,.18); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 0 0 1px rgba(0,0,0,.4); }
+.btn.glow:hover { background: rgba(255,255,255,.11); border-color: rgba(255,255,255,.3); }
+.btn.text { color: #c9cfd4; }
+.btn.text:hover { color: #fff; }
+.after-hero { position: relative; z-index: 2; margin-top: -110px; }
+.after-hero .stage { margin-top: 0; }
+/* The tiles: a 3×3 block of glossy dark tiles in perspective, a few lifted, one WhatsApp green. */
+.cube-wrap { position: relative; height: 460px; perspective: 1400px; display: grid; place-items: center; }
+.cube { --t: 92px; display: grid; grid-template-columns: repeat(3, var(--t)); gap: 10px; transform: rotateX(56deg) rotateZ(-38deg); transform-style: preserve-3d; }
+.cube i { position: relative; width: var(--t); height: var(--t); border-radius: 18px; transform-style: preserve-3d; display: grid; place-items: center; color: rgba(255,255,255,.55);
+  background: linear-gradient(145deg, #2a2e33, #0b0d0f 70%); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 -10px 20px rgba(0,0,0,.5), 0 1px 0 #1b1e21, 0 2px 0 #16191c, 0 3px 0 #131518, 0 4px 0 #101214, 0 5px 0 #0d0f11, 0 6px 0 #0b0c0e, 0 7px 0 #090a0b, 0 8px 0 #070809, 0 22px 30px rgba(0,0,0,.7); }
+.cube i::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(115deg, rgba(255,255,255,.14), transparent 40%); pointer-events: none; }
+.cube i svg { width: 40%; height: 40%; transform: rotateZ(38deg); }
+.cube .wa { background: linear-gradient(145deg, #34e07a, #0f8f45 75%); color: #04210f; box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 1px 0 #0d7a3b, 0 2px 0 #0b6c34, 0 3px 0 #0a5f2e, 0 4px 0 #085228, 0 5px 0 #074622, 0 6px 0 #063b1d, 0 7px 0 #053018, 0 8px 0 #042613, 0 24px 40px rgba(37,211,102,.35); }
+.cube .msg { color: rgba(255,255,255,.7); }
+.cube .dots { background-image: radial-gradient(rgba(255,255,255,.18) 1.2px, transparent 1.4px), linear-gradient(145deg, #23272b, #0b0d0f 70%); background-size: 7px 7px, auto; }
+@media (prefers-reduced-motion: no-preference) {
+  .cube { animation: turn 22s ease-in-out infinite; }
+  .cube .up { animation: lift 5s ease-in-out infinite; }
+  .cube .up2 { animation: lift 6s ease-in-out -2s infinite; }
+  .cube .wa { animation: lift 7s ease-in-out -1s infinite; }
+  @keyframes turn { 0%, 100% { transform: rotateX(56deg) rotateZ(-38deg); } 50% { transform: rotateX(52deg) rotateZ(-30deg); } }
+  @keyframes lift { 0%, 100% { transform: translateZ(0); } 50% { transform: translateZ(26px); } }
+}
+@media (max-width: 900px) {
+  .hero { padding: 130px 0 130px; }
+  .hero-grid { grid-template-columns: 1fr; min-height: 0; gap: 10px; }
+  .cube-wrap { height: 300px; order: -1; }
+  .cube { --t: 62px; gap: 7px; }
+  .after-hero { margin-top: -80px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rise { animation: rise .8s cubic-bezier(.2,.8,.2,1) both; }
+  .rise.d1 { animation-delay: .06s; } .rise.d2 { animation-delay: .12s; } .rise.d3 { animation-delay: .2s; } .rise.d4 { animation-delay: .3s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+}
+
+/* ---- Product mock ---- */
+.stage { position: relative; margin: 64px auto 0; max-width: 1080px; }
+.stage::before { content: ""; position: absolute; inset: 8% 6% -6%; z-index: -1; border-radius: 40px; background: radial-gradient(60% 60% at 50% 40%, color-mix(in srgb, var(--wa) 22%, transparent), transparent 70%); filter: blur(40px); }
+.window { border-radius: 20px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; text-align: left; }
+.win-bar { display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--raised); }
+.win-bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--line-2); }
+.win-bar span { margin-left: 12px; font-size: 12.5px; color: var(--muted); }
+.win-body { display: grid; grid-template-columns: 1.45fr 1fr; min-height: 420px; }
+.sheet { border-right: 1px solid var(--line); min-width: 0; }
+.sheet-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.sheet-head b { font: 600 15px var(--display); }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 500; background: var(--bg-2); color: var(--ink-2); white-space: nowrap; }
+.chip.ok { background: var(--wa-soft); color: var(--wa-ink); }
+.chip.warn { background: color-mix(in srgb, var(--amber) 15%, transparent); color: var(--amber); }
+.chip.info { background: color-mix(in srgb, var(--blue) 12%, transparent); color: var(--blue); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 9px 18px; border-bottom: 1px solid var(--line); background: var(--raised); }
+td { padding: 9px 18px; border-bottom: 1px solid var(--line); white-space: nowrap; color: var(--ink-2); }
+td.n { font-variant-numeric: tabular-nums; }
+tr.miss td:nth-child(2) { color: var(--faint); font-style: italic; }
+.preview { background: var(--chat); padding: 22px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.preview .mono { font-size: 11px; }
+.bubble { background: var(--surface); border-radius: 4px 14px 14px 14px; padding: 6px 6px 8px; font-size: 13.5px; line-height: 1.5; box-shadow: 0 1px 1px rgba(0,0,0,.06); max-width: 320px; }
+.bubble .doc { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 10px; background: var(--bg-2); font-weight: 600; font-size: 13px; }
+.bubble .doc svg { color: #e5484d; flex: none; }
+.bubble p { padding: 8px 8px 0; color: var(--ink); }
+.bubble .var { background: var(--wa-soft); color: var(--wa-ink); border-radius: 4px; padding: 0 3px; }
+.bubble .meta { display: flex; justify-content: flex-end; gap: 4px; font-size: 11px; color: var(--muted); padding: 2px 8px 0; }
+.bubble .btn-row { margin: 8px -6px -8px; border-top: 1px solid var(--line); text-align: center; padding: 10px; color: var(--blue); font-weight: 600; font-size: 13.5px; display: flex; justify-content: center; gap: 6px; align-items: center; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); }
+.stats div { padding: 16px 18px; border-right: 1px solid var(--line); }
+.stats div:last-child { border-right: 0; }
+.stats b { display: block; font: 600 19px var(--display); font-variant-numeric: tabular-nums; }
+.stats span { font-size: 12px; color: var(--muted); }
+.float { position: absolute; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 13px; }
+.float b { display: block; font-size: 13px; }
+.float small { color: var(--muted); font-size: 12px; }
+.float .dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.f1 { left: -28px; bottom: 120px; } .f2 { right: -28px; top: -26px; }
+@media (prefers-reduced-motion: no-preference) { .float { animation: bob 6s ease-in-out infinite; } .f2 { animation-delay: -3s; } @keyframes bob { 50% { transform: translateY(-6px); } } }
+@media (max-width: 900px) { .win-body { grid-template-columns: 1fr; } .sheet { border-right: 0; border-bottom: 1px solid var(--line); } .float { display: none; } .stats { grid-template-columns: repeat(2, 1fr); } .stats div:nth-child(2) { border-right: 0; } .stats div:nth-child(-n+2) { border-bottom: 1px solid var(--line); } }
+.sheet-scroll { overflow-x: auto; }
+
+/* ---- Sections ---- */
+section { padding: 104px 0 0; }
+.sec-head { max-width: 680px; }
+.sec-head.center { margin: 0 auto; text-align: center; }
+.sec-head h2 { margin-top: 12px; font-size: clamp(26px, 3.4vw, 38px); line-height: 1.12; font-weight: 600; }
+.sec-head p { margin-top: 14px; font-size: 16px; color: var(--ink-2); }
+
+/* Steps: a real sequence, so it's numbered. */
+.steps { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: s; }
+.step { position: relative; padding: 26px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); counter-increment: s; }
+.step::before { content: "0" counter(s); font: 500 12px var(--mono); color: var(--muted); }
+.step h3 { margin-top: 16px; font-size: 17px; }
+.step p { margin-top: 6px; color: var(--ink-2); font-size: 14.5px; }
+.step .art { margin-top: 22px; height: 120px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); display: grid; place-items: center; padding: 14px; overflow: hidden; }
+@media (max-width: 860px) { .steps { grid-template-columns: 1fr; } }
+
+/* Bento grid of features */
+.bento { margin-top: 56px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
+.card { position: relative; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); padding: 28px; overflow: hidden; min-width: 0; }
+.card h3 { font-size: 17px; }
+.card p { margin-top: 6px; color: var(--ink-2); font-size: 14.5px; max-width: 46ch; }
+.card .tag { display: inline-flex; margin-bottom: 18px; }
+.c-4 { grid-column: span 4; } .c-2 { grid-column: span 2; } .c-3 { grid-column: span 3; }
+@media (max-width: 960px) { .c-4, .c-2, .c-3 { grid-column: span 6; } }
+.vis { margin-top: 24px; }
+.cell-demo { display: grid; gap: 8px; font-size: 13px; }
+.cell-demo .row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); min-width: 0; }
+.cell-demo .row span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-family: var(--mono); font-size: 12px; }
+.mini-chat { display: grid; gap: 8px; padding: 16px; border-radius: 16px; background: var(--chat); font-size: 13px; }
+.mini-chat .in, .mini-chat .out { max-width: 82%; padding: 8px 12px; border-radius: 14px; box-shadow: 0 1px 1px rgba(0,0,0,.05); }
+.mini-chat .in { background: var(--surface); justify-self: start; border-top-left-radius: 4px; }
+.mini-chat .out { background: var(--bubble-out); justify-self: end; border-top-right-radius: 4px; }
+.mini-chat .ai { display: block; font-size: 11px; color: var(--wa-ink); font-weight: 600; margin-bottom: 2px; }
+.bars { display: flex; align-items: flex-end; gap: 8px; height: 110px; }
+.bars i { flex: 1; border-radius: 6px 6px 2px 2px; background: linear-gradient(to top, color-mix(in srgb, var(--wa) 75%, transparent), color-mix(in srgb, var(--wa) 30%, transparent)); }
+.funnel { display: grid; gap: 8px; }
+.funnel div { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); }
+.funnel i { display: block; height: 10px; border-radius: 99px; background: var(--wa); }
+.pill-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.link-demo { display: grid; gap: 10px; font-size: 13px; }
+.link-demo .from { padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-demo .arrow { justify-self: center; color: var(--faint); }
+
+/* Inbox showcase */
+.split { margin-top: 56px; display: grid; grid-template-columns: 1fr 1.1fr; gap: 40px; align-items: center; }
+.ticks { margin-top: 26px; display: grid; gap: 14px; padding: 0; list-style: none; }
+.ticks li { display: flex; gap: 12px; color: var(--ink-2); }
+.ticks li svg { flex: none; margin-top: 3px; color: var(--wa-ink); }
+.ticks b { color: var(--ink); font-weight: 600; }
+@media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+.inbox { display: grid; grid-template-columns: 200px 1fr; min-height: 380px; }
+.inbox .list { border-right: 1px solid var(--line); }
+.inbox .conv { display: flex; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.inbox .conv.on { background: var(--bg-2); }
+.inbox .av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; flex: none; }
+.inbox .conv b { display: block; font-size: 13px; }
+.inbox .conv span { color: var(--muted); font-size: 12px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+.inbox .thread { background: var(--chat); padding: 18px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.lead-bar { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--blue) 10%, var(--surface)); color: var(--ink-2); font-size: 12px; }
+.lead-bar b { color: var(--blue); }
+@media (max-width: 560px) { .inbox { grid-template-columns: 1fr; } .inbox .list { display: none; } }
+
+/* Trust strip */
+.trust { margin-top: 56px; display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 22px; background: var(--surface); overflow: hidden; }
+.trust div { padding: 24px; border-right: 1px solid var(--line); }
+.trust div:last-child { border-right: 0; }
+.trust b { display: block; font: 600 16px var(--display); margin-top: 12px; }
+.trust p { margin-top: 6px; font-size: 14px; color: var(--muted); }
+.trust svg { color: var(--ink); }
+@media (max-width: 860px) { .trust { grid-template-columns: 1fr 1fr; } .trust div:nth-child(2) { border-right: 0; } .trust div:nth-child(-n+2) { border-bottom: 1px solid var(--line); } }
+@media (max-width: 520px) { .trust { grid-template-columns: 1fr; } .trust div { border-right: 0; border-bottom: 1px solid var(--line); } }
+
+/* FAQ */
+.faq { margin: 48px auto 0; max-width: 780px; display: grid; gap: 10px; }
+details { border-radius: 16px; background: var(--surface); border: 1px solid var(--line); padding: 0 22px; }
+summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 18px 0; font-weight: 600; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; font: 400 22px var(--body); color: var(--muted); transition: transform .2s; }
+details[open] summary::after { transform: rotate(45deg); }
+details p { padding: 0 0 20px; color: var(--ink-2); font-size: 15px; max-width: 64ch; }
+
+/* Closing band */
+.band { margin-top: 120px; border-radius: 32px; padding: 72px 32px; text-align: center; background: #111417; color: #f1f3f5; position: relative; overflow: hidden; }
+.band::after { content: ""; position: absolute; left: 50%; top: 100%; width: 700px; height: 400px; transform: translate(-50%, -55%); background: radial-gradient(closest-side, rgba(37, 211, 102, .35), transparent); }
+.band > * { position: relative; z-index: 1; }
+.band h2 { font-size: clamp(28px, 4vw, 44px); line-height: 1.1; }
+.band p { margin: 14px auto 0; max-width: 480px; color: #b8c0c7; font-size: 16px; }
+.band .btn.dark { background: #f1f3f5; color: #111417; }
+.band .btn.line { background: transparent; color: #f1f3f5; border-color: rgba(255,255,255,.25); }
+.band .hero-cta { margin-top: 30px; }
+
+footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
+.foot { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; padding-top: 28px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.foot nav { display: flex; gap: 20px; flex-wrap: wrap; }
+.foot a:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="nav-shell">
+  <nav class="nav" id="nav" aria-label="Main">
+    <a class="brand" href="#top" aria-label="WhatsApp Sender home"><img src="/brand/logo-small.svg" alt="">WhatsApp Sender</a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#inbox">Inbox</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div class="nav-cta">
+      <a class="btn ghost" href="/login">Sign in</a>
+      <a class="btn dark" href="/signup">Get started</a>
+      <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="mobileMenu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h16M4 16h16"/></svg>
+      </button>
+    </div>
+  </nav>
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="#how">How it works</a><a href="#features">Features</a><a href="#inbox">Inbox</a><a href="#faq">FAQ</a><a href="/login">Sign in</a>
+  </div>
+</div>
+
+<main id="top">
+  <header class="hero" id="hero">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <a class="badge rise" href="#features"><i><svg width="11" height="11" viewBox="0 0 24 24" fill="#04140a"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Z"/></svg></i>Built on the official WhatsApp Business API<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></a>
+        <h1 class="rise d1"><span>WhatsApp, <em>for teams</em></span><span>that sell.</span></h1>
+        <p class="lead rise d2">Send personalised campaigns from a spreadsheet, see who read them, and answer every reply from one shared inbox.</p>
+        <div class="hero-cta rise d3">
+          <a class="btn glow lg" href="/signup">Get started</a>
+          <a class="btn text lg" href="#how">See how it works</a>
+        </div>
+      </div>
+      <div class="cube-wrap rise d2" aria-hidden="true">
+        <div class="cube">
+          <i></i><i></i><i class="up"></i>
+          <i></i><i class="wa"><svg viewBox="0 0 18 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8"/></svg></i><i class="up2"></i>
+          <i class="msg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></i><i></i><i class="dots"></i>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="after-hero">
+      <div class="stage rise d4" aria-label="The app, showing a contact sheet, a message preview and campaign results (example data)">
+        <div class="window">
+          <div class="win-bar"><i></i><i></i><i></i><span>Send · Diwali offer</span></div>
+          <div class="win-body">
+            <div class="sheet">
+              <div class="sheet-head"><b>leads.xlsx</b><span class="chip ok">353 valid</span><span class="chip info">4 with two numbers</span><span class="chip warn">2 with no name</span></div>
+              <div class="sheet-scroll">
+              <table>
+                <thead><tr><th>Phone</th><th>Name</th><th>Company</th></tr></thead>
+                <tbody>
+                  <tr><td class="n">+91 98925 75461</td><td>Vivek</td><td>Northwind Robotics</td></tr>
+                  <tr><td class="n">+91 99861 95771 <span class="chip info">2 numbers</span></td><td>Vijay Kumar</td><td>ICS Additive</td></tr>
+                  <tr class="miss"><td class="n">+91 93706 49132</td><td>Not Captured</td><td>Hardware Labs</td></tr>
+                  <tr><td class="n">+91 78998 08601</td><td>Naveen M B</td><td>LakshyaSpace</td></tr>
+                  <tr><td class="n">+91 94173 42289</td><td>Pranay</td><td>Your organisation</td></tr>
+                  <tr><td class="n">+91 90000 11111</td><td>Vinayak</td><td>Sourceways</td></tr>
+                </tbody>
+              </table>
+              </div>
+            </div>
+            <div class="preview">
+              <span class="mono">Preview · row 2 of 353</span>
+              <div class="bubble">
+                <div class="doc"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Product Brochure.pdf</div>
+                <p>Hi <span class="var">Vijay Kumar</span>, I came across <span class="var">ICS Additive</span> and loved what your team is building. Here's a quick look at what we do.</p>
+                <div class="meta">10:42 am <svg width="16" height="11" viewBox="0 0 18 11" fill="none" stroke="#53bdeb" stroke-width="1.6"><path d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8"/></svg></div>
+                <div class="btn-row"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>Book a demo</div>
+              </div>
+            </div>
+          </div>
+          <div class="stats">
+            <div><b>353</b><span>Sent</span></div>
+            <div><b>341</b><span>Delivered</span></div>
+            <div><b>268</b><span>Read</span></div>
+            <div><b>37</b><span>Replied</span></div>
+          </div>
+        </div>
+        <div class="float f1"><span class="dot" style="background:var(--wa-soft);color:var(--wa-ink)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg></span><div><b>Scheduled</b><small>Sat 31 Oct, 10:00 AM</small></div></div>
+        <div class="float f2"><span class="dot" style="background:color-mix(in srgb,var(--blue) 14%,transparent);color:var(--blue)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span><div><b>New reply</b><small>“Interested, send pricing”</small></div></div>
+      </div>
+    </div>
+
+    <!-- How it works -->
+    <section id="how">
+      <div class="sec-head center">
+        <span class="mono">How it works</span>
+        <h2>From a spreadsheet to sent, in three steps.</h2>
+        <p>No exports to clean up first. The app reads messy lead sheets the way your team writes them.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <h3>Open your list</h3>
+          <p>Drop in CSV or Excel files, every sheet becomes a tab. Or pick contacts by tag.</p>
+          <div class="art"><div class="pill-row"><span class="chip">leads.xlsx</span><span class="chip">Sheet 2</span><span class="chip ok">353 valid</span><span class="chip warn">1 invalid</span></div></div>
+        </div>
+        <div class="step">
+          <h3>Personalise</h3>
+          <p>Choose a template, map each {{variable}} to a column and preview exactly what each person gets.</p>
+          <div class="art"><div class="pill-row"><span class="chip">{{1}} → Name</span><span class="chip">{{2}} → Company</span><span class="chip info">fallback: your organisation</span></div></div>
+        </div>
+        <div class="step">
+          <h3>Send or schedule</h3>
+          <p>Send now or pick a time. Messages are spread across your numbers at a safe pace.</p>
+          <div class="art"><div class="pill-row"><span class="chip">Now</span><span class="chip ok">Later · Sat 10:00</span><span class="chip">2 numbers</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features">
+      <div class="sec-head">
+        <span class="mono">Features</span>
+        <h2>Everything between “upload” and “they replied”.</h2>
+      </div>
+      <div class="bento">
+        <div class="card c-4">
+          <span class="chip tag">Sheets</span>
+          <h3>Sheets that clean themselves</h3>
+          <p>Two numbers in one cell, notes like “(unclear)”, “Not Captured” where a name should be: it picks the right number, flags the rest, and lets you set a fallback in one click.</p>
+          <div class="vis cell-demo">
+            <div class="row"><span>9986195771 / 9019915771</span><span class="chip info">first one used · 2 numbers</span></div>
+            <div class="row"><span>Mobile: +91 98840 28428 · Telephone: +91 80 4258…</span><span class="chip ok">mobile picked</span></div>
+            <div class="row"><span>Name: Not Captured</span><span class="chip warn">→ “there”</span></div>
+          </div>
+        </div>
+        <div class="card c-2">
+          <span class="chip tag">Delivery</span>
+          <h3>See what landed</h3>
+          <p>Sent, delivered, read and replied for every campaign, per number and per person.</p>
+          <div class="vis funnel">
+            <div>Sent<i style="width:100%"></i></div>
+            <div>Delivered<i style="width:96%"></i></div>
+            <div>Read<i style="width:76%"></i></div>
+            <div>Replied<i style="width:22%"></i></div>
+          </div>
+        </div>
+        <div class="card c-3">
+          <span class="chip tag">Templates</span>
+          <h3>Create and edit templates here</h3>
+          <p>Header images, PDFs and video, formatting, variables with samples, and buttons. Submitted to Meta for review, with approval or rejection showing up by itself.</p>
+          <div class="vis pill-row"><span class="chip ok">Approved</span><span class="chip warn">In review</span><span class="chip">Marketing</span><span class="chip">Utility</span><span class="chip info">PDF header</span></div>
+        </div>
+        <div class="card c-3">
+          <span class="chip tag">Links</span>
+          <h3>Buttons that open any link</h3>
+          <p>Set a website button once, change where it points for every campaign, and see how many people tapped it.</p>
+          <div class="vis link-demo">
+            <div class="from">Book a demo → https://cal.com/your-team/demo</div>
+            <span class="arrow">↓</span>
+            <div class="from">Next campaign → https://forms.gle/your-form</div>
+          </div>
+        </div>
+        <div class="card c-2">
+          <span class="chip tag">Numbers</span>
+          <h3>Several numbers, one send</h3>
+          <p>Connect more than one WhatsApp number and spread a campaign across them evenly.</p>
+          <div class="vis bars" aria-hidden="true"><i style="height:62%"></i><i style="height:64%"></i><i style="height:61%"></i><i style="height:63%"></i></div>
+        </div>
+        <div class="card c-4">
+          <span class="chip tag">Teams</span>
+          <h3>Workspaces for every business you run</h3>
+          <p>Each workspace has its own numbers, templates, contacts and inbox. Invite teammates as owners or members, switch in a click, and protect a workspace with a password.</p>
+          <div class="vis pill-row"><span class="chip">Spotmies</span><span class="chip">Client · Acme</span><span class="chip ok">Owner</span><span class="chip">Member</span><span class="chip info">Password protected</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Inbox -->
+    <section id="inbox">
+      <div class="split">
+        <div class="sec-head">
+          <span class="mono">Inbox and AI</span>
+          <h2>Every reply in one place, with help writing back.</h2>
+          <ul class="ticks">
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>One shared inbox</b> for every number, with the 24-hour reply window shown on each chat.</span></li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>AI-drafted replies</b> from what you tell it about your business. Send, edit, or let it reply on its own.</span></li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>A lead summary</b> on each conversation: what they need and when.</span></li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg><span><b>An assistant for your lists</b>: ask it to merge sheets into “name, phone” and open the result in Send.</span></li>
+          </ul>
+        </div>
+        <div class="window" aria-label="The inbox (example conversation)">
+          <div class="win-bar"><i></i><i></i><i></i><span>Inbox</span></div>
+          <div class="inbox">
+            <div class="list">
+              <div class="conv on"><span class="av" style="background:#e3ecff;color:#2f5fd0">C</span><div><b>Chiru</b><span>Can we meet this week?</span></div></div>
+              <div class="conv"><span class="av" style="background:#dcf8e6;color:#0f7a3d">S</span><div><b>Sekhar</b><span>Template: openplan</span></div></div>
+              <div class="conv"><span class="av" style="background:#fdecd2;color:#a15c00">N</span><div><b>Nandkishor</b><span>Thanks for reaching out</span></div></div>
+              <div class="conv"><span class="av" style="background:#f6e1f4;color:#9c2f92">T</span><div><b>Thakur</b><span>Good to hear from you</span></div></div>
+            </div>
+            <div class="thread">
+              <div class="lead-bar"><b>Need</b> a safety app prototype · <b>Timeline</b> this week</div>
+              <div class="mini-chat">
+                <span class="in">Interested. I need a prototype first.</span>
+                <span class="out"><span class="ai">✦ Auto-reply · AI</span>Happy to start with a prototype. By when would you like it ready?</span>
+                <span class="in">By end of this week, can we meet?</span>
+                <span class="out"><span class="ai">✦ Suggested reply</span>Sure, does Thursday 4 PM work for a quick call?</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Trust -->
+    <section>
+      <div class="sec-head center">
+        <span class="mono">Built properly</span>
+        <h2>Official, careful, and yours.</h2>
+      </div>
+      <div class="trust">
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><b>Official Cloud API</b><p>Sends through Meta's WhatsApp Business Platform with your own number and approved templates.</p></div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><b>Your token stays on the server</b><p>Access tokens are stored on the server and never shown in full again.</p></div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><b>You approve every send</b><p>Campaigns, including ones the assistant plans, wait for your confirmation.</p></div>
+        <div><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg><b>Opt-outs respected</b><p>People who reply STOP are left out of every future campaign automatically.</p></div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq">
+      <div class="sec-head center">
+        <span class="mono">FAQ</span>
+        <h2>Questions, answered.</h2>
+      </div>
+      <div class="faq">
+        <details><summary>What do I need to get started?</summary><p>A WhatsApp Business number on Meta's Cloud API: its phone number ID and a permanent access token from Meta Business Settings. Add them under Numbers and the app checks them with Meta before saving.</p></details>
+        <details><summary>Can I message people who haven't messaged me first?</summary><p>Yes, with a template Meta has approved. Once someone replies, you can write to them freely for 24 hours from the inbox.</p></details>
+        <details><summary>Do I have to create templates in Meta?</summary><p>No. You can create and edit them in the app, with a live preview. They're sent to Meta for review and their status updates here by itself. Templates you already made in Meta sync in with one click.</p></details>
+        <details><summary>What about messy lead sheets?</summary><p>The app reads several numbers in one cell, ignores notes like “(unclear)”, treats “Not Captured” and “N/A” as empty unless you say otherwise, and shows you exactly which rows need attention.</p></details>
+        <details><summary>Can my team use it together?</summary><p>Yes. Invite teammates to a workspace as owners or members. Each business gets its own workspace, and an owner can protect one with a password.</p></details>
+        <details><summary>Does the AI send messages on its own?</summary><p>Only if you turn on auto-reply for a conversation. Otherwise it drafts a reply for you to send or edit. It never starts campaigns without your approval.</p></details>
+      </div>
+    </section>
+
+    <div class="band">
+      <span class="mono" style="color:#8d959d">Ready when you are</span>
+      <h2 style="margin-top:14px">Your next campaign,<br>sent and answered.</h2>
+      <p>Connect a number, upload a sheet, and send your first personalised campaign today.</p>
+      <div class="hero-cta"><a class="btn dark lg" href="/signup">Get started</a><a class="btn line lg" href="/login">Sign in</a></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <a class="brand" href="#top"><img src="/brand/logo-small.svg" alt="">WhatsApp Sender</a>
+      <nav aria-label="Footer"><a href="#how">How it works</a><a href="#features">Features</a><a href="#faq">FAQ</a><a href="/login">Sign in</a></nav>
+      <span>Made by Spotmies</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // The floating nav firms up once you scroll; the menu button opens the links on phones.
+  const nav = document.getElementById('nav');
+  const hero = document.getElementById('hero');
+  const onScroll = () => {
+    nav.classList.toggle('scrolled', scrollY > 24);
+    nav.classList.toggle('on-dark', hero.getBoundingClientRect().bottom > 90); // dark glass over the dark hero
+  };
+  addEventListener('scroll', onScroll, { passive: true }); onScroll();
+  const btn = document.getElementById('menuBtn'), menu = document.getElementById('mobileMenu');
+  btn.addEventListener('click', () => { const open = menu.classList.toggle('open'); btn.setAttribute('aria-expanded', String(open)); });
+  menu.addEventListener('click', (e) => { if (e.target.closest('a')) { menu.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); } });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') menu.classList.remove('open'); });
+</script>
+</body>
+</html>

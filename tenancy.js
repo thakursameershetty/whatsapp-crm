@@ -1007,6 +1007,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
   return {
     db, save, id, current, forWorkspace, allWorkspaces, byPhoneNumberId, createWorkspace,
     mountAuth, requireAuth, mountAccountApi,
+    signedIn: (req) => Boolean(sessionOf(req)),
     wsId: () => current()?.meta.id || null,
     meta: () => current()?.meta || null,
     isLegacy: () => Boolean(current()?.meta.legacy),

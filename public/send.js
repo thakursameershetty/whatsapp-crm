@@ -500,8 +500,15 @@
   function renderTemplateSelect() {
     const sel = $('#templateSelect');
     const prev = sel.value;
+    const opt = (t) => `<option value="${t.id}">${esc(t.name)} · ${esc(t.language)}${t.status && t.status !== 'APPROVED' ? ` (${esc(t.status.toLowerCase())})` : ''}</option>`;
+    // With numbers in different Business Accounts, group the templates by the number(s) that can send them.
+    const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))];
+    const grouped = accounts.length > 1
+      ? accounts.map((w) => { const ts = state.templates.filter((t) => t.wabaId === w); return ts.length ? `<optgroup label="${esc(accountLabel(w))}">${ts.map(opt).join('')}</optgroup>` : ''; }).join('')
+        + (state.templates.some((t) => !accounts.includes(t.wabaId)) ? `<optgroup label="Other">${state.templates.filter((t) => !accounts.includes(t.wabaId)).map(opt).join('')}</optgroup>` : '')
+      : state.templates.map(opt).join('');
     sel.innerHTML = state.templates.length
-      ? `<option value="">— Choose a template —</option>` + state.templates.map((t) => `<option value="${t.id}">${esc(t.name)} · ${esc(t.language)}${t.status && t.status !== 'APPROVED' ? ` (${esc(t.status.toLowerCase())})` : ''}</option>`).join('')
+      ? `<option value="">— Choose a template —</option>` + grouped
       : `<option value="">No templates yet — add one under Templates</option>`;
     if (state.templates.some((t) => t.id === prev)) sel.value = prev;
     onTemplateChange();
@@ -537,6 +544,7 @@
     for (const v of t?.variables || []) next[v.key] = SP.mapping[v.key] || autoMap(v);
     if (SP.mapping['header.filename'] && t?.variables.some((v) => v.media === 'document')) next['header.filename'] = SP.mapping['header.filename'];
     SP.mapping = next;
+    renderSenderChecks(); // the numbers that can send this template
     renderMapping();
     renderPreview();
     renderSummary();
@@ -544,11 +552,20 @@
   }
 
   function renderSenderChecks() {
-    const enabled = state.senders.filter((s) => s.enabled);
+    // Only the numbers that can send the chosen template (same Business Account); the others can't.
+    const t = currentTemplate();
+    const all = state.senders.filter((s) => s.enabled);
+    const enabled = t ? templateSenders(t, all) : all;
+    const ok = new Set(enabled.map((s) => s.id));
+    for (const id of [...state.selectedSenders]) if (!ok.has(id)) state.selectedSenders.delete(id);
+    if (!state.selectedSenders.size) enabled.forEach((s) => state.selectedSenders.add(s.id));
+    const hidden = all.length - enabled.length;
     $('#sendFromHint').textContent = enabled.length > 1 ? 'split evenly across the numbers you turn on' : enabled.length ? 'every message goes from this number' : '';
     $('#senderChecks').innerHTML = enabled.length
       ? enabled.map((s) => `<label class="toggle-item"><span><span class="ti-name">${esc(s.label)}</span><br/><span class="ti-meta">${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</span></span>${toggleHtml({ checked: state.selectedSenders.has(s.id), attrs: `value="${s.id}"`, size: 'sm' })}</label>`).join('')
+      : all.length ? `<div class="empty-note">None of your numbers can send this template: it belongs to another WhatsApp Business Account.</div>`
       : `<div class="empty-note">No numbers yet. <a href="#" data-goto="numbers">Add one</a> to start sending.</div>`;
+    if (hidden && enabled.length) $('#senderChecks').insertAdjacentHTML('beforeend', `<div class="empty-note">${hidden} other number${hidden > 1 ? 's' : ''} can't send this template (a different WhatsApp Business Account).</div>`);
     renderSummary();
   }
   $('#senderChecks').addEventListener('change', (e) => {

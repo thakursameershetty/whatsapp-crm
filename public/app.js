@@ -540,6 +540,7 @@ async function loadSenders() {
   else state.selectedSenders = new Set([...state.selectedSenders].filter((x) => ids.has(x)));
   renderSenders();
   renderSenderChecks();
+  if (state.templates.length) { renderTemplates(); renderTemplateSelect(); } // both depend on which numbers exist
   window.Assistant?.senders();
 }
 
@@ -905,8 +906,25 @@ async function loadTemplates() {
 
 const comp = (t, type) => (t.components || []).find((c) => (c.type || '').toUpperCase() === type);
 
+// Meta keeps templates per WhatsApp Business Account: a template can only go out from numbers in its account.
+// (Templates made here in demo mode, and numbers whose account isn't known, aren't limited.)
+const canSend = (t, s) => !t?.wabaId || !s.wabaId || t.wabaId === s.wabaId;
+window.templateSenders = (t, list = state.senders) => list.filter((s) => canSend(t, s));
+// The numbers in a template's account, for labels: "Spotmies · +91 93467 85644".
+const accountLabel = (wabaId) => state.senders.filter((s) => s.wabaId === wabaId).map((s) => s.label).join(', ');
+window.accountLabel = accountLabel;
+state.tplSender = '';
 function renderTemplates() {
   const list = $('#templateList');
+  // With several numbers: a "which number" filter, showing the templates each one can send.
+  const nums = state.senders.filter((s) => s.wabaId);
+  const filt = $('#tplSender');
+  filt.classList.toggle('hidden', nums.length < 2);
+  filt.innerHTML = '<option value="">All numbers</option>' + nums.map((s) => `<option value="${s.id}">${esc(s.label)}${s.displayPhone ? ' · ' + esc(s.displayPhone) : ''}</option>`).join('');
+  if (!nums.some((s) => s.id === state.tplSender)) state.tplSender = '';
+  filt.value = state.tplSender;
+  const pick = state.senders.find((s) => s.id === state.tplSender);
+  const shown = pick ? state.templates.filter((t) => canSend(t, pick)) : state.templates;
   if (!state.templates.length) {
     list.innerHTML = emptyState({
       icon: 'template',
@@ -916,14 +934,15 @@ function renderTemplates() {
     });
     return;
   }
-  list.innerHTML = state.templates
+  if (pick && !shown.length) { list.innerHTML = `<p class="sub">No templates for ${esc(pick.label)} yet. Create one, or click Sync from Meta.</p>`; return; }
+  list.innerHTML = shown
     .map((t) => `
     <div class="card tpl-card">
       <div class="li-head">
         <h3>${esc(t.name)}</h3>
         <span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span>
       </div>
-      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
+      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}${nums.length > 1 && t.wabaId && accountLabel(t.wabaId) ? ` · <span class="tpl-num">${icon('phone', 11)}${esc(accountLabel(t.wabaId))}</span>` : ''}</div>
       ${t.rejectedReason ? `<div class="tpl-reason">${icon('badge-alert', 14)}<span>Meta's reason: ${esc(t.rejectedReason.toLowerCase().replace(/_/g, ' '))}. Edit it and submit again.</span></div>` : ''}
       <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
       ${t.variables.length ? `<div class="var-chips">${[...new Set(t.variables.map((v) => (v.media ? v.media + ' URL' : `{{${v.name}}}`)))].map((label) => `<span class="var-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
@@ -936,6 +955,7 @@ function renderTemplates() {
     .join('');
 }
 
+$('#tplSender').addEventListener('change', (e) => { state.tplSender = e.target.value; renderTemplates(); });
 $('#templateList').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;

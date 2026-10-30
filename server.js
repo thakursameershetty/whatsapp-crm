@@ -506,6 +506,13 @@ app.get('/go/:code', (req, res) => {
 });
 // The sign-in pages use these two files, so they load without signing in.
 const PUBLIC_FILES = new Set(['/style.css', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg']);
+// The home page: the landing page for visitors, the app for anyone signed in. (/welcome always shows the landing page.)
+const LANDING = path.join(__dirname, 'public', 'landing.html');
+app.get(['/', '/welcome'], (req, res, next) => {
+  if (req.path === '/' && tenants.signedIn(req)) return next();
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(LANDING);
+});
 app.use((req, res, next) => (PUBLIC_FILES.has(req.path) ? next() : tenants.requireAuth(req, res, next)));
 app.use(security.rateLimit); // after sign-in, so limits are per user
 // The AI features (the Assistant and the Inbox lead assistant) are admin-only for now.
@@ -1126,6 +1133,7 @@ app.post('/api/send/test', wrap(async (req, res) => {
   const sender = db.senders.find((s) => s.id === senderId);
   const template = db.templates.find((t) => t.id === templateId);
   if (!sender || !template) throw fail('Pick a sender number and a template');
+  if (template.wabaId && sender.wabaId && template.wabaId !== sender.wabaId) throw fail(`“${sender.label}” can't send ${template.name}: it belongs to a different WhatsApp Business Account`);
   const phoneErr = phoneInputError(phone);
   if (phoneErr) throw fail(phoneErr);
   const to = normalizePhone(phone);
@@ -1169,6 +1177,9 @@ function createCampaign(body) {
   if (!template) throw fail('Pick a template');
   const senders = db.senders.filter((s) => senderIds.includes(s.id) && s.enabled);
   if (!senders.length) throw fail('Select at least one enabled sender number');
+  // Meta keeps templates per Business Account: a number from another account can't send this one.
+  const wrong = senders.find((s) => template.wabaId && s.wabaId && s.wabaId !== template.wabaId);
+  if (wrong) throw fail(`“${wrong.label}” can't send ${template.name}: the template belongs to a different WhatsApp Business Account. Turn that number off for this campaign.`);
   if (!db.settings.demoMode) {
     const noToken = senders.find((s) => !s.accessToken);
     if (noToken) throw fail(`"${noToken.label}" has no access token (or turn on Demo mode)`);

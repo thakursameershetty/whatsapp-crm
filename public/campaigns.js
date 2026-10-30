@@ -99,6 +99,7 @@
     const rows = CP.list
       .filter((c) => !live(c) && c.status !== 'scheduled' && filter[2](c))
       .filter((c) => !q || [c.name, c.templateName].some((v) => String(v).toLowerCase().includes(q)))
+      .filter((c) => !CP.sender || (c.senderIds || []).includes(CP.sender))
       .sort(SORTS[CP.sort][1]);
 
     // The last 30 days, in the current mode (the server keeps demo and live campaigns apart).
@@ -114,6 +115,7 @@
       <div class="cp-tools">
         <div class="seg" id="cpFilter">${FILTERS.map(([k, label, fn]) => `<button data-f="${k}" class="${k === filter[0] ? 'active' : ''}">${label} <span class="opt">${CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length}</span></button>`).join('')}</div>
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="cpSearch" placeholder="Search name or template" value="${esc(CP.q)}" aria-label="Search campaigns" /></div>
+        ${state.senders.length > 1 ? `<select id="cpSender" aria-label="Number"><option value="">All numbers</option>${state.senders.map((x) => `<option value="${x.id}" ${x.id === CP.sender ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>` : ''}
         <label class="inline">Sort <select id="cpSort">${Object.entries(SORTS).map(([k, [label]]) => `<option value="${k}" ${k === CP.sort ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
         <div class="seg seg-icons cp-view" id="cpView" role="radiogroup" aria-label="View">
           <button data-view="cards" class="${CP.view === 'cards' ? 'active' : ''}" title="Cards" aria-label="Cards" aria-checked="${CP.view === 'cards'}" role="radio">${icon('layout-grid', 15)}</button>
@@ -136,6 +138,7 @@
     const search = $('#cpSearch');
     search.oninput = () => { CP.q = search.value.trim(); const pos = search.selectionStart; renderList(); const s2 = $('#cpSearch'); s2.focus(); s2.setSelectionRange(pos, pos); };
     $('#cpSort').onchange = (e) => { CP.sort = e.target.value; renderList(); };
+    if ($('#cpSender')) $('#cpSender').onchange = (e) => { CP.sender = e.target.value; renderList(); };
   }
 
   // Folders ↔ rows: each campaign keeps a view-transition name in both views, so the browser
