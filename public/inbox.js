@@ -315,15 +315,12 @@
         <div class="ib-lead hidden" id="ibLead"></div>
         <div class="ib-msgs" id="ibMsgs"></div>
         <div id="ibAi" class="ib-ai"></div>
+        <button type="button" class="ib-jump hidden" id="ibJump" aria-label="Go to the newest message" title="Newest message">${icon('chevron-down', 20)}</button>
         <div id="ibFoot"></div>`;
       $('#ibBack').onclick = closeConversation;
       toBottom = true;
-      // Stay at the newest message when the area above the reply box changes height (the "Let AI reply" chip,
-      // a suggested reply, "AI is typing…", a window resize) — unless you've scrolled up to read older ones.
-      const msgs = $('#ibMsgs');
-      let pinned = true;
-      msgs.addEventListener('scroll', () => { pinned = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 48; }, { passive: true });
-      new ResizeObserver(() => { if (pinned) msgs.scrollTop = msgs.scrollHeight; }).observe(msgs);
+      ib.stick = true;
+      watchScroll(pane);
     }
     $('#ibName').textContent = displayName(c);
     $('#ibSub').textContent = `${c.name ? fmtPhone(c.wa) + ' · ' : ''}via ${c.senderLabel}`;
@@ -337,6 +334,32 @@
     renderFoot(w.open);
     renderLead();
     renderAi();
+    // The banner, the reply box and the AI strip above it are drawn after the messages; land on the newest one.
+    if (ib.stick) toLatest();
+  }
+
+  // --- Staying on the newest message ---
+  // A chat opens on its newest message and stays there as things around it change size (the lead banner, the
+  // floating AI strip, images, new messages), until you scroll up; then the ↓ button takes you back.
+  const toLatest = (smooth = false) => { const b = $('#ibMsgs'); if (b) b.scrollTo({ top: b.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }); };
+  function watchScroll(pane) {
+    const msgs = $('#ibMsgs', pane), ai = $('#ibAi', pane), foot = $('#ibFoot', pane), jump = $('#ibJump', pane);
+    const gap = () => msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight;
+    // The AI strip floats over the chat: the messages get room underneath it, and it sits on the reply box.
+    const layout = () => {
+      pane.style.setProperty('--ib-foot', foot.offsetHeight + 'px');
+      pane.style.setProperty('--ib-ai', (ai.childElementCount ? ai.offsetHeight : 0) + 'px');
+      if (ib.stick) toLatest();
+    };
+    msgs.addEventListener('scroll', () => {
+      ib.stick = gap() < 48;
+      jump.classList.toggle('hidden', gap() < 160);
+    }, { passive: true });
+    jump.addEventListener('click', () => { ib.stick = true; toLatest(true); });
+    const ro = new ResizeObserver(layout);
+    [msgs, ai, foot].forEach((el) => ro.observe(el));
+    new MutationObserver(() => { if (ib.stick) toLatest(); }).observe(msgs, { childList: true, subtree: true });
+    layout();
   }
 
   // ---------- Lead assistant: contact strip, suggested reply, hand-over ----------
@@ -511,8 +534,8 @@
     }
     box.innerHTML = html ? html + '</section>' : '';
     ib.seenKey = ib.key;
-    if (toBottom || nearBottom) box.scrollTop = box.scrollHeight;
-    ib.stick = toBottom || nearBottom;
+    if (toBottom || nearBottom) ib.stick = true;
+    if (ib.stick) box.scrollTop = box.scrollHeight;
   }
 
   function msgBody(m, byWamid) {
@@ -721,7 +744,8 @@
       const t = tpl();
       $('#itVars', body).innerHTML = t.variables
         .map((v) => {
-          if (values[v.key] == null) values[v.key] = v.key === 'body.1' || /name/i.test(v.name) ? firstName : '';
+          const savedLink = t.linkDefaults?.[/^button(\d+)$/.exec(v.where)?.[1]]; // a website button's own link
+          if (values[v.key] == null) values[v.key] = savedLink || (v.key === 'body.1' || /name/i.test(v.name) ? firstName : '');
           return `<label>${esc(v.where === 'body' ? 'Body' : v.where === 'header' ? 'Header' : 'Button')} {{${esc(v.name)}}}<input data-k="${esc(v.key)}" value="${esc(values[v.key])}" placeholder="${v.media ? 'https://…' : ''}" /></label>`;
         })
         .join('');

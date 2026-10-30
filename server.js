@@ -539,11 +539,10 @@ function publicSettings(req) {
 app.get('/api/settings', (req, res) => res.json(publicSettings(req)));
 
 app.put('/api/settings', (req, res) => {
-  const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'defaultCountry', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber', 'linkDomain'];
+  const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'defaultCountry', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber'];
   // A calling code is 1–3 digits; the country is its two-letter ISO code (it tells +1 US from +1 Canada).
   if ('defaultCountryCode' in req.body && !/^\d{1,3}$/.test(String(req.body.defaultCountryCode))) return res.status(400).json({ error: 'The country code should be 1–3 digits, e.g. 91 for India' });
   if ('defaultCountry' in req.body && req.body.defaultCountry && !/^[A-Z]{2}$/.test(String(req.body.defaultCountry))) return res.status(400).json({ error: 'Pick a country from the list' });
-  if ('linkDomain' in req.body && req.body.linkDomain && !/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(req.body.linkDomain))) return res.status(400).json({ error: 'The short link domain should look like https://link.yourcompany.com' });
   for (const k of allowed) if (k in req.body) db.settings[k] = req.body[k];
   if (!tenants.demoAllowed()) db.settings.demoMode = false;
   db.settings.concurrencyPerNumber = Math.min(50, Math.max(1, Number(db.settings.concurrencyPerNumber) || 1));
@@ -911,14 +910,13 @@ function templateComponents(spec, { handle, linkBase }) {
       const phone = normalizePhone(b.phone);
       if (!phone) throw fail(`"${text}": enter the phone number to call, with its country code`);
       buttons.push({ type: 'PHONE_NUMBER', text, phone_number: '+' + phone });
-    } else if (b.type === 'URL' && b.mode === 'go') {
-      // Opens any link chosen when sending, through this app's short links (see goCode).
-      buttons.push({ type: 'URL', text, url: `${linkBase}/go/{{1}}`, example: [`${linkBase}/go/register`] });
     } else if (b.type === 'URL') {
+      // Every website button opens its link through the short-link service in the background (see goCode), so
+      // the link can change per campaign and taps are counted. People only ever see their own link: it's kept
+      // as the button's default (linkDefaults) and filled in when sending.
       const url = String(b.url || '').trim();
-      if (!/^https?:\/\/\S+\.\S+/.test(url)) throw fail(`"${text}": enter the full website link, starting with https://`);
-      if (varsIn(url).length) throw fail(`"${text}": for a link that changes per campaign, choose "Any link, chosen when sending"`);
-      buttons.push({ type: 'URL', text, url });
+      if (!/^https?:\/\/\S+\.\S+/.test(url) || varsIn(url).length) throw fail(`"${text}": enter the full website link, starting with https://`);
+      buttons.push({ type: 'URL', text, url: `${linkBase}/go/{{1}}`, example: [`${linkBase}/go/${goCode(url)}`], _link: url });
     } else throw fail('Unknown button type');
   }
   // Meta's rules: buttons grouped by kind (website and call buttons together, quick replies together),
@@ -926,7 +924,18 @@ function templateComponents(spec, { handle, linkBase }) {
   if (buttons.filter((b) => b.type === 'URL').length > 2) throw fail('A template can have 2 website buttons at most');
   if (buttons.filter((b) => b.type === 'PHONE_NUMBER').length > 1) throw fail('A template can have 1 call button at most');
   buttons.sort((a, b) => (a.type === 'QUICK_REPLY') - (b.type === 'QUICK_REPLY'));
+  out.linkDefaults = {};
+  buttons.forEach((b, i) => { if (b._link) { out.linkDefaults[i] = b._link; delete b._link; } });
   if (buttons.length) out.push({ type: 'BUTTONS', buttons });
+  return out;
+}
+// A website button's link when sending: the one chosen for this campaign, else the one typed in the template.
+function withLinkDefaults(template, values) {
+  const out = { ...values };
+  for (const [i, url] of Object.entries(template.linkDefaults || {})) {
+    const key = `button${i}.1`;
+    if (!String(out[key] ?? '').trim()) out[key] = url;
+  }
   return out;
 }
 // The number (and so the Business Account and token) a template is made with.
@@ -936,20 +945,20 @@ function templateSender(spec, t) {
   if (!s) throw fail(t ? "No number with a token is connected to this template's Business Account" : 'Add a sender number with its WhatsApp Business Account ID first (Numbers page)');
   return s;
 }
-// Short links for "any link" buttons run on the company's own domain (customers see it when they tap), which must
+// Where website buttons' short links live: a separate public service (the url-analytics app) that passes /go/<code>
+// to this app. Set SHORT_LINK_DOMAIN to move it; a workspace's settings.linkDomain overrides it.
+const SHORT_LINK_BASE = process.env.SHORT_LINK_DOMAIN || 'https://url-analytics.up.railway.app';
+// Short links for website buttons run on the company's own domain (customers see it when they tap), which must
 // already point at this app: a test link is opened on it and must get this app's answer (see /go/:code).
 // Only needed when the template has such a button.
 async function linkBaseFor(req, spec) {
-  if (!(spec.buttons || []).some((b) => b.type === 'URL' && b.mode === 'go')) return '';
-  const d = String(req.body.linkDomain || db.settings.linkDomain || '').trim().replace(/\/+$/, '');
-  if (!d) throw fail('Enter your short link domain, e.g. https://link.yourcompany.com. It has to be connected to this app first.');
-  if (!/^https:\/\/[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) throw fail('The short link domain should look like https://link.yourcompany.com');
+  if (!(spec.buttons || []).some((b) => b.type === 'URL')) return '';
+  const d = String(db.settings.linkDomain || SHORT_LINK_BASE).trim().replace(/\/+$/, '');
   if (!db.settings.demoMode) {
     const r = await fetch(`${d}/go/zzzzzzz`, { redirect: 'manual', signal: AbortSignal.timeout(8000) }).catch(() => null);
     const text = r ? await r.text().catch(() => '') : '';
-    if (!r || r.status !== 404 || !text.includes('This link has expired or never existed.')) throw fail(`${d.replace(/^https:\/\//, '')} isn't connected to this app yet, so the button wouldn't open anything. Point it at this app (a DNS record) and try again once it's live.`);
+    if (!r || r.status !== 404 || !text.includes('This link has expired or never existed.')) throw fail("Website buttons can't be set up right now (the link service isn't answering). Try again in a few minutes.");
   }
-  if (d !== db.settings.linkDomain) db.settings.linkDomain = d; // remembered for next time
   return d;
 }
 async function headerHandle(s, spec, t) {
@@ -982,7 +991,7 @@ app.post('/api/templates/meta', wrap(async (req, res) => {
     // Demo: nothing goes to Meta; the template is kept here as if approved, for practice sends.
     const components = templateComponents(spec, { handle: 'demo', linkBase: await linkBaseFor(req, spec) });
     if (db.templates.some((x) => x.name === name && x.language === language)) throw fail('A template with this name and language already exists');
-    const t = { id: id(), name, language, category, status: 'MANUAL', source: 'manual', parameterFormat: 'POSITIONAL', components, updatedAt: now };
+    const t = { id: id(), name, language, category, status: 'MANUAL', source: 'manual', parameterFormat: 'POSITIONAL', components, linkDefaults: components.linkDefaults, updatedAt: now };
     db.templates.push(t);
     save();
     return res.json(publicTemplate(t));
@@ -991,7 +1000,7 @@ app.post('/api/templates/meta', wrap(async (req, res) => {
   if (db.templates.some((x) => x.wabaId === s.wabaId && x.name === name && x.language === language)) throw fail('A template with this name and language already exists. Pick another name, or edit that one.');
   const components = templateComponents(spec, { handle: await headerHandle(s, spec), linkBase: await linkBaseFor(req, spec) });
   const r = await graph(s, `${encodeURIComponent(s.wabaId)}/message_templates`, { method: 'POST', body: JSON.stringify({ name, language, category, components }) });
-  const t = { id: id(), name, language, category: r.category || category, status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, submittedAt: now, updatedAt: now };
+  const t = { id: id(), name, language, category: r.category || category, status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, linkDefaults: components.linkDefaults, submittedAt: now, updatedAt: now };
   db.templates.push(t);
   save();
   res.json(publicTemplate(t));
@@ -1007,7 +1016,8 @@ app.put('/api/templates/:id/meta', wrap(async (req, res) => {
   const category = String(spec.category || t.category || '').toUpperCase();
   if (t.source !== 'synced' || !t.metaId) {
     // A demo template: just change it here.
-    Object.assign(t, { category, components: templateComponents(spec, { handle: 'demo', linkBase: await linkBaseFor(req, spec) }), updatedAt: new Date().toISOString() });
+    const components = templateComponents(spec, { handle: 'demo', linkBase: await linkBaseFor(req, spec) });
+    Object.assign(t, { category, components, linkDefaults: components.linkDefaults, updatedAt: new Date().toISOString() });
     save();
     return res.json(publicTemplate(t));
   }
@@ -1016,7 +1026,7 @@ app.put('/api/templates/:id/meta', wrap(async (req, res) => {
   const components = templateComponents(spec, { handle: await headerHandle(s, spec, t), linkBase: await linkBaseFor(req, spec) });
   await graph(s, encodeURIComponent(t.metaId), { method: 'POST', body: JSON.stringify({ components, ...(category !== t.category ? { category } : {}) }) });
   const now = new Date().toISOString();
-  Object.assign(t, { components, category, status: 'PENDING', rejectedReason: '', editedAt: now, updatedAt: now });
+  Object.assign(t, { components, linkDefaults: components.linkDefaults, category, status: 'PENDING', rejectedReason: '', editedAt: now, updatedAt: now });
   save();
   res.json(publicTemplate(t));
 }));
@@ -1080,6 +1090,7 @@ function resolveRecipients(body, template) {
     for (const v of vars) if (mapping[v.key]?.type === 'same') values[v.key] = values[mapping[v.key].value] ?? '';
     if (mapping['header.filename']?.value) values['header.filename'] = String(mapping['header.filename'].value).trim(); // a document's shown name
     const fromCol = nameCol ? [row[nameCol.col], nameCol.last && row[nameCol.last]].filter(Boolean).join(' ').trim() : '';
+    Object.assign(values, withLinkDefaults(template, values)); // website buttons: the template's own link unless the campaign chose one
     recipients.push({ phone, values, name: String(fromCol || (greet && values[greet]) || '').trim().slice(0, 120) });
   }
   return { recipients, skipped, vars };
@@ -1095,7 +1106,7 @@ app.post('/api/send/test', wrap(async (req, res) => {
   if (phoneErr) throw fail(phoneErr);
   const to = normalizePhone(phone);
   if (!db.settings.demoMode && !sender.accessToken) throw fail('This sender has no access token');
-  const messageId = await sendTemplate(sender, template, to, values);
+  const messageId = await sendTemplate(sender, template, to, withLinkDefaults(template, values));
   // Keep test sends in the Inbox thread too, so the conversation shows everything that went out.
   const demo = db.settings.demoMode;
   const key = chatKey(sender.id, to);
@@ -1489,9 +1500,10 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
   if (templateId) {
     const template = db.templates.find((t) => t.id === templateId);
     if (!template) throw fail('Pick a template');
-    const empty = templateVariables(template.components).find((v) => !String(values[v.key] ?? '').trim());
+    const filled = withLinkDefaults(template, values);
+    const empty = templateVariables(template.components).find((v) => !String(filled[v.key] ?? '').trim());
     if (empty) throw fail(`Fill in ${empty.where} ${empty.name}`);
-    const wamid = await sendTemplate(sender, template, wa, values, demo);
+    const wamid = await sendTemplate(sender, template, wa, filled, demo);
     msg = { type: 'template', templateId, templateName: template.name, values, wamid };
     res.json(recordOut(key, msg));
   } else {

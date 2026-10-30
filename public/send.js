@@ -517,9 +517,17 @@
   function autoMap(v) {
     const match = columns().find((h) => h.toLowerCase() === String(v.name).toLowerCase());
     if (match) return { type: 'column', value: match };
-    // Such a button usually opens the same link as the message's one variable: reuse it.
+    // Such a button usually opens the same link as the message: reuse the body variable whose sample (from
+    // Meta's review) is a link, or the only body variable there is.
     const t = currentTemplate(), body = (t?.variables || []).filter((x) => x.where === 'body');
-    if (t && goButton(t, v) && body.length === 1) return { type: 'same', value: body[0].key };
+    // A website button starts with the link typed in the template (change it here for this campaign).
+    const saved = t?.linkDefaults?.[/^button(\d+)$/.exec(v.where)?.[1]];
+    if (saved) return { type: 'fixed', value: saved };
+    if (t && goButton(t, v)) {
+      const samples = comp(t, 'BODY')?.example?.body_text?.[0] || [];
+      const linkVar = body.find((x) => /^https?:\/\//i.test(String(samples[Number(x.name) - 1] || '')));
+      if (linkVar || body.length === 1) return { type: 'same', value: (linkVar || body[0]).key };
+    }
     return { type: 'fixed', value: '' };
   }
 

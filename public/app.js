@@ -977,7 +977,8 @@ function tplSpec(t) {
     header: { format: h ? h.format : 'NONE', text: h?.text || '', sample: h?.example?.header_text?.[0] || '', file: null, preview: '' },
     body: { text: b?.text || '', samples: b?.example?.body_text?.[0] || [] },
     footer: f?.text || '',
-    buttons: btns.map((x) => x.type === 'URL' ? { type: 'URL', text: x.text, mode: isGoUrl(x.url) ? 'go' : 'fixed', url: isGoUrl(x.url) ? '' : x.url }
+    // A website button shows the link it opens (kept with the template), never the short link Meta has.
+    buttons: btns.map((x, i) => x.type === 'URL' ? { type: 'URL', text: x.text, url: isGoUrl(x.url) ? t?.linkDefaults?.[i] || '' : x.url }
       : x.type === 'PHONE_NUMBER' ? { type: 'PHONE_NUMBER', text: x.text, phone: x.phone_number || '' } : { type: 'QUICK_REPLY', text: x.text }),
   };
 }
@@ -994,7 +995,6 @@ function tplEditBlock(t) {
 function templateEditor(t = null) {
   const live = !state.settings.demoMode;
   const spec = tplSpec(t);
-  let linkDomain = state.settings.linkDomain || ''; // kept here so redrawing the buttons doesn't reset it
   const accounts = [...new Map(state.senders.filter((x) => x.wabaId && x.hasToken).map((x) => [x.wabaId, x])).values()];
   const body = openModal(t ? `Edit ${t.name}` : 'New template', `
     <form id="teForm" class="te" novalidate>
@@ -1069,7 +1069,7 @@ function templateEditor(t = null) {
         if (f.size > MEDIA_MAX[h.format] * 1048576) return toast(`WhatsApp accepts header ${kind}s up to ${MEDIA_MAX[h.format]} MB`, 'error');
         if (h.preview) URL.revokeObjectURL(h.preview);
         h.file = f;
-        h.preview = h.format === 'IMAGE' ? URL.createObjectURL(f) : '';
+        h.preview = h.format === 'VIDEO' ? '' : URL.createObjectURL(f); // images and PDFs show in the preview
         renderHeader();
         renderPreview();
       });
@@ -1086,16 +1086,14 @@ function templateEditor(t = null) {
   // --- Buttons ---
   const renderButtons = () => {
     const box = $('#teButtons', body);
-    const anyGo = spec.buttons.some((b) => b.type === 'URL' && b.mode === 'go');
     box.innerHTML = spec.buttons.map((b, i) => `<div class="te-btn" data-i="${i}">
       <span class="te-btn-kind">${icon(b.type === 'URL' ? 'external-link' : b.type === 'PHONE_NUMBER' ? 'phone' : 'reply', 14)}${b.type === 'URL' ? 'Website' : b.type === 'PHONE_NUMBER' ? 'Call' : 'Quick reply'}</span>
       <input data-bf="text" maxlength="25" value="${esc(b.text)}" placeholder="${b.type === 'URL' ? 'Register Now' : b.type === 'PHONE_NUMBER' ? 'Call us' : 'Interested'}" aria-label="Button text">
-      ${b.type === 'URL' ? `<select data-bf="mode" aria-label="Which link"><option value="go" ${b.mode === 'go' ? 'selected' : ''}>Any link, chosen when sending</option><option value="fixed" ${b.mode === 'fixed' ? 'selected' : ''}>The same link every time</option></select>
-        ${b.mode === 'fixed' ? `<input data-bf="url" class="te-wide" value="${esc(b.url)}" placeholder="https://example.com/page">` : ''}` : ''}
+      ${b.type === 'URL' ? `<input data-bf="url" value="${esc(b.url)}" placeholder="https://example.com/page" inputmode="url" aria-label="Link the button opens">` : ''}
       ${b.type === 'PHONE_NUMBER' ? `<input data-bf="phone" value="${esc(b.phone)}" placeholder="+91 98765 43210" inputmode="tel">` : ''}
       <button type="button" class="icon-btn te-btn-x" data-rmbtn="${i}" aria-label="Remove button">${icon('x', 14)}</button>
     </div>`).join('');
-    box.insertAdjacentHTML('beforeend', anyGo ? `<label class="te-domain"><span>Short link domain <span class="opt">your own domain, connected to this app. Customers see it when they tap.</span></span><input name="linkDomain" value="${esc(linkDomain)}" placeholder="https://link.yourcompany.com" inputmode="url"></label>` : '');
+    if (spec.buttons.some((b) => b.type === 'URL')) box.insertAdjacentHTML('beforeend', '<p class="sub te-note">You can use a different link for each campaign when sending.</p>');
     $('.te-addbtns', body).classList.toggle('hidden', spec.buttons.length >= 10);
   };
 
@@ -1117,6 +1115,7 @@ function templateEditor(t = null) {
     tplVarNums(spec.body.text).forEach((n) => { if (spec.body.samples[n - 1]) values[`body.${n}`] = spec.body.samples[n - 1]; });
     if (spec.header.sample) values['header.1'] = spec.header.sample;
     if (spec.header.preview) values['header.media'] = spec.header.preview;
+    if (spec.header.format === 'DOCUMENT' && spec.header.file) values['header.filename'] = spec.header.file.name;
     $('#tePreview', body).innerHTML = spec.body.text.trim() || spec.header.format !== 'NONE' || spec.buttons.length ? bubbleHtml(asTemplate(), values) : '<span class="te-empty">Your message appears here as you write it.</span>';
     const n = spec.body.text.length;
     $('#teBodyCount', body).textContent = `${n} / 1024`;
@@ -1153,7 +1152,7 @@ function templateEditor(t = null) {
     const add = e.target.closest('[data-addbtn]');
     if (add) {
       const type = add.dataset.addbtn;
-      spec.buttons.push(type === 'URL' ? { type, text: '', mode: 'go', url: '' } : type === 'PHONE_NUMBER' ? { type, text: '', phone: '' } : { type, text: '' });
+      spec.buttons.push(type === 'URL' ? { type, text: '', url: '' } : type === 'PHONE_NUMBER' ? { type, text: '', phone: '' } : { type, text: '' });
       renderButtons();
       renderPreview();
       $(`.te-btn[data-i="${spec.buttons.length - 1}"] [data-bf=text]`, body)?.focus();
@@ -1170,9 +1169,8 @@ function templateEditor(t = null) {
     else if (el.name === 'footer') spec.footer = el.value;
     else if (el.name === 'headerText') { spec.header.text = el.value; if (Boolean(tplVarNums(el.value).length) !== Boolean($('[name=headerSample]', body))) { renderHeader(); $('[name=headerText]', body).focus(); } }
     else if (el.name === 'headerSample') spec.header.sample = el.value;
-    else if (el.name === 'linkDomain') linkDomain = el.value.trim();
     else if (el.dataset.sample != null) spec.body.samples[Number(el.dataset.sample)] = el.value;
-    else if (el.dataset.bf) { const b = spec.buttons[Number(el.closest('.te-btn').dataset.i)]; b[el.dataset.bf] = el.value; if (el.dataset.bf === 'mode') { renderButtons(); } }
+    else if (el.dataset.bf) { const b = spec.buttons[Number(el.closest('.te-btn').dataset.i)]; b[el.dataset.bf] = el.value; }
     renderPreview();
   });
   form.addEventListener('change', (e) => { if (e.target.name === 'language') spec.language = e.target.value; });
@@ -1192,7 +1190,7 @@ function templateEditor(t = null) {
         name: spec.name, language: $('[name=language]', form).value, category: spec.category, senderId: $('[name=senderId]', form)?.value,
         header: { format: h.format, text: h.text, sample: h.sample, file: h.file ? { mime: h.file.type, data: await fileData(h.file) } : null },
         body: { text: spec.body.text, samples: tplVarNums(spec.body.text).map((n) => spec.body.samples[n - 1] || '') },
-        footer: spec.footer, buttons: spec.buttons, linkDomain: spec.buttons.some((b) => b.type === 'URL' && b.mode === 'go') ? linkDomain : '',
+        footer: spec.footer, buttons: spec.buttons,
       };
       try {
         await api(t ? `/templates/${t.id}/meta` : '/templates/meta', { method: t ? 'PUT' : 'POST', body: payload });
@@ -1200,7 +1198,6 @@ function templateEditor(t = null) {
       if (h.preview) URL.revokeObjectURL(h.preview);
       closeModal();
       toast(live && (t?.metaId || !t) ? `${t ? 'Changes sent' : 'Template sent'} to Meta for review. You'll see the result here.` : 'Template saved');
-      if (payload.linkDomain) state.settings.linkDomain = payload.linkDomain.replace(/\/+$/, '');
       await loadTemplates();
     }, btn);
   });
