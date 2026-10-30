@@ -1000,7 +1000,7 @@ function templateEditor(t = null) {
     <form id="teForm" class="te" novalidate>
       <div class="te-form">
         <div class="te-row">
-          <label class="te-name">Name ${t ? '' : '<span class="opt">lowercase, numbers, underscores</span>'}<input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="webinar_invite" maxlength="60" autocomplete="off"></label>
+          <label class="te-name">Name<input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="webinar_invite" maxlength="60" autocomplete="off">${t ? '' : '<span class="te-hint">Lowercase letters, numbers and underscores</span>'}</label>
           <label>Language<select name="language" ${t ? 'disabled' : ''}>${TPL_LANGS.map(([v, l]) => `<option value="${v}" ${v === spec.language ? 'selected' : ''}>${l}</option>`).join('')}${TPL_LANGS.some(([v]) => v === spec.language) ? '' : `<option value="${esc(spec.language)}" selected>${esc(spec.language)}</option>`}</select></label>
         </div>
         <div class="te-row">
@@ -1105,7 +1105,7 @@ function templateEditor(t = null) {
     const h = spec.header;
     if (h.format === 'TEXT' && h.text.trim()) comps.push({ type: 'HEADER', format: 'TEXT', text: h.text });
     else if (MEDIA_ACCEPT[h.format]) comps.push({ type: 'HEADER', format: h.format });
-    comps.push({ type: 'BODY', text: spec.body.text || ' ' });
+    comps.push({ type: 'BODY', text: spec.body.text || '' });
     if (spec.footer.trim()) comps.push({ type: 'FOOTER', text: spec.footer });
     // Shown in the order Meta keeps them: website and call buttons first, then quick replies.
     const ordered = [...spec.buttons].sort((a, b) => (a.type === 'QUICK_REPLY') - (b.type === 'QUICK_REPLY'));
@@ -1117,7 +1117,7 @@ function templateEditor(t = null) {
     tplVarNums(spec.body.text).forEach((n) => { if (spec.body.samples[n - 1]) values[`body.${n}`] = spec.body.samples[n - 1]; });
     if (spec.header.sample) values['header.1'] = spec.header.sample;
     if (spec.header.preview) values['header.media'] = spec.header.preview;
-    $('#tePreview', body).innerHTML = bubbleHtml(asTemplate(), values);
+    $('#tePreview', body).innerHTML = spec.body.text.trim() || spec.header.format !== 'NONE' || spec.buttons.length ? bubbleHtml(asTemplate(), values) : '<span class="te-empty">Your message appears here as you write it.</span>';
     const n = spec.body.text.length;
     $('#teBodyCount', body).textContent = `${n} / 1024`;
     $('#teBodyCount', body).classList.toggle('warn', n > 1000);
