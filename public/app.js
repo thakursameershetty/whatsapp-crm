@@ -113,12 +113,14 @@ window.addEventListener('popstate', () => {
 });
 window.addEventListener('hashchange', () => { const tab = tabFromUrl(); showTab.replace = true; showTab(tab); });
 
-// Sidebar: collapses to icons. Remembered per browser; on the Inbox it starts collapsed
-// and the toggle only opens it for that visit.
+// Sidebar: collapses to icons. Remembered per browser; on the Inbox, and on Send's Personalise step (which needs the
+// width for the preview and the fields), it starts collapsed and the toggle only opens it for that visit.
 state.navCollapsed = (() => { try { return localStorage.getItem('navCollapsed') === '1'; } catch { return false; } })();
 state.inboxNavOpen = false;
+state.sendWide = false; // Send is on its Personalise step (set by send.js)
+state.sendNavOpen = false;
 function syncNav() {
-  const mini = state.tab === 'inbox' ? !state.inboxNavOpen : state.navCollapsed;
+  const mini = state.tab === 'inbox' ? !state.inboxNavOpen : state.tab === 'send' && state.sendWide ? !state.sendNavOpen : state.navCollapsed;
   const was = document.body.classList.contains('nav-mini');
   document.body.classList.toggle('nav-mini', mini);
   const btn = $('#navToggle');
@@ -131,6 +133,7 @@ function syncNav() {
 }
 $('#navToggle').addEventListener('click', () => {
   if (state.tab === 'inbox') state.inboxNavOpen = !state.inboxNavOpen;
+  else if (state.tab === 'send' && state.sendWide) state.sendNavOpen = !state.sendNavOpen;
   else {
     state.navCollapsed = !state.navCollapsed;
     try { localStorage.setItem('navCollapsed', state.navCollapsed ? '1' : '0'); } catch {}
@@ -1000,7 +1003,7 @@ function templateEditor(t = null) {
     <form id="teForm" class="te" novalidate>
       <div class="te-form">
         <div class="te-row">
-          <label class="te-name">Name<input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="order_update" maxlength="60" autocomplete="off">${t ? '' : '<span class="te-hint">Lowercase letters, numbers and underscores</span>'}</label>
+          <label class="te-name"><span>Name${t ? '' : '<span class="te-req">required</span>'}</span><input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="e.g. webinar_invite" maxlength="60" autocomplete="off">${t ? '' : '<span class="te-hint" id="teNameHint">Lowercase letters, numbers and underscores. Suggested from your message if left empty.</span>'}</label>
           <label>Language<select name="language" ${t ? 'disabled' : ''}>${TPL_LANGS.map(([v, l]) => `<option value="${v}" ${v === spec.language ? 'selected' : ''}>${l}</option>`).join('')}${TPL_LANGS.some(([v]) => v === spec.language) ? '' : `<option value="${esc(spec.language)}" selected>${esc(spec.language)}</option>`}</select></label>
         </div>
         <div class="te-row">
@@ -1167,8 +1170,15 @@ function templateEditor(t = null) {
   form.addEventListener('input', (e) => {
     const el = e.target;
     status.className = 'sf-status hidden';
-    if (el.name === 'name') { const v = el.value.toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, ''); if (v !== el.value) el.value = v; spec.name = v; }
-    else if (el.name === 'bodyText') { spec.body.text = el.value; if (tplVarNums(el.value).join() !== $$('[data-sample]', body).map((x) => Number(x.dataset.sample) + 1).join()) renderSamples(); }
+    if (el.name === 'name') { const v = el.value.toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, ''); if (v !== el.value) el.value = v; spec.name = v; el.dataset.suggested = ''; el.classList.toggle('bad', false); }
+    else if (el.name === 'bodyText') {
+      spec.body.text = el.value;
+      // No name typed yet: suggest one from the message's first words (it stays editable).
+      const nameEl = $('[name=name]', form);
+      if (!t && (!nameEl.value || nameEl.dataset.suggested)) {
+        const sug = el.value.replace(/{{\s*\d+\s*}}/g, ' ').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 4).join('_').slice(0, 40);
+        nameEl.value = sug; spec.name = sug; nameEl.dataset.suggested = sug ? '1' : ''; nameEl.classList.remove('bad');
+      } if (tplVarNums(el.value).join() !== $$('[data-sample]', body).map((x) => Number(x.dataset.sample) + 1).join()) renderSamples(); }
     else if (el.name === 'footer') spec.footer = el.value;
     else if (el.name === 'headerText') { spec.header.text = el.value; if (Boolean(tplVarNums(el.value).length) !== Boolean($('[name=headerSample]', body))) { renderHeader(); $('[name=headerText]', body).focus(); } }
     else if (el.name === 'headerSample') spec.header.sample = el.value;
@@ -1181,6 +1191,12 @@ function templateEditor(t = null) {
   const fileData = (f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(f); });
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+    if (!t && !spec.name.trim()) {
+      const n = $('[name=name]', form);
+      n.classList.add('bad'); n.scrollIntoView({ block: 'center', behavior: 'smooth' }); n.focus({ preventScroll: true });
+      show('bad', 'Give the template a name, e.g. webinar_invite');
+      return;
+    }
     const btn = $('.te-actions .btn.primary', body);
     guard(async () => {
       if (t && String(t.status).toUpperCase() === 'APPROVED' && live && t.metaId) {

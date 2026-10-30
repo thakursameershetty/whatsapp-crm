@@ -729,6 +729,8 @@
     $$('#spPanel .sp-pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== name));
     // Personalise widens the panel so the preview and the fields sit side by side.
     $('#tab-send').classList.toggle('pane-wide', name === 'preview');
+    // …and makes room by shrinking the sidebar to icons (Setup brings it back).
+    if (state.sendWide !== (name === 'preview')) { state.sendWide = name === 'preview'; state.sendNavOpen = false; syncNav(); }
     if (name === 'preview') renderPreview();
   }
   $('#spPaneSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-pane]'); if (b) setPane(b.dataset.pane); });

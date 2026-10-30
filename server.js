@@ -1180,7 +1180,14 @@ function createCampaign(body) {
   const missing = vars.find((v) => recipients.some((r) => !r.values[v.key]));
   const badRow = recipients.find((r) => valuesProblem(template, r.values));
   if (badRow) throw fail(`+${badRow.phone}: ${valuesProblem(template, badRow.values)}. Fix it on the Send page.`);
-  if (missing) throw fail(`Variable "${missing.key}" is empty for some recipients — map it to a column or set a fixed value`);
+  if (missing) {
+    const m = body.mapping?.[missing.key] || {};
+    const empty = recipients.filter((r) => !r.values[missing.key]);
+    const label = missing.media ? `the header ${missing.media}` : `{{${missing.name}}}`;
+    throw fail(m.type === 'column'
+      ? `${empty.length} ${empty.length === 1 ? 'person has' : 'people have'} no ${label} in “${m.value}” (empty, “Not Captured”, “N/A”…), e.g. +${empty[0].phone}. Type a fallback under ${label} on the Send page (like “there”), or refresh the page to leave them out.`
+      : `Fill in ${label} on the Send page.`);
+  }
 
   // Spread recipients evenly across the chosen numbers (round-robin).
   recipients.forEach((r, i) => Object.assign(r, { senderId: senders[i % senders.length].id, status: 'pending' }));
