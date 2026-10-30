@@ -559,13 +559,11 @@
     const ok = new Set(enabled.map((s) => s.id));
     for (const id of [...state.selectedSenders]) if (!ok.has(id)) state.selectedSenders.delete(id);
     if (!state.selectedSenders.size) enabled.forEach((s) => state.selectedSenders.add(s.id));
-    const hidden = all.length - enabled.length;
     $('#sendFromHint').textContent = enabled.length > 1 ? 'split evenly across the numbers you turn on' : enabled.length ? 'every message goes from this number' : '';
     $('#senderChecks').innerHTML = enabled.length
       ? enabled.map((s) => `<label class="toggle-item"><span><span class="ti-name">${esc(s.label)}</span><br/><span class="ti-meta">${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</span></span>${toggleHtml({ checked: state.selectedSenders.has(s.id), attrs: `value="${s.id}"`, size: 'sm' })}</label>`).join('')
       : all.length ? `<div class="empty-note">None of your numbers can send this template: it belongs to another WhatsApp Business Account.</div>`
       : `<div class="empty-note">No numbers yet. <a href="#" data-goto="numbers">Add one</a> to start sending.</div>`;
-    if (hidden && enabled.length) $('#senderChecks').insertAdjacentHTML('beforeend', `<div class="empty-note">${hidden} other number${hidden > 1 ? 's' : ''} can't send this template (a different WhatsApp Business Account).</div>`);
     renderSummary();
   }
   $('#senderChecks').addEventListener('change', (e) => {

@@ -551,13 +551,6 @@ html:has(.modal:not(.hidden)) { overflow: hidden; }
 @media (max-width: 900px) {
   .grid-2 { grid-template-columns: 1fr; }
   .sticky { position: static; }
-  /* Narrow screens: the sidebar folds into a bar across the top. */
-  body { padding-left: 0; }
-  .sidebar { position: sticky; width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 16px; box-shadow: 0 1px 0 var(--hair); }
-  .brand { padding: 0; }
-  .side-foot { order: 2; margin: 0 0 0 auto; padding: 0; box-shadow: none; }
-  .side-nav.seg { order: 3; flex-direction: row; width: 100%; overflow-x: auto; scrollbar-width: none; }
-  .side-nav.seg > button { width: auto; height: 34px; flex: none; }
   main { padding: 16px; }
   .banner { width: calc(100% - 32px); }
   .cards { grid-template-columns: minmax(0, 1fr); }
@@ -2927,7 +2920,6 @@ body.nav-mini .acct-text { display: none; }
 .login-alt { margin: 14px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
 .login-alt a { color: var(--text); font-weight: 600; }
 .login-card { width: min(400px, 100%); }
-@media (max-width: 900px) { .acct-btn { display: none; } }
 
 /* Show/hide password (sign-in pages) */
 .pw-wrap { position: relative; display: block; }
@@ -3283,9 +3275,6 @@ img.logo { width: 30px; height: 30px; border-radius: 8px; object-fit: contain; f
   .sidebar .side-foot { display: none; }
   body.nav-mini .acct-row { flex-direction: column; }
 }
-@media (max-width: 900px) {
-  .acct-row { order: 2; margin: 0; padding: 0; box-shadow: none; }
-}
 
 /* ---- The account menu ---- */
 .sg-pop.acct-pop { padding: 6px; }
@@ -3305,11 +3294,6 @@ img.logo { width: 30px; height: 30px; border-radius: 8px; object-fit: contain; f
 @keyframes logout-nudge { 0% { transform: translateX(0); } 45% { transform: translateX(-2px); } 100% { transform: translateX(2px); } }
 @media (prefers-reduced-motion: reduce) { .acct-pop-item.logout:hover .logout-arrow { animation: none; } }
 .acct-pop-item svg.la { margin: 0; }
-@media (max-width: 900px) {
-  .sidebar #themeSeg { display: none; }
-  .sidebar .theme-cycle { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; }
-  .sidebar .theme-cycle svg.la { margin: 0; }
-}
 
 /* Password rules: what's missing turns red when someone tries to submit */
 .pw-rules.shout li.miss { color: var(--danger); }
@@ -3346,8 +3330,6 @@ input.pw-bad, input.pw-bad:focus { box-shadow: var(--sh-sunk), 0 0 0 2px color-m
 
 /* ---- Narrow screens: nothing may push the page sideways ---- */
 @media (max-width: 900px) {
-  /* Top bar: bell, settings, Live/Demo and theme stay together on the right */
-  .sidebar .side-foot { margin: 0; }
   /* Inbox: the list takes the full width; filters wrap instead of stretching it */
   .inbox { grid-template-columns: minmax(0, 1fr); }
   .ib-filters { flex-wrap: wrap; }
@@ -3359,7 +3341,6 @@ input.pw-bad, input.pw-bad:focus { box-shadow: var(--sh-sunk), 0 0 0 2px color-m
   /* Filter tabs that don't fit scroll inside themselves */
   .nt-bar .seg, .filter-bar .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 }
-@media (max-width: 460px) { .sidebar .brand-name { display: none; } }
 
 /* Sign-up email, once confirmed: a green tick inside the box, the Send/Resend button folded away */
 .auth-email { position: relative; flex: 1; min-width: 0; display: block; }
@@ -4119,3 +4100,42 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .wss-sec .btn { display: inline-flex; align-items: center; gap: 6px; }
 .wss-danger { background: color-mix(in srgb, var(--danger) 6%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 25%, transparent); }
 .wss-danger .wss-ic { color: var(--danger); }
+/* Templates: the number filter stays compact in the header; with all numbers, one section per number. */
+#tplSender { width: auto; min-width: 160px; max-width: 220px; margin: 0; }
+.tpl-groups { display: grid; gap: 34px; }
+.tpl-group { display: grid; gap: 14px; }
+.tpl-group-h { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--hair); }
+.tpl-group-h > div { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.tpl-group-h b { font-size: 15px; }
+.tpl-group-h span { font-size: 12.5px; color: var(--muted); }
+.tpl-group-ic { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--sunk); color: var(--text); flex: none; }
+.tpl-group-n { flex: none; padding: 3px 10px; border-radius: 99px; background: var(--sunk); font-weight: 600; }
+.tpl-group-empty { margin: 0; }
+#cpSender { width: auto; min-width: 180px; max-width: 260px; margin: 0; }
+.cp-head-actions { flex-wrap: nowrap; align-items: center; }
+/* Page headers: the title and description take the space left, the actions stay on the right
+   (they only drop below on narrow screens). */
+.section-head > :first-child { flex: 1 1 320px; min-width: 0; }
+.section-head > :last-child:not(:first-child) { flex: none; margin-left: auto; }
+
+/* =================== Narrow screens: a top bar with a menu button; the sidebar slides in as a drawer =================== */
+.mbar, .drawer-scrim { display: none; }
+@media (max-width: 900px) {
+  body { padding-left: 0; padding-top: calc(56px + env(safe-area-inset-top)); }
+  .mbar { position: fixed; z-index: 30; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; height: calc(56px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+    background: color-mix(in srgb, var(--bg) 82%, transparent); -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3); box-shadow: 0 1px 0 var(--hair); }
+  .mbar .icon-btn { width: 40px; height: 40px; display: grid; place-items: center; position: relative; flex: none; color: var(--text); }
+  .mbar .logo { width: 26px; height: 26px; }
+  .mbar-title { flex: 1; min-width: 0; font: 600 16px Outfit, Inter, sans-serif; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mbar .nav-badge { position: absolute; top: 4px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px; font-size: 10px; }
+  .sidebar { position: fixed; z-index: 40; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); padding: calc(18px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+    overflow-y: auto; background: var(--bg); box-shadow: 0 0 0 1px var(--hair), 20px 0 50px -20px rgba(0, 0, 0, 0.35); transform: translateX(-105%); visibility: hidden; transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s linear 0.32s; }
+  body.drawer-open .sidebar { transform: none; visibility: visible; transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .drawer-scrim { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(10, 14, 18, 0.38); opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+  body.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }
+  body.drawer-open { overflow: hidden; }
+  .side-nav.seg > button { height: 44px; font-size: 15px; }
+  .sidebar .side-foot { margin-top: 10px; }
+  .banner { width: calc(100% - 32px); }
+}
+@media (max-width: 900px) and (prefers-reduced-motion: reduce) { .sidebar, .drawer-scrim { transition: none !important; } }

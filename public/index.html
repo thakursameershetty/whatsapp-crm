@@ -28,7 +28,7 @@
 </head>
 
 <body>
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="brand"><img class="logo" src="/brand/logo-small.svg" alt="" /><span class="brand-name">WhatsApp Sender</span>
       <button class="icon-btn nav-toggle la-host" id="navToggle" data-icon="panel-left" data-icon-size="17"
         title="Collapse sidebar" aria-label="Collapse sidebar" aria-expanded="true"></button>
@@ -74,6 +74,15 @@
       <button class="icon-btn theme-cycle la-host" id="themeCycle" type="button"></button>
     </div>
   </aside>
+
+  <!-- Narrow screens: a top bar with the menu button; the sidebar above opens as a drawer -->
+  <header class="mbar">
+    <button type="button" class="icon-btn" id="drawerOpen" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar" data-icon="list" data-icon-size="20"></button>
+    <img class="logo" src="/brand/logo-small.svg" alt="" />
+    <span class="mbar-title" id="mbarTitle">WhatsApp Sender</span>
+    <button type="button" class="icon-btn" data-tab-go="notifications" aria-label="Notifications" data-icon="bell" data-icon-size="19"><span class="nav-badge hidden" id="mbarBadge"></span></button>
+  </header>
+  <div class="drawer-scrim" id="drawerScrim"></div>
 
   <div id="verifyBanner" class="banner verify-banner hidden">
     <span class="dot"></span>

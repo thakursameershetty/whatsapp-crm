@@ -70,6 +70,18 @@ async function guard(fn, btn) {
 // Tabs, modal
 // ---------------------------------------------------------------------------
 
+// Narrow screens: the sidebar is a drawer opened from the top bar's menu button.
+function setDrawer(open) {
+  document.body.classList.toggle('drawer-open', open);
+  $('#drawerOpen')?.setAttribute('aria-expanded', String(open));
+  if (open) $('.side-nav button.active', $('#sidebar'))?.focus({ preventScroll: true });
+}
+$('#drawerOpen').addEventListener('click', () => setDrawer(!document.body.classList.contains('drawer-open')));
+$('#drawerScrim').addEventListener('click', () => setDrawer(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) { setDrawer(false); $('#drawerOpen').focus(); } });
+$('[data-tab-go]').addEventListener('click', (e) => showTab(e.currentTarget.dataset.tabGo));
+// The account menu and the other drawer buttons that leave the page close it too.
+$('#sidebar').addEventListener('click', (e) => { if (e.target.closest('#acctBtn, [data-goto], a[href]') && matchMedia('(max-width: 900px)').matches) setTimeout(() => setDrawer(false), 0); });
 function showTab(name) {
   if (name === 'assistant' && !state.me?.admin) name = 'overview'; // the AI features are admin-only
   $$('.side-nav button[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
@@ -77,6 +89,9 @@ function showTab(name) {
   $$('.tab').forEach((t) => t.classList.toggle('hidden', t.id !== 'tab-' + name));
   if (wasHidden) { Motion.enter($('#tab-' + name)); scrollTo(0, 0); } // a new page starts at the top
   state.tab = name;
+  // Narrow screens: the top bar names the page, and choosing a page closes the menu.
+  $('#mbarTitle').textContent = $(`.side-nav button[data-tab="${name}"] .nav-label`)?.textContent || 'WhatsApp Sender';
+  setDrawer(false);
   // The inbox fills the window and starts with the sidebar shrunk to icons.
   document.body.classList.toggle('inbox-open', name === 'inbox');
   document.body.classList.toggle('assistant-open', name === 'assistant');
@@ -935,14 +950,13 @@ function renderTemplates() {
     return;
   }
   if (pick && !shown.length) { list.innerHTML = `<p class="sub">No templates for ${esc(pick.label)} yet. Create one, or click Sync from Meta.</p>`; return; }
-  list.innerHTML = shown
-    .map((t) => `
+  const card = (t) => `
     <div class="card tpl-card">
       <div class="li-head">
         <h3>${esc(t.name)}</h3>
         <span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span>
       </div>
-      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}${nums.length > 1 && t.wabaId && accountLabel(t.wabaId) ? ` · <span class="tpl-num">${icon('phone', 11)}${esc(accountLabel(t.wabaId))}</span>` : ''}</div>
+      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
       ${t.rejectedReason ? `<div class="tpl-reason">${icon('badge-alert', 14)}<span>Meta's reason: ${esc(t.rejectedReason.toLowerCase().replace(/_/g, ' '))}. Edit it and submit again.</span></div>` : ''}
       <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
       ${t.variables.length ? `<div class="var-chips">${[...new Set(t.variables.map((v) => (v.media ? v.media + ' URL' : `{{${v.name}}}`)))].map((label) => `<span class="var-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
@@ -951,8 +965,25 @@ function renderTemplates() {
         ${(() => { const why = tplEditBlock(t); return `<button class="btn quiet sm" data-tedit="${t.id}" ${why ? `disabled title="${esc(why)}"` : ''}>${icon('square-pen', 15)}Edit</button>`; })()}
         <button class="btn quiet danger sm" data-del="${t.id}" style="margin-left:auto">${icon('delete', 15)}Delete</button>
       </div>
-    </div>`)
-    .join('');
+    </div>`;
+  // All numbers, with numbers in different Business Accounts: one titled section per account.
+  const accounts = [...new Set(nums.map((x) => x.wabaId))];
+  if (pick || accounts.length < 2) { list.className = 'cards'; list.innerHTML = shown.map(card).join(''); return; }
+  const groups = accounts.map((w) => ({ w, ts: shown.filter((t) => t.wabaId === w) }));
+  const other = shown.filter((t) => !accounts.includes(t.wabaId));
+  if (other.length) groups.push({ w: '', ts: other });
+  list.className = 'tpl-groups';
+  list.innerHTML = groups.map(({ w, ts }) => {
+    const ss = state.senders.filter((x) => w && x.wabaId === w);
+    return `<section class="tpl-group">
+      <div class="tpl-group-h">
+        <span class="tpl-group-ic">${icon(w ? 'phone' : 'file-text', 15)}</span>
+        <div><b>${w ? esc(ss.map((x) => x.label).join(', ')) : 'Other templates'}</b><span>${w ? esc(ss.map((x) => x.displayPhone).filter(Boolean).join(', ')) : 'Not tied to one of your numbers'}</span></div>
+        <span class="tpl-group-n">${ts.length} template${ts.length === 1 ? '' : 's'}</span>
+      </div>
+      ${ts.length ? `<div class="cards">${ts.map(card).join('')}</div>` : `<p class="sub tpl-group-empty">No templates for this number yet. Create one, or click Sync from Meta.</p>`}
+    </section>`;
+  }).join('');
 }
 
 $('#tplSender').addEventListener('change', (e) => { state.tplSender = e.target.value; renderTemplates(); });

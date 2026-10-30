@@ -131,11 +131,12 @@
 
   function renderList() {
     // Number filter only matters with more than one number in play.
-    // Every number in the workspace (not only ones with chats yet), with how many conversations each has.
+    // Every number in the workspace (not only ones with chats yet), each with how many chats it has.
     const senders = [...new Map([...state.senders.map((x) => [x.id, x.label]), ...ib.convs.map((c) => [c.senderId, c.senderLabel])])];
     const sel = $('#ibSender');
     sel.classList.toggle('hidden', senders.length < 2);
-    sel.innerHTML = `<option value="">All numbers (${ib.convs.length})</option>` + senders.map(([id, label]) => `<option value="${esc(id)}">${esc(label)} (${ib.convs.filter((c) => c.senderId === id).length})</option>`).join('');
+    const chats = (n) => `${n} chat${n === 1 ? '' : 's'}`;
+    sel.innerHTML = `<option value="">All numbers</option>` + senders.map(([id, label]) => `<option value="${esc(id)}">${esc(label)} · ${chats(ib.convs.filter((c) => c.senderId === id).length)}</option>`).join('');
     sel.value = senders.some(([id]) => id === ib.sender) ? ib.sender : '';
     // Template filter: people who were sent a given template (by a campaign or from here).
     const tplNames = [...new Set(ib.convs.flatMap((c) => c.templates || []))].sort((a, b) => a.localeCompare(b));

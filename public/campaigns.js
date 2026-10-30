@@ -110,12 +110,11 @@
     el.innerHTML = `
       <div class="section-head"><div><h1>Campaigns</h1>
         <p class="sub cp-summary">Last 30 days · <b>${T.sent.toLocaleString()}</b> sent · <b>${pctOf(T.del, T.sent)}%</b> delivered · <b>${pctOf(T.read, T.del)}%</b> read · <b>${T.rep.toLocaleString()}</b> repl${T.rep === 1 ? 'y' : 'ies'} · <b>${T.leads.toLocaleString()}</b> lead${T.leads === 1 ? '' : 's'}</p></div>
-        <button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div>
+        <div class="row tight cp-head-actions">${state.senders.length > 1 ? `<select id="cpSender" aria-label="Number"><option value="">All numbers</option>${state.senders.map((x) => `<option value="${x.id}" ${x.id === CP.sender ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>` : ''}<button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
       ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
       <div class="cp-tools">
         <div class="seg" id="cpFilter">${FILTERS.map(([k, label, fn]) => `<button data-f="${k}" class="${k === filter[0] ? 'active' : ''}">${label} <span class="opt">${CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length}</span></button>`).join('')}</div>
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="cpSearch" placeholder="Search name or template" value="${esc(CP.q)}" aria-label="Search campaigns" /></div>
-        ${state.senders.length > 1 ? `<select id="cpSender" aria-label="Number"><option value="">All numbers</option>${state.senders.map((x) => `<option value="${x.id}" ${x.id === CP.sender ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>` : ''}
         <label class="inline">Sort <select id="cpSort">${Object.entries(SORTS).map(([k, [label]]) => `<option value="${k}" ${k === CP.sort ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
         <div class="seg seg-icons cp-view" id="cpView" role="radiogroup" aria-label="View">
           <button data-view="cards" class="${CP.view === 'cards' ? 'active' : ''}" title="Cards" aria-label="Cards" aria-checked="${CP.view === 'cards'}" role="radio">${icon('layout-grid', 15)}</button>

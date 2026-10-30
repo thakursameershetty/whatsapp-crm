@@ -39,6 +39,8 @@
     const b = $('#notifBadge');
     b.textContent = NT.unread > 99 ? '99+' : NT.unread;
     b.classList.toggle('hidden', !NT.unread);
+    const m = $('#mbarBadge'); // the narrow screens' top bar
+    if (m) { m.textContent = b.textContent; m.classList.toggle('hidden', !NT.unread); }
   }
 
   function dayLabel(ts) {
