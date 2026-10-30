@@ -128,10 +128,14 @@
     for (const row of sh.rows) {
       if (row.cells.every((v) => !String(v ?? '').trim())) { row.st = 'empty'; row.phone = null; continue; }
       counts.rows++;
-      const p = col >= 0 ? normalizePhone(row.cells[col]) : null;
-      row.phone = p;
-      row.st = !p ? 'invalid' : seen.has(p) ? 'duplicate' : (seen.add(p), 'valid');
+      // A cell can hold several numbers: the first is suggested, and the tag on the cell lets you pick others.
+      row.phones = col >= 0 ? phoneCandidates(row.cells[col]) : [];
+      const picked = (row.pick || []).filter((p) => row.phones.includes(p));
+      row.send = picked.length ? picked : row.phones.slice(0, 1);
+      row.phone = row.send[0] || null;
+      row.st = !row.phone ? 'invalid' : row.send.every((p) => seen.has(p)) ? 'duplicate' : (row.send.forEach((p) => seen.add(p)), 'valid');
       counts[row.st]++;
+      if (row.phones.length > 1) counts.multi = (counts.multi || 0) + 1;
     }
     sh.counts = counts;
   }
@@ -145,6 +149,7 @@
     invalid: { label: 'Invalid', test: (r) => r.st === 'invalid' },
     duplicate: { label: 'Duplicates', test: (r) => r.st === 'duplicate' },
     off: { label: 'Left out', test: (r) => !r.on && r.st !== 'invalid' && r.st !== 'empty' },
+    multi: { label: 'Several numbers', test: (r) => (r.phones?.length || 0) > 1 },
   };
 
   const grid = Sheet.create($('#spGrid'), {
@@ -165,8 +170,12 @@
     cellInfo(sh, row, c) {
       if (sh.headers[c] !== sh.phoneName || row.st === 'empty') return null;
       if (row.st === 'invalid') return { cls: 'ph bad', title: 'Not a valid phone number' };
-      if (row.st === 'duplicate') return { cls: 'ph dup', title: `+${row.phone} appears earlier in this sheet; it's sent once` };
-      return { cls: 'ph', title: `+${row.phone}` };
+      const multi = row.phones.length > 1
+        ? { badge: `<button type="button" class="sp-multi ${row.pick?.length ? 'chosen' : ''}" tabindex="-1" title="${row.phones.length} numbers in this cell · click to choose">${row.send.length > 1 ? `${row.send.length} of ${row.phones.length}` : `${row.phones.length} numbers`}</button>` }
+        : {};
+      const sending = row.send.map((p) => '+' + p).join(' and ');
+      if (row.st === 'duplicate') return { cls: `ph dup${multi.badge ? ' multi' : ''}`, title: `${sending} appears earlier in this sheet; it's sent once`, ...multi };
+      return { cls: `ph${multi.badge ? ' multi' : ''}`, title: row.phones.length > 1 ? `Sending to ${sending}${row.pick?.length ? '' : ' (the first number, suggested)'}` : `+${row.phone}`, ...multi };
     },
     headerTag: (sh, c) => (sh.headers[c] === sh.phoneName ? `<span class="sg-tag" title="Phone column">${icon('phone', 11)}</span>` : ''),
     allChecked(sh) {
@@ -470,13 +479,15 @@
         if (!shown.has(row)) { skip.filtered++; continue; }
         if (row.st === 'invalid') { skip.invalid++; continue; }
         if (!row.on) { skip.unticked++; continue; }
-        if (seen.has(row.phone)) { skip.duplicate++; continue; }
+        const nums = row.send.filter((p) => !seen.has(p));
+        if (!nums.length) { skip.duplicate++; continue; }
         const obj = {};
         sh.headers.forEach((h, i) => { obj[h] = String(row.cells[i] ?? '').trim(); });
-        const miss = vars.find((v) => SP.mapping[v.key]?.type === 'column' && !obj[SP.mapping[v.key].value]);
+        // A column value that's empty or a placeholder ("Not Captured") uses the variable's fallback, if it has one.
+        const miss = vars.find((v) => { const m = SP.mapping[v.key]; return m?.type === 'column' && !cleanCell(obj[m.value]) && !String(m.fallback || '').trim(); });
         if (miss) { skip.missing[miss.key] = (skip.missing[miss.key] || 0) + 1; continue; }
-        seen.add(row.phone);
-        out.push({ sheet: sh, row, obj: { ...obj, __phone: row.phone } });
+        // One message per chosen number (usually one: the suggested first number).
+        for (const p of nums) { seen.add(p); out.push({ sheet: sh, row, obj: { ...obj, __phone: p } }); }
       }
     }
     return { list: out, skip, sheets };
@@ -574,8 +585,26 @@
         </select>
         ${fixed ? `<input class="m-val" value="${esc(m.value)}" placeholder="${v.media ? 'https://…/image.jpg' : go ? 'https://… (any full link)' : 'Type the text'}" aria-label="Text for ${esc(varLabel(v))}" />` : ''}
         ${fixed && v.media ? `<div class="m-upload-row"><label class="btn sm m-upload" title="Upload a ${esc(v.media)} from this computer">${icon('upload', 14)}${uploadedName(m.value) ? 'Replace' : 'Upload'} ${esc(v.media)}<input type="file" hidden accept="${esc(UPLOAD_ACCEPT[v.media] || '')}" /></label>${m.value ? `<button type="button" class="btn sm quiet m-unupload" title="Take this ${esc(v.media)} out of the message">${icon('delete', 14)}Remove</button>` : ''}</div>` : ''}
+        ${m.type === 'column' && !v.media ? fallbackHtml(v, m) : ''}
       </div>${v.media === 'document' ? fileNameRow() : ''}`;
     }).join('');
+  }
+  // Rows about to be sent whose cell in `col` is empty or a placeholder ("Not Captured", "N/A"…).
+  function blankRows(col) {
+    let n = 0;
+    for (const sh of SP.sheets) {
+      if (!sh.included) continue;
+      const i = sh.headers.indexOf(col);
+      if (i < 0) continue;
+      for (const row of sh.rows) if (row.st === 'valid' && row.on && !cleanCell(row.cells[i])) n++;
+    }
+    return n;
+  }
+  // What a column variable says when the cell has nothing usable, e.g. "your organisation" for a company.
+  function fallbackHtml(v, m) {
+    const n = blankRows(m.value);
+    return `<input class="m-fb" value="${esc(m.fallback || '')}" placeholder="If empty or “Not Captured”, use…" aria-label="Fallback for ${esc(varLabel(v))}" />
+      <small class="m-hint">${n ? `${n.toLocaleString()} row${n > 1 ? 's have' : ' has'} no value here (empty, “Not Captured”, “N/A”…). ${m.fallback ? 'They get the text above.' : 'Without text above, they’re left out.'}` : 'Every row has a value here.'}</small>`;
   }
   // The name WhatsApp shows on a PDF header (without one it says "Untitled"). Upload fills in the original name.
   function fileNameRow() {
@@ -624,7 +653,11 @@
     const row = e.target.closest('.sp-map');
     if (!row) return;
     const key = row.dataset.key;
-    if (e.target.classList.contains('m-src')) {
+    if (e.target.classList.contains('m-fb')) {
+      SP.mapping[key].fallback = e.target.value;
+      const hint = e.target.nextElementSibling;
+      if (hint?.classList.contains('m-hint')) hint.textContent = hint.textContent.replace(/(They get the text above\.|Without text above, they’re left out\.)$/, e.target.value.trim() ? 'They get the text above.' : 'Without text above, they’re left out.');
+    } else if (e.target.classList.contains('m-src')) {
       const v = e.target.value;
       SP.mapping[key] = v === 'fixed' ? { type: 'fixed', value: '' } : v.startsWith('s:') ? { type: 'same', value: v.slice(2) } : { type: 'column', value: v.slice(2) };
       renderMapping();
@@ -639,7 +672,7 @@
     const out = {};
     for (const v of currentTemplate()?.variables || []) {
       const m = SP.mapping[v.key] || {};
-      out[v.key] = m.type === 'column' ? obj?.[m.value] ?? '' : m.type === 'same' ? '' : m.value || '';
+      out[v.key] = m.type === 'column' ? cleanCell(obj?.[m.value]) || String(m.fallback || '').trim() : m.type === 'same' ? '' : m.value || '';
     }
     for (const v of currentTemplate()?.variables || []) if (SP.mapping[v.key]?.type === 'same') out[v.key] = out[SP.mapping[v.key].value] ?? '';
     if (SP.mapping['header.filename']?.value) out['header.filename'] = SP.mapping['header.filename'].value;
@@ -781,7 +814,7 @@
   }
   function renderStrip(sh, filtered) {
     const off = sh.rows.filter(SHOW.off.test).length;
-    const n = { all: sh.counts.rows, valid: sh.counts.valid, invalid: sh.counts.invalid, duplicate: sh.counts.duplicate, off };
+    const n = { all: sh.counts.rows, valid: sh.counts.valid, invalid: sh.counts.invalid, duplicate: sh.counts.duplicate, off, multi: sh.counts.multi || 0 };
     const cur = sh.show || 'all';
     const shown = sh.view.filter((r) => r.st !== 'empty').length;
     $('#spStrip').innerHTML = `
@@ -789,10 +822,29 @@
         k !== 'all' && k !== 'valid' && !n[k] && cur !== k ? '' : `<button type="button" data-show="${k}" class="${cur === k ? 'active' : ''} st-${k}" role="radio" aria-checked="${cur === k}">${v.label} <span class="n">${n[k].toLocaleString()}</span></button>`).join('')}</div>
       ${filtered ? `<span class="sp-filtered">${shown.toLocaleString()} of ${sh.counts.rows.toLocaleString()} rows match the column filters · <button type="button" class="link" data-clear-filters>Clear</button></span>` : ''}
       ${!sh.phoneName ? '<span class="sp-alert">Choose the phone column in the toolbar</span>' : ''}
-      ${phoneHint(sh)}${shiftHint(sh)}`;
+      ${phoneHint(sh)}${shiftHint(sh)}${n.multi && cur !== 'multi' ? `<button type="button" class="link sp-phone-hint" data-show="multi">${n.multi.toLocaleString()} row${n.multi > 1 ? 's have' : ' has'} more than one number: the first one is used. Review</button>` : ''}`;
     Motion.segs($('#spStrip'));
   }
 
+  // The tag on a phone cell with several numbers: choose which to send to (one, or all of them).
+  // (Pressing it mustn't select the cell: that redraws the row and the click would be lost.)
+  $('#spGrid').addEventListener('mousedown', (e) => { if (e.target.closest('.sp-multi')) e.stopPropagation(); }, true);
+  $('#spGrid').addEventListener('click', (e) => {
+    const tag = e.target.closest('.sp-multi');
+    if (!tag) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const sh = current(), row = sh.view[Number(tag.closest('tr').dataset.r)];
+    if (!row) return;
+    const set = (pick) => { row.pick = pick; recheck(sh); grid.render(); renderChrome(); };
+    const r = tag.getBoundingClientRect();
+    const isOnly = (p) => row.send.length === 1 && row.send[0] === p;
+    Sheet.Menu.open(r.left, r.bottom + 4, [
+      ...row.phones.map((p, i) => ({ label: `${isOnly(p) ? '✓ ' : ''}+${p}`, kbd: i === 0 ? 'suggested' : '', action: () => set(i === 0 ? undefined : [p]) })),
+      '-',
+      { label: `${row.send.length === row.phones.length ? '✓ ' : ''}Send to all ${row.phones.length} numbers`, action: () => set([...row.phones]) },
+    ]);
+  }, true); // before the grid's own click handling
   $('#spStrip').addEventListener('click', (e) => {
     const show = e.target.closest('[data-show]');
     if (show) {
@@ -1004,7 +1056,7 @@
       v: 1, savedAt: Date.now(), active: SP.active, mapping: SP.mapping,
       sheets: SP.sheets.map((sh) => ({
         name: sh.name, file: sh.file, headers: sh.headers, widths: sh.widths, phoneName: sh.phoneName, included: sh.included, dirty: sh.dirty,
-        rows: sh.rows.map((r) => [r.cells, r.on ? 1 : 0]),
+        rows: sh.rows.map((r) => (r.pick?.length ? [r.cells, r.on ? 1 : 0, r.pick] : [r.cells, r.on ? 1 : 0])),
         filters: Object.fromEntries(Object.entries(sh.filters || {}).map(([c, x]) => [c, { text: x.text || '', values: x.values ? [...x.values] : null }])),
       })),
       templateId: $('#templateSelect').value, senders: [...state.selectedSenders], name: $('#campaignName').value,
@@ -1028,7 +1080,7 @@
       try {
         SP.sheets = d.sheets.map((x) => {
           const sh = { id: nextId++, name: x.name, file: x.file, headers: x.headers, widths: x.widths, phoneName: x.phoneName, included: x.included, dirty: x.dirty,
-            rows: x.rows.map(([cells, on]) => ({ cells, on: Boolean(on) })),
+            rows: x.rows.map(([cells, on, pick]) => ({ cells, on: Boolean(on), ...(pick ? { pick } : {}) })),
             filters: Object.fromEntries(Object.entries(x.filters || {}).map(([c, f]) => [c, { text: f.text, ...(f.values ? { values: new Set(f.values) } : {}) }])) };
           recheck(sh);
           return sh;

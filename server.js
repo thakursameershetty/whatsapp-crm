@@ -98,12 +98,33 @@ function phoneInputError(input) {
   return normalizePhone(v) ? '' : 'Enter a valid phone number';
 }
 
-function normalizePhone(input) {
-  let digits = String(input || '').replace(/\D/g, '').replace(/^00/, '');
+// Every phone number in a cell, best first. Lead sheets often hold several ("98450 08573 / 99805 17082",
+// "Mobile: … ⏎ Telephone: …"); each part is read on its own, notes in brackets are ignored, and fewer than
+// 10 or more than 15 digits isn't a phone number. Office/landline numbers go last (they rarely have WhatsApp).
+// Keep in step with phoneCandidates in public/app.js.
+function phoneCandidates(input) {
   const cc = db.settings.defaultCountryCode;
-  if (cc && digits.length === 10) digits = cc + digits;
-  if (cc && digits.length === 11 && digits.startsWith('0')) digits = cc + digits.slice(1);
-  return digits.length >= 8 && digits.length <= 15 ? digits : null;
+  const best = [], last = [];
+  for (const part of String(input ?? '').split(/[\n,;|]+|\s*\/\s*|\s+(?:or|and|&)\s+/i)) {
+    let d = part.replace(/\([^)]*\)/g, ' ').replace(/\D/g, '').replace(/^00/, '');
+    if (cc && d.length === 10) d = cc + d;
+    else if (cc && d.length === 11 && d.startsWith('0')) d = cc + d.slice(1);
+    if (d.length < 10 || d.length > 15) continue;
+    (/\b(tel|telephone|office|landline|fax|board)\b/i.test(part) ? last : best).push(d);
+  }
+  return [...new Set([...best, ...last])];
+}
+function normalizePhone(input) {
+  return phoneCandidates(input)[0] || null;
+}
+
+// A sheet value for a {{variable}}: bracketed notes dropped ("Sourceways (unclear)" → "Sourceways"), and
+// placeholders like "Not Captured", "N/A" or "-" count as empty, so the Send page's fallback can step in.
+// Keep in step with cleanCell in public/app.js.
+const FILLER = /^(not\s*(captured|available|applicable|known|mentioned|provided|given|found)|n\s*\/?\s*a|nil|null|none|unknown|invalid|tbd|tba|no\s*data|-+|\.+|\?+|x+)$/i;
+function cleanCell(v) {
+  const s = String(v ?? '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  return !s || FILLER.test(s) ? '' : s;
 }
 
 // The name WhatsApp shows on a document header (otherwise it says "Untitled"): the one typed on the Send page,
@@ -1052,7 +1073,7 @@ function resolveRecipients(body, template) {
     const values = {};
     for (const v of vars) {
       const m = mapping[v.key] || {};
-      values[v.key] = m.type === 'column' ? String(row[m.value] ?? '').trim() : m.type === 'same' ? '' : String(m.value ?? '');
+      values[v.key] = m.type === 'column' ? cleanCell(row[m.value]) || String(m.fallback ?? '').trim() : m.type === 'same' ? '' : String(m.value ?? '');
     }
     // "Same as another variable" (a button reusing the message's link) once the others are filled.
     for (const v of vars) if (mapping[v.key]?.type === 'same') values[v.key] = values[mapping[v.key].value] ?? '';

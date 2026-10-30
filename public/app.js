@@ -1261,12 +1261,33 @@ function loadXlsxLib() {
 
 const looksLikePhone = (v) => /^\+?[\d\s\-().]{8,}$/.test(String(v).trim());
 
-function normalizePhone(input) {
-  let d = String(input || '').replace(/\D/g, '').replace(/^00/, '');
+// Every phone number in a cell, best first. Lead sheets often hold several ("98450 08573 / 99805 17082",
+// "Mobile: … ⏎ Telephone: …"); each part is read on its own, notes in brackets are ignored, and fewer than
+// 10 or more than 15 digits isn't a phone number. Office/landline numbers go last (they rarely have WhatsApp).
+// Keep in step with phoneCandidates in server.js.
+function phoneCandidates(input) {
   const cc = state.settings.defaultCountryCode;
-  if (cc && d.length === 10) d = cc + d;
-  if (cc && d.length === 11 && d.startsWith('0')) d = cc + d.slice(1);
-  return d.length >= 8 && d.length <= 15 ? d : null;
+  const best = [], last = [];
+  for (const part of String(input ?? '').split(/[\n,;|]+|\s*\/\s*|\s+(?:or|and|&)\s+/i)) {
+    let d = part.replace(/\([^)]*\)/g, ' ').replace(/\D/g, '').replace(/^00/, '');
+    if (cc && d.length === 10) d = cc + d;
+    else if (cc && d.length === 11 && d.startsWith('0')) d = cc + d.slice(1);
+    if (d.length < 10 || d.length > 15) continue;
+    (/\b(tel|telephone|office|landline|fax|board)\b/i.test(part) ? last : best).push(d);
+  }
+  return [...new Set([...best, ...last])];
+}
+function normalizePhone(input) {
+  return phoneCandidates(input)[0] || null;
+}
+
+// A sheet value for a {{variable}}: bracketed notes dropped ("Sourceways (unclear)" → "Sourceways"), and
+// placeholders like "Not Captured", "N/A" or "-" count as empty, so a fallback can step in.
+// Keep in step with cleanCell in server.js.
+const FILLER = /^(not\s*(captured|available|applicable|known|mentioned|provided|given|found)|n\s*\/?\s*a|nil|null|none|unknown|invalid|tbd|tba|no\s*data|-+|\.+|\?+|x+)$/i;
+function cleanCell(v) {
+  const s = String(v ?? '').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  return !s || FILLER.test(s) ? '' : s;
 }
 
 // A cell that is a phone number and nothing else: digits with the usual separators, optionally

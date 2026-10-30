@@ -335,7 +335,7 @@
           const sel = rowSel && inSel(r, c);
           const act = r === s.fr && c === s.fc;
           const cell = hooks.cellInfo?.(sh, row, c) || {};
-          html += `<td data-c="${c}" class="${sel ? 'sel' : ''}${act ? ' act' : ''}${cell.cls ? ' ' + cell.cls : ''}"${cell.title ? ` title="${escHtml(cell.title)}"` : ''}>${escHtml(val)}</td>`;
+          html += `<td data-c="${c}" class="${sel ? 'sel' : ''}${act ? ' act' : ''}${cell.cls ? ' ' + cell.cls : ''}"${cell.title ? ` title="${escHtml(cell.title)}"` : ''}>${escHtml(val)}${cell.badge || ''}</td>`;
         }
         html += '<td class="sg-fill"></td></tr>';
       }
@@ -893,6 +893,7 @@
         el.append(b);
       });
       place(el, x, y);
+      openedAt = Date.now();
       el.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
     }
     function panel(x, y, html) {
