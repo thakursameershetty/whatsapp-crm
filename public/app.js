@@ -1407,6 +1407,33 @@ function realignShiftedRows(headers, rows, groups) {
 
 const varLabel = (v) => (v.media ? `header ${v.media} URL` : `${v.where} {{${v.name}}}`);
 
+// A PDF in a message: clicking it opens this preview popup (above anything else open) instead of leaving the app.
+function pdfViewer(url, name) {
+  let el = $('#pdfModal');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'pdfModal';
+    el.className = 'modal hidden';
+    document.body.append(el);
+    el.addEventListener('click', (e) => { if (e.target === el || e.target.closest('[data-pdf-close]')) hideOverlay(el); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !el.classList.contains('hidden')) { e.stopPropagation(); hideOverlay(el); } }, true);
+  }
+  el.innerHTML = `<div class="modal-box pdf-box" role="dialog" aria-label="${esc(name)}">
+    <div class="modal-head"><h2 class="pdf-name">${icon('file-text', 18)}<span>${esc(name)}</span></h2>
+      <div class="pdf-actions"><a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">${icon('external-link', 14)}Open in new tab</a><a class="btn sm" href="${esc(url)}" download="${esc(name)}">${icon('download', 14)}Download</a><button type="button" class="icon-btn" data-pdf-close aria-label="Close">${icon('x', 18)}</button></div></div>
+    <iframe class="pdf-frame" src="${esc(url)}#view=FitH" title="${esc(name)}"></iframe>
+    <p class="sub pdf-note">If it doesn't show here, the file's website doesn't allow previews: use Open in new tab.</p>
+  </div>`;
+  el.classList.remove('hidden');
+}
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('[data-pdf]');
+  if (!a || e.metaKey || e.ctrlKey) return; // ⌘/Ctrl-click still opens a new tab
+  e.preventDefault();
+  e.stopPropagation();
+  pdfViewer(a.dataset.pdf, a.dataset.pdfName || 'Document.pdf');
+}, true);
+
 // WhatsApp formatting on already-escaped text, the way the phone shows it: *bold*, _italic_, ~strike~,
 // ```monospace```, and links (with or without https://, e.g. youtube.com) that open in a new tab.
 const WA_LINK = /((?:https?:\/\/|www\.)[^\s<]+|(?<![@\w.\/-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|in|org|net|io|co|app|dev|me|ai|edu|gov|info|biz|ly|gl|be|link|site|shop|store|xyz|tv)\b(?:\/[^\s<]*)?)/gi;
@@ -1453,9 +1480,11 @@ function bubbleHtml(t, values, neutral = false, meta = '') {
       const isImg = h.format === 'IMAGE' && /^(https?:\/\/|blob:)/.test(url || '');
       // A real image keeps its own shape, like on the phone; until there is one, a placeholder box.
       let docName = h.format === 'DOCUMENT' && url ? String(values['header.filename'] || '').trim() || decodeURIComponent(String(url).split('/').pop() || '') : '';
+      if (/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(docName)) docName = 'Document.pdf'; // an upload from before names were kept
       if (docName && !/\.[a-z0-9]{2,4}$/i.test(docName)) docName += '.pdf'; // the server adds it when sending, too
+      // A PDF opens in the preview popup (pdfViewer) when clicked.
       html += isImg ? `<img class="media-img" src="${esc(url)}" alt="" loading="lazy" />`
-        : docName && !/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(docName) ? `<div class="media media-doc">${icon('file-text', 22)}<span>${esc(docName)}</span></div>`
+        : docName && /^(https?:\/\/|blob:)/.test(url) ? `<a class="media media-doc" href="${esc(url)}" target="_blank" rel="noopener" data-pdf="${esc(url)}" data-pdf-name="${esc(docName)}" title="Preview ${esc(docName)}">${icon('file-text', 22)}<span>${esc(docName)}</span><small>Preview</small></a>`
         : `<div class="media">${esc(h.format.toLowerCase())}</div>`;
     }
   }

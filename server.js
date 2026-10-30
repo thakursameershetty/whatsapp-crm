@@ -467,6 +467,7 @@ app.use(express.json({ limit: '20mb' }));
 app.get(['/u/:file', '/u/:file/:name'], (req, res) => {
   if (!/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(req.params.file)) return res.status(404).end();
   res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  res.set('X-Frame-Options', 'SAMEORIGIN'); // the app's PDF preview shows these in a frame
   res.sendFile(path.join(UPLOAD_DIR, req.params.file), (err) => err && !res.headersSent && res.status(404).end());
 });
 // A template button's redirect link (see goCode). Public: the people tapping it aren't signed in.

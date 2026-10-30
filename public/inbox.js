@@ -318,6 +318,12 @@
         <div id="ibFoot"></div>`;
       $('#ibBack').onclick = closeConversation;
       toBottom = true;
+      // Stay at the newest message when the area above the reply box changes height (the "Let AI reply" chip,
+      // a suggested reply, "AI is typing…", a window resize) — unless you've scrolled up to read older ones.
+      const msgs = $('#ibMsgs');
+      let pinned = true;
+      msgs.addEventListener('scroll', () => { pinned = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 48; }, { passive: true });
+      new ResizeObserver(() => { if (pinned) msgs.scrollTop = msgs.scrollHeight; }).observe(msgs);
     }
     $('#ibName').textContent = displayName(c);
     $('#ibSub').textContent = `${c.name ? fmtPhone(c.wa) + ' · ' : ''}via ${c.senderLabel}`;

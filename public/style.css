@@ -4023,3 +4023,20 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .sp-multi:hover { background: color-mix(in srgb, var(--info) 22%, transparent); }
 .sp-multi.chosen { background: var(--accent-soft); color: var(--accent-text); }
 .sp-map .m-fb { grid-column: 2; }
+/* A PDF header is a link that opens the preview popup. */
+a.media.media-doc { text-decoration: none; cursor: pointer; transition: background 0.15s; }
+a.media.media-doc:hover { background: var(--hair); }
+.media.media-doc small { margin-left: auto; font-weight: 500; color: var(--info); font-size: 12px; }
+/* PDF preview popup */
+#pdfModal { z-index: 57; }
+.pdf-box { max-width: 960px; width: 100%; height: min(88vh, 1100px); display: flex; flex-direction: column; }
+.pdf-box .modal-head { gap: 12px; }
+.pdf-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pdf-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pdf-name svg { flex: none; color: var(--danger); }
+.pdf-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.pdf-actions .btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.pdf-actions .icon-btn { display: grid; place-items: center; }
+.pdf-frame { flex: 1; width: 100%; min-height: 0; border: 0; border-radius: 10px; background: var(--sunk); }
+.pdf-note { margin: 8px 0 0; font-size: 12px; }
+@media (max-width: 640px) { .pdf-actions .btn { padding: 0 8px; font-size: 0; gap: 0; } .pdf-actions .btn svg { width: 16px; height: 16px; } }
