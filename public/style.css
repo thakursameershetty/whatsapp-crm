@@ -699,7 +699,7 @@ html:has(.modal:not(.hidden)) { overflow: hidden; }
 /* Template cards with WhatsApp preview */
 .tpl-card { display: flex; flex-direction: column; }
 .tpl-chat { background: var(--chat); border-radius: 11px; padding: 14px; margin: 14px 0; box-shadow: var(--sh-sunk); }
-#templateList { align-items: start; }
+#templateList, .tpl-group .cards { align-items: start; }
 .tpl-chat .bubble { font-size: 13px; max-width: 100%; }
 .var-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .var-chip { font: 600 11.5px ui-monospace, Menlo, monospace; padding: 3px 8px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-text); }
@@ -3361,6 +3361,9 @@ h1, h2, h3, h4, p, li, dd, blockquote, code, .sub { overflow-wrap: anywhere; }
 .sf-token { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 14px; padding: 8px 8px 8px 14px; border-radius: var(--r-md); background: var(--sunk); box-shadow: var(--sh-sunk); font-size: 13.5px; color: var(--muted); }
 .sf-token span { display: inline-flex; align-items: center; gap: 7px; }
 .sf-token b { color: var(--text); font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.04em; }
+.sf-find { position: relative; display: block; }
+.sf-find input { padding-right: 88px; }
+.sf-find .btn { position: absolute; right: 5px; bottom: 5px; }
 .sf-status { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0 12px; padding: 10px 12px; border-radius: var(--r-md); font-size: 13px; line-height: 1.45; }
 .sf-status svg { flex: none; margin-top: 1px; }
 .sf-status.busy { background: var(--sunk); color: var(--muted); align-items: center; }

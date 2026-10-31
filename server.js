@@ -255,6 +255,7 @@ async function graph(sender, pathname, options = {}) {
       : json.error?.error_user_msg || json.error?.message || `HTTP ${res.status}`;
     const err = new Error(msg);
     err.code = json.error?.code;
+    err.subcode = json.error?.error_subcode;
     err.status = res.status;
     throw err;
   }
@@ -658,19 +659,24 @@ async function findWaba(who, phoneNumberId, given, say) {
   const holds = async (waba) => (await graph(who, `${encodeURIComponent(waba)}/phone_numbers?fields=id&limit=200`)).data?.some((x) => x.id === String(phoneNumberId));
   const firstHolding = async (ids) => { for (const w of ids) if (await holds(w).catch(() => false)) return w; return ''; };
   if (given) {
+    let lastErr;
     try {
       if (await holds(given)) return given;
       throw fail("This number isn't in that WhatsApp Business Account. Paste your Business portfolio ID instead (the business_id= in business.facebook.com links) and the right account is found from it.");
     } catch (e) {
+      lastErr = e;
       if (e.code !== 100) throw e.httpStatus ? e : fail(say(e,"Meta has no WhatsApp Business Account with this ID that this token can use. Paste your Business portfolio ID instead (the business_id= in business.facebook.com links) and the right account is found from it."));
     }
-    // Code 100 "nonexisting field": a real ID, but not a WhatsApp Business Account. Try it as a Business portfolio.
+    // Code 100 "nonexisting field": a real ID, but not a WhatsApp Business Account. Subcode 33: Meta won't open
+    // the ID for this token at all (wrong ID, or the token isn't given that account). Either way, try it as a Business portfolio.
+    const hidden = lastErr?.subcode === 33;
     const accounts = [];
     for (const edge of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
       try { accounts.push(...((await graph(who, `${encodeURIComponent(given)}/${edge}?fields=id&limit=200`)).data || []).map((x) => x.id)); } catch {}
     }
     const w = await firstHolding(accounts);
     if (w) return w;
+    if (hidden) throw fail(`Meta won't let this access token open account ${given}. If the ID is right, the token hasn't been given this WhatsApp account: in Meta Business Settings → System users, pick the user, Assign assets → this WhatsApp account (full control), then Generate token with whatsapp_business_messaging and whatsapp_business_management and paste it with Replace token.`);
     throw fail("That isn't a WhatsApp Business Account ID, and no account under it holds this number. Paste your Business portfolio ID instead (the business_id= in business.facebook.com links) and the right account is found from it.");
   }
   // Blank: tokens limited to particular accounts list them in their permissions. Unrestricted tokens don't,
@@ -686,6 +692,11 @@ async function findWaba(who, phoneNumberId, given, say) {
     const d = (await graph(who, `debug_token?input_token=${encodeURIComponent(who.accessToken)}`)).data || {};
     const ids = [...new Set((d.granular_scopes || []).filter((g) => /^whatsapp_business_/.test(g.scope)).flatMap((g) => g.target_ids || []))];
     const w = await firstHolding(ids);
+    if (w) return w;
+  } catch {}
+  try {
+    // System users given particular accounts in Business Settings.
+    const w = await firstHolding(((await graph(who, 'me/assigned_whatsapp_business_accounts?fields=id&limit=200')).data || []).map((x) => x.id));
     if (w) return w;
   } catch {}
   try {
@@ -725,6 +736,23 @@ app.post('/api/senders/verify', wrap(async (req, res) => {
   const token = tokenFor(req.body, existing);
   if (!token) throw fail(NEED_TOKEN);
   res.json({ ok: true, info: await verifyWithMeta({ phoneNumberId: pnid, wabaId: waba, accessToken: token }), sharedToken: !req.body.accessToken && !existing?.accessToken });
+}));
+
+// The popup's "Find" button next to the account ID: works out the WhatsApp Business Account from the phone number ID
+// and token, or from a Business portfolio ID typed in the field. Only reads from Meta.
+app.post('/api/senders/find-waba', wrap(async (req, res) => {
+  const existing = req.body.senderId ? db.senders.find((x) => x.id === req.body.senderId) : null;
+  const pnid = String(req.body.phoneNumberId || '').trim(), given = String(req.body.wabaId || '').trim();
+  if (!pnid) throw fail('Enter the phone number ID first');
+  { const e = senderIdsError({ phoneNumberId: pnid, wabaId: given }); if (e) throw fail(e); }
+  const token = tokenFor(req.body, existing);
+  if (!token) throw fail(NEED_TOKEN);
+  const who = { label: 'this number', accessToken: token };
+  const say = (e, fallback) => (e.code === 190 ? "Meta doesn't accept this access token. Paste a new one." : fallback);
+  const wabaId = await findWaba(who, pnid, given, say);
+  if (!wabaId) throw fail("Meta won't say which account this number is in for this token. Paste your Business portfolio ID here (the business_id= in business.facebook.com links) and click Find again.");
+  const name = await graph(who, `${encodeURIComponent(wabaId)}?fields=name`).then((x) => x.name || '').catch(() => '');
+  res.json({ wabaId, name });
 }));
 
 app.post('/api/senders', wrap(async (req, res) => {
@@ -1167,6 +1195,7 @@ app.post('/api/send/test', wrap(async (req, res) => {
   const template = db.templates.find((t) => t.id === templateId);
   if (!sender || !template) throw fail('Pick a sender number and a template');
   if (template.wabaId && sender.wabaId && template.wabaId !== sender.wabaId) throw fail(`“${sender.label}” can't send ${template.name}: it belongs to a different WhatsApp Business Account`);
+  { const e = !db.settings.demoMode && notApprovedError(template); if (e) throw fail(e); }
   const phoneErr = phoneInputError(phone);
   if (phoneErr) throw fail(phoneErr);
   const to = normalizePhone(phone);
@@ -1203,11 +1232,20 @@ function checkDailyLimit(count) {
   if (count > left) throw fail(`This workspace can send ${limit.toLocaleString()} messages a day, and ${left.toLocaleString()} are left right now. Send to fewer people, wait, or ask support to raise the limit.`);
 }
 
+// Meta only delivers approved templates; anything else would fail for every recipient. Templates made here in
+// demo mode have no Meta status to wait for.
+function notApprovedError(t) {
+  const st = String(t.status || '').toUpperCase();
+  if (t.source !== 'synced' || st === 'APPROVED') return '';
+  return st === 'PENDING' ? `${t.name} is still in review at Meta. It can be sent once it's approved (usually within a day; you'll get a notification).` : `Meta won't deliver ${t.name} while it's ${st.toLowerCase().replace(/_/g, ' ')}. Only approved templates can be sent.`;
+}
+
 function createCampaign(body) {
   const { name, templateId, senderIds = [] } = body;
   if (tenants.meta()?.suspended) throw fail('This workspace is suspended', 403);
   const template = db.templates.find((t) => t.id === templateId);
   if (!template) throw fail('Pick a template');
+  { const e = !db.settings.demoMode && notApprovedError(template); if (e) throw fail(e); }
   const senders = db.senders.filter((s) => senderIds.includes(s.id) && s.enabled);
   if (!senders.length) throw fail('Select at least one enabled sender number');
   // Meta keeps templates per Business Account: a number from another account can't send this one.

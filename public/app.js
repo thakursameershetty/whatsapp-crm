@@ -826,7 +826,7 @@ function senderForm(s = null) {
       ${s && live && s.hasToken ? `<div class="sf-photo"><span id="sfPhoto">${senderPhotoHtml(s)}</span><div><b>WhatsApp profile photo</b><span class="sub">What customers see on this number's chat. Use your own logo or brand image.</span></div><button type="button" class="btn sm sender-photo-btn" id="sfPhotoBtn">${icon('square-pen', 14)}Edit</button></div>` : ''}
       <label>Label <span class="opt">up to 40 characters</span><input name="label" required maxlength="40" placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
       <label>Phone number ID <input name="phoneNumberId" required inputmode="numeric" data-digits maxlength="17" placeholder="From Meta → WhatsApp → API Setup (digits)" value="${esc(s?.phoneNumberId)}" /></label>
-      <label>WhatsApp Business Account ID <span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span><input name="wabaId" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Leave blank, or paste the Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" /></label>
+      <label>WhatsApp Business Account ID <span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span>${live ? '<span class="sf-find">' : ''}<input name="wabaId" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Click Find, or paste the ID or Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" />${live ? `<button type="button" class="btn sm" id="sfFind">${icon('search', 14)}Find</button></span>` : ''}</label>
       ${s?.hasToken
         ? `<div class="field-label">Access token</div>
            <div class="sf-token" id="sfSaved"><span>${icon('lock', 14)}Saved token ending in <b>${esc((s.accessTokenMasked || '').slice(-4))}</b></span><button type="button" class="btn sm" id="sfReplace">Replace token</button></div>
@@ -883,6 +883,16 @@ function senderForm(s = null) {
     } catch (err) { show('bad', esc(err.message)); return false; }
   };
   $('#sfTest', body)?.addEventListener('click', (e) => guard(check, e.currentTarget));
+  // Fills the account ID from the phone number ID and token (or turns a pasted Business portfolio ID into it).
+  $('#sfFind', body)?.addEventListener('click', (e) => guard(async () => {
+    if (!fields().phoneNumberId) { $('[name=phoneNumberId]', body).focus(); show('bad', 'Enter the phone number ID first'); return; }
+    show('busy', '<span class="sf-spin"></span>Finding the Business Account…');
+    try {
+      const r = await api('/senders/find-waba', { method: 'POST', body: { ...fields(), senderId: s?.id } });
+      $('[name=wabaId]', body).value = r.wabaId;
+      show('ok', `${icon('circle-check', 15)}<span><b>Found</b> · ${r.name ? esc(r.name) + ' · ' : ''}${esc(r.wabaId)}</span>`);
+    } catch (err) { show('bad', esc(err.message)); }
+  }, e.currentTarget));
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const bad = firstProblem();
