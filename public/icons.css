@@ -1,0 +1,177 @@
+/* Animated Lucide icons (icons.js), ported from lucide-animated (https://lucide-animated.com).
+   An icon animates when its host (button, tab, tile, card…) is hovered or focused: icons.js adds .on to the <svg>.
+   Springs are approximated with an overshoot curve. Used by the app (index.html) and the landing page. */
+:root { --la-spring: cubic-bezier(0.34, 1.56, 0.64, 1); --la-soft: cubic-bezier(0.4, 0, 0.2, 1); }
+svg.la { flex: none; overflow: visible; vertical-align: -3px; }
+svg.la * { transform-box: fill-box; transform-origin: center; }
+
+/* draw: stroke draws in (check-check, zap, circle-check) */
+svg.la .draw { stroke-dasharray: 1; stroke-dashoffset: 0; }
+svg.la.on .draw { animation: la-draw 0.4s ease-out both; animation-delay: calc(var(--i, 0) * 0.1s); }
+svg.la-zap.on .draw { animation-duration: 0.6s; }
+@keyframes la-draw { 0% { stroke-dashoffset: 1; opacity: 0; } 15% { opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 1; } }
+svg.la-check-check.on .draw { animation-name: la-draw-pop; }
+@keyframes la-draw-pop { 0% { stroke-dashoffset: 1; opacity: 0; transform: scale(0.5); } 25% { opacity: 1; } 100% { stroke-dashoffset: 0; transform: scale(1); } }
+
+/* redraw: stroke erases then draws back (chart bars, document lines) */
+svg.la .redraw { stroke-dasharray: 1; stroke-dashoffset: 0; }
+svg.la.on .redraw { animation: la-redraw 0.6s ease-in-out both; animation-delay: var(--d, calc(var(--i, 0) * 0.1s)); }
+@keyframes la-redraw { 0% { stroke-dashoffset: 0; opacity: 1; } 50% { stroke-dashoffset: 1; opacity: 0; } 100% { stroke-dashoffset: 0; opacity: 1; } }
+svg.la-file-text.on .redraw { animation-duration: 0.7s; }
+
+/* send: plane lifts off, dotted trail appears */
+svg.la-send .a-plane { transition: transform 0.5s var(--la-soft); }
+svg.la-send.on .a-plane { transform: translate(3px, -3px) scale(0.8); }
+svg.la-send .a-trail { opacity: 0; transform: translate(-3px, 3px); transition: opacity 0.3s, transform 0.3s; }
+svg.la-send.on .a-trail { opacity: 1; transform: none; transition: opacity 0.55s 0.1s, transform 0.55s 0.1s var(--la-soft); }
+
+/* eye: blink */
+svg.la-eye.on .a-lid { animation: la-blink 0.4s ease-in-out; }
+svg.la-eye.on .a-pupil { animation: la-pupil 0.4s ease-in-out; }
+@keyframes la-blink { 50% { transform: scaleY(0.1); opacity: 0.3; } }
+@keyframes la-pupil { 50% { transform: scale(0.3); opacity: 0.3; } }
+
+/* badge-alert: wobble */
+svg.la-badge-alert.on { animation: la-wobble 0.5s ease-in-out; }
+@keyframes la-wobble { 0% { transform: none; } 20% { transform: scale(1.1) rotate(-3deg); } 40% { transform: scale(1.1) rotate(3deg); } 60% { transform: scale(1.1) rotate(-2deg); } 80% { transform: scale(1.05) rotate(2deg); } 100% { transform: none; } }
+
+/* upload / cloud-upload: arrow rises */
+svg.la-upload .a-arrow { transition: transform 0.45s var(--la-spring); }
+svg.la-upload.on .a-arrow { transform: translateY(-2px); }
+svg.la-cloud-upload.on .a-arrow { animation: la-rise 0.5s cubic-bezier(0.68, -0.6, 0.32, 1.6); }
+@keyframes la-rise { 0% { transform: translateY(2px); } 100% { transform: none; } }
+
+/* refresh-cw, plus, settings: spin */
+svg.la-refresh-cw, svg.la-plus, svg.la-settings { transition: transform 0.5s var(--la-spring); }
+svg.la-refresh-cw.on { transform: rotate(50deg); }
+svg.la-plus { transition-duration: 0.7s; }
+svg.la-plus.on { transform: rotate(180deg); }
+svg.la-settings { transition-duration: 1s; }
+svg.la-settings.on { transform: rotate(180deg); }
+
+/* delete: lid lifts, bin settles */
+svg.la-delete .a-lid, svg.la-delete .a-bin { transition: transform 0.3s var(--la-spring); }
+svg.la-delete.on .a-lid { transform: translateY(-1.1px); }
+svg.la-delete.on .a-bin { transform: translateY(0.6px); }
+
+/* copy: sheets slide apart */
+svg.la-copy .a-front, svg.la-copy .a-back { transition: transform 0.45s var(--la-spring); }
+svg.la-copy.on .a-front { transform: translate(-3px, -3px); }
+svg.la-copy.on .a-back { transform: translate(3px, 3px); }
+
+/* clock / history: hands sweep */
+svg.la-clock .a-hour, svg.la-history .a-hour { transform-origin: 0% 100%; }
+svg.la-clock .a-min { transform-origin: 0% 100%; }
+svg.la-history .a-min { transform-origin: 0% 0%; }
+svg.la-clock.on .a-hour { animation: la-turn 0.6s var(--la-soft); }
+svg.la-clock.on .a-min { animation: la-turn45 0.5s ease-in-out forwards; }
+svg.la-history.on .a-hour { animation: la-turn-back 0.6s var(--la-soft); }
+svg.la-history.on .a-min { animation: la-turn-back45 0.5s ease-in-out forwards; }
+svg.la-history .a-arrow { transition: transform 0.5s var(--la-spring); }
+svg.la-history.on .a-arrow { transform: rotate(-50deg); }
+@keyframes la-turn { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@keyframes la-turn-back { from { transform: rotate(0); } to { transform: rotate(-360deg); } }
+@keyframes la-turn45 { to { transform: rotate(45deg); } }
+@keyframes la-turn-back45 { to { transform: rotate(-45deg); } }
+
+/* search: hop */
+/* search: the lens glances left and right, as if looking */
+svg.la-search.on { animation: la-look 0.8s cubic-bezier(0.3, 0.7, 0.3, 1); transform-origin: 46% 46%; }
+@keyframes la-look { 30% { transform: translate(-1.5px, -1px) rotate(-14deg); } 65% { transform: translate(1px, 0) rotate(8deg); } 100% { transform: none; } }
+
+/* rocket: hovers and the flame flickers while hovered */
+svg.la-rocket.on { animation: la-hover 3s ease-in-out infinite alternate; }
+svg.la-rocket.on .a-fire { animation: la-fire 2s var(--la-soft) infinite; }
+@keyframes la-hover { 15% { transform: translate(0, -3px); } 30% { transform: translate(-3px, 0); } 45% { transform: translate(2px, -2px); } 60% { transform: translate(-2px, -3px); } 75% { transform: translate(1px, -1px); } 90% { transform: translate(-1px, -2px); } 100% { transform: none; } }
+@keyframes la-fire {
+  0%, 100% { d: path("M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"); }
+  20% { d: path("M4.5 16.5c-1.5 1.26-3 5.5-3 5.5s4.74-1 6-2.5c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"); }
+  50% { d: path("M4.5 16.5c-1.5 1.26-2.2 4.8-2.2 4.8s3.94-0.3 5.2-1.8c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"); }
+  80% { d: path("M4.5 16.5c-1.5 1.26-2.8 5.2-2.8 5.2s4.54-0.7 5.8-2.2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"); }
+}
+
+/* layout-grid: tiles rotate around */
+svg.la-layout-grid.on .r1 { animation: la-g1 0.8s ease-in-out; }
+svg.la-layout-grid.on .r2 { animation: la-g2 0.8s ease-in-out; }
+svg.la-layout-grid.on .r3 { animation: la-g3 0.8s ease-in-out; }
+svg.la-layout-grid.on .r4 { animation: la-g4 0.8s ease-in-out; }
+@keyframes la-g1 { 40%, 60% { transform: translateX(11px); } }
+@keyframes la-g2 { 40%, 60% { transform: translateY(11px); } }
+@keyframes la-g3 { 40%, 60% { transform: translateX(-11px); } }
+@keyframes la-g4 { 40%, 60% { transform: translateY(-11px); } }
+
+/* phone: ring */
+svg.la-phone.on { animation: la-ring 0.9s ease-in-out; }
+@keyframes la-ring { 0% { transform: rotate(10deg); } 25% { transform: rotate(20deg) scale(1.1); } 50% { transform: rotate(-10deg) scale(1.1); } 75% { transform: rotate(10deg); } 100% { transform: none; } }
+
+/* file-text: grows slightly while its lines rewrite */
+svg.la-file-text { transition: transform 0.3s ease-out; }
+svg.la-file-text.on { transform: scale(1.05); }
+
+/* sun / sun-moon: rays fade in one by one; moon / sun-moon: rock */
+svg.la.on .ray { animation: la-fade 0.3s both; animation-delay: calc(var(--i) * 0.1s); }
+@keyframes la-fade { from { opacity: 0; } to { opacity: 1; } }
+svg.la-sun-moon.on .a-moon { animation: la-rock 1.5s ease-in-out; }
+svg.la-moon.on { animation: la-rock-big 1.2s ease-in-out; }
+@keyframes la-rock { 20% { transform: rotate(-5deg); } 40% { transform: rotate(5deg); } 60% { transform: rotate(-2deg); } 80% { transform: rotate(2deg); } }
+@keyframes la-rock-big { 20% { transform: rotate(-10deg); } 40% { transform: rotate(10deg); } 60% { transform: rotate(-5deg); } 80% { transform: rotate(5deg); } }
+
+/* calendar-days: dates pulse in sequence */
+svg.la-calendar-days.on .dot { animation: la-pulse 0.4s both; animation-delay: calc(var(--i) * 0.1s); }
+@keyframes la-pulse { 50% { opacity: 0.3; } }
+
+/* users: second person slides in */
+svg.la-users.on .a-slide { animation: la-slide 0.6s 0.1s var(--la-spring) both; }
+@keyframes la-slide { from { transform: translateX(-6px); } to { transform: none; } }
+
+/* maximize, panels, sliders, trends */
+svg.la-maximize-2 .a-bl, svg.la-maximize-2 .a-tr { transition: transform 0.35s var(--la-spring); }
+svg.la-maximize-2.on .a-bl { transform: translate(-2px, 2px); }
+svg.la-maximize-2.on .a-tr { transform: translate(2px, -2px); }
+svg.la-panel-right-open.on .a-chev { animation: la-nudge 0.5s ease-in-out; }
+@keyframes la-nudge { 40% { transform: translateX(-1.5px); } }
+svg.la-sliders-horizontal line { transition: transform 0.45s var(--la-spring); }
+svg.la-sliders-horizontal .s1r, svg.la-sliders-horizontal .s2r, svg.la-sliders-horizontal .s3r { transform-origin: right center; }
+svg.la-sliders-horizontal .s1l, svg.la-sliders-horizontal .s2l, svg.la-sliders-horizontal .s3l { transform-origin: left center; }
+svg.la-sliders-horizontal.on .s1r { transform: scaleX(1.571); }
+svg.la-sliders-horizontal.on .s1l { transform: scaleX(0.286); }
+svg.la-sliders-horizontal.on .s2r { transform: scaleX(0.333); }
+svg.la-sliders-horizontal.on .s2l { transform: scaleX(2); }
+svg.la-sliders-horizontal.on .s3l { transform: scaleX(0.111); }
+svg.la-sliders-horizontal.on .s3r { transform: scaleX(2.6); }
+svg.la-sliders-horizontal.on .k1 { transform: translateX(-5px); }
+svg.la-sliders-horizontal.on .k2 { transform: translateX(6px); }
+svg.la-sliders-horizontal.on .k3 { transform: translateX(-8px); }
+svg.la .draw-late { stroke-dasharray: 1; stroke-dashoffset: 0; }
+svg.la.on .draw-late { animation: la-draw 0.3s 0.3s ease-out both; }
+svg.la-trending-up.on { animation: la-trend-up 0.5s; }
+svg.la-trending-down.on { animation: la-trend-down 0.5s; }
+@keyframes la-trend-up { 50% { transform: translate(2px, -2px); } }
+@keyframes la-trend-down { 50% { transform: translate(2px, 2px); } }
+svg.la-chart-spline.on .draw { animation-duration: 0.3s; }
+
+/* assistant: paperclip, send arrow, sparkles, sidebar */
+svg.la-paperclip.on .a-clip { animation: la-nudge 0.5s ease-in-out; }
+svg.la-arrow-up .a-arrow { transition: transform 0.35s var(--la-spring); }
+svg.la-arrow-up.on .a-arrow { transform: translateY(-2px); }
+svg.la-sparkles .a-twinkle { transform-origin: 20px 5px; transition: transform 0.4s var(--la-spring); }
+svg.la-sparkles.on .a-twinkle { transform: rotate(90deg) scale(1.15); }
+svg.la-panel-left.on .a-chev { animation: la-nudge 0.5s ease-in-out; }
+
+/* landing page: link halves pull apart, layers lift, tag swings, phone buzzes (ban and shield-check use draw) */
+svg.la-link.on .a-l { animation: la-apart-l 0.6s var(--la-spring); }
+svg.la-link.on .a-r { animation: la-apart-r 0.6s var(--la-spring); }
+@keyframes la-apart-l { 40% { transform: translate(1.5px, -1.5px); } }
+@keyframes la-apart-r { 40% { transform: translate(-1.5px, 1.5px); } }
+svg.la-layers.on .a-top { animation: la-lift 0.6s var(--la-spring); }
+svg.la-layers.on .a-mid { animation: la-lift-half 0.6s 0.05s var(--la-spring); }
+@keyframes la-lift { 45% { transform: translateY(-3px); } }
+@keyframes la-lift-half { 45% { transform: translateY(-1.5px); } }
+svg.la-tag.on { animation: la-swing 0.8s ease-in-out; transform-origin: 20% 20%; }
+@keyframes la-swing { 20% { transform: rotate(-12deg); } 45% { transform: rotate(8deg); } 70% { transform: rotate(-4deg); } 100% { transform: none; } }
+svg.la-smartphone.on { animation: la-buzz 0.5s linear; }
+@keyframes la-buzz { 10%, 50%, 90% { transform: translateX(-1px) rotate(-3deg); } 30%, 70% { transform: translateX(1px) rotate(3deg); } }
+@media (prefers-reduced-motion: reduce) {
+  svg.la, svg.la * { animation: none !important; transition: none !important; }
+  svg.la.on, svg.la.on * { transform: none !important; }
+}

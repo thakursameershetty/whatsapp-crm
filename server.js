@@ -504,8 +504,8 @@ app.get('/go/:code', (req, res) => {
   }
   res.status(404).send('This link has expired or never existed.');
 });
-// The sign-in pages use these two files, so they load without signing in.
-const PUBLIC_FILES = new Set(['/style.css', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg']);
+// The sign-in pages and the landing page use these files, so they load without signing in.
+const PUBLIC_FILES = new Set(['/style.css', '/icons.css', '/icons.js', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg']);
 // The home page: the landing page for visitors, the app for anyone signed in. (/welcome always shows the landing page.)
 const LANDING = path.join(__dirname, 'public', 'landing.html');
 app.get(['/', '/welcome'], (req, res, next) => {
