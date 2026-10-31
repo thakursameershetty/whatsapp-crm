@@ -435,7 +435,11 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
         continue;
       }
       const ws = tenants.byPhoneNumberId(change.value?.metadata?.phone_number_id);
-      if (ws) tenants.forWorkspace(ws, () => handleWebhookChange(change));
+      if (!ws) continue;
+      // The entry is the number's Business Account, so a number saved without one learns it here.
+      const s = ws.db.senders.find((x) => x.phoneNumberId === String(change.value.metadata.phone_number_id) && !x.wabaId);
+      if (s && /^\d{10,17}$/.test(String(entry.id))) tenants.forWorkspace(ws, () => { s.wabaId = String(entry.id); save(); });
+      tenants.forWorkspace(ws, () => handleWebhookChange(change));
     }
   }
 });
@@ -670,8 +674,14 @@ async function findWaba(who, phoneNumberId, given, say) {
     throw fail("That isn't a WhatsApp Business Account ID, and no account under it holds this number. Paste your Business portfolio ID instead (the business_id= in business.facebook.com links) and the right account is found from it.");
   }
   // Blank: tokens limited to particular accounts list them in their permissions. Unrestricted tokens don't,
-  // so then the accounts of the businesses the token can see are tried. If neither works the field stays
-  // empty; it's only needed for syncing templates.
+  // so then accounts this workspace already knows (from its other numbers and synced templates) and the
+  // accounts of the businesses the token can see are tried. If none works the field stays empty; it's only
+  // needed for syncing templates.
+  {
+    const known = [...new Set([...db.senders.map((x) => x.wabaId), ...db.templates.map((x) => x.wabaId)].filter((x) => /^\d{10,17}$/.test(String(x || ''))))];
+    const w = await firstHolding(known);
+    if (w) return w;
+  }
   try {
     const d = (await graph(who, `debug_token?input_token=${encodeURIComponent(who.accessToken)}`)).data || {};
     const ids = [...new Set((d.granular_scopes || []).filter((g) => /^whatsapp_business_/.test(g.scope)).flatMap((g) => g.target_ids || []))];
