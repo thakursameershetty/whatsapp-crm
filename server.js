@@ -670,11 +670,21 @@ async function findWaba(who, phoneNumberId, given, say) {
     throw fail("That isn't a WhatsApp Business Account ID, and no account under it holds this number. Paste your Business portfolio ID instead (the business_id= in business.facebook.com links) and the right account is found from it.");
   }
   // Blank: tokens limited to particular accounts list them in their permissions. Unrestricted tokens don't,
-  // so the field just stays empty; it's only needed for syncing templates.
+  // so then the accounts of the businesses the token can see are tried. If neither works the field stays
+  // empty; it's only needed for syncing templates.
   try {
     const d = (await graph(who, `debug_token?input_token=${encodeURIComponent(who.accessToken)}`)).data || {};
     const ids = [...new Set((d.granular_scopes || []).filter((g) => /^whatsapp_business_/.test(g.scope)).flatMap((g) => g.target_ids || []))];
-    return await firstHolding(ids);
+    const w = await firstHolding(ids);
+    if (w) return w;
+  } catch {}
+  try {
+    const businesses = ((await graph(who, 'me/businesses?fields=id&limit=50')).data || []).map((x) => x.id);
+    const accounts = [];
+    for (const b of businesses) for (const edge of ['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts']) {
+      try { accounts.push(...((await graph(who, `${encodeURIComponent(b)}/${edge}?fields=id&limit=200`)).data || []).map((x) => x.id)); } catch {}
+    }
+    return await firstHolding([...new Set(accounts)]);
   } catch { return ''; }
 }
 // Meta only sends a Business Account's webhooks (replies, delivered/read) to apps it's linked to, and new
@@ -729,7 +739,8 @@ app.put('/api/senders/:id', wrap(async (req, res) => {
   { const e = senderIdsError(req.body, s); if (e) throw fail(e); }
   // A new token or different IDs are checked with Meta before anything changes (switching a number on/off isn't).
   const next = { phoneNumberId: String(req.body.phoneNumberId ?? s.phoneNumberId).trim(), wabaId: String(req.body.wabaId ?? s.wabaId ?? '').trim(), accessToken: tokenFor(req.body, s) };
-  const credsChanged = Boolean(String(req.body.accessToken || '').trim()) || next.phoneNumberId !== s.phoneNumberId || next.wabaId !== String(s.wabaId || '');
+  // A number still missing its Business Account is checked again too, so saving it can fill the account in.
+  const credsChanged = Boolean(String(req.body.accessToken || '').trim()) || next.phoneNumberId !== s.phoneNumberId || next.wabaId !== String(s.wabaId || '') || !next.wabaId;
   let checked = null;
   if (credsChanged && !db.settings.demoMode) {
     if (!next.accessToken) throw fail(NEED_TOKEN);
@@ -860,9 +871,21 @@ app.delete('/api/templates/:id', (req, res) => {
 
 // Pull approved templates from every WhatsApp Business Account we have a token for.
 app.post('/api/templates/sync', wrap(async (req, res) => {
+  // Numbers saved without their Business Account get one more try at finding it from the token.
+  if (!db.settings.demoMode) {
+    for (const s of db.senders.filter((x) => !x.wabaId && x.accessToken)) {
+      const found = await findWaba(s, s.phoneNumberId, '', (e, f) => f).catch(() => '');
+      if (found) { s.wabaId = found; save(); await linkWebhooks(s); }
+    }
+  }
   const accounts = new Map();
   for (const s of db.senders) if (s.wabaId && s.accessToken && !accounts.has(s.wabaId)) accounts.set(s.wabaId, s);
-  if (!accounts.size) throw fail('Add a sender number with a WABA ID and access token first');
+  if (!accounts.size) {
+    const missing = db.senders.find((x) => x.accessToken && !x.wabaId);
+    throw fail(missing
+      ? `Couldn't work out which WhatsApp Business Account “${missing.label}” is in. Edit the number and paste its WhatsApp Business Account ID (Meta → WhatsApp → API Setup, under the phone number ID).`
+      : 'Add a sender number with a WABA ID and access token first');
+  }
 
   let synced = 0;
   const errors = [];
