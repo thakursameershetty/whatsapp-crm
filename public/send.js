@@ -500,7 +500,8 @@
   function renderTemplateSelect() {
     const sel = $('#templateSelect');
     const prev = sel.value;
-    const opt = (t) => `<option value="${t.id}">${esc(t.name)} · ${esc(t.language)}${t.status && t.status !== 'APPROVED' ? ` (${esc(t.status.toLowerCase())})` : ''}</option>`;
+    // Templates Meta hasn't approved show, but can't be picked.
+    const opt = (t) => `<option value="${t.id}"${tplSendBlock(t) ? ' disabled' : ''}>${esc(t.name)} · ${esc(t.language)}${t.status && t.status !== 'APPROVED' ? ` (${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status).toLowerCase()})` : ''}</option>`;
     // With numbers in different Business Accounts, group the templates by the number(s) that can send them.
     const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))];
     const grouped = accounts.length > 1
@@ -510,7 +511,7 @@
     sel.innerHTML = state.templates.length
       ? `<option value="">— Choose a template —</option>` + grouped
       : `<option value="">No templates yet — add one under Templates</option>`;
-    if (state.templates.some((t) => t.id === prev)) sel.value = prev;
+    if (state.templates.some((t) => t.id === prev && !tplSendBlock(t))) sel.value = prev;
     onTemplateChange();
   }
   $('#templateSelect').addEventListener('change', onTemplateChange);

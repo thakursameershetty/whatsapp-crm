@@ -700,6 +700,18 @@ html:has(.modal:not(.hidden)) { overflow: hidden; }
 .tpl-card { display: flex; flex-direction: column; }
 .tpl-chat { background: var(--chat); border-radius: 11px; padding: 14px; margin: 14px 0; box-shadow: var(--sh-sunk); }
 #templateList, .tpl-group .cards { align-items: start; }
+/* A button that can't be used yet: dimmed, and its reason shows above it on hover, focus or click. */
+.btn.is-off { opacity: 0.5; cursor: not-allowed; position: relative; }
+.btn.is-off:hover:not(:disabled) { transform: none; box-shadow: var(--sh-raised); }
+.btn[data-tip]::after {
+  content: attr(data-tip); position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 20;
+  width: max-content; max-width: 240px; padding: 7px 10px; border-radius: 8px;
+  background: #1c1f22; color: #fff; font: 500 12px/1.4 Inter, sans-serif; white-space: normal; text-align: left;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); pointer-events: none;
+  opacity: 0; transform: translateY(4px); transition: opacity 0.15s, transform 0.15s;
+}
+.btn[data-tip]:hover::after, .btn[data-tip]:focus-visible::after, .btn[data-tip].tip-show::after { opacity: 1; transform: none; }
+.btn.is-off.tip-show { opacity: 1; }
 .tpl-chat .bubble { font-size: 13px; max-width: 100%; }
 .var-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .var-chip { font: 600 11.5px ui-monospace, Menlo, monospace; padding: 3px 8px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-text); }

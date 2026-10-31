@@ -971,7 +971,7 @@ function renderTemplates() {
       <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
       ${t.variables.length ? `<div class="var-chips">${[...new Set(t.variables.map((v) => (v.media ? v.media + ' URL' : `{{${v.name}}}`)))].map((label) => `<span class="var-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
       <div class="row tight">
-        <button class="btn sm" data-use="${t.id}">${icon('send', 15)}Use for sending</button>
+        ${(() => { const why = tplSendBlock(t); return `<button class="btn sm${why ? ' is-off' : ''}" data-use="${t.id}" ${why ? `aria-disabled="true" data-tip="${esc(why)}"` : ''}>${icon('send', 15)}Use for sending</button>`; })()}
         ${(() => { const why = tplEditBlock(t); return `<button class="btn quiet sm" data-tedit="${t.id}" ${why ? `disabled title="${esc(why)}"` : ''}>${icon('square-pen', 15)}Edit</button>`; })()}
         <button class="btn quiet danger sm" data-del="${t.id}" style="margin-left:auto">${icon('delete', 15)}Delete</button>
       </div>
@@ -1002,6 +1002,8 @@ $('#templateList').addEventListener('click', (e) => {
   if (!b) return;
   if (b.dataset.tedit) return templateEditor(state.templates.find((x) => x.id === b.dataset.tedit));
   if (b.dataset.use) {
+    // An unapproved template can't be sent: clicking just shows why (the same note as on hover).
+    if (b.dataset.tip) { b.classList.add('tip-show'); clearTimeout(b._tip); b._tip = setTimeout(() => b.classList.remove('tip-show'), 2600); return; }
     $('#templateSelect').value = b.dataset.use;
     onTemplateChange();
     showTab('send');
@@ -1047,6 +1049,12 @@ function tplSpec(t) {
   };
 }
 const tplVarNums = (text) => [...new Set([...String(text || '').matchAll(/{{\s*(\d+)\s*}}/g)].map((m) => Number(m[1])))].sort((a, b) => a - b);
+// Why a template can't be sent yet, or null if it can. Meta only delivers approved templates; ones made here in demo mode have no review.
+function tplSendBlock(t) {
+  const st = String(t.status || '').toUpperCase();
+  if (t.source !== 'synced' || st === 'APPROVED') return null;
+  return st === 'PENDING' || st === 'IN_APPEAL' ? 'Still in review at Meta. Please wait until it’s approved to send it.' : `Meta won’t deliver it while it’s ${(TPL_STATUS[st] || st).toLowerCase()}. Only approved templates can be sent.`;
+}
 // When an approved template can next be edited (Meta allows one edit a day), or null if it can be now.
 function tplEditBlock(t) {
   if (t.source !== 'synced' || !t.metaId) return null;
