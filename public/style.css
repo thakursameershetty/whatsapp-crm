@@ -3993,3 +3993,4 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
   .banner { width: calc(100% - 32px); }
 }
 @media (max-width: 900px) and (prefers-reduced-motion: reduce) { .sidebar, .drawer-scrim { transition: none !important; } }
+.health-cap { margin: 14px 0 0; }

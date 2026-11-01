@@ -559,15 +559,26 @@ async function loadSenders() {
   window.Assistant?.senders();
 }
 
-// Usage strip on each number card (today vs daily limit, totals).
+// Meta's messaging limit as the stats give it: unique people reached in the last 24h against the business
+// portfolio's limit (shared by all its numbers). limit: number, null = unlimited, undefined = Meta didn't say.
+function metaLimit(st) {
+  const known = st.limit !== undefined;
+  const used = st.limit ? st.limitUsed / st.limit : 0;
+  const cls = used >= 1 ? 'over' : used >= 0.8 ? 'warn' : '';
+  const total = !known ? '' : st.limit === null ? ' <span>· unlimited</span>' : ` <span>/ ${st.limit.toLocaleString()}</span>`;
+  const note = !known ? 'Meta limit unknown · press Test connection' : `people in 24h · Meta limit${st.limitShared > 1 ? `, shared by ${st.limitShared} numbers` : ''}`;
+  const title = "Meta's messaging limit: unique people you can message outside the 24-hour reply window in a rolling 24 hours. It's set for your whole business portfolio, so all its numbers share it.";
+  return { known, used, cls, total, note, title };
+}
+
+// Usage strip on each number card (Meta's limit, totals).
 function numStats(s) {
   const st = state.stats?.senders.find((x) => x.id === s.id);
   if (!st) return '';
-  const limit = st.limit === undefined ? 250 : st.limit;
-  const used = limit ? st.today / limit : 0;
+  const m = metaLimit(st);
   return `<div class="num-stats">
-    <div class="num-stat"><b>${st.today.toLocaleString()}${limit ? ` <span>/ ${limit.toLocaleString()}</span>` : ''}</b><span>sent today${st.limit === undefined ? ' · limit unknown' : ''}</span>
-      <div class="meter ${used >= 1 ? 'over' : used >= 0.8 ? 'warn' : ''}"><span data-w="${Math.min(100, used * 100).toFixed(2)}" data-k="nc-${s.id}"></span></div></div>
+    <div class="num-stat" title="${esc(m.title)}"><b>${st.limitUsed.toLocaleString()}${m.total}</b><span>${m.note}</span>
+      ${m.known ? `<div class="meter ${m.cls}"><span data-w="${Math.min(100, m.used * 100).toFixed(2)}" data-k="nc-${s.id}"></span></div>` : ''}</div>
     <div class="num-stat"><b>${fmtNum(st.sent)}</b><span>sent in total</span></div>
     <div class="num-stat"><b>${st.sent ? pct(st.delivered, st.sent) + '%' : '—'}</b><span>delivered</span></div>
   </div>`;
@@ -603,7 +614,7 @@ function renderSenders() {
         <dt>WABA ID</dt><dd>${esc(s.wabaId || '—')}</dd>
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
         ${s.qualityRating ? `<dt>Quality</dt><dd>${esc(s.qualityRating)}</dd>` : ''}
-        ${s.messagingLimit ? `<dt>Daily limit</dt><dd>${esc(s.messagingLimit)}</dd>` : ''}
+        ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
         ${s.lastCheckedAt ? `<dt>Connection</dt><dd class="kv-ok">Connected · checked ${esc(relTime(s.lastCheckedAt))}</dd>` : ''}
       </dl>
       <div class="row tight">
@@ -2288,6 +2299,13 @@ function renderFunnel(st) {
 
 // --- Number health ---
 
+// 'TIER_2K' → '2,000 people / 24h, whole portfolio'.
+function tierText(tier) {
+  if (tier === 'TIER_UNLIMITED') return 'Unlimited';
+  const m = /^TIER_(\d+)(K)?$/.exec(tier || '');
+  return m ? `${(Number(m[1]) * (m[2] ? 1000 : 1)).toLocaleString()} people / 24h, whole portfolio` : tier;
+}
+
 function renderHealth(st) {
   if (!st.senders.length) {
     $('#senderHealth').innerHTML = emptyMini('phone', 'No numbers yet. <a href="#" onclick="senderForm();return false">Add your first WhatsApp number</a>.');
@@ -2295,23 +2313,21 @@ function renderHealth(st) {
   }
   $('#senderHealth').innerHTML = st.senders
     .map((s) => {
-      const limit = s.limit === undefined ? 250 : s.limit;
-      const known = s.limit !== undefined;
-      const used = limit ? s.today / limit : 0;
-      const cls = used >= 1 ? 'over' : used >= 0.8 ? 'warn' : '';
+      const m = metaLimit(s);
       return `<div class="health-row">
         <div>
           <div class="health-name"><span>${esc(s.label)}</span><i class="q-dot ${esc(s.qualityRating || 'none')}" title="Quality: ${esc(s.qualityRating || 'unknown')}"></i>${s.enabled ? '' : '<span class="pill">off</span>'}</div>
           <div class="health-phone">${esc(s.displayPhone || '—')}</div>
         </div>
-        <div class="health-meter">
-          <div class="meter ${cls}"><span data-w="${Math.min(100, used * 100).toFixed(2)}" data-k="h-${s.id}"></span></div>
-          <div class="meter-label"><span><b data-count="${s.today}" data-fmt="int" data-k="ht-${s.id}">0</b> ${limit === null ? 'today · unlimited' : `/ ${limit.toLocaleString()} today`}</span><span>${known ? '' : 'limit unknown'}</span></div>
+        <div class="health-meter" title="${esc(m.title)}">
+          ${m.known ? `<div class="meter ${m.cls}"><span data-w="${Math.min(100, m.used * 100).toFixed(2)}" data-k="h-${s.id}"></span></div>` : ''}
+          <div class="meter-label"><span><b data-count="${s.limitUsed}" data-fmt="int" data-k="ht-${s.id}">0</b>${m.total.replace(/<\/?span>/g, '')} people · 24h</span><span>${m.known ? (s.limitShared > 1 ? `shared by ${s.limitShared} numbers` : '') : 'Meta limit unknown'}</span></div>
         </div>
         <div class="health-total"><b data-count="${s.sent}" data-k="hs-${s.id}">0</b>${s.sent ? `sent · ${pct(s.delivered, s.sent)}% delivered` : 'nothing sent yet'}</div>
       </div>`;
     })
-    .join('');
+    .join('') +
+    (st.cap ? `<p class="sub health-cap">Workspace cap (set in this app, not by Meta): <b>${st.cap.used.toLocaleString()} / ${st.cap.limit.toLocaleString()}</b> template messages in the last 24h. Support can raise it.</p>` : '');
 }
 
 // --- Upcoming & recent ---

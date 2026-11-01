@@ -242,10 +242,11 @@ function goCode(value) {
 }
 
 async function graph(sender, pathname, options = {}) {
-  const url = `https://graph.facebook.com/${db.settings.graphVersion}/${pathname}`;
+  const { version, ...fetchOptions } = options; // `version` overrides the configured Graph API version for one call
+  const url = `https://graph.facebook.com/${version || db.settings.graphVersion}/${pathname}`;
   const res = await fetch(url, {
-    ...options,
-    headers: { Authorization: `Bearer ${sender.accessToken}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
+    ...fetchOptions,
+    headers: { Authorization: `Bearer ${sender.accessToken}`, 'Content-Type': 'application/json', ...(fetchOptions.headers || {}) },
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json.error) {
@@ -646,11 +647,34 @@ async function verifyWithMeta({ phoneNumberId, wabaId, accessToken }) {
     return fallback + (e.message && !/Unsupported get request|does not exist/i.test(e.message) ? ` (Meta said: ${e.message})` : '');
   };
   let info;
-  try { info = await graph(who, `${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating,messaging_limit_tier`); }
+  try { info = await graph(who, `${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating`); }
   catch (e) { throw fail(say(e, "Meta has no WhatsApp number with this phone number ID that this token can use. Copy the ID from Meta → WhatsApp → API Setup (it isn't the phone number itself).")); }
   if (!info.display_phone_number) throw fail("That ID isn't a WhatsApp phone number ID. Copy the Phone number ID from Meta → WhatsApp → API Setup.");
   const found = await findWaba(who, phoneNumberId, wabaId, say);
-  return { displayPhone: info.display_phone_number, verifiedName: info.verified_name || '', qualityRating: info.quality_rating, messagingLimit: info.messaging_limit_tier, ...(found ? { wabaId: found } : {}) };
+  const messagingLimit = await readMessagingLimit(who, phoneNumberId);
+  return { displayPhone: info.display_phone_number, verifiedName: info.verified_name || '', qualityRating: info.quality_rating, messagingLimit, limitCheckedAt: new Date().toISOString(), ...(found ? { wabaId: found } : {}) };
+}
+
+// Meta's messaging limit: unique people a business can message outside the 24h customer service window per
+// rolling 24 hours. Since late 2025 it is set per business portfolio and shared by all its numbers, read from
+// whatsapp_business_manager_messaging_limit (Graph v24.0+); the old per-number messaging_limit_tier is
+// deprecated and only tried as a fallback. Returns e.g. 'TIER_2K', or '' when Meta doesn't say. Never throws.
+const LIMIT_MIN_VERSION = 24;
+async function readMessagingLimit(who, phoneNumberId) {
+  const id = encodeURIComponent(phoneNumberId);
+  const configured = Number(String(db.settings.graphVersion).replace(/^v/, '')) || 0;
+  const version = configured >= LIMIT_MIN_VERSION ? undefined : `v${LIMIT_MIN_VERSION}.0`;
+  try {
+    const t = (await graph(who, `${id}?fields=whatsapp_business_manager_messaging_limit`, { version })).whatsapp_business_manager_messaging_limit;
+    if (t) return String(t);
+  } catch { /* fall through to the old field */ }
+  try { return String((await graph(who, `${id}?fields=messaging_limit_tier`)).messaging_limit_tier || ''); } catch { return ''; }
+}
+// 'TIER_250' → 250, 'TIER_2K' → 2000, 'TIER_UNLIMITED' → null (no cap), anything else → undefined (unknown).
+function tierLimit(tier) {
+  if (tier === 'TIER_UNLIMITED') return null;
+  const m = /^TIER_(\d+)(K)?$/.exec(String(tier || ''));
+  return m ? Number(m[1]) * (m[2] ? 1000 : 1) : undefined;
 }
 // Works out which WhatsApp Business Account holds the number, so nobody has to dig the ID out of Meta.
 // `given` may be the account ID, the Business portfolio ID (the business_id= in business.facebook.com links,
@@ -803,12 +827,12 @@ app.post('/api/senders/:id/test', wrap(async (req, res) => {
   const s = db.senders.find((x) => x.id === req.params.id);
   if (!s) throw fail('Not found', 404);
   if (!s.accessToken) throw fail('No access token saved for this number');
-  const info = await graph(s, `${s.phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,messaging_limit_tier,status`);
+  const info = await graph(s, `${s.phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,status`);
   s.displayPhone = info.display_phone_number || s.displayPhone;
   s.verifiedName = info.verified_name;
   s.qualityRating = info.quality_rating;
-  s.messagingLimit = info.messaging_limit_tier;
-  s.lastCheckedAt = new Date().toISOString();
+  s.messagingLimit = info.messaging_limit = await readMessagingLimit(s, s.phoneNumberId);
+  s.lastCheckedAt = s.limitCheckedAt = new Date().toISOString();
   await readProfilePhoto(s);
   save();
   res.json({ ok: true, info, sender: publicSender(s) });
@@ -1756,8 +1780,6 @@ app.delete('/api/uploads/:file', wrap((req, res) => {
 
 // --- Dashboard stats ----------------------------------------------------------
 
-// Meta's messaging-limit tiers → unique recipients per 24h.
-const TIER_LIMITS = { TIER_50: 50, TIER_250: 250, TIER_1K: 1000, TIER_10K: 10000, TIER_100K: 100000, TIER_UNLIMITED: null };
 const dayKey = (d) => new Date(d).toLocaleDateString('en-CA'); // YYYY-MM-DD in server's local time
 
 function computeStats(query = {}) {
@@ -1820,18 +1842,40 @@ function computeStats(query = {}) {
     }
   }
 
+  // Meta's limit counts unique people messaged outside the service window in a rolling 24h, shared by every number
+  // in the business portfolio. Numbers on the same WhatsApp Business Account are in the same portfolio, so usage is
+  // pooled per account. Every template send is counted, which can overcount a little (a template sent while the
+  // customer's window is open doesn't count at Meta).
+  const group = (s) => s.wabaId || s.id;
+  const since = Date.now() - 86400000;
+  const people = {};
+  const count = (senderId, phone, ts) => {
+    const s = db.senders.find((x) => x.id === senderId);
+    if (!s || !phone || !ts || Date.parse(ts) < since) return;
+    (people[group(s)] ||= new Set()).add(String(phone).replace(/\D/g, ''));
+  };
+  for (const c of all) for (const r of c.recipients) count(r.senderId, r.phone, r.sentAt);
+  for (const m of db.messages) if (m.dir === 'out' && m.type === 'template' && Boolean(m.demo) === demo) count(m.senderId, m.wa, m.ts);
+  const shared = (s) => db.senders.filter((x) => group(x) === group(s)).length;
+
   const senders = db.senders.map((s) => ({
     id: s.id,
     label: s.label,
     displayPhone: s.displayPhone,
     enabled: s.enabled,
     qualityRating: s.qualityRating || null,
-    limit: s.messagingLimit in TIER_LIMITS ? TIER_LIMITS[s.messagingLimit] : undefined,
+    limit: tierLimit(s.messagingLimit),
+    limitUsed: people[group(s)]?.size || 0,
+    limitShared: shared(s),
+    limitCheckedAt: s.limitCheckedAt || null,
     ...perSender[s.id],
   }));
+  const meta = tenants.meta();
+  const cap = meta?.dailyLimit == null || demo ? null : { limit: meta.dailyLimit, used: sentLast24h() };
 
   return {
     demo,
+    cap,
     range,
     filters: { sender: senderF, template: templateF },
     options: { templates: [...new Set(all.map((c) => c.templateName))].sort() },
@@ -1854,7 +1898,18 @@ function computeStats(query = {}) {
   };
 }
 
-app.get('/api/stats', (req, res) => res.json(computeStats(req.query)));
+// Meta's limit changes as quality and volume change, so it's re-read when the dashboard loads and it's over 6h old.
+const LIMIT_REFRESH_MS = 6 * 3600 * 1000;
+app.get('/api/stats', wrap(async (req, res) => {
+  if (!db.settings.demoMode) {
+    const stale = db.senders.filter((s) => s.accessToken && !(Date.parse(s.limitCheckedAt) > Date.now() - LIMIT_REFRESH_MS));
+    if (stale.length) {
+      await Promise.all(stale.map(async (s) => { s.messagingLimit = await readMessagingLimit(s, s.phoneNumberId) || s.messagingLimit || ''; s.limitCheckedAt = new Date().toISOString(); }));
+      save();
+    }
+  }
+  res.json(computeStats(req.query));
+}));
 
 // --- Demo workspace -----------------------------------------------------------
 // Fills the app with realistic sample numbers, templates and two weeks of
@@ -1870,9 +1925,9 @@ app.post('/api/demo/seed', wrap((req, res) => {
   const names = ['Ravi', 'Priya', 'Amit', 'Sneha', 'Karan', 'Pooja', 'Arjun', 'Neha', 'Vikram', 'Anjali', 'Rohit', 'Kavya', 'Imran', 'Divya', 'Suresh', 'Meera'];
 
   const senders = [
-    { label: 'Sales line 1', displayPhone: '+91 98200 11001', messagingLimit: 'TIER_1K', qualityRating: 'GREEN' },
-    { label: 'Sales line 2', displayPhone: '+91 98200 11002', messagingLimit: 'TIER_1K', qualityRating: 'GREEN' },
-    { label: 'Support', displayPhone: '+91 98200 11003', messagingLimit: 'TIER_250', qualityRating: 'YELLOW' },
+    { label: 'Sales line 1', displayPhone: '+91 98200 11001', messagingLimit: 'TIER_2K', qualityRating: 'GREEN' },
+    { label: 'Sales line 2', displayPhone: '+91 98200 11002', messagingLimit: 'TIER_2K', qualityRating: 'GREEN' },
+    { label: 'Support', displayPhone: '+91 98200 11003', messagingLimit: 'TIER_2K', qualityRating: 'YELLOW' },
   ].map((s, i) => ({ id: id(), phoneNumberId: 'DEMO' + (1000 + i), wabaId: 'DEMO-WABA', accessToken: '', enabled: true, createdAt: new Date().toISOString(), seed: true, verifiedName: 'Demo Store', ...s }));
   db.senders.push(...senders);
 
