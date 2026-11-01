@@ -1658,6 +1658,31 @@ async function sendInboxTemplate(key, templateId, values = {}) {
   return recordOut(key, { type: 'template', templateId, templateName: template.name, values, wamid });
 }
 
+// React to a customer's message with an emoji (or remove our reaction with an empty emoji). Like any free-form
+// message it needs the 24-hour window. One reaction per message: a new one replaces ours.
+app.post('/api/inbox/:key/react', wrap(async (req, res) => {
+  const key = req.params.key;
+  const { senderId, wa } = splitKey(key);
+  const sender = db.senders.find((s) => s.id === senderId);
+  if (!sender) throw fail('This WhatsApp number is no longer connected');
+  const demo = db.settings.demoMode;
+  if (!demo && !sender.accessToken) throw fail(`"${sender.label}" has no access token`);
+  const target = String(req.body.wamid || '');
+  const emoji = String(req.body.emoji || '').trim();
+  if (emoji.length > 16 || /[\w\s]/.test(emoji)) throw fail('Pick one emoji');
+  if (!db.messages.some((m) => m.key === key && m.dir === 'in' && m.wamid === target)) throw fail('Message not found', 404);
+  const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in').at(-1);
+  if (!lastIn || Date.now() - new Date(lastIn.ts) > WINDOW_MS) throw fail('The 24-hour reply window is closed, so reactions can’t be sent.');
+  if (!demo) {
+    await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: wa, type: 'reaction', reaction: { message_id: target, emoji } }) });
+  }
+  db.messages = db.messages.filter((m) => !(m.key === key && m.dir === 'out' && m.type === 'reaction' && m.reaction?.to === target));
+  if (emoji) db.messages.push({ id: id(), key, senderId, wa, dir: 'out', type: 'reaction', reaction: { emoji, to: target }, ts: new Date().toISOString(), status: 'sent', ...(demo ? { demo: true } : {}) });
+  save();
+  broadcast({ kind: 'message', key, dir: 'out' });
+  res.json({ ok: true, emoji });
+}));
+
 // Send a message that wasn't delivered again, as it was: a text (only inside the 24-hour window) or the
 // same template with the same values. Works for Inbox messages and for campaign messages shown in the
 // thread. The failed one is marked so it can't be sent again twice by accident.

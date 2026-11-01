@@ -619,7 +619,7 @@ function renderSenders() {
         <dt>Phone number ID</dt><dd>${esc(s.phoneNumberId)}</dd>
         <dt>WABA ID</dt><dd>${esc(s.wabaId || '—')}</dd>
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
-        ${s.qualityRating ? `<dt>Quality</dt><dd>${qualityTag(s.qualityRating)}</dd>` : ''}
+        ${s.qualityRating ? `<dt>Quality</dt><dd class="dd-pop">${qualityTag(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
         ${s.lastCheckedAt ? `<dt>Connection</dt><dd><span class="tag good">Connected</span><span class="tag-note">checked ${esc(relTime(s.lastCheckedAt))}</span></dd>` : ''}
       </dl>
@@ -2313,11 +2313,43 @@ function tierText(tier) {
 }
 
 // Meta's quality rating as a small tag, in the words WhatsApp Manager uses (High / Medium / Low).
-const QUALITY = { GREEN: ['High', 'good'], YELLOW: ['Medium', 'warn'], RED: ['Low', 'bad'] };
+// Hovering (or focusing) the tag opens a card: why it's at this level, what that means, and what to do.
+// Meta rates a number from how people reacted to its messages over roughly the last 7 days.
+const QUALITY = {
+  GREEN: {
+    label: 'High', cls: 'good',
+    why: 'Few people blocked or reported this number over the last 7 days. People are responding well.',
+    means: 'No restrictions. This is the level Meta wants to see before it raises your messaging limit.',
+    todo: 'Keep messaging people who opted in, and keep messages relevant and not too frequent.',
+  },
+  YELLOW: {
+    label: 'Medium', cls: 'warn',
+    why: 'More people than usual blocked or reported this number, or marked its messages as spam, over the last 7 days.',
+    means: 'A warning. Nothing is restricted yet, but if it keeps dropping to Low, Meta can restrict the number.',
+    todo: 'Slow down campaigns, send only to people who opted in, and add a “Not interested” quick-reply so people can opt out instead of blocking.',
+  },
+  RED: {
+    label: 'Low', cls: 'bad',
+    why: 'Many people blocked or reported this number recently, usually after messages they didn’t expect or want.',
+    means: 'Meta can restrict sending, pause templates with poor feedback, or lock the account (error 131031).',
+    todo: 'Pause campaigns from this number for about a week, then restart small with opted-in contacts only. It usually recovers in 1–2 weeks.',
+  },
+};
+const QUALITY_NONE = {
+  label: 'Not rated yet', cls: 'muted',
+  why: 'Meta hasn’t rated this number yet. It needs more messages and responses first.',
+  means: 'No restrictions. It starts at the default messaging limit.',
+  todo: 'Start with people who opted in, so its first rating comes out High.',
+};
 function qualityTag(rating) {
-  const [label, cls] = QUALITY[rating] || ['Not rated yet', 'muted'];
-  const why = { good: 'People are responding well to your messages.', warn: 'Some people blocked or reported this number recently.', bad: 'Many people blocked or reported this number recently. Meta may limit or lock it.', muted: "Meta hasn't rated this number yet; it needs more messages first." }[cls];
-  return `<span class="tag ${cls}" title="Meta quality rating: ${esc(rating)}. ${esc(why)}">${label}</span>`;
+  const q = QUALITY[rating] || QUALITY_NONE;
+  return `<span class="tag ${q.cls} has-pop" tabindex="0">${q.label}
+    <span class="tag-pop" role="tooltip">
+      <span class="tp-head"><b>Quality: ${q.label}</b><span>Meta rating · ${esc(rating || 'UNKNOWN')}</span></span>
+      <span class="tp-sec"><i>Why</i>${esc(q.why)}</span>
+      <span class="tp-sec"><i>What it means</i>${esc(q.means)}</span>
+      <span class="tp-sec"><i>What to do</i>${esc(q.todo)}</span>
+    </span></span>`;
 }
 
 function renderHealth(st) {

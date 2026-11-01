@@ -498,8 +498,15 @@
     const msgs = ib.thread?.messages || [];
     const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const byWamid = new Map(msgs.filter((m) => m.wamid).map((m) => [m.wamid, m]));
+    // Reactions by the message they're on: the customer's ('in') and ours ('out'), latest of each.
     const reactions = new Map();
-    for (const m of msgs) if (m.type === 'reaction' && m.reaction?.to && m.reaction.emoji) reactions.set(m.reaction.to, m.reaction.emoji);
+    for (const m of msgs) {
+      if (m.type !== 'reaction' || !m.reaction?.to) continue;
+      const r = reactions.get(m.reaction.to) || {};
+      r[m.dir] = m.reaction.emoji || '';
+      reactions.set(m.reaction.to, r);
+    }
+    const canReact = windowInfo(current()).open;
 
     if (!ib.thread) {
       box.innerHTML = Skel.bubbles();
@@ -524,7 +531,8 @@
         prev = null;
       }
       const first = !prev || prev.dir !== m.dir || new Date(m.ts) - new Date(prev.ts) > 10 * 60000;
-      const react = m.wamid && reactions.get(m.wamid);
+      const rx = (m.wamid && reactions.get(m.wamid)) || {};
+      const react = rx.in || rx.out;
       const mid = m.id || m.wamid || m.ts;
       const isNew = ib.seenKey === ib.key && !ib.seen.has(mid);
       ib.seen.add(mid);
@@ -540,8 +548,9 @@
       const age = start != null ? now - start : Infinity;
       const fresh = age < 450;
       html += `<div class="ib-row ${m.dir} ${first ? 'first' : ''} ${react ? 'reacted' : ''} ${fresh ? 'fresh' : ''}" ${fresh && age > 0 ? `style="animation-delay:-${age}ms"` : ''} data-wamid="${esc(m.wamid || '')}">
-        <div class="ib-bubble ${m.type}">${msgBody(m, byWamid)}${react ? `<span class="ib-reacts">${esc(react)}</span>` : ''}</div>
+        <div class="ib-bubble ${m.type}">${msgBody(m, byWamid)}${react ? `<span class="ib-reacts">${rx.in ? esc(rx.in) : ''}${rx.out ? `<span class="ib-react-mine" title="Your reaction">${esc(rx.out)}</span>` : ''}</span>` : ''}</div>
         ${m.wamid && m.dir === 'in' ? `<button class="ib-reply-btn" data-reply="${esc(m.wamid)}" title="Reply" aria-label="Reply">${icon('reply', 14)}</button>` : ''}
+        ${m.wamid && m.dir === 'in' && canReact ? `<button class="ib-reply-btn ib-react-btn" data-react="${esc(m.wamid)}" data-mine="${esc(rx.out || '')}" title="React" aria-label="React">${icon('smile-plus', 14)}</button>` : ''}
       </div>`;
       if (m.status === 'failed' && m.error) html += failedNote(m);
       prev = m;
@@ -631,6 +640,34 @@
       cb.disabled = false;
     }
   });
+
+  // Emoji reactions: a small picker beside the message; picking the emoji you already used removes it.
+  const REACTIONS = ['👍', '❤️', '😂', '😮', '🙏', '👏'];
+  const closePicker = () => document.querySelectorAll('.ib-react-pick').forEach((p) => { p.closest('.ib-row')?.classList.remove('picking'); p.remove(); });
+  $('#ibChat').addEventListener('click', async (e) => {
+    const pick = e.target.closest('[data-emoji]');
+    if (pick) {
+      const p = pick.closest('.ib-react-pick');
+      const key = ib.key;
+      const emoji = pick.dataset.emoji === p.dataset.mine ? '' : pick.dataset.emoji;
+      closePicker();
+      try {
+        await api(`/inbox/${enc(key)}/react`, { method: 'POST', body: { wamid: p.dataset.for, emoji } });
+        if (ib.key === key) await loadThread();
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
+    const b = e.target.closest('[data-react]');
+    if (!b) return;
+    const row = b.closest('.ib-row');
+    const open = row.querySelector('.ib-react-pick');
+    closePicker();
+    if (open) return;
+    row.classList.add('picking');
+    row.insertAdjacentHTML('beforeend', `<div class="ib-react-pick" role="menu" data-for="${esc(b.dataset.react)}" data-mine="${esc(b.dataset.mine)}">${REACTIONS.map((x) => `<button role="menuitem" data-emoji="${x}" class="${x === b.dataset.mine ? 'on' : ''}" title="${x === b.dataset.mine ? 'Remove reaction' : 'React ' + x}">${x}</button>`).join('')}</div>`);
+  });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.ib-react-pick, [data-react]')) closePicker(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePicker(); });
 
   // Send a failed message again, as it was.
   $('#ibChat').addEventListener('click', async (e) => {

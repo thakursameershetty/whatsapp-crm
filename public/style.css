@@ -4012,3 +4012,33 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .tag.bad { background: var(--danger-soft); color: var(--danger); box-shadow: none; }
 .kv dd .tag, .kv dd .tag-note { font-family: var(--font-ui, Inter, system-ui, sans-serif); }
 .tag-note { margin-left: 8px; color: var(--muted); }
+
+/* Emoji reactions */
+.ib-row { position: relative; }
+.ib-row.picking .ib-reply-btn { opacity: 1; }
+.ib-react-mine { display: inline-block; }
+.ib-reacts .ib-react-mine:not(:first-child) { margin-left: 2px; }
+.ib-react-pick { position: absolute; z-index: 5; bottom: calc(100% - 4px); left: 0; display: flex; gap: 2px; padding: 4px; border-radius: 99px; background: var(--surface); box-shadow: var(--sh-raised), 0 6px 20px rgba(0, 0, 0, 0.12); animation: ib-pick-in 0.16s var(--ease-out, ease-out); }
+.ib-react-pick button { width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; font-size: 19px; line-height: 1; cursor: pointer; transition: transform 0.12s, background 0.12s; }
+.ib-react-pick button:hover { transform: scale(1.2); background: var(--sunk); }
+.ib-react-pick button.on { background: var(--accent-soft); }
+@keyframes ib-pick-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } }
+
+/* Hover card on a status tag (number quality) */
+.kv dd.dd-pop { overflow: visible; }
+.tag.has-pop { position: relative; cursor: help; }
+.tag.has-pop:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.tag-pop {
+  position: absolute; z-index: 30; top: calc(100% + 8px); left: -8px; width: 300px; display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; border-radius: 10px; background: #1c1f22; color: #e8eaec; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  font: 400 12.5px/1.45 var(--font-ui, Inter, system-ui, sans-serif); white-space: normal; text-align: left; cursor: default;
+  opacity: 0; visibility: hidden; transform: translateY(-3px); transition: opacity 0.15s, transform 0.15s, visibility 0.15s;
+}
+.tag-pop::before { content: ''; position: absolute; top: -5px; left: 18px; width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
+.tag.has-pop:hover .tag-pop, .tag.has-pop:focus-visible .tag-pop, .tag.has-pop:focus-within .tag-pop { opacity: 1; visibility: visible; transform: none; }
+.tag-pop .tp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.tag-pop .tp-head b { font-size: 13px; color: #fff; }
+.tag-pop .tp-head span { font-size: 11px; color: #9aa3ab; }
+.tag-pop .tp-sec { display: block; }
+.tag-pop .tp-sec i { display: block; font-style: normal; font-weight: 600; font-size: 11px; letter-spacing: 0.02em; text-transform: uppercase; color: #9aa3ab; margin-bottom: 1px; }
+.tag.has-pop::before { flex: none; }
