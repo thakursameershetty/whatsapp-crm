@@ -4364,3 +4364,8 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .ib-msgs .ib-day { z-index: 5; }
 /* Scheduled and sending campaign cards: no coloured left edge */
 .cp-pinned .cp-pin, .cp-pinned .cp-pin.is-live { box-shadow: var(--sh-card); }
+
+/* Settings → Read receipts */
+.rr-row { align-items: center; gap: 16px; flex-wrap: wrap; }
+.rr-row > div:first-child { flex: 1 1 220px; min-width: 0; }
+.rr-row .seg { flex: none; }

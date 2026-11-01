@@ -574,12 +574,13 @@ function publicSettings(req) {
 app.get('/api/settings', (req, res) => res.json(publicSettings(req)));
 
 app.put('/api/settings', (req, res) => {
-  const allowed = ['demoMode', 'graphVersion', 'defaultCountryCode', 'defaultCountry', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber'];
+  const allowed = ['demoMode', 'readReceipts', 'graphVersion', 'defaultCountryCode', 'defaultCountry', 'webhookVerifyToken', 'concurrencyPerNumber', 'delayMsPerNumber'];
   // A calling code is 1–3 digits; the country is its two-letter ISO code (it tells +1 US from +1 Canada).
   if ('defaultCountryCode' in req.body && !/^\d{1,3}$/.test(String(req.body.defaultCountryCode))) return res.status(400).json({ error: 'The country code should be 1–3 digits, e.g. 91 for India' });
   if ('defaultCountry' in req.body && req.body.defaultCountry && !/^[A-Z]{2}$/.test(String(req.body.defaultCountry))) return res.status(400).json({ error: 'Pick a country from the list' });
   for (const k of allowed) if (k in req.body) db.settings[k] = req.body[k];
   if (!tenants.demoAllowed()) db.settings.demoMode = false;
+  if (!READ_RECEIPTS.includes(db.settings.readReceipts)) db.settings.readReceipts = 'open';
   db.settings.concurrencyPerNumber = Math.min(50, Math.max(1, Number(db.settings.concurrencyPerNumber) || 1));
   db.settings.delayMsPerNumber = Math.max(0, Number(db.settings.delayMsPerNumber) || 0);
   if (req.admin) saveAiSettings(req.body);
@@ -1618,13 +1619,23 @@ app.post('/api/inbox/:key/read', wrap(async (req, res) => {
   save();
   broadcast({ kind: 'read', key });
   res.json({ ok: true });
-  const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in' && !m.demo).at(-1);
-  const sender = db.senders.find((s) => s.id === splitKey(key).senderId);
-  if (lastIn && sender?.accessToken && !db.settings.demoMode && !lastIn.readSent) {
-    lastIn.readSent = true;
-    graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: lastIn.wamid }) }).catch(() => {});
-  }
+  if ((db.settings.readReceipts || 'open') === 'open') sendReadReceipt(key);
 }));
+
+// Blue ticks for the customer. settings.readReceipts:
+//   'open'  (default) when you open the chat, and when anyone replies (you or the AI)
+//   'reply' only when a reply is sent, so you can read without them knowing
+//   'off'   never
+// One receipt for their latest message marks everything before it read too; each message is sent at most once.
+const READ_RECEIPTS = ['open', 'reply', 'off'];
+function sendReadReceipt(key) {
+  const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in' && !m.demo && m.wamid && m.type !== 'reaction').at(-1);
+  const sender = db.senders.find((s) => s.id === splitKey(key).senderId);
+  if (!lastIn || lastIn.readSent || !sender?.accessToken || db.settings.demoMode) return;
+  lastIn.readSent = true;
+  save();
+  graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: lastIn.wamid }) }).catch(() => {});
+}
 
 // Reply with text (inside the 24h window) or a template (any time).
 app.post('/api/inbox/:key/send', wrap(async (req, res) => {
@@ -1680,6 +1691,7 @@ app.post('/api/inbox/:key/react', wrap(async (req, res) => {
     const r = await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: wa, type: 'reaction', reaction: { message_id: target, emoji } }) });
     wamid = r.messages?.[0]?.id || '';
   }
+  if (emoji && (db.settings.readReceipts || 'open') !== 'off') sendReadReceipt(key); // reacting counts as replying
   db.messages = db.messages.filter((m) => !(m.key === key && m.dir === 'out' && m.type === 'reaction' && m.reaction?.to === target));
   if (emoji) {
     const msg = { id: id(), key, senderId, wa, dir: 'out', type: 'reaction', wamid, reaction: { emoji, to: target }, ts: new Date().toISOString(), status: 'sent', ...(demo ? { demo: true } : {}) };
@@ -1770,6 +1782,7 @@ async function sendInboxText(key, text, { replyTo, auto = false } = {}) {
 
 // Store an outgoing Inbox message and tell open dashboards.
 function recordOut(key, msg) {
+  if ((db.settings.readReceipts || 'open') !== 'off') sendReadReceipt(key);
   const { senderId, wa } = splitKey(key);
   const demo = db.settings.demoMode;
   Object.assign(msg, { id: id(), key, senderId, wa, dir: 'out', ts: new Date().toISOString(), status: 'sent', ...(demo ? { demo: true } : {}) });

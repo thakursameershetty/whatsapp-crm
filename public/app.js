@@ -428,6 +428,7 @@ function renderSettings() {
   $('#setDemo').checked = s.demoMode;
   $('#demoRow').classList.toggle('hidden', !s.demoAllowed); // demo mode is only for our own workspaces
   setCountry(s.defaultCountry, s.defaultCountryCode || '91');
+  renderReadReceipts();
   $('#setGraph').value = s.graphVersion || '';
   $('#setConc').value = s.concurrencyPerNumber;
   $('#setDelay').value = s.delayMsPerNumber;
@@ -443,6 +444,30 @@ function renderSettings() {
   if (document.activeElement !== $('#laQualified')) $('#laQualified').value = la.qualified || '';
   renderMode();
 }
+
+// Read receipts: saved as soon as you pick one (like a switch), not with the Save button.
+const RR_HELP = {
+  open: 'Their messages turn blue as soon as you open the chat (and when you or the AI reply).',
+  reply: 'Read freely: their messages turn blue only once you or the AI send a reply or a reaction.',
+  off: "They never see blue ticks from you. Note: WhatsApp may hide your read status from them anyway if they've turned theirs off.",
+};
+function renderReadReceipts() {
+  const v = state.settings.readReceipts || 'open';
+  Motion.patch($('#setRR'), [['open', 'When I open'], ['reply', 'Only when I reply'], ['off', 'Off']].map(([k, l]) => `<button type="button" data-rr="${k}" role="radio" aria-checked="${v === k}" class="${v === k ? 'active' : ''}">${l}</button>`).join(''));
+  Motion.segs($('#setRR').parentElement);
+  $('#rrHelp').textContent = RR_HELP[v];
+}
+$('#setRR').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-rr]');
+  if (!b || b.classList.contains('active')) return;
+  const prev = state.settings.readReceipts;
+  state.settings.readReceipts = b.dataset.rr;
+  renderReadReceipts();
+  guard(async () => {
+    try { state.settings = await api('/settings', { method: 'PUT', body: { readReceipts: b.dataset.rr } }); toast('Read receipts: ' + b.textContent); }
+    catch (err) { state.settings.readReceipts = prev; renderReadReceipts(); throw err; }
+  });
+});
 
 async function saveSettings(extra = {}) {
   state.settings = await api('/settings', {
