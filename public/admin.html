@@ -10,37 +10,55 @@
   <script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}</script>
 </head>
 <body class="admin-body">
-  <main class="admin">
-    <header class="admin-head">
-      <div class="brand"><img class="logo" src="/brand/logo-small.svg" alt="" /><span class="brand-name">Admin</span></div>
-      <div class="admin-sum" id="sum"></div>
-      <a class="btn quiet" href="/">Back to the app</a>
-    </header>
-    <section class="card admin-card admin-del hidden" id="delReqs">
-      <h2>Deletion requests <span class="pill" id="delCount"></span></h2>
-      <p class="sub">People who asked for their account to be deleted. Reach out first, then delete the account or dismiss the request.</p>
-      <div id="delList"></div>
-    </section>
-    <section class="card admin-card admin-del" id="gvSec">
-      <h2>Meta API version</h2>
-      <p class="sub">Which version of Meta's API each workspace uses. Meta retires each version about two years after release and then requests fail, so the server moves every workspace up to <b id="gvRec"></b> automatically (on start and daily). To move everyone to a newer version sooner, set it here.</p>
-      <div class="gv-admin">
-        <div class="gv-list" id="gvList"></div>
-        <form class="gv-form" id="gvForm"><input id="gvTo" placeholder="v26.0" maxlength="6" aria-label="Version" /><button class="btn sm primary" type="submit">Move all workspaces</button></form>
+  <main class="admin adm">
+    <header class="adm-head">
+      <div class="adm-title">
+        <img class="adm-logo" src="/brand/logo-small.svg" alt="" />
+        <div><h1>Admin</h1><p class="sub">Every workspace on this server: usage, limits and health.</p></div>
       </div>
+      <a class="btn" href="/" data-icon="arrow-left" data-icon-size="15">Back to the app</a>
+    </header>
+
+    <section class="adm-kpis" id="kpis"></section>
+
+    <section class="adm-attn hidden" id="attn">
+      <section class="card adm-panel hidden" id="repSec">
+        <div class="adm-panel-h"><h2 data-icon="badge-alert">Reported issues</h2><span class="tag" id="repCount"></span></div>
+        <div id="repList"></div>
+      </section>
+      <section class="card adm-panel hidden" id="delReqs">
+        <div class="adm-panel-h"><h2 data-icon="delete">Deletion requests</h2><span class="tag warn" id="delCount"></span></div>
+        <p class="sub">Reach out first, then delete the account or dismiss the request.</p>
+        <div id="delList"></div>
+      </section>
     </section>
-    <section class="card admin-card admin-del hidden" id="repSec">
-      <h2>Reported issues <span class="pill" id="repCount"></span></h2>
-      <p class="sub">Problems people reported from “Report an issue”. Open ones first. Reply by email, then mark it resolved; they see the status in the app.</p>
-      <div id="repList"></div>
+
+    <section class="card adm-gv" id="gvSec">
+      <span class="adm-gv-ic" data-icon="layers" data-icon-size="18"></span>
+      <div class="adm-gv-main"><b id="gvTitle">Meta API version</b><span class="sub" id="gvSub"></span></div>
+      <div class="adm-gv-act">
+        <button type="button" class="btn sm" id="gvOpen">Move all to…</button>
+        <form class="gv-form hidden" id="gvForm"><input id="gvTo" placeholder="v26.0" maxlength="6" aria-label="Version" /><button class="btn sm primary" type="submit">Move all</button><button type="button" class="btn sm quiet" id="gvCancel">Cancel</button></form>
+      </div>
+      <div class="adm-gv-split hidden" id="gvList"></div>
     </section>
-    <div class="search-wrap"><input class="search" id="q" placeholder="Search workspace or email" /></div>
-    <div class="card admin-card"><div class="table-wrap"><table class="data-table" id="tbl"><thead><tr>
-      <th>Workspace</th><th>People</th><th class="num">Numbers</th><th class="num">Contacts</th><th class="num">Sent 24h</th><th class="num">Sent 30d</th><th class="num">Failed 30d</th><th>Daily limit</th><th>Last active</th><th>Status</th>
-    </tr></thead><tbody><tr><td colspan="10" class="table-empty">Loading…</td></tr></tbody></table></div></div>
-    <p class="sub">Daily limit: template messages a workspace can send in 24 hours (empty = no limit). New workspaces start at the server's default. Suspending stops sending and closes the dashboard for its members.</p>
+
+    <section class="adm-ws">
+      <div class="adm-ws-h">
+        <h2>Workspaces <span class="opt" id="wsCount"></span></h2>
+        <div class="adm-tools">
+          <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="q" placeholder="Search workspace or email" /></div>
+          <div class="seg" id="wsFilter" role="tablist" aria-label="Show"></div>
+        </div>
+      </div>
+      <div class="card adm-table-card"><div class="table-wrap"><table class="data-table adm-table" id="tbl"><thead><tr>
+        <th>Workspace</th><th>People</th><th class="num">Numbers</th><th class="num">Contacts</th><th class="num">Sent today</th><th class="num">Sent 30d</th><th>Failed 30d</th><th>Daily limit <span class="adm-hint" title="Template messages a workspace can send in 24 hours. Empty = no limit.">?</span></th><th>Last active</th><th></th>
+      </tr></thead><tbody><tr><td colspan="10" class="table-empty">Loading…</td></tr></tbody></table></div></div>
+    </section>
   </main>
   <div id="toasts"></div>
+  <script src="icons.js"></script>
+  <script src="motion.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -53,29 +71,66 @@ async function api(path, opts = {}) {
   return j;
 }
 let all = [];
+let wsFilter = '';
+const COLORS = 6;
+const hue = (t) => { let h = 0; for (const c of String(t)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return (h % COLORS) + 1; };
+const initial = (t) => (String(t || '?').trim().match(/[A-Za-z0-9]/) || ['?'])[0].toUpperCase();
+const DAY7 = 7 * 86400000;
+const isActive = (w) => !w.suspended && w.lastActivity && Date.now() - Date.parse(w.lastActivity) < DAY7;
+const FILTERS = [['', 'All', () => true], ['active', 'Active', isActive], ['idle', 'Idle', (w) => !w.suspended && !isActive(w)], ['suspended', 'Suspended', (w) => w.suspended]];
+
+function renderKpis() {
+  const sent = all.reduce((n, w) => n + w.sent30d, 0), failed = all.reduce((n, w) => n + w.failed30d, 0);
+  const today = all.reduce((n, w) => n + w.sent24h, 0);
+  const rate = sent ? Math.round((100 * failed) / sent) : 0;
+  const openReps = reps.filter((r) => r.status === 'open').length;
+  const tile = (ic, label, value, sub, cls = '') => `<div class="card adm-kpi ${cls}"><span class="adm-kpi-ic">${LA.icon(ic, 16)}</span><span class="adm-kpi-l">${label}</span><b>${value}</b><span class="adm-kpi-s">${sub}</span></div>`;
+  $('#kpis').innerHTML =
+    tile('layout-grid', 'Workspaces', all.length.toLocaleString(), `${all.filter(isActive).length} active this week${all.some((w) => w.suspended) ? ` · ${all.filter((w) => w.suspended).length} suspended` : ''}`)
+    + tile('send', 'Messages, 30 days', sent.toLocaleString(), `${today.toLocaleString()} today`)
+    + tile('badge-alert', 'Failure rate, 30 days', sent ? rate + '%' : '—', sent ? `${failed.toLocaleString()} failed` : 'nothing sent', rate >= 20 ? 'bad' : rate >= 8 ? 'warn' : '')
+    + tile('bell', 'Needs attention', (openReps + dels.length).toLocaleString(), openReps + dels.length ? `${openReps} open report${openReps === 1 ? '' : 's'} · ${dels.length} deletion request${dels.length === 1 ? '' : 's'}` : 'All clear', openReps + dels.length ? 'warn' : '');
+}
+
 function render() {
   const q = $('#q').value.trim().toLowerCase();
-  const list = all.filter((w) => !q || w.name.toLowerCase().includes(q) || w.members.some((m) => (m.email || '').includes(q)));
-  $('#sum').textContent = `${all.length} workspaces · ${all.filter((w) => w.suspended).length} suspended · ${all.reduce((n, w) => n + w.sent30d, 0).toLocaleString()} messages in 30 days`;
+  const f = FILTERS.find((x) => x[0] === wsFilter) || FILTERS[0];
+  const list = all.filter((w) => f[2](w) && (!q || w.name.toLowerCase().includes(q) || w.members.some((m) => (m.email || '').toLowerCase().includes(q))));
+  Motion.patch($('#wsFilter'), FILTERS.map(([k, l, fn]) => `<button data-f="${k}" class="${k === wsFilter ? 'active' : ''}" role="tab" aria-selected="${k === wsFilter}">${l} <span class="opt">${all.filter(fn).length}</span></button>`).join(''));
+  Motion.segs(document);
+  $('#wsCount').textContent = list.length === all.length ? all.length : `${list.length} of ${all.length}`;
+  renderKpis();
   $('#tbl tbody').innerHTML = list.map((w) => {
-    const rate = w.sent30d ? Math.round((100 * w.failed30d) / w.sent30d) : 0;
-    return `<tr class="${w.suspended ? 'ct-opted' : ''}">
-      <td class="ad-ws"><b title="${esc(w.name)}">${esc(w.name)}</b>${w.legacy ? ' <span class="pill">original</span>' : ''}${w.demoMode ? ' <span class="pill demo">demo</span>' : ''}<br><span class="muted">since ${new Date(w.createdAt).toLocaleDateString()}</span></td>
-      <td>${w.members.map((m) => `<span class="ad-person" title="${esc(m.email)}">${esc(m.email)}</span>${m.role === 'owner' ? ' <span class="muted">owner</span>' : ''}`).join('<br>') || '<span class="muted">nobody yet</span>'}</td>
-      <td class="num">${w.numbers}</td><td class="num">${w.contacts.toLocaleString()}</td>
-      <td class="num">${w.sent24h.toLocaleString()}</td><td class="num">${w.sent30d.toLocaleString()}</td>
-      <td class="num ${rate > 20 ? 'bad' : ''}">${w.failed30d.toLocaleString()}${w.sent30d ? ` <span class="muted">(${rate}%)</span>` : ''}</td>
-      <td><input class="admin-limit" data-limit="${w.id}" value="${w.dailyLimit ?? ''}" placeholder="None" inputmode="numeric" /></td>
-      <td class="muted">${ago(w.lastActivity)}</td>
-      <td><button class="btn sm ${w.suspended ? '' : 'quiet danger'}" data-suspend="${w.id}" data-to="${!w.suspended}">${w.suspended ? 'Unsuspend' : 'Suspend'}</button></td>
+    const rate = w.sent30d ? Math.round((100 * w.failed30d) / w.sent30d) : null;
+    const rcls = rate == null ? '' : rate >= 20 ? 'bad' : rate >= 8 ? 'warn' : 'good';
+    const people = w.members.slice(0, 3).map((m) => `<span class="adm-av sm" style="--av:var(--file-${hue(m.email)})" title="${esc(m.email)} · ${esc(m.role)}">${initial(m.email)}</span>`).join('');
+    return `<tr class="${w.suspended ? 'is-suspended' : ''}">
+      <td><div class="adm-wsc">
+        <span class="adm-av" style="--av:var(--file-${hue(w.name)})">${initial(w.name)}</span>
+        <div class="adm-wsn"><b title="${esc(w.name)}">${esc(w.name)}</b>
+          <span>${w.legacy ? '<span class="tag">Original</span>' : ''}${w.demoMode ? '<span class="tag warn">Demo</span>' : ''}since ${new Date(w.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
+      </div></td>
+      <td><div class="adm-people">${people ? `<span class="adm-avs">${people}</span><span class="adm-email" title="${esc(w.members.map((m) => m.email).join(', '))}">${esc(w.members[0]?.email || '')}${w.members.length > 1 ? ` <span class="muted">+${w.members.length - 1}</span>` : ''}</span>` : '<span class="muted">Nobody yet</span>'}</div></td>
+      <td class="num">${w.numbers || '<span class="muted">0</span>'}</td>
+      <td class="num">${w.contacts ? w.contacts.toLocaleString() : '<span class="muted">0</span>'}</td>
+      <td class="num">${w.sent24h ? w.sent24h.toLocaleString() : '<span class="muted">0</span>'}</td>
+      <td class="num">${w.sent30d ? w.sent30d.toLocaleString() : '<span class="muted">0</span>'}</td>
+      <td>${rate == null ? '<span class="muted">—</span>' : `<div class="adm-fail ${rcls}"><span class="adm-bar"><i style="width:${Math.min(100, rate)}%"></i></span><b>${rate}%</b><span class="muted">${w.failed30d.toLocaleString()}</span></div>`}</td>
+      <td><label class="adm-limit"><input data-limit="${w.id}" value="${w.dailyLimit ?? ''}" placeholder="No limit" inputmode="numeric" aria-label="Daily limit for ${esc(w.name)}" /><span>/ day</span></label></td>
+      <td class="${isActive(w) ? '' : 'muted'}">${w.lastActivity ? ago(w.lastActivity) : '<span class="muted">Never</span>'}</td>
+      <td class="adm-st">${w.suspended ? '<span class="tag bad">Suspended</span>' : ''}<button class="btn sm ${w.suspended ? '' : 'quiet danger'}" data-suspend="${w.id}" data-to="${!w.suspended}">${w.suspended ? 'Unsuspend' : 'Suspend'}</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="10" class="table-empty">No workspaces match.</td></tr>';
 }
+$('#wsFilter').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; wsFilter = b.dataset.f; render(); });
+
+function syncAttn() { $('#attn').classList.toggle('hidden', $('#repSec').classList.contains('hidden') && $('#delReqs').classList.contains('hidden')); }
 // Deletion requests: what they said, and what deleting would do to each workspace.
 let dels = [];
 function renderDels() {
   $('#delReqs').classList.toggle('hidden', !dels.length);
-  $('#delCount').textContent = dels.length;
+  $('#delCount').textContent = `${dels.length} waiting`;
+  syncAttn();
   $('#delList').innerHTML = dels.map((d) => `<div class="del-req">
     <div class="del-req-head"><div><b>${esc(d.name || d.email)}</b> <span class="muted">${esc(d.email)}</span><br><span class="muted">Asked ${ago(d.at)} · member since ${d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—'}</span></div><span class="pill">${esc(d.reasonText)}</span></div>
     ${d.note ? `<blockquote>${esc(d.note)}</blockquote>` : ''}
@@ -101,49 +156,63 @@ $('#delList').addEventListener('click', async (e) => {
 });
 // Reported issues, across all workspaces.
 let reps = [];
+let showResolved = false;
 function renderReps() {
   const open = reps.filter((r) => r.status === 'open').length;
+  const resolved = reps.length - open;
   $('#repSec').classList.toggle('hidden', !reps.length);
-  $('#repCount').textContent = open ? `${open} open` : 'all resolved';
-  $('#repList').innerHTML = reps.map((r) => `<div class="del-req">
-    <div class="del-req-head"><div><b>${esc(r.area)}</b>${r.errorCode ? ` · Meta error <b>${esc(r.errorCode)}</b>` : ''}<br><span class="muted">${esc(r.by.name || r.by.email)} (${esc(r.by.email)}) · ${esc(r.workspace)} · ${ago(r.at)}${r.page ? ' · on ' + esc(r.page) : ''}</span></div><span class="pill ${r.status === 'resolved' ? 'completed' : 'stopped'}">${r.status === 'resolved' ? 'Resolved' : 'Open'}</span></div>
-    <blockquote style="white-space:pre-wrap">${esc(r.message)}</blockquote>
-    <div class="del-acts">
-      <a class="btn sm" href="mailto:${encodeURIComponent(r.by.email)}?subject=${encodeURIComponent('About the issue you reported: ' + r.area)}">Email them</a>
-      <button class="btn sm quiet" data-rep="${r.wsId}/${r.id}" data-to="${r.status === 'resolved' ? 'open' : 'resolved'}">${r.status === 'resolved' ? 'Reopen' : 'Mark resolved'}</button>
-    </div>
-  </div>`).join('');
+  $('#repCount').textContent = open ? `${open} open` : 'All resolved';
+  $('#repCount').className = 'tag ' + (open ? 'warn' : 'good');
+  syncAttn();
+  const shown = reps.filter((r) => r.status === 'open' || showResolved);
+  // One compact row per report: what, who, when, the message on one line (full text on hover), actions on the right.
+  $('#repList').innerHTML = shown.map((r) => `<div class="adm-rep ${r.status === 'resolved' ? 'done' : ''}">
+      <div class="adm-rep-main">
+        <div class="adm-rep-t"><b>${esc(r.area)}</b>${r.errorCode ? `<code>${esc(r.errorCode)}</code>` : ''}<span class="muted">${esc(r.by.name || r.by.email)} · ${esc(r.workspace)} · ${ago(r.at)}${r.page ? ' · ' + esc(r.page) : ''}</span></div>
+        <p title="${esc(r.message)}">${esc(r.message.replace(/\s*\n+\s*/g, ' '))}</p>
+      </div>
+      <div class="adm-rep-act">
+        <a class="btn sm quiet" href="mailto:${encodeURIComponent(r.by.email)}?subject=${encodeURIComponent('About the issue you reported: ' + r.area)}">Email</a>
+        <button class="btn sm" data-rep="${r.wsId}/${r.id}" data-to="${r.status === 'resolved' ? 'open' : 'resolved'}">${r.status === 'resolved' ? 'Reopen' : 'Resolve'}</button>
+      </div>
+    </div>`).join('') + (resolved ? `<button type="button" class="adm-more" id="repMore">${showResolved ? 'Hide' : 'Show'} ${resolved} resolved</button>` : '') + (!shown.length ? '<p class="sub">Nothing open.</p>' : '');
 }
+$('#repList').addEventListener('click', (e) => { if (e.target.closest('#repMore')) { showResolved = !showResolved; renderReps(); } });
 $('#repList').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-rep]');
   if (!b) return;
   try { await api('/admin/reports/' + b.dataset.rep, { method: 'POST', body: { status: b.dataset.to } }); toast(b.dataset.to === 'resolved' ? 'Marked resolved' : 'Reopened'); load(); } catch (err) { toast(err.message, true); }
 });
-// Meta API version across workspaces.
+// Meta API version: one line when everyone agrees; a breakdown when they don't.
 async function loadGv() {
   const g = await api('/admin/graph-version');
-  $('#gvRec').textContent = g.recommended;
+  const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   const by = {};
   for (const w of g.workspaces) (by[w.version || '(none)'] ||= []).push(w.name);
-  const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-  $('#gvList').innerHTML = Object.entries(by).sort((a, b) => b[0].localeCompare(a[0], undefined, { numeric: true })).map(([v, names]) => `<div class="gv-item">
-      <b>${esc(v)}${v === g.recommended ? ' <span class="pill completed">recommended</span>' : ''}</b>
-      <span class="muted">${names.length} workspace${names.length === 1 ? '' : 's'}${g.retires[v] ? ` · works until ${fmt(g.retires[v])}` : ''}</span>
-      <span class="gv-names">${names.map(esc).join(', ')}</span>
-    </div>`).join('');
+  const versions = Object.keys(by).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  const one = versions.length === 1 ? versions[0] : null;
+  const until = (v) => (g.retires[v] ? `supported until ${fmt(g.retires[v])}` : 'newer than the app knows');
+  $('#gvTitle').innerHTML = one ? `All ${g.workspaces.length} workspaces on <code>${esc(one)}</code>` : `Workspaces use ${versions.length} versions`;
+  $('#gvSub').innerHTML = one
+    ? `${until(one)} · ${one === g.recommended ? 'kept current automatically' : `the server moves anyone below ${esc(g.recommended)} up to it`}`
+    : `The server moves everyone below <b>${esc(g.recommended)}</b> up to it on start and daily.`;
+  $('#gvList').classList.toggle('hidden', Boolean(one));
+  $('#gvList').innerHTML = one ? '' : versions.map((v) => `<div class="gv-chip"><code>${esc(v)}</code><span>${by[v].length} · ${esc(until(v))}</span></div>`).join('');
 }
+$('#gvOpen').addEventListener('click', () => { $('#gvOpen').classList.add('hidden'); $('#gvForm').classList.remove('hidden'); $('#gvTo').focus(); });
+$('#gvCancel').addEventListener('click', () => { $('#gvForm').classList.add('hidden'); $('#gvOpen').classList.remove('hidden'); });
 $('#gvForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const to = $('#gvTo').value.trim();
   if (!confirm(`Move every workspace to ${to}? Each one's sending, Inbox and template sync will use it straight away.`)) return;
-  try { const r = await api('/admin/graph-version', { method: 'POST', body: { version: to } }); toast(r.moved.length ? `Moved ${r.moved.length} workspace(s) to ${to}` : `Every workspace already uses ${to}`); $('#gvTo').value = ''; loadGv(); }
+  try { const r = await api('/admin/graph-version', { method: 'POST', body: { version: to } }); toast(r.moved.length ? `Moved ${r.moved.length} workspace(s) to ${to}` : `Every workspace already uses ${to}`); $('#gvTo').value = ''; $('#gvCancel').click(); loadGv(); }
   catch (err) { toast(err.message, true); }
 });
 async function load() {
   try { await loadGv(); } catch (e) { $('#gvSec').classList.add('hidden'); }
   try { reps = await api('/admin/reports'); renderReps(); } catch (e) { /* the table below shows the error */ }
   try { dels = await api('/admin/deletion-requests'); renderDels(); } catch (e) { /* the table below shows the error */ }
-  try { all = await api('/admin/workspaces'); render(); }
+  try { all = await api('/admin/workspaces'); render(); LA.hydrate(document); }
   catch (e) { $('#tbl tbody').innerHTML = `<tr><td colspan="10" class="table-empty">${esc(e.message)}</td></tr>`; }
 }
 $('#q').addEventListener('input', render);
