@@ -5,6 +5,8 @@
 // notification is pushed to open dashboards over the live events stream.
 
 const MAX = 500;
+// A notification's preview: up to 400 characters, cut at a word with "…" (never mid-word).
+const clip = (t, n = 400) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); if (s.length <= n) return s; const cut = s.slice(0, n); const sp = cut.lastIndexOf(' '); return (sp > n * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,.;:!?-]+$/, '') + '…'; };
 
 // kind → category used by the page's filters
 const CATEGORY = {
@@ -101,13 +103,13 @@ module.exports = function mountNotifications(app, ctx) {
     const n = db.notifications.find((x) => x.group === 'msg:' + key && !x.read);
     const count = (n?.count || 0) + 1;
     const preview = type === 'text' || type === 'button' || type === 'interactive' ? text : `Sent ${type === 'audio' ? 'a voice note' : type === 'image' ? 'a photo' : 'a ' + type}`;
-    add({ kind: 'message', group: 'msg:' + key, count, title: count > 1 ? `${plural(count, 'new message')} from ${name}` : `New message from ${name}`, body: String(preview || '').slice(0, 160), link: { tab: 'inbox', key }, demo });
+    add({ kind: 'message', group: 'msg:' + key, count, title: count > 1 ? `${plural(count, 'new message')} from ${name}` : `New message from ${name}`, body: clip(preview), link: { tab: 'inbox', key }, demo });
   }
 
   const optout = ({ name, phone, key, demo }) => add({ kind: 'optout', title: `${name} opted out`, body: 'They asked to stop messages. They won’t be included in future sends.', link: key ? { tab: 'inbox', key } : { tab: 'contacts' }, demo, group: 'optout:' + phone });
   const replyFailed = ({ key, name, error, demo }) => add({ kind: 'reply_failed', title: `Your message to ${name} failed`, body: error || 'WhatsApp didn’t deliver it.', link: { tab: 'inbox', key }, demo, group: 'replyfail:' + key });
-  const aiDraft = ({ key, name, text, demo }) => add({ kind: 'ai_draft', group: 'draft:' + key, title: `AI drafted a reply to ${name}`, body: text.slice(0, 160), link: { tab: 'inbox', key }, demo });
-  const aiAuto = ({ key, name, text, demo }) => add({ kind: 'ai_auto', group: 'auto:' + key, title: `AI replied to ${name}`, body: text.slice(0, 160), link: { tab: 'inbox', key }, demo });
+  const aiDraft = ({ key, name, text, demo }) => add({ kind: 'ai_draft', group: 'draft:' + key, title: `AI drafted a reply to ${name}`, body: clip(text), link: { tab: 'inbox', key }, demo });
+  const aiAuto = ({ key, name, text, demo }) => add({ kind: 'ai_auto', group: 'auto:' + key, title: `AI replied to ${name}`, body: clip(text), link: { tab: 'inbox', key }, demo });
   const aiHandover = ({ key, name, reason, demo }) => add({ kind: 'ai_handover', group: 'handover:' + key, title: `${name} needs a person`, body: reason, link: { tab: 'inbox', key }, demo });
   const aiQualified = ({ key, name, summary, demo }) => add({ kind: 'ai_qualified', group: 'qualified:' + key, title: `${name} is a qualified lead`, body: summary || '', link: { tab: 'inbox', key }, demo });
   const aiError = ({ key, name, error, demo }) => add({ kind: 'ai_error', group: 'aierror', title: `The lead assistant couldn’t draft a reply${name ? ` to ${name}` : ''}`, body: error, link: key ? { tab: 'inbox', key } : { tab: 'settings' }, demo });

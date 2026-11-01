@@ -59,7 +59,7 @@
       <span class="nt-ico tone-${k.tone}">${k.orb ? '<svg class="orb-icon" data-orb-icon="17"></svg>' : icon(k.icon, 17)}</span>
       <span class="nt-main">
         <b>${esc(n.title)}</b>
-        ${n.body ? `<span class="nt-body">${esc(n.body)}</span>` : ''}
+        ${n.body ? `<span class="nt-body">${esc(n.body.length === 160 && !/[.!?…]$/.test(n.body) ? n.body.replace(/\s+\S*$/, '') + '…' : n.body)}</span>` : ''}
         <time title="${esc(new Date(n.ts).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }))}">${relTime(n.ts)}</time>
       </span>
       <span class="nt-acts">

@@ -1006,8 +1006,9 @@ function renderTemplates() {
   // Search, category and status filters (the bar shows once there's something to filter).
   $('#tplBar').classList.toggle('hidden', state.templates.length < 2);
   const cats = [...new Set(byNumber.map((t) => catLabel(t.category)))].sort();
-  if (state.tplCat && !cats.includes(state.tplCat)) state.tplCat = '';
-  $('#tplCat').innerHTML = ['', ...cats].map((c) => `<button data-cat="${esc(c)}" class="${state.tplCat === c ? 'active' : ''}" role="tab" aria-selected="${state.tplCat === c}">${esc(c || 'All')} <span class="opt">${byNumber.filter((t) => !c || catLabel(t.category) === c).length}</span></button>`).join('');
+  if (!cats.includes(state.tplCat)) state.tplCat = ''; // also turns the first-load undefined into '' (All)
+  Motion.patch($('#tplCat'), ['', ...cats].map((c) => `<button data-cat="${esc(c)}" class="${state.tplCat === c ? 'active' : ''}" role="tab" aria-selected="${state.tplCat === c}">${esc(c || 'All')} <span class="opt">${byNumber.filter((t) => !c || catLabel(t.category) === c).length}</span></button>`).join(''));
+  Motion.segs($('#tplBar'));
   const q = (state.tplQ || '').trim().toLowerCase();
   const text = (t) => [t.name, t.language, t.category, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase();
   const shown = byNumber.filter((t) => (!state.tplCat || catLabel(t.category) === state.tplCat)
