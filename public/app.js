@@ -129,7 +129,7 @@ function showTab(name) {
   if (name !== 'campaigns') stopPolling();
   if (name === 'overview') loadOverview().catch((e) => toast(e.message, 'error'));
   else stopOverviewPolling();
-  if (name === 'numbers') refreshStats().then(renderSenders).catch(() => {});
+  if (name === 'numbers') { refreshStats().then(renderSenders).catch(() => {}); if (!state.team) loadTeam().catch(() => {}); }
   if (name === 'report') window.MetaErrors?.render();
   if (name === 'reports') window.MetaErrors?.showReports();
   hideTip();
@@ -736,12 +736,12 @@ function renderSenders() {
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
         ${s.qualityRating ? `<dt>Quality</dt><dd class="dd-pop">${qualityTag(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
-        ${s.lastCheckedAt ? `<dt>Connection</dt><dd><span class="tag good">Connected</span><span class="tag-note">checked ${esc(relTime(s.lastCheckedAt))}</span></dd>` : ''}
+        ${s.lastCheckedAt ? `<dt>Connection</dt><dd class="dd-conn" title="Last checked ${esc(new Date(s.lastCheckedAt).toLocaleString())}"><span class="tag good">Connected</span><span class="tag-note">${esc(shortAgo(s.lastCheckedAt))}</span></dd>` : ''}
       </dl>
       <div class="row tight">
         <button class="btn sm" data-test="${s.id}">${icon('zap', 15)}Test connection</button>
         <button class="btn quiet sm" data-edit="${s.id}">Edit</button>
-        <button class="btn quiet danger sm" data-del="${s.id}" style="margin-left:auto">${icon('delete', 15)}Delete</button>
+        ${numberAccessHtml(s)}
       </div>
     </div>`
     )
@@ -932,6 +932,8 @@ $('#senderList').addEventListener('change', (e) => {
 $('#senderList').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.numTeam) return teamModal();
+  if (b.dataset.numGear) return numberModal(state.senders.find((s) => s.id === b.dataset.numGear));
   if (b.dataset.edit) senderForm(state.senders.find((s) => s.id === b.dataset.edit));
   if (b.dataset.del)
     guard(async () => {
@@ -2497,6 +2499,15 @@ function renderFunnel(st) {
 
 // --- Number health ---
 
+// Compact "how long ago" for tight spots: now, 5m, 3h, 2d, 3w, then the date. (Full date goes in a tooltip.)
+function shortAgo(ts) {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(ts)) / 60000));
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  if (m < 1440) return `${Math.round(m / 60)}h ago`;
+  if (m < 10080) return `${Math.round(m / 1440)}d ago`;
+  return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
 // 'TIER_2K' → '2,000 people / 24h' (the whole business portfolio shares it).
 function tierText(tier) {
   if (tier === 'TIER_UNLIMITED') return 'Unlimited';
@@ -2694,11 +2705,82 @@ $('#verifyResend').addEventListener('click', (e) => guard(async () => {
 // --- Team: a row of avatars; click one for their details and actions, the dashed circle to invite ---
 const TEAM_VISIBLE = 7;
 const initials2 = (n) => String(n || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+// --- Who can use a number (bottom-right of each number card) ---------------------------------------
+// Only owners manage this. With only owners in the workspace the card keeps a plain Delete; as soon as there's a
+// member it shows the faces of who can use the number (everyone, by default) and a settings button, where the
+// number is shared or limited and deleted.
+const canUseNumber = (m, id) => m.role === 'owner' || !Array.isArray(m.senders) || m.senders.includes(id);
+function numberAccessHtml(s) {
+  const t = state.team;
+  const del = `<button class="btn quiet danger sm" data-del="${s.id}" style="margin-left:auto">${icon('delete', 15)}Delete</button>`;
+  if (!t || t.role !== 'owner') return del;
+  const members = t.members.filter((m) => m.role !== 'owner');
+  if (!members.length) return del;
+  const who = t.members.filter((m) => canUseNumber(m, s.id));
+  // Up to 3 faces; anyone beyond that is counted in a "+N" circle.
+  const faces = who.slice(0, 3).map((m, i) => `<span class="na-face" style="z-index:${9 - i}">${tmAvatar({ ...m, kind: 'member' })}</span>`).join('');
+  const more = who.length > 3 ? `<span class="na-face na-more">+${who.length - 3}</span>` : '';
+  return `<div class="na" style="margin-left:auto">
+      <button type="button" class="na-group" data-num-team="1" title="${esc(who.map((m) => m.name || m.email).join(', '))} can use this number. Open the team.">${faces}${more}</button>
+      <button type="button" class="na-gear" data-num-gear="${s.id}" title="Number settings: who can use it, delete" aria-label="Number settings">${icon('settings', 16)}</button>
+    </div>`;
+}
+// Number settings: who on the team can use it (owners always), and deleting it.
+function numberModal(s) {
+  if (!s) return;
+  const body = openModal(`${s.label}`, `
+    <div class="nm-head">${senderPhotoHtml(s)}<div><b>${esc(s.verifiedName || s.label)}</b><span>${esc(s.displayPhone || '')}</span></div></div>
+    <div class="nm-sec-l">Who can use this number</div>
+    <p class="tmm-hint">They see its chats, campaigns and stats, and can send from it. Owners always can.</p>
+    <div class="nm-list" id="nmList"></div>
+    <div class="nm-danger">
+      <div><b>Delete this number</b><span>Removes it and its saved token from this app. Nothing changes in your Meta account.</span></div>
+      <button class="btn sm danger-solid" id="nmDel">${icon('delete', 14)}Delete</button>
+    </div>`);
+  $('#modal .modal-box').classList.add('tmm-box');
+  const draw = () => {
+    $('#nmList', body).innerHTML = state.team.members.map((m) => {
+      const owner = m.role === 'owner', on = canUseNumber(m, s.id);
+      return `<div class="tmm-row">
+        <span class="tm-pic">${tmAvatar({ ...m, kind: 'member' })}</span>
+        <div class="tmm-who"><b>${esc(m.name || m.email)}${m.you ? ' <span class="muted">(You)</span>' : ''}</b><span>${owner ? 'Owner · always' : !Array.isArray(m.senders) ? 'Member · all numbers' : `Member · ${m.senders.length} number${m.senders.length === 1 ? '' : 's'}`}</span></div>
+        ${owner ? '<span class="tmm-role static">Owner</span>' : `<label class="nm-tog">${toggleHtml({ checked: on, attrs: `data-nm="${m.id}" aria-label="${esc(m.name || m.email)} can use this number"`, size: 'sm' })}</label>`}
+      </div>`;
+    }).join('');
+  };
+  draw();
+  $('#nmList', body).addEventListener('change', (e) => {
+    const cb = e.target.closest('[data-nm]');
+    if (!cb) return;
+    const m = state.team.members.find((x) => x.id === cb.dataset.nm);
+    const base = Array.isArray(m.senders) ? m.senders : state.senders.map((x) => x.id);
+    const next = cb.checked ? [...new Set([...base, s.id])] : base.filter((x) => x !== s.id);
+    if (!next.length) { cb.checked = true; return toast(`${m.name || m.email} would have no numbers left. Give them another number first, or remove them from the team.`, 'error'); }
+    const all = state.senders.every((x) => next.includes(x.id));
+    guard(async () => {
+      try { await api('/team/members/' + m.id, { method: 'PATCH', body: { senders: all ? null : next } }); }
+      catch (err) { cb.checked = !cb.checked; throw err; }
+      await loadTeam();
+      draw();
+      toast(`${m.name || m.email} ${cb.checked ? 'can now use' : 'no longer uses'} ${s.label}`);
+    });
+  });
+  $('#nmDel', body).onclick = () => guard(async () => {
+    const ok = await confirmDialog({ title: `Delete “${esc(s.label)}”?`, message: 'The number and its saved token are removed from this app. Nothing changes in your Meta account.', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    await api('/senders/' + s.id, { method: 'DELETE' });
+    closeModal();
+    await loadSenders();
+    loadTeam().catch(() => {});
+  });
+}
+
 async function loadTeam() {
   const t = await api('/team');
   state.team = t;
   $('#teamCount').textContent = `${t.members.length} ${t.members.length === 1 ? 'person' : 'people'}${t.invites.length ? ` · ${t.invites.length} invited` : ''}`;
   renderTeam();
+  if (state.tab === 'numbers' && state.senders?.length) renderSenders(); // number cards show who can use each number
 }
 // Everyone in one list: you first, then owners, members, and pending invites last.
 function teamPeople() {

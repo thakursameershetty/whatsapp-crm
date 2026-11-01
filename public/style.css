@@ -4657,3 +4657,28 @@ body.limited #demoRow .toggle { pointer-events: none; opacity: 0.5; }
 .limited-note { display: flex; align-items: flex-start; gap: 8px; margin: -4px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--sunk); color: var(--muted); font-size: 13px; line-height: 1.45; }
 .limited-note svg { flex: none; margin-top: 2px; }
 body.limited #senderList .sender-card .toggle { display: none !important; }
+
+/* Number card: who can use it + settings */
+.na { display: inline-flex; align-items: center; gap: 6px; }
+.na-group { display: inline-flex; align-items: center; padding: 2px 4px 2px 8px; border: 0; border-radius: 99px; background: none; cursor: pointer; }
+.na-group:hover { background: var(--sunk); }
+.na-face { position: relative; margin-left: -8px; display: inline-grid; }
+.na-face .tm-face { width: 28px; height: 28px; font-size: 10.5px; box-shadow: 0 0 0 2.5px var(--surface); }
+.na-more { width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--sunk); box-shadow: 0 0 0 2.5px var(--surface); font: 600 11px Inter, sans-serif; color: var(--text); z-index: 0; }
+.na-gear { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; transition: background 0.15s, color 0.15s, transform 0.3s; }
+.na-gear:hover { background: var(--sunk); color: var(--text); transform: rotate(45deg); }
+/* Number settings modal */
+.nm-head { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; padding: 12px; border-radius: 12px; background: var(--sunk); }
+.nm-head .sender-photo { width: 40px; height: 40px; }
+.nm-head b { display: block; font-size: 14px; } .nm-head span { font-size: 12.5px; color: var(--muted); }
+.nm-sec-l { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+.nm-list { display: flex; flex-direction: column; margin: 0 -8px 16px; }
+.nm-danger { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent); }
+.nm-danger > div { flex: 1; min-width: 0; }
+.nm-danger b { display: block; font-size: 13.5px; color: var(--danger); }
+.nm-danger span { font-size: 12px; color: var(--muted); }
+.nm-tog { margin: 0; flex: none; }
+.kv dd.dd-conn { display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; } .kv dd.dd-conn .tag-note { margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+.na-face { margin-left: -5px; } .na-face:first-child { margin-left: 0; } .na-group { padding: 2px 4px; }
+.sender-card .row.tight:has(.na) { flex-wrap: nowrap; align-items: center; } .sender-card .na { flex: none; } .na-face .tm-face { width: 26px; height: 26px; font-size: 10px; }
+.na-more { width: 26px; height: 26px; font-size: 10.5px; display: inline-grid; place-items: center; }
