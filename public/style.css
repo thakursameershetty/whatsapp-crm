@@ -4682,3 +4682,12 @@ body.limited #senderList .sender-card .toggle { display: none !important; }
 .na-face { margin-left: -5px; } .na-face:first-child { margin-left: 0; } .na-group { padding: 2px 4px; }
 .sender-card .row.tight:has(.na) { flex-wrap: nowrap; align-items: center; } .sender-card .na { flex: none; } .na-face .tm-face { width: 26px; height: 26px; font-size: 10px; }
 .na-more { width: 26px; height: 26px; font-size: 10.5px; display: inline-grid; place-items: center; }
+/* Invite for someone else: the two emails as tidy rows (long addresses shorten with … instead of breaking) */
+.inv-who { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px; padding: 12px 14px; border-radius: 12px; background: var(--sunk); }
+.inv-who > span { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: baseline; gap: 10px; }
+.inv-who small { font-size: 12px; color: var(--muted); }
+.inv-who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
+.inv-acts { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
+.inv-acts .auth-btn { margin: 0; }
+.auth-btn.auth-btn-2 { background: none; color: var(--text); box-shadow: inset 0 0 0 1px var(--hair); }
+.auth-btn.auth-btn-2:hover { background: var(--sunk); }

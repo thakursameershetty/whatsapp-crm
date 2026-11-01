@@ -380,6 +380,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
   }
 
   const safeNext = (n) => (/^\/[^/\\]/.test(String(n || '')) ? String(n) : '/');
+  const sameEmail = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
   const inviteFor = (token) => {
     const inv = accounts.invites.find((i) => i.hash === sha(String(token || '')) && new Date(i.expiresAt) > new Date());
     if (!inv) return null;
@@ -408,7 +409,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       if (tooMany(key)) return res.status(429).send(loginPage({ error: 'Too many attempts. Try again in a few minutes.', email, next }));
       const user = userByEmail(email);
       if (!user || !checkPassword(req.body.password, user.password)) { noteTry(key); return res.status(401).send(loginPage({ error: 'Wrong email or password', email, next })); }
-      const inv = inviteFromNext(next);
+      const found = inviteFromNext(next);
+      const inv = found && sameEmail(found.email, user.email) ? found : null; // an invite is only for the address it was sent to
       if (inv) acceptInvite(inv, user.id);
       const ws = inv?.wsId || user.lastWsId || membershipsOf(user.id)[0]?.wsId;
       if (!ws) return res.status(403).send(loginPage({ error: 'Your account has no workspace. Ask for a new invite.', email }));
@@ -428,6 +430,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const nameCheck = checkName(name, 'person');
       if (nameCheck.error) return again(nameCheck.error);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return again('Enter a valid email');
+      if (invite && !sameEmail(invite.email, email)) return again(`This invite is for ${invite.email}. Sign up with that email, or ask for an invite to ${email}.`);
       const weak = passwordRules.check(password, { email, name }).problem;
       if (weak) return again(weak);
       if (req.body.confirm !== password) return again("The two passwords don't match");
@@ -554,8 +557,15 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const inv = inviteFor(req.params.token);
       if (!inv) return res.status(404).send(page('Invite', shell({ kicker: 'Invite', headline: 'Invites last 7 days so links can’t be reused forever.', form: `<div class="auth-fields">${mark}<h1>This invite has expired</h1><p class="auth-sub">Ask whoever invited you to send a new link.</p><a class="auth-btn" href="/login">Sign in</a></div>` })));
       const s = sessionOf(req);
-      if (s) { acceptInvite(inv, s.userId); s.wsId = inv.wsId; saveAccounts(); return res.redirect('/'); }
       const next = `/invite/${req.params.token}`;
+      if (s) {
+        const me = accounts.users.find((u) => u.id === s.userId);
+        // Signed in as the invited person: join. Signed in as someone else (e.g. the owner testing the link): don't
+        // use the invite up on the wrong account; offer to sign out and continue as the invited person.
+        if (me && sameEmail(me.email, inv.email)) { acceptInvite(inv, s.userId); s.wsId = inv.wsId; saveAccounts(); return res.redirect('/'); }
+        const to = userByEmail(inv.email) ? `/login?next=${encodeURIComponent(next)}` : `/signup?next=${encodeURIComponent(next)}`;
+        return res.send(messagePage('Invite', 'This invite is for someone else', `<span class="inv-who"><span><small>Invite for</small><b title="${esc(inv.email)}">${esc(inv.email)}</b></span><span><small>Signed in as</small><b title="${esc(me?.email || '')}">${esc(me?.email || 'another account')}</b></span></span>So it wasn't used. Sign out to join <b>${esc(inv.wsName)}</b> with the invited email, or open the link in a private window. It stays valid until it expires.`, `<div class="inv-acts"><a class="auth-btn" href="/logout?next=${encodeURIComponent(to)}">Sign out and continue</a><a class="auth-btn auth-btn-2" href="/">Back to the app</a></div>`));
+      }
       res.redirect(userByEmail(inv.email) ? `/login?next=${encodeURIComponent(next)}` : `/signup?next=${encodeURIComponent(next)}`);
     });
 
@@ -563,7 +573,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const t = cookieToken(req);
       if (t) { accounts.sessions = accounts.sessions.filter((s) => s.hash !== sha(t)); saveAccounts(); }
       res.set('Set-Cookie', 'ws_sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
-      res.redirect('/login');
+      const to = String(req.query.next || '');
+      res.redirect(/^\/(login|signup)\?next=%2Finvite%2F[a-f0-9]{48}$/.test(to) ? to : '/login');
     });
   }
 
