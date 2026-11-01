@@ -52,7 +52,7 @@
   --knob-sh: 0 1px 1px rgba(16, 24, 32, 0.12), 0 3px 7px rgba(16, 24, 32, 0.22), 0 0 0 0.5px rgba(16, 24, 32, 0.08), inset 0 -2px 2px rgba(16, 24, 32, 0.05);
   --bezel-sh: inset 0 1px 1px rgba(16, 24, 32, 0.06), 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 5px -2px rgba(16, 24, 32, 0.08);
 
-  --chat: #e9e1d6;
+  --chat: #f5f1eb; /* WhatsApp's light chat background */
   --bubble: #ffffff;
   --field: #f1f3f5;
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2366727c' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -4779,3 +4779,12 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 /* Admin: the AI switch per workspace (locked on for our own) */
 .adm-ai { display: inline-flex; cursor: pointer; }
 .adm-ai:has(input:disabled) { opacity: 0.55; cursor: not-allowed; }
+
+/* Inbox: the doodle wallpaper. It sits on the chat panel (which never scrolls), not on the message list, so it
+   stays perfectly still while the messages scroll over it, bounce included.
+   Light: chat-bg-light.webp, lines a shade darker than the background (#ebe1d5 on #f5f1eb), as in WhatsApp.
+   Dark: chat-bg.png (white lines), faded into the background by a layer of the chat colour on top. */
+.ib-chat { background-image: url("chat-bg-light.webp"); }
+:root[data-mode="dark"] .ib-chat {
+  background-image: linear-gradient(color-mix(in srgb, var(--chat) 93%, transparent), color-mix(in srgb, var(--chat) 93%, transparent)), url("chat-bg.png");
+}
