@@ -14,7 +14,7 @@
     q: '',
     sender: '',
     replyTo: null, // message being replied to
-    drafts: {},
+    drafts: (() => { try { return JSON.parse(sessionStorage.getItem('ib.drafts')) || {}; } catch { return {}; } })(), // unsent text per chat (kept across a reload)
     loaded: false,
   };
 
@@ -270,11 +270,20 @@
   });
 
   // ---------- Conversation ----------
+  // The open chat and unsent drafts live in this tab's sessionStorage too, so a reload (a new version of the app
+  // being deployed, or a refresh) comes back to the same chat with the half-typed message still there.
+  const keep = (k, v) => { try { if (v == null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch {} };
+  addEventListener('pagehide', () => {
+    if (ib.key && $('#ibText')) ib.drafts[ib.key] = $('#ibText').value;
+    const drafts = Object.fromEntries(Object.entries(ib.drafts).filter(([, t]) => t && t.trim()));
+    keep('ib.drafts', Object.keys(drafts).length ? JSON.stringify(drafts) : null);
+  });
 
   async function openConversation(key) {
     if (ib.key && ib.key !== key) ib.drafts[ib.key] = $('#ibText')?.value || '';
     if (key === ib.key) return;
     ib.key = key;
+    keep('ib.open', key);
     ib.replyTo = null;
     ib.thread = null;
     // The old conversation slides out as this one slides in; the list highlight glides across.
@@ -290,6 +299,7 @@
   function closeConversation() {
     if (ib.key) ib.drafts[ib.key] = $('#ibText')?.value || '';
     ib.key = null;
+    keep('ib.open', null);
     ib.thread = null;
     Motion.morph(() => {
       $('#inbox').classList.remove('has-chat');
@@ -347,8 +357,8 @@
       pane.innerHTML = `
         <header class="ib-head">
           <button class="icon-btn ib-back" id="ibBack" aria-label="Back to chats">${icon('arrow-left', 18)}</button>
-          <span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}${state.senders.length > 1 ? viaBadge(c) : ''}</span>
-          <div class="ib-who"><b id="ibName"></b><span id="ibSub"></span></div>
+          <span class="ib-av" data-sheet-open style="${avatarStyle(c.wa)}">${initials(c)}${state.senders.length > 1 ? viaBadge(c) : ''}</span>
+          <div class="ib-who" data-sheet-open><b id="ibName"></b><span id="ibSub"></span></div>
           <div class="ib-headx" id="ibHeadX"></div>
           <span class="ib-window" id="ibWindow"></span>
         </header>
@@ -356,7 +366,14 @@
         <div class="ib-msgs" id="ibMsgs"></div>
         <div id="ibAi" class="ib-ai"></div>
         <button type="button" class="ib-jump hidden" id="ibJump" aria-label="Go to the newest message" title="Newest message">${icon('chevron-down', 20)}</button>
-        <div id="ibFoot"></div>`;
+        <div id="ibFoot"></div>
+        <div class="ib-sheet" id="ibSheet" aria-hidden="true">
+          <div class="ib-sheet-scrim" data-sheet-close></div>
+          <div class="ib-sheet-panel" role="dialog" aria-modal="true" aria-label="Chat details">
+            <div class="ib-sheet-grab" aria-hidden="true"><i></i></div>
+            <div class="ib-sheet-body" id="ibSheetBody"></div>
+          </div>
+        </div>`;
       $('#ibBack').onclick = closeConversation;
       toBottom = true;
       ib.stick = true;
@@ -425,7 +442,76 @@
     const strip = $('#ibLead');
     strip.classList.toggle('hidden', !(lead.summary || bits.length));
     strip.innerHTML = `<span class="ib-lead-sum">${esc(lead.summary || '')}</span>${bits.map(([k, v]) => `<span><b>${k}</b> ${esc(v)}</span>`).join('')}`;
+    renderSheet(t, ct, ai, lead, bits, tagOf);
   }
+
+  // ---------- Phones: the chat's details in a sheet from the bottom ----------
+  // The header keeps the face, the name and a small AI switch; tapping the face or name opens this sheet with the
+  // rest: stage and tags, the reply window, the lead summary, the full AI switch and the contact.
+  function renderSheet(t, ct, ai, lead, bits, tagOf) {
+    const body = $('#ibSheetBody'), c = current();
+    if (!body || !c) return;
+    const w = windowInfo(c);
+    const tags = ct ? ct.tags.map(tagOf).filter(Boolean) : [];
+    body.innerHTML = `
+      <div class="ibs-who">
+        <span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span>
+        <div><b>${esc(displayName(c))}</b><span>${esc(fmtPhone(c.wa))} · via ${esc(c.senderLabel)}</span></div>
+      </div>
+      <div class="ibs-chips">
+        ${ct ? (ct.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS_PILL[ct.status] || ''}">${esc(STATUS_LABEL[ct.status] || ct.status)}</span>`) : ''}
+        ${tags.map((x) => `<span class="tag-chip tag-${esc(x.color)}">${esc(x.name)}</span>`).join('')}
+        <span class="ib-window ${w.open ? 'open' : 'closed'}">${icon(w.open ? 'clock' : 'file-text', 13)}${esc(w.label)}</span>
+      </div>
+      ${lead.summary || bits.length ? `<div class="ibs-lead">
+        ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}
+        ${bits.length ? `<dl>${bits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}
+      </div>` : ''}
+      ${ai ? `<label class="ibs-ai">
+        <svg class="orb-icon" data-orb-icon="18"></svg>
+        <span><b>${state.settings.leadAgent?.autoReply ? 'AI auto-reply' : 'AI drafts'}</b><small>${ai.auto ? 'Replies on its own when they write, within the guardrails.' : ai.on ? 'Drafts a reply when they write, for you to send.' : 'Off for this chat.'}</small></span>
+        ${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm' })}
+      </label>` : ''}
+      ${ct ? `<button class="btn ibs-contact" data-ai="contact">${icon('users', 15)}Open contact</button>` : ''}`;
+    Orb.hydrate(body);
+  }
+  const phone = () => matchMedia('(max-width: 900px)').matches;
+  function openSheet() {
+    const sh = $('#ibSheet');
+    if (!sh || sh.classList.contains('open')) return;
+    sh.classList.add('open');
+    sh.setAttribute('aria-hidden', 'false');
+    sh.querySelector('.ib-sheet-panel').style.transform = '';
+  }
+  function closeSheet() {
+    const sh = $('#ibSheet');
+    if (!sh || !sh.classList.contains('open')) return;
+    sh.classList.remove('open');
+    sh.setAttribute('aria-hidden', 'true');
+    sh.querySelector('.ib-sheet-panel').style.transform = '';
+  }
+  $('#ibChat').addEventListener('click', (e) => {
+    if (e.target.closest('[data-sheet-close]') || e.target.closest('#ibSheet [data-ai="contact"]')) return closeSheet();
+    if (e.target.closest('[data-sheet-open]') && phone()) openSheet();
+    // Long AI notes and drafts show a few lines on phones: tap to read the rest.
+    const more = e.target.closest('.ib-handover span, .ib-draft-text');
+    if (more && phone()) more.classList.toggle('full');
+  });
+  addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+  // Drag the sheet down to close it.
+  $('#ibChat').addEventListener('pointerdown', (e) => {
+    const panel = e.target.closest('.ib-sheet-panel');
+    if (!panel || (panel.scrollTop > 0 && !e.target.closest('.ib-sheet-grab'))) return;
+    const y0 = e.clientY;
+    let dy = 0;
+    const move = (ev) => { dy = Math.max(0, ev.clientY - y0); if (dy > 4) { panel.style.transition = 'none'; panel.style.transform = `translateY(${dy}px)`; } };
+    const up = () => {
+      removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+      panel.style.transition = '';
+      if (dy > 90) closeSheet(); else panel.style.transform = '';
+    };
+    addEventListener('pointermove', move, { passive: true }); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  });
 
   let aiOrb = null;
   function renderAi() {
@@ -447,7 +533,7 @@
         <div class="ib-draft-text">${fmtText(ai.draft.text)}</div>
         <div class="ib-draft-actions">
           ${w.open ? `<button class="btn sm primary" data-ai="send" data-icon="send" data-icon-size="13">Send</button><button class="btn sm" data-ai="edit">Edit</button>` : '<span class="sub">The reply window has closed, so only a template can be sent.</span>'}
-          <button class="btn sm quiet" data-ai="regen">Regenerate</button><button class="btn sm quiet" data-ai="dismiss">Dismiss</button>
+          <button class="btn sm quiet" data-ai="regen" title="Regenerate">${icon('refresh-cw', 14)}<span class="bl">Regenerate</span></button><button class="btn sm quiet" data-ai="dismiss" title="Dismiss">${icon('x', 14)}<span class="bl">Dismiss</span></button>
         </div>
       </div>`;
     else if (w.open && last?.dir === 'in' && !t.contact?.optOut) html += ai.auto
@@ -1162,6 +1248,11 @@
       renderChat(true);
       await loadList().catch((e) => toast(e.message, 'error'));
       if (ib.key) { await loadThread().catch(() => {}); markRead(); }
+      else { // just reloaded with a chat open: open it again (if it's still there)
+        let k = null; try { k = sessionStorage.getItem('ib.open'); } catch {}
+        if (k && ib.convs.some((c) => c.key === k)) await openConversation(k).catch(() => {});
+        else keep('ib.open', null);
+      }
       fit();
     },
   };

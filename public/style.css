@@ -4792,3 +4792,74 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
   background-image: var(--doodle-veil), url("chat-bg-light.webp");
 }
 :root[data-mode="dark"] .ib-chat { background-image: var(--doodle-veil), url("chat-bg.png"); }
+
+/* ---- Inbox on phones: a compact chat header, the details in a bottom sheet, and shorter AI cards ---- */
+.ib-sheet { display: none; }
+@media (max-width: 900px) {
+  /* Header: back, face, name, and only the small AI switch (no label); the rest is in the sheet */
+  .ib-head { gap: 8px; }
+  .ib-head [data-sheet-open] { cursor: pointer; }
+  .ib-who { min-width: 0; }
+  .ib-who b { display: flex; align-items: center; gap: 3px; }
+  .ib-who b::after { content: ''; flex: none; width: 6px; height: 6px; margin: 0 0 3px 4px; border: solid var(--muted); border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); } /* a small ⌄: tap for details */
+  .ib-headx { flex: none; gap: 0; }
+  .ib-headx > :not(.ib-ai-switch) { display: none !important; }
+  .ib-ai-switch { margin: 0; }
+  .ib-ai-switch > span:first-child { display: none; }
+  .ib-chat > .ib-lead { display: none !important; }
+
+  /* The sheet */
+  .ib-sheet { display: block; position: fixed; inset: 0; z-index: 45; pointer-events: none; }
+  .ib-sheet.open { pointer-events: auto; }
+  .ib-sheet-scrim { position: absolute; inset: 0; background: rgba(10, 14, 18, 0.38); opacity: 0; transition: opacity 0.25s; }
+  .ib-sheet.open .ib-sheet-scrim { opacity: 1; }
+  .ib-sheet-panel {
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 86vh; overflow-y: auto; overscroll-behavior: contain;
+    padding: 0 18px calc(20px + env(safe-area-inset-bottom)); border-radius: 22px 22px 0 0;
+    background: var(--surface); box-shadow: 0 -16px 40px -20px rgba(0, 0, 0, 0.4);
+    transform: translateY(105%); transition: transform 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .ib-sheet.open .ib-sheet-panel { transform: none; }
+  .ib-sheet-grab { position: sticky; top: 0; display: grid; place-items: center; height: 26px; margin: 0 -18px 4px; background: var(--surface); touch-action: none; cursor: grab; }
+  .ib-sheet-grab i { width: 38px; height: 5px; border-radius: 99px; background: color-mix(in srgb, var(--text) 18%, transparent); }
+  .ib-sheet-body { display: flex; flex-direction: column; gap: 16px; }
+  .ibs-who { display: flex; align-items: center; gap: 12px; }
+  .ibs-who .ib-av { width: 52px; height: 52px; font-size: 17px; flex: none; }
+  .ibs-who div { min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+  .ibs-who b { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ibs-who span { font-size: 13px; color: var(--muted); }
+  .ibs-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .ibs-chips .ib-window { display: inline-flex; padding: 4px 10px; }
+  .ibs-lead { padding: 12px 14px; border-radius: 14px; background: var(--info-soft); font-size: 14px; }
+  .ibs-lead p { margin: 0; font-weight: 500; line-height: 1.45; }
+  .ibs-lead dl { margin: 10px 0 0; display: flex; flex-direction: column; gap: 6px; }
+  .ibs-lead dl div { display: flex; gap: 10px; }
+  .ibs-lead dt { flex: none; width: 70px; color: var(--info); font-weight: 600; font-size: 13px; }
+  .ibs-lead dd { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .ibs-ai { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: var(--sunk); cursor: pointer; margin: 0; }
+  .ibs-ai > span:not(.toggle) { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+  .ibs-ai .orb-icon { flex: none; }
+  .ibs-ai b { font-size: 14px; }
+  .ibs-ai small { font-size: 12.5px; color: var(--muted); }
+  .ibs-contact { justify-content: center; height: 44px; }
+
+  /* "Needs you": a slim note, two lines (tap to read it all) */
+  .ib-ai > *, .ib-handover > div { min-width: 0; }
+  .ib-handover { padding: 8px 10px; gap: 8px; font-size: 12.5px; }
+  .ib-handover span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+  .ib-handover span.full { display: block; }
+  /* Suggested reply: a one-line heading, four lines of text (tap for the rest), one row of actions */
+  .ib-draft { padding: 10px 12px; }
+  .ib-draft-head { flex-wrap: nowrap; min-width: 0; white-space: nowrap; overflow: hidden; }
+  .ib-draft-head > span:first-of-type { flex: none; }
+  .ib-draft-head .ib-held, .ib-draft-head .warn-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-transform: none; letter-spacing: 0; }
+  .ib-draft-text { margin: 4px 0 8px; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+  .ib-draft-text.full { display: block; }
+  .ib-draft-actions { flex-wrap: nowrap; }
+  .ib-draft-actions .bl { display: none; }
+  .ib-draft-actions [data-ai="regen"], .ib-draft-actions [data-ai="dismiss"] { width: 34px; padding: 0; justify-content: center; }
+  .ib-draft-actions [data-ai="regen"] { margin-left: auto; }
+}
+/* Desktop: Regenerate and Dismiss keep their words; the icons sit with them */
+.ib-draft-actions [data-ai="regen"] svg, .ib-draft-actions [data-ai="dismiss"] svg { flex: none; }
+@media (prefers-reduced-motion: reduce) { .ib-sheet-panel, .ib-sheet-scrim { transition: none; } }
