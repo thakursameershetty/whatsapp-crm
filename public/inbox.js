@@ -1126,6 +1126,8 @@
       document.dispatchEvent(new CustomEvent('live', { detail: ev }));
       if (ev.kind !== 'notification') onEvent(ev);
     });
+    // A restart (a deploy) can close the stream for good: start a new one shortly after.
+    es.addEventListener('error', () => { if (es.readyState === EventSource.CLOSED) setTimeout(connect, 3000); });
     // After a reconnect, catch up on anything missed.
     es.addEventListener('open', () => {
       document.dispatchEvent(new CustomEvent('live', { detail: { kind: 'reconnect' } }));

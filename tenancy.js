@@ -909,7 +909,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         const last = [...d.messages.filter((x) => !x.demo).map((x) => x.ts), ...d.campaigns.filter((c) => !c.demo).map((c) => c.startedAt || c.createdAt)].filter(Boolean).sort().at(-1) || null;
         return {
           id: m.id, name: m.name, createdAt: m.createdAt, suspended: Boolean(m.suspended), dailyLimit: m.dailyLimit ?? null, legacy: Boolean(m.legacy),
-          members: accounts.members.filter((x) => x.wsId === m.id).map((x) => { const u = accounts.users.find((y) => y.id === x.userId); return { email: u?.email, role: x.role }; }),
+          members: accounts.members.filter((x) => x.wsId === m.id).map((x) => { const u = accounts.users.find((y) => y.id === x.userId); return { id: u?.id, name: u?.name || '', email: u?.email, role: x.role, admin: isAdmin(u) }; }),
           demoMode: Boolean(d.settings.demoMode), numbers: d.senders.filter((s) => !s.seed).length, contacts: d.contacts.length,
           campaigns: d.campaigns.filter((c) => !c.demo).length, sent24h: sent(day), sent30d: sent(month), failed30d: failed30, lastActivity: last,
         };
@@ -1040,6 +1040,13 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       console.log(`[admin] ${req.user.email} deleted the account ${u.email}`);
       mail.deletionDone(u.email);
       res.json({ ok: true, plan });
+    }));
+    // What deleting an account would do (each of its workspaces: deleted, or kept for the others), before doing it.
+    app.get('/api/admin/users/:id/plan', wrap((req, res) => {
+      adminOnly(req);
+      const u = accounts.users.find((x) => x.id === req.params.id);
+      if (!u) throw fail('That account no longer exists', 404);
+      res.json({ id: u.id, name: u.name || '', email: u.email, createdAt: u.createdAt, you: u.id === req.user.id, admin: isAdmin(u), plan: deletionPlan(u) });
     }));
     app.post('/api/admin/users/:id/dismiss-deletion', wrap((req, res) => {
       adminOnly(req);

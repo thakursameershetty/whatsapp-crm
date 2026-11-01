@@ -4691,3 +4691,77 @@ body.limited #senderList .sender-card .toggle { display: none !important; }
 .inv-acts .auth-btn { margin: 0; }
 .auth-btn.auth-btn-2 { background: none; color: var(--text); box-shadow: inset 0 0 0 1px var(--hair); }
 .auth-btn.auth-btn-2:hover { background: var(--sunk); }
+
+/* Sticky page headers and their filter bars (full-bleed background so content scrolls cleanly underneath) */
+:root { --stick-top: 0px; }
+@media (max-width: 900px) { :root { --stick-top: calc(56px + env(safe-area-inset-top)); } }
+.sticky-head {
+  position: sticky; top: var(--stick-top); z-index: 25;
+  margin-top: calc(-1 * var(--gut-top, 24px)); margin-left: calc(-1 * var(--gut, 28px)); margin-right: calc(-1 * var(--gut, 28px));
+  padding: var(--gut-top, 24px) var(--gut, 28px) 16px; margin-bottom: 8px;
+  background: var(--bg); transition: box-shadow 0.2s;
+}
+.sticky-bar {
+  position: sticky; top: calc(var(--stick-top) + var(--head-h, 0px)); z-index: 24;
+  margin-left: calc(-1 * var(--gut, 28px)) !important; margin-right: calc(-1 * var(--gut, 28px)) !important;
+  padding: 8px var(--gut, 28px) 10px !important; background: var(--bg); transition: box-shadow 0.2s;
+}
+.sticky-head.stuck, .sticky-bar.stuck { box-shadow: 0 1px 0 var(--hair), 0 8px 16px -14px rgba(0, 0, 0, 0.35); }
+
+/* Admin: people in a workspace / deleting an account */
+button.adm-people { border: 0; background: none; padding: 4px 6px; margin: -4px -6px; border-radius: 8px; cursor: pointer; font: inherit; color: inherit; text-align: left; }
+button.adm-people:hover { background: var(--sunk); }
+.adm-dlg { width: min(460px, calc(100vw - 32px)); padding: 20px; border: 0; border-radius: 16px; background: var(--surface); color: var(--text); box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.45); }
+.adm-dlg::backdrop { background: rgba(10, 12, 14, 0.4); backdrop-filter: blur(3px); }
+.adm-dlg-h { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.adm-dlg-h b { font-size: 16px; }
+.adm-dlg-h span { color: var(--muted); font-size: 13px; }
+.adm-x { margin-left: auto; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 20px; cursor: pointer; }
+.adm-x:hover { background: var(--sunk); color: var(--text); }
+.adm-dlg-list { display: flex; flex-direction: column; margin: 0 -8px; }
+.adm-person { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; }
+.adm-person:hover { background: var(--sunk); }
+.adm-person > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.adm-person b { font-size: 13.5px; font-weight: 600; }
+.adm-person > div > span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adm-note { font-size: 12px; }
+.adm-dlg .del-plan { margin: 10px 0 14px; }
+.adm-confirm { display: block; font-size: 13px; font-weight: 500; }
+.adm-dlg-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.sticky-bar { top: calc(var(--stick-top) + var(--head-h, 0px) - 1px); } /* tucked 1px under the header: no hairline gap */
+/* The toolbar's background reaches up behind the header, so no gap between the two pinned rows can show the page
+   scrolling underneath, whatever the rounding or browser zoom. (The header paints on top of it.) */
+.sticky-bar::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 28px; background: var(--bg); pointer-events: none; }
+/* Pinned by the stylesheet itself (not only by a class added after drawing), so a page that redraws its header
+   (Campaigns refreshes every few seconds) never has a moment where it isn't pinned. */
+#tab-overview > .section-head, #tab-contacts > .section-head, #tab-templates > .section-head, #tab-numbers > .section-head,
+#tab-notifications > .section-head, #tab-report > .section-head, #tab-reports > .section-head, #campaignList > .section-head {
+  position: sticky; top: var(--stick-top); z-index: 25;
+  margin-top: calc(-1 * var(--gut-top, 24px)); margin-left: calc(-1 * var(--gut, 28px)); margin-right: calc(-1 * var(--gut, 28px));
+  padding: var(--gut-top, 24px) var(--gut, 28px) 16px; margin-bottom: 8px; background: var(--bg);
+}
+#ovFilters, #tab-contacts .ct-bar, #tplBar, #campaignList .cp-tools, #tab-report .ec-bar, #tab-reports .list-bar, #tab-notifications .nt-bar {
+  position: sticky; top: calc(var(--stick-top) + var(--head-h, 0px) - 1px); z-index: 24;
+  margin-left: calc(-1 * var(--gut, 28px)) !important; margin-right: calc(-1 * var(--gut, 28px)) !important;
+  padding: 8px var(--gut, 28px) 10px !important; background: var(--bg);
+}
+:is(#ovFilters, #tab-contacts .ct-bar, #tplBar, #campaignList .cp-tools, #tab-report .ec-bar, #tab-reports .list-bar, #tab-notifications .nt-bar)::before {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 28px; background: var(--bg); pointer-events: none;
+}
+/* The page's soft top-to-bottom gradient is pinned to the window, and the pinned header and toolbar paint the very
+   same gradient, so they blend into the page (no lighter strips beside them) wherever you've scrolled. */
+body { background-attachment: fixed; }
+.sticky-head, .sticky-bar, .sticky-bar::before,
+#tab-overview > .section-head, #tab-contacts > .section-head, #tab-templates > .section-head, #tab-numbers > .section-head,
+#tab-notifications > .section-head, #tab-report > .section-head, #tab-reports > .section-head, #campaignList > .section-head,
+#ovFilters, #tab-contacts .ct-bar, #tplBar, #campaignList .cp-tools, #tab-report .ec-bar, #tab-reports .list-bar, #tab-notifications .nt-bar,
+:is(#ovFilters, #tab-contacts .ct-bar, #tplBar, #campaignList .cp-tools, #tab-report .ec-bar, #tab-reports .list-bar, #tab-notifications .nt-bar)::before {
+  background: var(--bg) linear-gradient(180deg, var(--bg-top) 0, var(--bg) 420px) fixed;
+}
+/* Contacts A–Z bar: pins below the pinned header and toolbar instead of sliding under them */
+.ct-az { top: calc(var(--stick-top) + var(--head-h, 0px) + var(--bar-h, 0px) + 12px); }
+/* The backing above the toolbar only exists while the toolbar is pinned under the header; at rest it would cover
+   whatever sits just above the toolbar (a scheduled campaign card, the contact status tiles). */
+.sticky-bar::before,
+:is(#ovFilters, #tab-contacts .ct-bar, #tplBar, #campaignList .cp-tools, #tab-report .ec-bar, #tab-reports .list-bar, #tab-notifications .nt-bar)::before { display: none; }
+.sticky-bar.pinned::before { display: block; }

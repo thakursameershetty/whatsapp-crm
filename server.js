@@ -528,6 +528,25 @@ app.get(['/', '/welcome'], (req, res, next) => {
   res.sendFile(LANDING);
 });
 app.use((req, res, next) => (PUBLIC_FILES.has(req.path) ? next() : tenants.requireAuth(req, res, next)));
+
+// --- Live updates for everyone in a workspace --------------------------------------------------------------
+// After any successful change (POST/PUT/PATCH/DELETE under /api), every open page in that workspace is told which
+// part changed, and reloads just that part: numbers, templates, settings, the team, contacts, campaigns.
+// The tab that made the change says who it is (X-Tab), so it doesn't reload its own work.
+const LIVE_AREAS = [
+  [/^\/api\/(senders|uploads)/, 'senders'], [/^\/api\/templates/, 'templates'], [/^\/api\/settings/, 'settings'],
+  [/^\/api\/(team|workspace)/, 'team'], [/^\/api\/(contacts|tags)/, 'contacts'], [/^\/api\/(campaigns|send)/, 'campaigns'],
+  [/^\/api\/reports/, 'reports'],
+];
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET') return next();
+  const p = req.baseUrl + req.path;
+  const area = LIVE_AREAS.find(([re]) => re.test(p))?.[1];
+  if (!area) return next();
+  const ws = tenants.wsId(), tab = String(req.get('x-tab') || '').slice(0, 40);
+  res.on('finish', () => { if (res.statusCode < 400 && ws) broadcastTo(ws, { kind: 'changed', area, tab }); });
+  next();
+});
 app.use(security.rateLimit); // after sign-in, so limits are per user
 // The AI features (the Assistant and the Inbox lead assistant) are admin-only for now.
 const AI_PATHS = ['/api/ai', /^\/api\/inbox\/[^/]+\/(draft|ai)$/];
@@ -1501,6 +1520,12 @@ const splitKey = (key) => {
 
 // Live updates for open dashboards (Server-Sent Events).
 const listeners = new Set(); // open dashboards, each tagged with its workspace
+function broadcastTo(ws, data) {
+  const line = `event: inbox\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of listeners) if (res.wsId === ws) res.write(line);
+}
+// This server's version: it changes with every deploy (restart), so open pages can tell they're out of date.
+const BUILD_ID = String(process.env.RAILWAY_DEPLOYMENT_ID || process.env.RAILWAY_GIT_COMMIT_SHA || Date.now());
 function broadcast(data) {
   const ws = tenants.wsId();
   const line = `event: inbox\ndata: ${JSON.stringify(data)}\n\n`;
@@ -1619,10 +1644,12 @@ function conversationExtras(key, wa) {
   };
 }
 
+app.get('/api/version', (req, res) => res.json({ build: BUILD_ID }));
 app.get('/api/events', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
   res.flushHeaders();
   res.write('retry: 3000\n\n');
+  res.write(`event: inbox\ndata: ${JSON.stringify({ kind: 'hello', build: BUILD_ID })}\n\n`);
   res.wsId = tenants.wsId();
   listeners.add(res);
   req.on('close', () => listeners.delete(res));

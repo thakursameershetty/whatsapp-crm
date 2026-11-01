@@ -110,7 +110,7 @@ function render() {
         <div class="adm-wsn"><b title="${esc(w.name)}">${esc(w.name)}</b>
           <span>${w.legacy ? '<span class="tag">Original</span>' : ''}${w.demoMode ? '<span class="tag warn">Demo</span>' : ''}since ${new Date(w.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
       </div></td>
-      <td><div class="adm-people">${people ? `<span class="adm-avs">${people}</span><span class="adm-email" title="${esc(w.members.map((m) => m.email).join(', '))}">${esc(w.members[0]?.email || '')}${w.members.length > 1 ? ` <span class="muted">+${w.members.length - 1}</span>` : ''}</span>` : '<span class="muted">Nobody yet</span>'}</div></td>
+      <td>${w.members.length ? `<button type="button" class="adm-people" data-people="${w.id}" title="See people · delete an account"><span class="adm-avs">${people}</span><span class="adm-email">${esc(w.members[0]?.email || '')}${w.members.length > 1 ? ` <span class="muted">+${w.members.length - 1}</span>` : ''}</span></button>` : '<span class="muted">Nobody yet</span>'}</td>
       <td class="num">${w.numbers || '<span class="muted">0</span>'}</td>
       <td class="num">${w.contacts ? w.contacts.toLocaleString() : '<span class="muted">0</span>'}</td>
       <td class="num">${w.sent24h ? w.sent24h.toLocaleString() : '<span class="muted">0</span>'}</td>
@@ -122,6 +122,48 @@ function render() {
     </tr>`;
   }).join('') || '<tr><td colspan="10" class="table-empty">No workspaces match.</td></tr>';
 }
+// People in a workspace, and deleting an account (admins: immediately, after typing the email).
+function dlg(html) {
+  let d = document.getElementById('admDlg');
+  if (!d) { d = document.createElement('dialog'); d.id = 'admDlg'; d.className = 'adm-dlg'; document.body.append(d); d.addEventListener('click', (e) => { if (e.target === d) d.close(); }); }
+  d.innerHTML = html; if (!d.open) d.showModal(); return d;
+}
+function peopleDlg(wsId) {
+  const w = all.find((x) => x.id === wsId);
+  if (!w) return;
+  const d = dlg(`<div class="adm-dlg-h"><b>${esc(w.name)}</b><span>${w.members.length} ${w.members.length === 1 ? 'person' : 'people'}</span><button class="adm-x" data-close aria-label="Close">×</button></div>
+    <div class="adm-dlg-list">${w.members.map((m) => `<div class="adm-person">
+      <span class="adm-av sm" style="--av:var(--file-${hue(m.email)})">${initial(m.email)}</span>
+      <div><b>${esc(m.name || m.email)}</b><span>${esc(m.email)} · ${m.role === 'owner' ? 'Owner' : 'Member'}${m.admin ? ' · admin' : ''}</span></div>
+      ${m.admin ? '<span class="muted adm-note">Admin</span>' : `<button class="btn sm quiet danger" data-deluser="${m.id}">Delete account…</button>`}
+    </div>`).join('')}</div>`);
+  d.onclick = (e) => {
+    if (e.target === d || e.target.closest('[data-close]')) return d.close();
+    const b = e.target.closest('[data-deluser]');
+    if (b) deleteUserDlg(b.dataset.deluser);
+  };
+}
+async function deleteUserDlg(id) {
+  let u;
+  try { u = await api('/admin/users/' + id + '/plan'); } catch (err) { return toast(err.message, true); }
+  const d = dlg(`<div class="adm-dlg-h"><b>Delete ${esc(u.name || u.email)}?</b><button class="adm-x" data-close aria-label="Close">×</button></div>
+    <p class="sub">This permanently deletes <b>${esc(u.email)}</b> right away. It can't be undone. They get an email saying their account was deleted.</p>
+    <ul class="del-plan">${u.plan.map((p) => `<li class="${p.action}"><b>${esc(p.name)}</b> — ${esc(p.text)}</li>`).join('') || '<li>Not in any workspace</li>'}</ul>
+    <label class="adm-confirm">Type their email to confirm<input id="admDelEmail" autocomplete="off" placeholder="${esc(u.email)}" /></label>
+    <div class="adm-dlg-acts"><button class="btn quiet" data-close>Cancel</button><button class="btn danger-solid" id="admDelGo" disabled>Delete account</button></div>`);
+  const input = d.querySelector('#admDelEmail'), go = d.querySelector('#admDelGo');
+  input.focus();
+  input.oninput = () => { go.disabled = input.value.trim().toLowerCase() !== u.email; };
+  d.onclick = async (e) => {
+    if (e.target === d || e.target.closest('[data-close]')) return d.close();
+    if (e.target.closest('#admDelGo') && !go.disabled) {
+      go.disabled = true;
+      try { await api('/admin/users/' + u.id + '/delete', { method: 'POST', body: { confirm: input.value } }); d.close(); toast('Account deleted'); load(); }
+      catch (err) { toast(err.message, true); go.disabled = false; }
+    }
+  };
+}
+$('#tbl').addEventListener('click', (e) => { const b = e.target.closest('[data-people]'); if (b) peopleDlg(b.dataset.people); });
 $('#wsFilter').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; wsFilter = b.dataset.f; render(); });
 
 function syncAttn() { $('#attn').classList.toggle('hidden', $('#repSec').classList.contains('hidden') && $('#delReqs').classList.contains('hidden')); }

@@ -14,10 +14,12 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const fmtDate = (d) => (d ? new Date(d).toLocaleString() : '—');
 
+// This tab's id: sent with every change, so the live updates it causes don't echo back to it.
+const TAB_ID = Math.random().toString(36).slice(2, 10);
 async function api(path, options = {}) {
   const res = await fetch('/api' + path, {
     ...options,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Tab': TAB_ID },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const json = await res.json().catch(() => ({}));
@@ -121,6 +123,7 @@ function showTab(name) {
   if (name === 'assistant') window.Assistant?.show();
   if (name === 'inbox') window.Inbox?.show();
   Motion.segs();
+  requestAnimationFrame(setupSticky);
   document.body.classList.toggle('send-open', name === 'send');
   if (name === 'send') window.SendPage?.show();
   if (name === 'contacts') window.Contacts?.show();
@@ -1482,6 +1485,83 @@ window.templateEditor = templateEditor;
 $('#addTemplate').addEventListener('click', () => templateEditor());
 // Meta's review results come in live (webhook): refresh the list when one arrives.
 document.addEventListener('live', (e) => { if (e.detail?.kind === 'templates') loadTemplates().catch(() => {}); });
+
+// --- Sticky page headers ---------------------------------------------------------------------------------
+// Every list page keeps its title row (and its search / filter bar just below) pinned while the content scrolls.
+// The bar sits right under the header: the header's height is measured into --head-h.
+const STICKY_BARS = '#ovFilters, .ct-bar, #tplBar, .cp-tools, .ec-bar, #tab-reports .list-bar, .nt-bar';
+// Exact (fractional) heights of the pinned header (--head-h) and toolbar (--bar-h), for whatever pins below them.
+const stickyRO = new ResizeObserver((es) => { for (const e of es) e.target.closest('.tab')?.style.setProperty(e.target.classList.contains('sticky-bar') ? '--bar-h' : '--head-h', e.target.getBoundingClientRect().height + 'px'); });
+function setupSticky() {
+  const main = document.querySelector('main');
+  if (main) {
+    const cs = getComputedStyle(main);
+    document.documentElement.style.setProperty('--gut', cs.paddingLeft);
+    document.documentElement.style.setProperty('--gut-top', cs.paddingTop);
+  }
+  for (const tab of $$('.tab')) {
+    if (/^tab-(inbox|assistant|send|settings)$/.test(tab.id)) continue; // own layouts / a form page
+    const head = [...tab.querySelectorAll('.section-head')].find((h) => !h.closest('.hidden, #campaignDetail, .modal'));
+    if (head && !head.classList.contains('sticky-head')) { head.classList.add('sticky-head'); stickyRO.observe(head); }
+    tab.querySelectorAll(STICKY_BARS).forEach((b) => { if (!b.classList.contains('sticky-bar')) { b.classList.add('sticky-bar'); stickyRO.observe(b); } });
+  }
+  markStuck();
+}
+// A thin line under whatever is pinned at the moment, so the edge reads against the scrolling content.
+function markStuck() {
+  const tab = $(`#tab-${state.tab}`);
+  if (!tab) return;
+  const head = tab.querySelector('.sticky-head'), bar = [...tab.querySelectorAll('.sticky-bar')].find((b) => b.offsetParent);
+  const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stick-top')) || 0;
+  const barStuck = bar && bar.getBoundingClientRect().top <= top + (head?.offsetHeight || 0) + 1 && scrollY > 0;
+  head?.classList.toggle('stuck', scrollY > 2 && !bar); // with a toolbar, only the toolbar draws the edge line
+  tab.querySelectorAll('.sticky-bar').forEach((b) => { b.classList.toggle('stuck', b === bar && barStuck); b.classList.toggle('pinned', b === bar && barStuck); });
+}
+addEventListener('scroll', markStuck, { passive: true });
+addEventListener('resize', setupSticky);
+new MutationObserver(() => { clearTimeout(setupSticky.t); setupSticky.t = setTimeout(setupSticky, 50); }).observe(document.querySelector('main') || document.body, { childList: true, subtree: true });
+
+// --- Live: other people's changes, and new versions of the app ---------------------------------------------
+// Someone else changed something in this workspace: reload just that part (a moment later, so a burst of
+// changes is one reload). Our own changes are skipped (each tab sends its id with every request).
+const liveDue = new Map();
+const busy = () => Boolean(document.querySelector('.modal:not(.hidden), .sg-menu-pop')) || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '') || document.activeElement?.isContentEditable;
+const LIVE_RELOAD = {
+  senders: async () => { await loadSenders(); refreshStats().then(() => state.tab === 'numbers' && renderSenders()).catch(() => {}); },
+  templates: () => loadTemplates(),
+  settings: async () => { state.settings = await api('/settings'); if (!$('#tab-settings').contains(document.activeElement)) renderSettings(); },
+  team: async () => { await loadMe(); await loadTeam(); await loadSenders(); if (state.tab === 'overview') loadOverview(); },
+  contacts: () => state.tab === 'contacts' && window.Contacts?.show(),
+  campaigns: () => { if (state.tab === 'campaigns') loadCampaigns(); if (state.tab === 'overview') loadOverview(); },
+  reports: () => state.tab === 'reports' && window.MetaErrors?.showReports(),
+};
+document.addEventListener('live', (e) => {
+  const d = e.detail || {};
+  if (d.kind === 'hello') return checkBuild(d.build);
+  if (d.kind !== 'changed' || d.tab === TAB_ID || !LIVE_RELOAD[d.area]) return;
+  clearTimeout(liveDue.get(d.area));
+  liveDue.set(d.area, setTimeout(() => {
+    liveDue.delete(d.area);
+    Promise.resolve(LIVE_RELOAD[d.area]()).catch(() => {});
+  }, 400));
+});
+// A deploy restarts the server with a new build id. When this page sees one it reloads itself, but not while
+// you're typing or have something open: then it waits, with a small note you can click to reload now.
+let BUILD = null, buildToast = null;
+function checkBuild(build) {
+  if (!build) return;
+  if (BUILD == null) { BUILD = build; return; }
+  if (build === BUILD) return;
+  const reload = () => { try { sessionStorage.setItem('updated', '1'); } catch {} location.reload(); };
+  if (!busy()) return reload();
+  if (!buildToast) buildToast = toast('A new version of the app is ready. Click to reload, or it reloads once you’re done here.', '', { title: 'Update available', icon: 'refresh-cw', onClick: reload, duration: 600000 });
+  const wait = setInterval(() => { if (!busy() && !document.hidden) { clearInterval(wait); reload(); } }, 4000);
+}
+// Backup for when the live stream misses it: ask every 2 minutes, and when you come back to the tab.
+const askBuild = () => api('/version').then((v) => checkBuild(v.build)).catch(() => {});
+setInterval(askBuild, 120000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) askBuild(); });
+try { if (sessionStorage.getItem('updated')) { sessionStorage.removeItem('updated'); setTimeout(() => toast('Updated to the latest version'), 600); } } catch {}
 
 // ---------------------------------------------------------------------------
 // Shared: reading contact files, phone numbers, template bubbles
