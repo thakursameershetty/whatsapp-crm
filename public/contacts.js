@@ -3,7 +3,7 @@
 // Uses helpers from app.js and send.js (SendPage.readWorkbook / toTable / openContacts).
 
 (function () {
-  const CT = { contacts: [], tags: [], counts: {}, q: '', tag: '', status: '', page: 0, selected: new Set(), chats: new Map(), loaded: false };
+  const CT = { contacts: [], tags: [], counts: {}, q: '', tag: '', status: '', source: '', page: 0, selected: new Set(), chats: new Map(), loaded: false };
   const PAGE = 100;
   const STATUS = {
     new: { label: 'New', cls: '' },
@@ -33,6 +33,7 @@
       .filter((c) => {
         if (CT.tag === 'none' ? c.tags.length : CT.tag && !c.tags.includes(CT.tag)) return false;
         if (CT.status === 'optout' ? !c.optOut : CT.status && c.status !== CT.status) return false;
+        if (CT.source && (c.source || 'manual') !== CT.source) return false;
         if (q && ![c.name, c.phone, fmtPhone(c.phone), c.email, c.company, c.lead?.summary].some((v) => String(v || '').toLowerCase().includes(q))) return false;
         return true;
       })
@@ -106,11 +107,19 @@
     for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     const parts = (c.name || '').trim().split(/\s+/).filter(Boolean);
     const text = parts.length ? esc((parts[0][0] + (parts[1]?.[0] || '')).toUpperCase()) : icon('users', 18);
-    return `<span class="ct-av ${cls}" style="--av:var(--file-${(h % 6) + 1})">${text}</span>`;
+    // Auto-added contacts (they messaged you; the AI assistant handles the chat) wear the AI sphere on their photo.
+    const ai = c.source === 'inbox'
+      ? `<i class="ct-av-ai" title="Auto-added when they messaged you${aiFilled(c) ? '. The AI assistant filled in their details' : ''}"><svg class="orb-icon" data-orb-icon="${{ sm: 10, lg: 15, xl: 18 }[cls] || 10}"></svg></i>`
+      : '';
+    return `<span class="ct-av ${cls}" style="--av:var(--file-${(h % 6) + 1})">${text}${ai}</span>`;
   }
   const statusPill = (c) => (c.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS[c.status]?.cls || ''}">${esc(STATUS[c.status]?.label || c.status)}</span>`);
   const letterOf = (c) => { const ch = (c.name || '').trim()[0]?.toUpperCase() || '#'; return /[A-Z]/.test(ch) ? ch : '#'; };
   const STATS = [['', 'All', () => true], ...Object.entries(STATUS).map(([k, v]) => [k, v.label, (c) => !c.optOut && c.status === k]), ['optout', 'Opted out', (c) => c.optOut]];
+
+  // How a contact got here: you added it, it was imported, or it was added automatically when the person messaged
+  // one of your numbers (shown with the AI sphere on their photo). aiFilled: the assistant filled in their details.
+  const aiFilled = (c) => Boolean(c.lead?.updatedAt);
 
   function render() {
     let list = filtered();
@@ -139,7 +148,7 @@
       `<button data-view="${k}" class="${CT.view === k ? 'active' : ''}" title="${label}" aria-label="${label}" aria-checked="${CT.view === k}" role="radio">${icon(ic, 15)}</button>`).join(''));
 
     const empty = CT.contacts.length
-      ? emptyState({ icon: 'search', title: 'No contacts match', text: 'Try another search, tag or status.', actions: '<button class="btn" data-empty="clear">Clear filters</button>' })
+      ? emptyState({ icon: 'search', title: 'No contacts match', text: 'Try another search, tag, status or Added by.', actions: '<button class="btn" data-empty="clear">Clear filters</button>' })
       : emptyState({ icon: 'users', title: 'No contacts yet', text: 'Import a spreadsheet or add someone by hand. People who message you on WhatsApp appear here too.', actions: '<button class="btn" data-empty="import" data-icon="upload">Import</button><button class="btn primary" data-empty="add" data-icon="plus">Add contact</button>' });
     const box = $('#ctList');
     box.innerHTML = CT.view === 'cards' ? gridHtml(slice, empty) : tableHtml(slice, empty);
@@ -163,7 +172,9 @@
     renderSelectAll(list);
     renderSortMenu();
     renderPanel();
+    drawSourceBtn();
     LA.hydrate($('#tab-contacts'));
+    Orb.hydrate($('#tab-contacts'));
   }
 
   function tableHtml(slice, empty) {
@@ -225,15 +236,23 @@
   }
 
   // Sort menu in the toolbar (the table's column headers sort too).
-  function renderSortMenu() {
-    const opts = [['name:asc', 'Name A → Z'], ['name:desc', 'Name Z → A'], ['added:desc', 'Newest added'], ['added:asc', 'Oldest added'], ['message:desc', 'Last message'], ['status:asc', 'Status'], ['tags:asc', 'Tags'], ['lead:desc', 'Lead notes first'], ['company:asc', 'Company A → Z']];
+  // Sort: a compact button showing the current order; it opens a small menu (same as the filter menus).
+  const SORT_OPTS = [['name:asc', 'Name A → Z'], ['name:desc', 'Name Z → A'], '-', ['added:desc', 'Newest added'], ['added:asc', 'Oldest added'], ['message:desc', 'Last message'], '-', ['status:asc', 'Status'], ['tags:asc', 'Tags'], ['lead:desc', 'Lead notes first'], ['company:asc', 'Company A → Z']];
+  const sortLabel = () => {
     const cur = `${CT.sort.key}:${CT.sort.dir}`;
-    const known = opts.some(([v]) => v === cur);
-    const label = known ? '' : `<option value="${cur}" selected>${SORTS[CT.sort.key][0]} (${CT.sort.dir === 'asc' ? 'ascending' : 'descending'})</option>`;
-    Motion.patch($('#ctSort'), label + opts.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join(''));
-    $('#ctSort').value = cur;
+    return SORT_OPTS.find((o) => o[0] === cur)?.[1] || `${SORTS[CT.sort.key][0]} ${CT.sort.dir === 'asc' ? '↑' : '↓'}`;
+  };
+  function renderSortMenu() {
+    const b = $('#ctSortBtn');
+    b.innerHTML = `${icon('arrow-up-down', 14)}<span>${esc(sortLabel())}</span>${icon('chevron-down', 14)}`;
+    b.title = `Sorted by ${sortLabel()}. Click to change.`;
   }
-  $('#ctSort').addEventListener('change', (e) => { const [k, d] = e.target.value.split(':'); setSort(k, d); });
+  $('#ctSortBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const cur = `${CT.sort.key}:${CT.sort.dir}`;
+    Sheet.Menu.open(r.left, r.bottom + 6, SORT_OPTS.map((o) => (o === '-' ? '-' : { label: o[1], checked: o[0] === cur, action: () => { const [k, d] = o[0].split(':'); setSort(k, d); } })));
+  });
 
   // "Select all" in the toolbar: everyone the current search, tag and status show (every page).
   function renderSelectAll(list) {
@@ -266,6 +285,24 @@
   }
 
   let searchT;
+  // "Added by" lives in a filter button inside the search box (like the Numbers page's quality filter).
+  const SOURCES = [['', 'Added by anyone'], ['manual', 'Added by you'], ['import', 'Imported'], ['inbox', 'Auto-added']];
+  function drawSourceBtn() {
+    const b = $('#ctSourceBtn');
+    const label = SOURCES.find(([k]) => k === CT.source)?.[1];
+    b.classList.toggle('on', Boolean(CT.source));
+    b.innerHTML = `${icon('sliders-horizontal', 15)}${CT.source ? `<span class="num-filter-lbl">${esc(label)}</span>` : ''}`;
+    b.title = CT.source ? `Showing: ${label}. Click to change.` : 'Filter by who added them';
+  }
+  $('#ctSourceBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const n = (k) => CT.contacts.filter((c) => !k || (c.source || 'manual') === k).length;
+    Sheet.Menu.open(r.right - 210, r.bottom + 6, SOURCES.flatMap(([k, l], i) => [
+      ...(i === 1 ? ['-'] : []),
+      { label: l, kbd: n(k).toLocaleString(), checked: CT.source === k, action: () => { CT.source = k; CT.page = 0; CT.enter = true; render(); } },
+    ]));
+  });
   $('#ctSearch').addEventListener('input', (e) => { clearTimeout(searchT); searchT = setTimeout(() => { CT.q = e.target.value.trim(); CT.page = 0; CT.enter = true; render(); }, 120); });
   $('#ctStats').addEventListener('click', (e) => {
     const b = e.target.closest('[data-status]');
@@ -295,7 +332,7 @@
       return render();
     }
     const emptyAct = e.target.closest('[data-empty]')?.dataset.empty;
-    if (emptyAct === 'clear') { CT.q = ''; CT.tag = ''; CT.status = ''; $('#ctSearch').value = ''; CT.enter = true; return render(); }
+    if (emptyAct === 'clear') { CT.q = ''; CT.tag = ''; CT.status = ''; CT.source = ''; $('#ctSearch').value = ''; CT.enter = true; return render(); }
     if (emptyAct === 'import') return importModal();
     if (emptyAct === 'add') return open(null);
     const sortBtn = e.target.closest('[data-sort]');
@@ -428,7 +465,7 @@
     if (!c) return;
     const chatKey = CT.chats.get(c.phone);
     const lead = c.lead || {};
-    const details = [['Phone', fmtPhone(c.phone)], ['Email', c.email], ['Company', c.company], ['Last message', c.lastMessageAt && relTime(c.lastMessageAt)], ['Added', c.createdAt && `${new Date(c.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}${c.source ? ` · ${c.source === 'inbox' ? 'from the Inbox' : c.source === 'import' ? 'imported' : 'added by hand'}` : ''}`], ...Object.entries(c.extra || {})].filter(([, v]) => v);
+    const details = [['Phone', fmtPhone(c.phone)], ['Email', c.email], ['Company', c.company], ['Last message', c.lastMessageAt && relTime(c.lastMessageAt)], ['Added', c.createdAt && `${new Date(c.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}${c.source ? ` · ${c.source === 'inbox' ? 'automatically, when they messaged you' : c.source === 'import' ? 'imported' : 'by you'}` : ''}`], ['Details', aiFilled(c) && `filled in by the AI assistant · ${relTime(c.lead.updatedAt)}`], ...Object.entries(c.extra || {})].filter(([, v]) => v);
     panel.innerHTML = `
       <button type="button" class="ct-pclose" id="ctPClose" title="Close" aria-label="Close">${icon('x', 16)}</button>
       <div class="ct-phead">
@@ -456,6 +493,7 @@
         <dl>${[['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>` : ''}
       <div class="ct-psec"><div class="field-label">Details</div><dl class="ct-pdl">${details.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>
       <label class="ct-psec ct-pnotes"><span class="field-label">Notes</span><textarea id="ctPNotes" rows="3" placeholder="Anything to remember about them">${esc(c.notes || '')}</textarea></label>`;
+    Orb.hydrate(panel);
   }
 
   async function patch(c, body, msg) {

@@ -52,6 +52,12 @@
     const title = failed ? `Your reaction wasn't delivered${rx.outMsg.error ? ': ' + rx.outMsg.error : ''}. Open the reactions to try again.` : `Your reaction · ${REACT_STATUS[st] || 'Sending…'}. Open the reactions to change or remove it.`;
     return `<span class="ib-react-mine ${failed ? 'failed' : ''} ${st === 'sent' || !st ? 'pending' : ''}" title="${esc(title)}">${esc(rx.out)}</span>`;
   }
+  // Unified inbox: a small circle on the person's photo with the photo of the number the chat is on ("via"),
+  // so you can tell your numbers apart at a glance. Falls back to the number's initial.
+  function viaBadge(c) {
+    const s = state.senders.find((x) => x.id === c.senderId) || { label: c.senderLabel };
+    return `<span class="ib-av-via" title="via ${esc(s.label || c.senderLabel || '')}${s.displayPhone ? ' · ' + esc(s.displayPhone) : ''}">${senderPhotoHtml(s)}</span>`;
+  }
   function failedNote(m) {
     const err = m.error;
     // Meta's error code: "131031: …" from delivery updates, "(#131030) …" from a rejected send, or a 13xxxx in the text.
@@ -161,10 +167,15 @@
     // Every number in the workspace (not only ones with chats yet), each with how many chats it has.
     const senders = [...new Map([...state.senders.map((x) => [x.id, x.label]), ...ib.convs.map((c) => [c.senderId, c.senderLabel])])];
     const sel = $('#ibSender');
-    sel.classList.toggle('hidden', senders.length < 2);
+    $('#ibSenderWrap').classList.toggle('hidden', senders.length < 2);
     const chats = (n) => `${n} chat${n === 1 ? '' : 's'}`;
-    sel.innerHTML = `<option value="">All numbers</option>` + senders.map(([id, label]) => `<option value="${esc(id)}">${esc(label)} · ${chats(ib.convs.filter((c) => c.senderId === id).length)}</option>`).join('');
+    // Each number shows its WhatsApp profile photo (or its first letter), in the list and on the closed filter.
+    const pic = (id, label) => { const s = state.senders.find((x) => x.id === id); return { photo: s?.photoUrl || '', letter: (label || '?').trim().charAt(0).toUpperCase() }; };
+    sel.innerHTML = `<option value="" data-icon="layers">All numbers</option>` + senders.map(([id, label]) => { const p = pic(id, label); return `<option value="${esc(id)}" data-photo="${esc(p.photo)}" data-letter="${esc(p.letter)}" data-count="${esc(chats(ib.convs.filter((c) => c.senderId === id).length))}">${esc(label)}</option>`; }).join('');
     sel.value = senders.some(([id]) => id === ib.sender) ? ib.sender : '';
+    const cur = senders.find(([id]) => id === sel.value);
+    $('#ibSenderPic').innerHTML = cur ? senderPhotoHtml(state.senders.find((x) => x.id === cur[0]) || { label: cur[1] }) : icon('layers', 15);
+    $('#ibSenderPic').classList.toggle('all', !cur);
     // Template filter: people who were sent a given template (by a campaign or from here).
     const tplNames = [...new Set(ib.convs.flatMap((c) => c.templates || []))].sort((a, b) => a.localeCompare(b));
     const tsel = $('#ibTemplate');
@@ -189,7 +200,7 @@
         .map((c) => {
           const l = c.last || {};
           return `<button class="ib-conv ${c.key === ib.key ? 'active' : ''} ${c.unread ? 'unread' : ''}" data-key="${esc(c.key)}" role="listitem">
-            <span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span>
+            <span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}${multi ? viaBadge(c) : ''}</span>
             <span class="ib-conv-main">
               <span class="ib-conv-top"><b>${esc(displayName(c))}</b>${c.ai?.handover ? '<span class="ib-flag need">Needs you</span>' : c.ai?.hasDraft ? '<span class="ib-flag draft">Draft</span>' : ''}<time>${listTime(c.lastAt)}</time></span>
               <span class="ib-conv-bot">
@@ -336,7 +347,7 @@
       pane.innerHTML = `
         <header class="ib-head">
           <button class="icon-btn ib-back" id="ibBack" aria-label="Back to chats">${icon('arrow-left', 18)}</button>
-          <span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span>
+          <span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}${state.senders.length > 1 ? viaBadge(c) : ''}</span>
           <div class="ib-who"><b id="ibName"></b><span id="ibSub"></span></div>
           <div class="ib-headx" id="ibHeadX"></div>
           <span class="ib-window" id="ibWindow"></span>

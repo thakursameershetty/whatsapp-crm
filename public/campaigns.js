@@ -113,9 +113,9 @@
         <div class="row tight cp-head-actions">${state.senders.length > 1 ? `<select id="cpSender" aria-label="Number"><option value="">All numbers</option>${state.senders.map((x) => `<option value="${x.id}" ${x.id === CP.sender ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>` : ''}<button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
       ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
       <div class="cp-tools">
-        <div class="seg" id="cpFilter">${FILTERS.map(([k, label, fn]) => `<button data-f="${k}" class="${k === filter[0] ? 'active' : ''}">${label} <span class="opt">${CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length}</span></button>`).join('')}</div>
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="cpSearch" placeholder="Search name or template" value="${esc(CP.q)}" aria-label="Search campaigns" /></div>
-        <label class="inline">Sort <select id="cpSort">${Object.entries(SORTS).map(([k, [label]]) => `<option value="${k}" ${k === CP.sort ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+        <div class="seg" id="cpFilter">${FILTERS.map(([k, label, fn]) => `<button data-f="${k}" class="${k === filter[0] ? 'active' : ''}">${label} <span class="opt">${CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length}</span></button>`).join('')}</div>
+        <button type="button" class="ct-sortbtn" id="cpSortBtn" aria-haspopup="menu" title="Sorted by ${esc(SORTS[CP.sort][0])}. Click to change.">${icon('arrow-up-down', 14)}<span>${esc(SORTS[CP.sort][0])}</span>${icon('chevron-down', 14)}</button>
         <div class="seg seg-icons cp-view" id="cpView" role="radiogroup" aria-label="View">
           <button data-view="cards" class="${CP.view === 'cards' ? 'active' : ''}" title="Cards" aria-label="Cards" aria-checked="${CP.view === 'cards'}" role="radio">${icon('layout-grid', 15)}</button>
           <button data-view="table" class="${CP.view === 'table' ? 'active' : ''}" title="Table" aria-label="Table" aria-checked="${CP.view === 'table'}" role="radio">${icon('list', 15)}</button>
@@ -136,7 +136,11 @@
     Motion.segs(el);
     const search = $('#cpSearch');
     search.oninput = () => { CP.q = search.value.trim(); const pos = search.selectionStart; renderList(); const s2 = $('#cpSearch'); s2.focus(); s2.setSelectionRange(pos, pos); };
-    $('#cpSort').onchange = (e) => { CP.sort = e.target.value; renderList(); };
+    $('#cpSortBtn').onclick = (e) => {
+      e.stopPropagation();
+      const r = e.currentTarget.getBoundingClientRect();
+      Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(SORTS).map(([k, [label]]) => ({ label, checked: k === CP.sort, action: () => { CP.sort = k; renderList(); } })));
+    };
     if ($('#cpSender')) $('#cpSender').onchange = (e) => { CP.sender = e.target.value; renderList(); };
   }
 
@@ -150,19 +154,52 @@
     vt.finished.finally(() => root.classList.remove('vt-camp'));
   }
 
+  // A small folder in the campaign's colour, the same one its card uses in the list.
+  const miniFolder = (c) => `<span class="cp-pin-folder" style="--c:${colorOf(c)}" aria-hidden="true"><svg viewBox="0 0 40 32"><path class="f-back" d="M3 6a3 3 0 0 1 3-3h9l4 4h15a3 3 0 0 1 3 3v17a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z"/><rect class="f-paper" x="8" y="9" width="24" height="12" rx="2"/><path class="f-front" d="M3 13a3 3 0 0 1 3-3h28a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z"/></svg></span>`;
+  // The numbers a campaign sends from, as their profile photos (or first letters), overlapping slightly.
+  const numberFaces = (c) => {
+    const ss = (c.senderIds || []).map((id) => state.senders.find((x) => x.id === id)).filter(Boolean);
+    if (!ss.length) return '';
+    return `<span class="cp-pin-faces" title="From ${esc(ss.map((x) => x.label).join(', '))}">${ss.slice(0, 3).map((x) => senderPhotoHtml(x)).join('')}<span>${ss.length === 1 ? esc(ss[0].label) : `${ss.length} numbers`}</span></span>`;
+  };
   function pinnedCard(c) {
     const s = c.stats || {};
     const done = sentOf(s) + (s.failed || 0);
     const isLive = live(c);
-    return `<div class="cp-pin ${isLive ? 'is-live' : ''}" data-open="${c.id}">
-      <span class="cp-pin-state">${isLive ? '<span class="cp-dot"></span>Sending now' : `${icon('clock', 13)}Scheduled`}</span>
-      <div class="cp-pin-main"><b title="${esc(c.name)}">${esc(c.name)}</b><span title="${esc(c.templateName)}">${esc(c.templateName)} · ${c.total.toLocaleString()} recipients${c.demo ? ' · demo' : ''}</span></div>
+    return `<div class="cp-pin ${isLive ? 'is-live' : 'is-scheduled'}" data-open="${c.id}" style="--c:${colorOf(c)}">
+      ${miniFolder(c)}
+      <div class="cp-pin-main">
+        <span class="cp-pin-state">${isLive ? '<span class="cp-dot"></span>Sending now' : `${icon('clock', 12)}Scheduled`}${c.demo ? '<span class="pill demo">demo</span>' : ''}</span>
+        <b title="${esc(c.name)}">${esc(c.name)}</b>
+        <span class="cp-pin-sub">${icon('file-text', 13)}<span title="${esc(c.templateName)}">${esc(c.templateName)}</span></span>
+      </div>
+      <div class="cp-pin-who"><b>${c.total.toLocaleString()}</b><span>recipient${c.total === 1 ? '' : 's'}</span>${numberFaces(c)}</div>
       ${isLive
         ? `<div class="cp-pin-progress"><div class="pc-progress"><span style="width:${pctOf(done, c.total)}%"></span></div><span>${done.toLocaleString()} of ${c.total.toLocaleString()} · ${esc(eta(c))}</span></div>
-           <button class="btn sm danger" data-act="stop" data-id="${c.id}">Stop</button>`
+           <div class="cp-pin-acts"><button class="btn sm danger" data-act="stop" data-id="${c.id}">Stop</button></div>`
         : `<div class="cp-pin-when"><b>${esc(relTime(c.scheduledAt))}</b><span>${esc(fullDate(c.scheduledAt))}</span></div>
-           <button class="btn sm primary" data-act="now" data-id="${c.id}">Send now</button>`}
+           <div class="cp-pin-acts"><button class="btn sm quiet" data-act="open" data-id="${c.id}">Open</button><button class="btn sm primary" data-act="now" data-id="${c.id}">${icon('send', 14)}Send now</button></div>`}
     </div>`;
+  }
+
+  // "Send now" on a scheduled campaign: a confirmation that says exactly what goes out, from where, to how many.
+  async function confirmSendNow(c) {
+    const ss = (c.senderIds || []).map((id) => state.senders.find((x) => x.id === id)).filter(Boolean);
+    const n = c.total || (c.recipients || []).length || 0;
+    return confirmDialog({
+      title: 'Send this campaign now?',
+      message: `<div class="sn-sum">
+          ${miniFolder(c)}
+          <div><b>${esc(c.name)}</b><span>${esc(c.templateName || '')}</span></div>
+        </div>
+        <dl class="sn-facts">
+          <dt>To</dt><dd><b>${n.toLocaleString()}</b> ${n === 1 ? 'person' : 'people'}</dd>
+          ${ss.length ? `<dt>From</dt><dd class="sn-from">${ss.map((x) => `<span>${senderPhotoHtml(x)}${esc(x.label)}</span>`).join('')}</dd>` : ''}
+          ${c.scheduledAt ? `<dt>Was set for</dt><dd>${esc(fullDate(c.scheduledAt))} <span class="muted">(${esc(relTime(c.scheduledAt))})</span></dd>` : ''}
+        </dl>
+        <p class="sn-note">It starts sending straight away instead. You can stop it while it's sending.</p>`.replace(/\n\s*/g, ''),
+      confirmText: `Send to ${n.toLocaleString()} ${n === 1 ? 'person' : 'people'} now`,
+    });
   }
 
   // A campaign as a folder: tab and paper on top, name and numbers at the bottom.
@@ -222,8 +259,10 @@
       e.stopPropagation();
       return guard(async () => {
         if (a.dataset.act === 'stop') { await api(`/campaigns/${a.dataset.id}/stop`, { method: 'POST' }); toast('Stopping…'); }
+        if (a.dataset.act === 'open') return open(a.dataset.id);
         if (a.dataset.act === 'now') {
-          if (!(await confirmDialog({ title: 'Send it now?', message: 'It starts sending straight away instead of at its scheduled time.', confirmText: 'Send now' }))) return;
+          const camp = CP.list.find((x) => x.id === a.dataset.id);
+          if (!(await confirmSendNow(camp || { id: a.dataset.id, name: 'This campaign' }))) return;
           await api(`/campaigns/${a.dataset.id}/resume`, { method: 'POST', body: {} });
         }
         await load();
@@ -271,8 +310,15 @@
   const grid = { sheet: null, api: null, root: document.createElement('div') };
   grid.root.className = 'cd-grid-root';
 
+  // Opening a campaign from the list remembers where the list was scrolled, and adds a browser history step, so
+  // Back (the page's or the browser's) returns to the same spot in the list, with that campaign briefly highlighted.
   async function open(cid) {
     stop();
+    if (!CP.detail && !$('#campaignList').classList.contains('hidden')) {
+      CP.listScroll = scrollY;
+      CP.lastOpened = cid;
+      if (state.tab === 'campaigns' && !history.state?.cid) { history.pushState({ tab: 'campaigns', cid }, '', `/campaigns?c=${encodeURIComponent(cid)}`); CP.pushed = true; }
+    }
     CP.detail = cid;
     let c;
     try {
@@ -288,6 +334,7 @@
     $('#campaignList').classList.add('hidden');
     el.classList.remove('hidden');
     if (fresh) {
+      scrollTo(0, 0);
       el.dataset.cid = cid;
       CP.show = 'all';
       CP.sample = 0;
@@ -319,12 +366,32 @@
     if (running || recent || c.status === 'scheduled') pollTimer = setTimeout(() => CP.detail === cid && open(cid), running ? 1500 : 5000);
   }
 
+  // The page's Back: undo the history step if we added one (popstate below then closes the campaign).
   function back() {
+    if (CP.pushed && history.state?.cid) { history.back(); return; }
+    closeDetail();
+  }
+  function closeDetail() {
     stop();
     CP.detail = null;
+    CP.pushed = false;
     $('#campaignDetail').classList.add('hidden');
-    load();
+    const y = CP.listScroll, cid = CP.lastOpened;
+    load().then(() => {
+      if (y == null) return;
+      requestAnimationFrame(() => {
+        scrollTo({ top: y, behavior: 'instant' });
+        const card = $(`#campaignList [data-open="${CSS.escape(cid || '')}"]`);
+        if (card) { card.classList.remove('cp-back-hl'); void card.offsetWidth; card.classList.add('cp-back-hl'); }
+      });
+    }).catch((e) => toast(e.message, 'error'));
   }
+  addEventListener('popstate', () => {
+    if (state.tab !== 'campaigns') return;
+    const cid = history.state?.cid || new URLSearchParams(location.search).get('c');
+    if (!cid && CP.detail) closeDetail();
+    else if (cid && CP.detail !== cid) open(cid);
+  });
 
   function renderHead(c) {
     const s = c.stats || {};
@@ -537,7 +604,7 @@
     await guard(async () => {
       if (act === 'stop') { await api(`/campaigns/${c.id}/stop`, { method: 'POST' }); toast('Stopping…'); }
       if (act === 'now' || act === 'resume') {
-        if (act === 'now' && !(await confirmDialog({ title: 'Send it now?', message: 'It starts sending straight away instead of at its scheduled time.', confirmText: 'Send now' }))) return;
+        if (act === 'now' && !(await confirmSendNow(CP.c))) return;
         await api(`/campaigns/${c.id}/resume`, { method: 'POST', body: {} });
       }
       if (act === 'retry') {
@@ -576,7 +643,8 @@
       ...(!running ? [{ label: 'Delete campaign', danger: true, action: () => guard(async () => {
         if (!(await confirmDialog({ title: 'Delete this campaign?', message: 'Its delivery log is removed too. Export it first if you need it.', confirmText: 'Delete', danger: true }))) return;
         await api('/campaigns/' + c.id, { method: 'DELETE' });
-        back();
+        if (CP.pushed && history.state?.cid) history.replaceState({ tab: 'campaigns' }, '', '/campaigns');
+        closeDetail();
       }) }] : []),
     ]);
   }
@@ -585,7 +653,12 @@
   addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (CP.detail && CP.c && !$('#campaignDetail').classList.contains('hidden')) renderChart(CP.c); }, 150); });
 
   // Used by app.js (tab switching), the Overview, the Assistant and the Send page.
-  window.loadCampaigns = () => { if (!CP.detail) $('#campaignDetail').classList.add('hidden'); return load().catch((e) => toast(e.message, 'error')); };
+  window.loadCampaigns = () => {
+    const fromUrl = new URLSearchParams(location.search).get('c');
+    if (fromUrl && !CP.detail && location.pathname === '/campaigns') CP.detail = fromUrl;
+    if (!CP.detail) $('#campaignDetail').classList.add('hidden');
+    return load().catch((e) => toast(e.message, 'error'));
+  };
   window.openCampaign = (cid) => open(cid);
   window.stopPolling = stop;
 })();

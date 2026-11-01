@@ -913,9 +913,9 @@
     const r = tag.getBoundingClientRect();
     const isOnly = (p) => row.send.length === 1 && row.send[0] === p;
     Sheet.Menu.open(r.left, r.bottom + 4, [
-      ...row.phones.map((p, i) => ({ label: `${isOnly(p) ? '✓ ' : ''}+${p}`, kbd: i === 0 ? 'suggested' : '', action: () => set(i === 0 ? undefined : [p]) })),
+      ...row.phones.map((p, i) => ({ label: `+${p}`, checked: isOnly(p), kbd: i === 0 ? 'suggested' : '', action: () => set(i === 0 ? undefined : [p]) })),
       '-',
-      { label: `${row.send.length === row.phones.length ? '✓ ' : ''}Send to all ${row.phones.length} numbers`, action: () => set([...row.phones]) },
+      { label: `Send to all ${row.phones.length} numbers`, checked: row.send.length === row.phones.length, action: () => set([...row.phones]) },
     ]);
   }, true); // before the grid's own click handling
   $('#spStrip').addEventListener('click', (e) => {

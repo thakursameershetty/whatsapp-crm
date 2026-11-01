@@ -38,7 +38,12 @@
         if (tag && o.dataset.tag !== tag) continue;
         if (pendingGroup != null) { html += `<div class="ss-group">${esc(pendingGroup)}</div>`; pendingGroup = null; }
         const on = o.selected;
-        html += `<button type="button" role="option" class="ss-opt ${on ? 'on' : ''}" data-i="${o.index}" aria-selected="${on}" ${o.disabled ? 'disabled' : ''}><span>${esc(o.textContent)}</span>${on ? TICK : ''}</button>`;
+        // Options can carry a small picture: data-photo (an image URL) with data-letter as its fallback, or data-icon.
+        const d = o.dataset;
+        const pic = d.photo != null || d.letter != null || d.icon
+          ? `<span class="ss-av">${d.icon ? window.LA?.icon(d.icon, 14) || '' : `${d.photo ? `<img src="${esc(d.photo)}" alt="" onerror="this.remove()">` : ''}<b>${esc(d.letter || '')}</b>`}</span>`
+          : '';
+        html += `<button type="button" role="option" class="ss-opt ${on ? 'on' : ''} ${pic ? 'has-av' : ''}" data-i="${o.index}" aria-selected="${on}" ${o.disabled ? 'disabled' : ''}><i class="ss-check">${on ? TICK : ''}</i>${pic}<span>${esc(o.textContent)}</span>${d.count ? `<small class="ss-count">${esc(d.count)}</small>` : ''}</button>`;
       }
       list.innerHTML = html || '<p class="ss-none">Nothing matches.</p>';
     };
@@ -99,6 +104,7 @@
 // The same idea as the dropdowns: the input stays the source of truth (value, 'input'/'change' events),
 // the app shows its own picker. Unlike dropdowns these are used on phones too, so they apply everywhere.
 (() => {
+  const TICK2 = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pad = (n) => String(n).padStart(2, '0');
   const toLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -193,7 +199,7 @@
       const list = all.filter((v) => !q || v.toLowerCase().includes(q) || all.includes(inp.value)); // full list when the value is already one of them
       if (!list.length) return Sheet.Menu.close();
       const r = inp.getBoundingClientRect();
-      const el = Sheet.Menu.panel(r.left, r.bottom + 6, `<div class="ss-list">${list.map((v) => `<button type="button" class="ss-opt ${v === inp.value ? 'on' : ''}" data-v="${esc(v)}"><span>${esc(v)}</span></button>`).join('')}</div>`);
+      const el = Sheet.Menu.panel(r.left, r.bottom + 6, `<div class="ss-list">${list.map((v) => `<button type="button" class="ss-opt ${v === inp.value ? 'on' : ''}" data-v="${esc(v)}"><i class="ss-check">${v === inp.value ? TICK2 : ''}</i><span>${esc(v)}</span></button>`).join('')}</div>`);
       el.classList.add('ss-pop'); el.style.minWidth = r.width + 'px';
       el.addEventListener('mousedown', (e) => e.preventDefault()); // keep the focus in the input
       el.addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; inp.value = b.dataset.v; fire(inp); Sheet.Menu.close(); });

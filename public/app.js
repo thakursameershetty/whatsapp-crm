@@ -40,19 +40,40 @@ function toast(msg, type = '', opts = {}) {
   text.append(p);
   $('#toasts').append(el);
   requestAnimationFrame(() => LA.play(el));
+  syncToastClear();
   let left = opts.duration || (type === 'error' ? 6000 : opts.onClick ? 6000 : 3500), started = Date.now(), timer;
   const dismiss = () => {
     if (el.classList.contains('out')) return;
     clearTimeout(timer);
     el.classList.add('out');
+    syncToastClear();
     setTimeout(() => el.remove(), 280);
   };
+  el.__dismiss = dismiss;
   timer = setTimeout(dismiss, left);
   el.addEventListener('mouseenter', () => { clearTimeout(timer); left -= Date.now() - started; });
   el.addEventListener('mouseleave', () => { started = Date.now(); timer = setTimeout(dismiss, Math.max(left, 1200)); });
   el.querySelector('.toast-x').addEventListener('click', (e) => { e.stopPropagation(); dismiss(); });
   if (opts.onClick) el.addEventListener('click', () => { opts.onClick(); dismiss(); });
   return { dismiss };
+}
+
+// With more than one toast showing, a "Clear all" button sits on top of the stack.
+function syncToastClear() {
+  const box = $('#toasts');
+  const live = [...box.querySelectorAll('.toast:not(.out)')];
+  let btn = box.querySelector('.toast-clear');
+  if (live.length > 1 && !btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-clear';
+    btn.innerHTML = `${icon('x', 13)}Clear all`;
+    btn.addEventListener('click', () => { [...box.querySelectorAll('.toast:not(.out)')].forEach((t) => t.__dismiss?.()); });
+    box.prepend(btn);
+  } else if (live.length <= 1 && btn) {
+    btn.classList.add('out');
+    setTimeout(() => btn.remove(), 200);
+  }
 }
 
 async function guard(fn, btn) {
@@ -381,7 +402,7 @@ $('#ccPick').addEventListener('click', (e) => {
   const draw = () => {
     const q = $('#ccQ', el).value.trim().toLowerCase().replace(/^\+/, '');
     const list = COUNTRIES.filter((c) => !q || c[1].toLowerCase().includes(q) || c[0].toLowerCase() === q || c[2].startsWith(q));
-    $('#ccList', el).innerHTML = list.map((c) => `<button type="button" role="option" class="cc-opt ${c[0] === current ? 'on' : ''}" data-cc="${c[0]}" aria-selected="${c[0] === current}">${flagImg(c[0], 18)}<b class="cc-iso">${c[0]}</b><span class="cc-name">${esc(c[1])}</span><span class="cc-code">+${c[2]}</span></button>`).join('') || '<p class="tm-note" style="text-align:center;padding:12px 0">No country matches.</p>';
+    $('#ccList', el).innerHTML = list.map((c) => `<button type="button" role="option" class="cc-opt ${c[0] === current ? 'on' : ''}" data-cc="${c[0]}" aria-selected="${c[0] === current}"><i class="ss-check">${c[0] === current ? TICK_SVG : ''}</i>${flagImg(c[0], 18)}<b class="cc-iso">${c[0]}</b><span class="cc-name">${esc(c[1])}</span><span class="cc-code">+${c[2]}</span></button>`).join('') || '<p class="tm-note" style="text-align:center;padding:12px 0">No country matches.</p>';
   };
   draw();
   setTimeout(() => {
@@ -1055,7 +1076,7 @@ $('#numFilter').addEventListener('click', (e) => {
   e.stopPropagation();
   const r = e.currentTarget.getBoundingClientRect();
   const counts = (k) => state.senders.filter((s) => (QUALITY[s.qualityRating] ? s.qualityRating : 'NONE') === k).length;
-  const opt = (k, label) => ({ label: `${(state.numQuality || '') === k ? '✓ ' : '   '}${label}${k ? `  (${counts(k)})` : ''}`, action: () => { state.numQuality = k; renderSenders(); } });
+  const opt = (k, label) => ({ label, kbd: k ? String(counts(k)) : '', checked: (state.numQuality || '') === k, action: () => { state.numQuality = k; renderSenders(); } });
   Sheet.Menu.open(r.right - 200, r.bottom + 6, [opt('', 'Any quality'), '-', opt('GREEN', 'High'), opt('YELLOW', 'Medium'), opt('RED', 'Low'), opt('NONE', 'Not rated')]);
 });
 $('#senderList').addEventListener('click', (e) => {
@@ -1864,6 +1885,7 @@ const METRICS = {
   readRate: { label: 'Read rate', short: 'Read rate', kind: 'rate', icon: 'eye', num: 'read', den: 'delivered' },
   failed: { label: 'Failed', short: 'Failed', kind: 'count', icon: 'alert', of: (b) => b.failed, bad: true },
 };
+const FEW = 5; // a rate from fewer messages than this is shown as less reliable
 const rateOf = (b, m) => (b[m.den] ? (100 * b[m.num]) / b[m.den] : null);
 const metricValue = (m, b) => (m.kind === 'count' ? m.of(b) : rateOf(b, m));
 const fmt1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
@@ -1899,7 +1921,10 @@ function deltaChip(cur, prev, { rate = false, bad = false } = {}) {
     return '<span class="delta-chip">New this period</span>';
   }
   const diff = rate ? cur - prev : ((cur - prev) / prev) * 100;
-  const shown = rate ? `${diff >= 0 ? '+' : '−'}${fmt1(Math.abs(diff))} pts` : `${diff >= 0 ? '+' : '−'}${Math.round(Math.abs(diff))}%`;
+  // Counts that grew 10× or more read better as a multiple ("42×, was 19") than as "+4126%".
+  const shown = rate ? `${diff >= 0 ? '+' : '−'}${fmt1(Math.abs(diff))} pts`
+    : cur >= prev * 10 ? `${Math.round(cur / prev).toLocaleString()}× · was ${prev.toLocaleString()}`
+    : `${diff >= 0 ? '+' : '−'}${Math.round(Math.abs(diff))}%`;
   if (Math.abs(diff) < (rate ? 0.05 : 0.5)) return `<span class="delta-chip">${rate ? '±0.0 pts' : '0%'}</span>`;
   const up = diff > 0;
   const good = up !== bad;
@@ -1949,9 +1974,21 @@ function areaTile(bs, m, key) {
           <stop offset="0" stop-color="#fff" stop-opacity="0.5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
         </linearGradient>
         <mask id="km-${key}" maskContentUnits="userSpaceOnUse"><rect width="${VW}" height="${VH}" fill="url(#kv-${key})"/></mask>
+        <linearGradient id="kf-${key}" gradientUnits="userSpaceOnUse" x1="0" x2="${VW}" y1="0" y2="0">
+          <stop offset="${(pts[0][0] / VW).toFixed(4)}" stop-color="#fff" stop-opacity="${pts[0][0] > 1 ? 0 : 1}"/>
+          <stop offset="${(Math.min(pts[0][0] + 26, VW) / VW).toFixed(4)}" stop-color="#fff"/>
+          <stop offset="${(Math.max(pts[pts.length - 1][0] - 26, 0) / VW).toFixed(4)}" stop-color="#fff"/>
+          <stop offset="${(pts[pts.length - 1][0] / VW).toFixed(4)}" stop-color="#fff" stop-opacity="${pts[pts.length - 1][0] < VW - 10 ? 0 : 1}"/>
+        </linearGradient>
+        <mask id="ke-${key}" maskContentUnits="userSpaceOnUse"><rect width="${VW}" height="${VH}" fill="url(#kf-${key})"/></mask>
+        <linearGradient id="kg-${key}" gradientUnits="userSpaceOnUse" x1="0" x2="${VW}" y1="0" y2="0">
+          <stop offset="${(pts[0][0] / VW).toFixed(4)}" stop-color="#fff" stop-opacity="${pts[0][0] > 1 ? 0.15 : 1}"/>
+          <stop offset="${(Math.min(pts[0][0] + 12, VW) / VW).toFixed(4)}" stop-color="#fff"/>
+        </linearGradient>
+        <mask id="kl-${key}" maskContentUnits="userSpaceOnUse"><rect x="-10" y="-10" width="${VW + 20}" height="${VH + 20}" fill="url(#kg-${key})"/></mask>
       </defs>
-      <path class="ka-fill" d="${area}" fill="url(#kh-${key})" mask="url(#km-${key})"/>
-      <path class="ka-line" d="${line}" stroke="url(#kh-${key})" vector-effect="non-scaling-stroke"/>
+      <g mask="url(#ke-${key})"><path class="ka-fill" d="${area}" fill="url(#kh-${key})" mask="url(#km-${key})"/></g>
+      <g mask="url(#kl-${key})"><path class="ka-line" d="${line}" stroke="url(#kh-${key})" vector-effect="non-scaling-stroke"/></g>
     </svg>
     ${last ? `<i class="ka-now" style="left:${(last[0] / VW) * 100}%;top:${(last[1] / VH) * 100}%"></i>` : ''}
     <i class="ka-cursor"></i><i class="ka-dot"></i><span class="ka-pill"></span>
@@ -2082,6 +2119,7 @@ function drawChart(el, bs, m, { instant = false } = {}) {
     svg.append('g').attr('class', 'yticks');
     svg.append('g').attr('class', 'cols');
     const ln = svg.append('g').attr('class', 'linelayer').attr('opacity', 0);
+    ln.append('path').attr('class', 'bridge');
     ln.append('path').attr('class', 'line');
     ln.append('g').attr('class', 'dots');
     svg.append('line').attr('class', 'crosshair').attr('opacity', 0);
@@ -2169,12 +2207,22 @@ function drawChart(el, bs, m, { instant = false } = {}) {
   // period had nothing to measure.
   const lineG = svg.select('g.linelayer');
   T(lineG).attr('opacity', isRate ? 1 : 0);
-  const pts = bs.map((b, i) => ({ x: cx(b), y: isRate && vals[i] != null ? y(vals[i]) : null, key: b.key, i }));
+  // Each point knows how many messages its rate is based on: busier days get bigger dots, and days with
+  // only a handful (where one message swings the rate a lot) get a hollow dot, so they don't look as solid.
+  const nOf = (b) => (isRate ? b[m.den] || 0 : 0);
+  const nMax = d3.max(bs, nOf) || 1;
+  const rOf = (n) => (n < FEW ? 4 : 4 + 2.5 * Math.sqrt(n / nMax));
+  const pts = bs.map((b, i) => ({ x: cx(b), y: isRate && vals[i] != null ? y(vals[i]) : null, key: b.key, i, n: nOf(b) }));
   const prevPts = lineG.node().__pts;
   const sameShape = prevPts && prevPts.length === pts.length;
   const fromPts = pts.map((p, i) => ({ x: p.x, y: sameShape && prevPts[i].y != null ? prevPts[i].y : base }));
   lineG.node().__pts = pts;
-  const lineGen = d3.line().defined((p) => p.y != null).x((p) => p.x).y((p) => p.y).curve(d3.curveMonotoneX);
+  // Straight segments between days next to each other (no smoothing that overshoots), and a faint bridge
+  // across days with nothing sent.
+  const lineGen = d3.line().defined((p) => p.y != null).x((p) => p.x).y((p) => p.y).curve(d3.curveLinear);
+  const real = pts.filter((p) => p.y != null);
+  const bridgeP = lineG.select('path.bridge').attr('d', isRate && real.length > 1 ? d3.line().x((p) => p.x).y((p) => p.y)(real) : null);
+  if (dur && isRate) bridgeP.attr('opacity', 0).transition().delay(dur * 0.6).duration(dur * 0.6).attr('opacity', 1); else bridgeP.attr('opacity', 1);
   const at = (k) => pts.map((p, i) => ({ x: p.x, y: p.y == null ? null : fromPts[i].y + (p.y - fromPts[i].y) * k }));
   if (!dur || !isRate) {
     lineG.selectAll('path').interrupt();
@@ -2183,8 +2231,9 @@ function drawChart(el, bs, m, { instant = false } = {}) {
     lineG.select('path.line').transition().duration(dur).ease(d3.easeCubicOut).attrTween('d', () => (k) => lineGen(at(k)));
   }
   const dots = lineG.select('g.dots').selectAll('circle').data(pts.filter((p) => p.y != null), (p) => p.key)
-    .join((enter) => enter.append('circle').attr('r', 3.5).attr('cx', (p) => p.x).attr('cy', base));
-  T(dots).attr('cx', (p) => p.x).attr('cy', (p) => p.y);
+    .join((enter) => enter.append('circle').attr('r', 4).attr('cx', (p) => p.x).attr('cy', base));
+  dots.classed('few', (p) => p.n < FEW);
+  T(dots).attr('cx', (p) => p.x).attr('cy', (p) => p.y).attr('r', (p) => rOf(p.n));
 
   // X labels: thin them out so they never collide.
   const every = Math.max(1, Math.ceil((bs.length * 64) / (W - pad.l - pad.r)));
@@ -2245,7 +2294,8 @@ function bindChartHover(el) {
       ${row('sent', 'Sent', b.sent.toLocaleString())}
       ${row('deliveryRate', 'Delivered', `${b.delivered.toLocaleString()}${dr == null ? '' : ` · ${fmt1(dr)}%`}`)}
       ${row('readRate', 'Read', `${b.read.toLocaleString()}${rr == null ? '' : ` · ${fmt1(rr)}%`}`)}
-      ${row('failed', 'Failed', b.failed.toLocaleString())}`, px, py);
+      ${row('failed', 'Failed', b.failed.toLocaleString())}
+      ${isRate && b[m.den] ? `<div class="tt-note ${b[m.den] < FEW ? 'few' : ''}">${b[m.den] < FEW ? `Only ${b[m.den]} message${b[m.den] === 1 ? '' : 's'}, so one message moves this rate a lot` : `${m.short} based on ${b[m.den].toLocaleString()} ${m.den} messages`}</div>` : ''}`, px, py);
   };
   const clear = () => {
     $$('path.bar.on, g.dots circle.on', el).forEach((n) => n.classList.remove('on'));
@@ -2359,7 +2409,7 @@ function renderFunnel(st) {
       .map(([name, v, note], i) => `<div class="funnel-row">
         <div class="funnel-name">${name}</div>
         <div class="funnel-track"><div class="funnel-bar" data-w="${t.sent ? ((100 * v) / t.sent).toFixed(2) : 0}" data-k="fn-${name}"></div></div>
-        <div class="funnel-val"><span><b data-count="${v}" data-fmt="int" data-k="fnv-${name}">0</b> ${note}</span><span>${i ? `<b data-count="${t.sent ? ((100 * v) / t.sent).toFixed(2) : 0}" data-fmt="pct1" data-k="fnp-${name}">0</b><b>%</b> of sent` : ''}</span></div>
+        <div class="funnel-val"><span><b data-count="${v}" data-fmt="int" data-k="fnv-${name}">0</b> ${note}</span><span>${i === 1 ? `<b data-count="${t.sent ? ((100 * v) / t.sent).toFixed(2) : 0}" data-fmt="pct1" data-k="fnp-${name}">0</b><b>%</b> of sent` : i === 2 ? `<b data-count="${t.delivered ? ((100 * v) / t.delivered).toFixed(2) : 0}" data-fmt="pct1" data-k="fnp-${name}">0</b><b>%</b> of delivered` : ''}</span></div>
       </div>`)
       .join('') +
     `<div class="funnel-note"><span>Failed <b data-count="${t.failed}" data-fmt="int" data-k="fn-failed">0</b></span><span>Waiting to send <b data-count="${t.pending}" data-fmt="int" data-k="fn-pending">0</b></span></div>`;
@@ -2786,7 +2836,7 @@ $('#acctBtn').addEventListener('click', (e) => {
     <div class="acct-pop-me">${faceHtml(me.user)}<span class="acct-text"><b>${esc(me.user.name || me.user.email)}</b><span>${esc(me.user.email)}</span></span></div>
     <hr />
     <div class="acct-pop-label">Workspaces</div>
-    ${me.workspaces.map((w) => `<button type="button" class="acct-pop-item" data-ws="${w.id}"><span>${esc(w.name)}</span>${w.id === me.workspace.id ? TICK_SVG : ''}</button>`).join('')}
+    ${me.workspaces.map((w) => `<button type="button" class="acct-pop-item ws-item ${w.id === me.workspace.id ? 'on' : ''}" data-ws="${w.id}" role="menuitemradio" aria-checked="${w.id === me.workspace.id}"><i class="ss-check">${w.id === me.workspace.id ? TICK_SVG : ''}</i><span>${esc(w.name)}</span></button>`).join('')}
     <button type="button" class="acct-pop-item" data-act="team">${icon('users', 15)}<span>Workspace & team</span></button>
     ${me.admin ? `<button type="button" class="acct-pop-item" data-act="admin">${icon('layout-grid', 15)}<span>Admin: all workspaces</span></button>` : ''}
     <hr />

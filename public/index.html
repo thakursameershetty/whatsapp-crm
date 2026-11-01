@@ -267,7 +267,7 @@
                 <button data-f="unread">Unread</button>
                 <button data-f="open">Can reply</button>
               </div>
-              <select id="ibSender" class="hidden" aria-label="Number"></select>
+              <span class="sel-pic hidden" id="ibSenderWrap"><span class="sel-pic-av" id="ibSenderPic" aria-hidden="true"></span><select id="ibSender" aria-label="Number"></select></span>
             </div>
             <select id="ibTemplate" class="ib-tpl-filter hidden" aria-label="Template"></select>
           </div>
@@ -292,11 +292,11 @@
       </div>
       <div class="ct-stats" id="ctStats" role="toolbar" aria-label="Filter by status" data-skel="stat:7"></div>
       <div class="ct-bar">
-        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="ctSearch"
+        <div class="search-wrap has-filter" data-icon="search" data-icon-size="15"><input class="search" id="ctSearch"
             placeholder="Search contacts" title="Search by name, phone, email or company"
-            aria-label="Search contacts" /></div>
+            aria-label="Search contacts" /><button type="button" class="num-filter" id="ctSourceBtn" aria-haspopup="menu" title="Filter by who added them"></button></div>
         <div class="ct-tags" id="ctTags" role="toolbar" aria-label="Filter by tag"></div>
-        <label class="inline ct-sortby">Sort <select id="ctSort" aria-label="Sort contacts"></select></label>
+        <button type="button" class="ct-sortbtn" id="ctSortBtn" aria-haspopup="menu"></button>
         <button type="button" class="btn quiet ct-selall" id="ctSelAll"><input type="checkbox" class="cb" tabindex="-1"
             aria-hidden="true" /><span>Select all</span></button>
         <div class="seg seg-icons ct-view" id="ctView" role="radiogroup" aria-label="View"></div>

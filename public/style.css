@@ -914,7 +914,7 @@ input.cb:checked { animation: cb-pop 0.28s var(--ease-spring); }
 .chart .linelayer path.line { fill: none; stroke: var(--chart); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart .linelayer path.area { fill: var(--chart); opacity: 0.1; stroke: none; }
 .chart .linelayer circle { fill: var(--chart); stroke: var(--surface); stroke-width: 2; transition: r 0.15s; }
-.chart .linelayer circle.on { r: 6; }
+.chart .linelayer circle.on { r: 7; }
 .chart line.crosshair { stroke: var(--muted); stroke-width: 1; opacity: 0; pointer-events: none; shape-rendering: crispEdges; }
 .chart .hit { fill: transparent; outline: none; }
 .chart .bar.on { fill: var(--chart-hover); }
@@ -1831,7 +1831,9 @@ body.assistant-open main { padding-bottom: 0; }
 .cp-pin-main span, .cp-pin-when span, .cp-pin-progress > span { font-size: 12.5px; color: var(--muted); }
 .cp-pin-progress { display: flex; flex-direction: column; gap: 5px; }
 .cp-tools { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; margin-bottom: 12px; }
-.cp-tools .search { width: 260px; }
+.cp-tools .search-wrap { flex: 1 1 260px; min-width: 220px; }
+.cp-tools .search { width: 100%; }
+.cp-tools .cp-view { margin-left: 0; }
 .cp-tools select { height: 34px; }
 .cp-card { padding: 0; overflow: hidden; }
 .cp-table td { vertical-align: middle; padding-top: 10px; padding-bottom: 10px; }
@@ -4225,3 +4227,140 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
   .rs-body { padding-left: 18px; }
 }
 .rs-row.open .rs-title code, .rs-sum:hover .rs-title code { background: var(--surface); }
+
+/* Rates on the Overview: honest gaps and sample size */
+.chart .linelayer path.bridge { fill: none; stroke: var(--chart); stroke-width: 1.5; opacity: 0.22; stroke-linecap: round; }
+.chart .linelayer circle.few { fill: var(--surface); stroke: var(--chart); stroke-width: 2; }
+.tt-note { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--hair); font-size: 11.5px; color: var(--muted); }
+.tt-note.few { color: var(--warn); }
+
+/* Contacts: how they were added */
+.ct-auto, .ct-ai { display: inline-flex; align-items: center; gap: 3px; height: 18px; margin-left: 6px; padding: 0 6px; border-radius: 5px; font: 600 10.5px/1 Inter, sans-serif; vertical-align: 1px; white-space: nowrap; }
+.ct-auto { background: var(--sunk); color: var(--muted); box-shadow: inset 0 0 0 1px var(--hair); }
+.ct-ai { background: var(--violet-soft); color: var(--violet); }
+.ct-ai svg.orb-icon { display: inline-block; }
+.ct-pmeta .ct-auto, .ct-pmeta .ct-ai { margin-left: 0; }
+
+/* "Clear all" on top of a stack of toasts */
+.toast-clear { align-self: flex-end; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 12px; border: 0; border-radius: 99px; background: var(--toast-glass); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); color: var(--surface); font: 600 12px Inter, sans-serif; cursor: pointer; box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.35); animation: toast-in 0.3s var(--ease-out) both; transition: opacity 0.2s; }
+.toast-clear:hover { filter: brightness(1.15); }
+.toast-clear.out { opacity: 0; }
+
+/* A filter button inside a search box (Contacts "Added by"; same look as the Numbers quality filter) */
+.search-wrap.has-filter { position: relative; }
+.search-wrap.has-filter .search { padding-right: 46px; }
+.search-wrap.has-filter:has(.num-filter.on) .search { padding-right: 150px; }
+.search-wrap.has-filter .num-filter svg { position: static; margin: 0; color: currentColor; pointer-events: none; }
+/* Contacts search keeps one width, filter on or off, so the tag chips don't shift. */
+.ct-bar .search-wrap.has-filter { width: 230px; }
+.ct-bar .search-wrap.has-filter .search { width: 100%; }
+.ct-bar .search-wrap.has-filter:has(.num-filter.on) .search { padding-right: 132px; }
+.ct-bar .search-wrap.has-filter .num-filter-lbl { max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) { .ct-bar .search-wrap.has-filter { width: 100%; } }
+
+/* Contacts sort: a compact button instead of "Sort" + a dropdown */
+.ct-sortbtn { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font: 600 13px Inter, sans-serif; cursor: pointer; white-space: nowrap; }
+.ct-sortbtn span { color: var(--text); }
+.ct-sortbtn:hover { background: var(--sunk); }
+.ct-sortbtn svg:last-child { opacity: 0.6; }
+
+/* Choice menus: a check column, the chosen item in bold */
+.sg-menu-pop.choice > button { justify-content: flex-start; gap: 8px; padding-left: 6px; }
+.sg-menu-pop.choice > button > span { flex: 1; }
+.sg-menu-pop .mi-check { width: 18px; flex: none; display: grid; place-items: center; color: var(--text); }
+.sg-menu-pop > button.on > span { font-weight: 600; }
+
+/* The AI sphere on an auto-added contact's photo */
+.ct-av { position: relative; }
+.ct-av-ai { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); color: var(--violet); box-shadow: 0 0 0 1.5px var(--surface), 0 1px 3px rgba(0, 0, 0, 0.18); }
+.ct-av.lg .ct-av-ai { width: 24px; height: 24px; right: -1px; bottom: -1px; }
+.ct-av.xl .ct-av-ai { width: 28px; height: 28px; right: 0; bottom: 0; }
+.ct-av-ai svg.orb-icon { display: block; }
+
+/* Inbox: the "via" number's photo on the person's photo */
+.ib-av { position: relative; }
+.ib-av-via { position: absolute; right: -3px; bottom: -3px; width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 0 2px var(--surface), 0 1px 3px rgba(0, 0, 0, 0.2); }
+.ib-av-via .sender-photo { width: 100%; height: 100%; font-size: 9.5px; }
+.ib-conv.active .ib-av-via { box-shadow: 0 0 0 2px var(--sunk), 0 1px 3px rgba(0, 0, 0, 0.2); }
+.ib-head .ib-av-via { width: 18px; height: 18px; }
+
+/* Pictures in dropdowns: a number's photo (or letter) before its name */
+.ss-opt.has-av { justify-content: flex-start; gap: 10px; }
+.ss-opt.has-av > span:not(.ss-av) { flex: 1; }
+.ss-av { position: relative; flex: none; width: 24px; height: 24px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-text); font: 700 11px Inter, sans-serif; }
+.ss-av img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ss-av:has(svg) { background: var(--sunk); color: var(--muted); }
+/* …and on the closed filter: the selected number's photo inside the box */
+.sel-pic { position: relative; flex: 1; min-width: 0; display: flex; }
+.sel-pic > select { flex: 1; min-width: 0; padding-left: 40px; }
+.sel-pic-av { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 22px; height: 22px; border-radius: 50%; pointer-events: none; z-index: 1; display: grid; place-items: center; }
+.sel-pic-av .sender-photo { width: 100%; height: 100%; font-size: 10px; }
+.sel-pic-av.all { color: var(--muted); }
+.ss-count { flex: none; color: var(--faint); font-size: 12px; font-weight: 500; }
+
+/* One look for "selected" in every list: a check in a left column, the chosen item in bold
+   (dropdowns, suggestion lists, the workspace switcher, the country picker, the filter menus). */
+.ss-opt { justify-content: flex-start; gap: 8px; padding-left: 6px; }
+.ss-opt > span:not(.ss-av) { flex: 1; min-width: 0; }
+.ss-check { width: 18px; flex: none; display: grid; place-items: center; color: var(--text); }
+.ss-check:empty { visibility: hidden; }
+.ss-opt.on > span:not(.ss-av), .cc-opt.on .cc-name, .acct-pop-item.ws-item.on > span { font-weight: 600; }
+.ss-opt.on { background: none; }
+.ss-opt.on:hover, .ss-opt.on:focus-visible { background: var(--sunk); }
+.cc-opt { padding-left: 6px; gap: 8px; }
+.cc-opt.on { background: none; font-weight: 400; }
+.cc-opt.on:hover, .cc-opt.on:focus-visible { background: var(--sunk); }
+.acct-pop-item.ws-item { padding-left: 6px; gap: 8px; }
+.acct-pop-item.ws-item .ss-check svg { color: var(--text); }
+
+/* The campaign you came back from, briefly highlighted in the list */
+.cp-back-hl { animation: cp-back-hl 1.6s ease-out; }
+@keyframes cp-back-hl { 0%, 35% { outline: 3px solid var(--ring); outline-offset: 3px; } 100% { outline: 3px solid transparent; outline-offset: 3px; } }
+tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
+@keyframes cp-back-hl-row { 0%, 30% { background: var(--accent-soft); } 100% { background: transparent; } }
+
+/* Scheduled / sending campaigns at the top of Campaigns */
+.cp-pinned .cp-pin { grid-template-columns: 52px minmax(0, 1.4fr) minmax(170px, 1fr) minmax(170px, 1fr) auto; gap: 18px; padding: 14px 16px; }
+.cp-pin-folder { width: 52px; height: 42px; display: grid; place-items: center; }
+.cp-pin-folder svg { width: 52px; height: 42px; overflow: visible; filter: drop-shadow(0 4px 8px color-mix(in srgb, var(--c) 25%, transparent)); }
+.cp-pin-folder .f-back { fill: color-mix(in srgb, var(--c) 70%, var(--surface)); }
+.cp-pin-folder .f-paper { fill: var(--surface); }
+.cp-pin-folder .f-front { fill: color-mix(in srgb, var(--c) 45%, var(--surface)); }
+.cp-pinned .cp-pin-main { gap: 3px; }
+.cp-pinned .cp-pin-main > b { font-size: 15px; }
+.cp-pinned .cp-pin-state { gap: 6px; font-size: 10.5px; }
+.cp-pinned .cp-pin-state .pill { height: 18px; font-size: 10px; letter-spacing: 0; text-transform: none; }
+.cp-pin-sub { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.cp-pin-sub > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-pin-who { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 6px; row-gap: 4px; min-width: 0; }
+.cp-pin-who > b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.cp-pin-who > span { font-size: 12.5px; color: var(--muted); }
+.cp-pin-faces { grid-column: 1 / -1; display: inline-flex; align-items: center; min-width: 0; font-size: 12px; color: var(--muted); }
+.cp-pin-faces .sender-photo { width: 20px; height: 20px; font-size: 9px; box-shadow: 0 0 0 2px var(--surface); }
+.cp-pin-faces .sender-photo + .sender-photo { margin-left: -6px; }
+.cp-pin-faces > span:last-child { margin-left: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-pinned .cp-pin-when b { font-size: 15px; }
+.cp-pin-acts { display: flex; align-items: center; gap: 6px; }
+@media (max-width: 1100px) {
+  .cp-pinned .cp-pin { grid-template-columns: 44px minmax(0, 1fr) auto; }
+  .cp-pinned .cp-pin-who, .cp-pinned .cp-pin-when, .cp-pinned .cp-pin-progress { grid-column: 2; }
+  .cp-pinned .cp-pin-acts { grid-column: 3; grid-row: 1; }
+}
+
+/* "Send this campaign now?" summary */
+.sn-sum { display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; padding: 12px; border-radius: 12px; background: var(--sunk); }
+.sn-sum b { display: block; color: var(--text); font-size: 14.5px; }
+.sn-sum span { font-size: 12.5px; color: var(--muted); }
+.sn-facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0 0 12px; font-size: 13.5px; color: var(--text); }
+.sn-facts dt { color: var(--muted); }
+.sn-facts dd { margin: 0; }
+.sn-facts .muted { color: var(--muted); }
+.sn-from { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.sn-from > span { display: inline-flex; align-items: center; gap: 6px; }
+.sn-from .sender-photo { width: 20px; height: 20px; font-size: 9px; }
+.sn-note { margin: 0; font-size: 12.5px; color: var(--muted); }
+
+/* The sticky date pill stays above the messages scrolling under it (bubbles are layered for swipe-to-reply). */
+.ib-msgs .ib-day { z-index: 5; }
+/* Scheduled and sending campaign cards: no coloured left edge */
+.cp-pinned .cp-pin, .cp-pinned .cp-pin.is-live { box-shadow: var(--sh-card); }

@@ -881,20 +881,25 @@
       el = document.createElement('div');
       el.className = 'sg-menu-pop';
       el.setAttribute('role', 'menu');
+      // A choice menu (any item with `checked`): a check column on the left, the chosen item marked.
+      const choice = items.some((it) => it && typeof it.checked === 'boolean');
+      el.classList.toggle('choice', choice);
+      const TICK = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
       items.filter(Boolean).forEach((it) => {
         if (it === '-') return el.insertAdjacentHTML('beforeend', '<hr />');
         const b = document.createElement('button');
         b.type = 'button';
-        b.setAttribute('role', 'menuitem');
-        b.className = it.danger ? 'danger' : '';
+        b.setAttribute('role', choice ? 'menuitemradio' : 'menuitem');
+        if (choice) b.setAttribute('aria-checked', String(Boolean(it.checked)));
+        b.className = `${it.danger ? 'danger' : ''} ${it.checked ? 'on' : ''}`.trim();
         b.disabled = Boolean(it.disabled);
-        b.innerHTML = `<span>${escHtml(it.label)}</span>${it.kbd ? `<kbd>${escHtml(it.kbd)}</kbd>` : ''}`;
+        b.innerHTML = `${choice ? `<i class="mi-check">${it.checked ? TICK : ''}</i>` : ''}<span>${escHtml(it.label)}</span>${it.kbd ? `<kbd>${escHtml(it.kbd)}</kbd>` : ''}`;
         b.addEventListener('click', () => { close(); it.action?.(); });
         el.append(b);
       });
       place(el, x, y);
       openedAt = Date.now();
-      el.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
+      (el.querySelector('button.on:not(:disabled)') || el.querySelector('button:not(:disabled)'))?.focus({ preventScroll: true });
     }
     function panel(x, y, html) {
       close();
