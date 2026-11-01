@@ -561,14 +561,20 @@ async function loadSenders() {
 
 // Meta's messaging limit as the stats give it: unique people reached in the last 24h against the business
 // portfolio's limit (shared by all its numbers). limit: number, null = unlimited, undefined = Meta didn't say.
+// When Meta doesn't say, 250 is assumed: it's the level every new portfolio starts at, so it's the safe floor.
+const ASSUMED_LIMIT = 250;
 function metaLimit(st) {
-  const known = st.limit !== undefined;
-  const used = st.limit ? st.limitUsed / st.limit : 0;
+  const assumed = st.limit === undefined;
+  const limit = assumed ? ASSUMED_LIMIT : st.limit;
+  const used = limit ? st.limitUsed / limit : 0;
   const cls = used >= 1 ? 'over' : used >= 0.8 ? 'warn' : '';
-  const total = !known ? '' : st.limit === null ? ' <span>· unlimited</span>' : ` <span>/ ${st.limit.toLocaleString()}</span>`;
-  const note = !known ? 'Meta limit unknown · press Test connection' : `people in 24h · Meta limit${st.limitShared > 1 ? `, shared by ${st.limitShared} numbers` : ''}`;
-  const title = "Meta's messaging limit: unique people you can message outside the 24-hour reply window in a rolling 24 hours. It's set for your whole business portfolio, so all its numbers share it.";
-  return { known, used, cls, total, note, title };
+  const total = limit === null ? ' <span>· unlimited</span>' : ` <span>/ ${limit.toLocaleString()}</span>`;
+  const shared = st.limitShared > 1 ? `shared by ${st.limitShared} numbers` : '';
+  const tag = assumed ? 'assumed' : 'Meta limit';
+  const note = `people in 24h · ${tag}`;
+  const title = "Meta's messaging limit: unique people you can message outside the 24-hour reply window in a rolling 24 hours. It's set for your whole business portfolio, so all its numbers share it."
+    + (assumed ? " Meta hasn't reported it for this number yet, so 250 (the starting level) is shown. Press Test connection to check." : '');
+  return { assumed, used, cls, total, note, shared, tag, title };
 }
 
 // Usage strip on each number card (Meta's limit, totals).
@@ -578,7 +584,7 @@ function numStats(s) {
   const m = metaLimit(st);
   return `<div class="num-stats">
     <div class="num-stat" title="${esc(m.title)}"><b>${st.limitUsed.toLocaleString()}${m.total}</b><span>${m.note}</span>
-      ${m.known ? `<div class="meter ${m.cls}"><span data-w="${Math.min(100, m.used * 100).toFixed(2)}" data-k="nc-${s.id}"></span></div>` : ''}</div>
+      <div class="meter ${m.cls}"><span data-w="${Math.min(100, m.used * 100).toFixed(2)}" data-k="nc-${s.id}"></span></div></div>
     <div class="num-stat"><b>${fmtNum(st.sent)}</b><span>sent in total</span></div>
     <div class="num-stat"><b>${st.sent ? pct(st.delivered, st.sent) + '%' : '—'}</b><span>delivered</span></div>
   </div>`;
@@ -2320,8 +2326,8 @@ function renderHealth(st) {
           <div class="health-phone">${esc(s.displayPhone || '—')}</div>
         </div>
         <div class="health-meter" title="${esc(m.title)}">
-          ${m.known ? `<div class="meter ${m.cls}"><span data-w="${Math.min(100, m.used * 100).toFixed(2)}" data-k="h-${s.id}"></span></div>` : ''}
-          <div class="meter-label"><span><b data-count="${s.limitUsed}" data-fmt="int" data-k="ht-${s.id}">0</b>${m.total.replace(/<\/?span>/g, '')} people · 24h</span><span>${m.known ? (s.limitShared > 1 ? `shared by ${s.limitShared} numbers` : '') : 'Meta limit unknown'}</span></div>
+          <div class="meter ${m.cls}"><span data-w="${Math.min(100, m.used * 100).toFixed(2)}" data-k="h-${s.id}"></span></div>
+          <div class="meter-label"><span><b data-count="${s.limitUsed}" data-fmt="int" data-k="ht-${s.id}">0</b>${m.total.replace(/<\/?span>/g, '')} people</span>${m.assumed ? '<span>assumed</span>' : ''}</div>
         </div>
         <div class="health-total"><b data-count="${s.sent}" data-k="hs-${s.id}">0</b>${s.sent ? `sent · ${pct(s.delivered, s.sent)}% delivered` : 'nothing sent yet'}</div>
       </div>`;

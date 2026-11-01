@@ -626,8 +626,8 @@ html:has(.modal:not(.hidden)) { overflow: hidden; }
 .funnel-note b { color: var(--text); }
 
 /* Meters (number health) */
-.health-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto; gap: 8px 18px; align-items: center; padding: 14px 0; box-shadow: 0 1px 0 var(--hair); }
-.health-row:last-child { box-shadow: none; padding-bottom: 0; }
+.health-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 140px; gap: 8px 18px; align-items: center; padding: 14px 0; box-shadow: 0 1px 0 var(--hair); }
+.health-row:last-child, .health-row:has(+ .health-cap) { box-shadow: none; padding-bottom: 0; }
 .health-row:first-child { padding-top: 0; }
 .health-name { font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .health-name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -636,7 +636,7 @@ html:has(.modal:not(.hidden)) { overflow: hidden; }
 .meter > span { display: block; height: 100%; border-radius: 99px; background: var(--chart); transition: width 0.5s; }
 .meter.warn > span { background: #d99a00; }
 .meter.over > span { background: var(--danger); }
-.meter-label { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; }
+.meter-label { font-size: 12px; color: var(--muted); margin-top: 6px; display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
 .meter-label b { color: var(--text); font-variant-numeric: tabular-nums; }
 .health-total { text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .health-total b { display: block; font-size: 15px; color: var(--text); }
@@ -3993,4 +3993,4 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
   .banner { width: calc(100% - 32px); }
 }
 @media (max-width: 900px) and (prefers-reduced-motion: reduce) { .sidebar, .drawer-scrim { transition: none !important; } }
-.health-cap { margin: 14px 0 0; }
+.health-cap { margin: 16px 0 0; padding-top: 12px; box-shadow: 0 -1px 0 var(--hair); }
