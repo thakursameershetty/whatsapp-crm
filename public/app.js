@@ -430,6 +430,7 @@ function renderSettings() {
   setCountry(s.defaultCountry, s.defaultCountryCode || '91');
   renderReadReceipts();
   $('#setGraph').value = s.graphVersion || '';
+  renderGraphWarn();
   $('#setConc').value = s.concurrencyPerNumber;
   $('#setDelay').value = s.delayMsPerNumber;
   $('#setVerify').value = s.webhookVerifyToken || '';
@@ -463,6 +464,35 @@ function renderWebhookStatus() {
       ${row('Delivery updates', w.statusAt, 'none yet')}
     </div>`;
 }
+
+// Meta's Graph API versions stop working on these dates (Meta for Developers changelog, as of Nov 2026).
+// Settings warns 6 months ahead and offers a one-click move to the recommended version.
+const GRAPH_RETIRES = { 'v21.0': '2027-01-21', 'v22.0': '2027-05-20', 'v23.0': '2027-10-08', 'v24.0': '2028-02-18', 'v25.0': '2028-07-29' };
+const GRAPH_RECOMMENDED = 'v25.0';
+function renderGraphWarn() {
+  const v = ($('#setGraph').value || state.settings.graphVersion || '').trim();
+  const until = GRAPH_RETIRES[v];
+  const days = until ? Math.ceil((Date.parse(until + 'T00:00:00') - Date.now()) / 86400000) : null;
+  const el = $('#gvWarn');
+  const show = days != null && days < 183 && v !== GRAPH_RECOMMENDED;
+  el.classList.toggle('hidden', !show);
+  if (!show) return;
+  const when = new Date(until + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  el.className = 'gv-warn ' + (days <= 0 ? 'bad' : 'warn');
+  el.innerHTML = `${icon('badge-alert', 14)}<span>${days <= 0 ? `Meta retired ${esc(v)} on ${when}, so requests fail.` : `Meta retires ${esc(v)} on ${when} (${days} days).`}</span><button type="button" class="gv-fix" id="gvFix">Switch to ${GRAPH_RECOMMENDED}</button>`;
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#gvFix')) return;
+  e.preventDefault();
+  guard(async () => {
+    const was = state.settings.graphVersion;
+    $('#setGraph').value = GRAPH_RECOMMENDED;
+    state.settings = await api('/settings', { method: 'PUT', body: { graphVersion: GRAPH_RECOMMENDED } });
+    renderGraphWarn();
+    toast(`Now using ${GRAPH_RECOMMENDED} (was ${was}). Check it: Numbers → Test connection, and send yourself a test message.`, '', { duration: 9000 });
+  });
+});
+$('#setGraph').addEventListener('input', renderGraphWarn);
 
 // Read receipts: saved as soon as you pick one (like a switch), not with the Save button.
 const RR_HELP = {
@@ -500,7 +530,7 @@ async function saveSettings(extra = {}) {
       demoMode: $('#setDemo').checked,
       defaultCountryCode: $('#setCC').value.replace(/\D/g, ''),
       defaultCountry: $('#setCountry').value,
-      graphVersion: $('#setGraph').value.trim() || 'v21.0',
+      graphVersion: $('#setGraph').value.trim() || GRAPH_RECOMMENDED,
       concurrencyPerNumber: Number($('#setConc').value),
       delayMsPerNumber: Number($('#setDelay').value),
       webhookVerifyToken: $('#setVerify').value.trim(),

@@ -21,6 +21,14 @@
       <p class="sub">People who asked for their account to be deleted. Reach out first, then delete the account or dismiss the request.</p>
       <div id="delList"></div>
     </section>
+    <section class="card admin-card admin-del" id="gvSec">
+      <h2>Meta API version</h2>
+      <p class="sub">Which version of Meta's API each workspace uses. Meta retires each version about two years after release and then requests fail, so the server moves every workspace up to <b id="gvRec"></b> automatically (on start and daily). To move everyone to a newer version sooner, set it here.</p>
+      <div class="gv-admin">
+        <div class="gv-list" id="gvList"></div>
+        <form class="gv-form" id="gvForm"><input id="gvTo" placeholder="v26.0" maxlength="6" aria-label="Version" /><button class="btn sm primary" type="submit">Move all workspaces</button></form>
+      </div>
+    </section>
     <section class="card admin-card admin-del hidden" id="repSec">
       <h2>Reported issues <span class="pill" id="repCount"></span></h2>
       <p class="sub">Problems people reported from “Report an issue”. Open ones first. Reply by email, then mark it resolved; they see the status in the app.</p>
@@ -111,7 +119,28 @@ $('#repList').addEventListener('click', async (e) => {
   if (!b) return;
   try { await api('/admin/reports/' + b.dataset.rep, { method: 'POST', body: { status: b.dataset.to } }); toast(b.dataset.to === 'resolved' ? 'Marked resolved' : 'Reopened'); load(); } catch (err) { toast(err.message, true); }
 });
+// Meta API version across workspaces.
+async function loadGv() {
+  const g = await api('/admin/graph-version');
+  $('#gvRec').textContent = g.recommended;
+  const by = {};
+  for (const w of g.workspaces) (by[w.version || '(none)'] ||= []).push(w.name);
+  const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  $('#gvList').innerHTML = Object.entries(by).sort((a, b) => b[0].localeCompare(a[0], undefined, { numeric: true })).map(([v, names]) => `<div class="gv-item">
+      <b>${esc(v)}${v === g.recommended ? ' <span class="pill completed">recommended</span>' : ''}</b>
+      <span class="muted">${names.length} workspace${names.length === 1 ? '' : 's'}${g.retires[v] ? ` · works until ${fmt(g.retires[v])}` : ''}</span>
+      <span class="gv-names">${names.map(esc).join(', ')}</span>
+    </div>`).join('');
+}
+$('#gvForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const to = $('#gvTo').value.trim();
+  if (!confirm(`Move every workspace to ${to}? Each one's sending, Inbox and template sync will use it straight away.`)) return;
+  try { const r = await api('/admin/graph-version', { method: 'POST', body: { version: to } }); toast(r.moved.length ? `Moved ${r.moved.length} workspace(s) to ${to}` : `Every workspace already uses ${to}`); $('#gvTo').value = ''; loadGv(); }
+  catch (err) { toast(err.message, true); }
+});
 async function load() {
+  try { await loadGv(); } catch (e) { $('#gvSec').classList.add('hidden'); }
   try { reps = await api('/admin/reports'); renderReps(); } catch (e) { /* the table below shows the error */ }
   try { dels = await api('/admin/deletion-requests'); renderDels(); } catch (e) { /* the table below shows the error */ }
   try { all = await api('/admin/workspaces'); render(); }

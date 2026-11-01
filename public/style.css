@@ -4429,3 +4429,21 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 /* Tips near the right edge of a card open leftward */
 .set-row label:last-child .tip-card, .rr-row .tip-card { left: auto; right: -14px; }
 .set-row label:last-child .tip-card::before { left: auto; right: 18px; }
+
+/* Settings: Graph API version close to retirement */
+.gv-warn { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; font-weight: 500; line-height: 1.4; }
+.gv-warn.warn { background: var(--warn-soft); color: var(--warn); }
+.gv-warn.bad { background: var(--danger-soft); color: var(--danger); }
+.gv-warn > span { flex: 1 1 160px; }
+.gv-fix { border: 0; padding: 4px 10px; border-radius: 99px; background: var(--surface); color: var(--text); font: 600 12px Inter, sans-serif; cursor: pointer; box-shadow: var(--sh-raised); }
+
+/* Admin: Meta API version */
+.gv-admin { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin-top: 10px; }
+.gv-list { flex: 1 1 360px; display: flex; flex-direction: column; gap: 8px; }
+.gv-item { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px; align-items: baseline; padding: 10px 12px; border-radius: 10px; background: var(--sunk); font-size: 13px; }
+.gv-item > b { font: 600 13.5px ui-monospace, Menlo, monospace; }
+.gv-item .muted { color: var(--muted); }
+.gv-names { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.gv-form { display: flex; gap: 8px; }
+.gv-form input { width: 100px; margin: 0; }
+.gv-item > b .pill { margin-left: 6px; font-family: Inter, sans-serif; vertical-align: 1px; }

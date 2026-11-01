@@ -635,8 +635,9 @@
               <button type="button" class="cc-pick" id="ccPick" aria-haspopup="listbox"></button>
               <input type="hidden" id="setCC" /><input type="hidden" id="setCountry" />
             </div>
-            <label><span class="lbl-row">Graph API version <span class="info-tip" tabindex="0" role="button" aria-label="About Graph API version"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Graph API version</b><span>Which version of Meta’s API this app talks to. It <b>doesn’t update itself</b>.</span><span>Meta supports each version for about two years, then retires it and requests start failing. Change it when Meta emails you about a retiring version, or if sending suddenly fails with a version error.</span><span>Use a recent version from Meta’s changelog, e.g. <code>v25.0</code>. If unsure, leave it.</span></span></span></span>
-              <input id="setGraph" placeholder="v21.0" />
+            <label><span class="lbl-row">Graph API version <span class="info-tip" tabindex="0" role="button" aria-label="About Graph API version"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Graph API version</b><span>Which version of Meta’s API this app talks to. It <b>doesn’t update itself</b>.</span><span>Meta supports each version for about two years, then retires it and requests start failing. Change it when Meta emails you about a retiring version, or if sending suddenly fails with a version error.</span><span>Use a recent version from Meta’s changelog, e.g. <code>v25.0</code> (supported until July 2028).</span></span></span></span>
+              <input id="setGraph" placeholder="v25.0" />
+              <span class="gv-warn hidden" id="gvWarn"></span>
             </label>
           </div>
           <div class="row set-row">

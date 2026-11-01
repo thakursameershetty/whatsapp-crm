@@ -20,7 +20,7 @@ const UPLOAD_DIR = path.join(DATA_DIR, 'uploads'); // template header files (ser
 const DEFAULT_DB = {
   settings: {
     demoMode: false, // new workspaces send for real; see tenants.demoAllowed
-    graphVersion: 'v21.0',
+    graphVersion: 'v25.0', // GRAPH_RECOMMENDED below
     defaultCountryCode: '91',
     webhookVerifyToken: crypto.randomBytes(12).toString('hex'),
     concurrencyPerNumber: 5,
@@ -2222,6 +2222,43 @@ const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiA
 // --- AI assistant -------------------------------------------------------------
 
 require('./ai')(app, { db, save, id, wsId: tenants.wsId, wrap, fail, aiConfig, contacts: contactsApi, normalizePhone, templateVariables, createCampaign, computeStats, summary, publicSender });
+
+// --- Meta Graph API version: kept current for every workspace ---------------------------------
+// Meta retires each version about two years after release, and then every request fails. Every workspace below
+// GRAPH_RECOMMENDED is moved up to it when the server starts and once a day, so raising this constant (and
+// deploying) upgrades everyone. Admins can also move all workspaces to any version from the admin panel.
+// Dates from Meta for Developers (Nov 2026).
+const GRAPH_RECOMMENDED = 'v25.0';
+const GRAPH_RETIRES = { 'v21.0': '2027-01-21', 'v22.0': '2027-05-20', 'v23.0': '2027-10-08', 'v24.0': '2028-02-18', 'v25.0': '2028-07-29' };
+const graphNum = (v) => Number(String(v || '').replace(/^v/, '')) || 0;
+function upgradeGraphVersions(to = GRAPH_RECOMMENDED, { force = false } = {}) {
+  const moved = [];
+  for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
+    const was = db.settings.graphVersion;
+    if (was === to || (!force && graphNum(was) >= graphNum(to))) return;
+    db.settings.graphVersion = to;
+    save();
+    moved.push({ name: ws.meta.name, from: was || '(none)' });
+  });
+  if (moved.length) console.log(`Meta API version: moved ${moved.length} workspace(s) to ${to}: ${moved.map((m) => `${m.name} (was ${m.from})`).join(', ')}`);
+  return moved;
+}
+upgradeGraphVersions();
+setInterval(() => upgradeGraphVersions(), 24 * 3600 * 1000);
+
+// Admin: every workspace's version, and moving them all to one (e.g. a newer release before the app is updated).
+app.get('/api/admin/graph-version', (req, res) => {
+  if (!req.admin) return res.status(403).json({ error: 'Admins only' });
+  const list = tenants.allWorkspaces().map((ws) => ({ id: ws.meta.id, name: ws.meta.name, version: ws.db.settings.graphVersion || '', retires: GRAPH_RETIRES[ws.db.settings.graphVersion] || null }));
+  res.json({ recommended: GRAPH_RECOMMENDED, retires: GRAPH_RETIRES, workspaces: list });
+});
+app.post('/api/admin/graph-version', wrap((req, res) => {
+  if (!req.admin) throw fail('Admins only', 403);
+  const to = String(req.body.version || '').trim();
+  if (!/^v\d{2,3}\.0$/.test(to)) throw fail('Write the version like v25.0');
+  if (graphNum(to) < graphNum(GRAPH_RECOMMENDED) && !req.body.confirmOlder) throw fail(`${to} is older than the recommended ${GRAPH_RECOMMENDED}. Pick ${GRAPH_RECOMMENDED} or newer.`);
+  res.json({ moved: upgradeGraphVersions(to, { force: true }) });
+}));
 
 app.listen(PORT, () => {
   console.log(`WhatsApp Sender running at http://localhost:${PORT}`);
