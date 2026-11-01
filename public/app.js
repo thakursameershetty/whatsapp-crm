@@ -3026,7 +3026,7 @@ function allPop(anchor) {
       if (d < bestD) { bestD = d; best = { el, cx: cx - box.left }; }
       return { el, d };
     });
-    for (const { el, d } of items) {
+    items.forEach(({ el, d }, i) => {
       const pic = el.querySelector('.tm-pic');
       const near = Math.max(0, 1 - d / RANGE), ease = near * near * (3 - 2 * near); // smoothstep falloff
       const sp = springs.get(el) || { s: 1, v: 0, y: 0, vy: 0 };
@@ -3036,9 +3036,10 @@ function allPop(anchor) {
       const lift = best && el === best.el && near > 0 ? LIFT : 0; // only the face being named lifts
       if (reduce()) sp.y = lift; else step(sp, 'y', 'vy', lift, dt);
       pic.style.transform = `translateY(${(sp.y * 42).toFixed(2)}px) scale(${sp.s.toFixed(4)})`;
-      el.style.zIndex = String(Number.isFinite(d) ? 1000 - Math.round(d) : 10); // nearest on top
+      // Left over right, always (the leftmost face on top of the stack); only the face being named comes up above them.
+      el.style.zIndex = String(lift ? items.length + 1 : items.length - i);
       if (Math.abs(sp.v) > 0.001 || Math.abs(sp.s - target) > 0.001 || Math.abs(sp.vy) > 0.001 || Math.abs(sp.y - lift) > 0.001) moving = true;
-    }
+    });
     // tooltip: over the closest face, 24px above its lifted, magnified top
     const active = best && bestD < RANGE * 0.6 && !document.querySelector('.tm-pop') ? best : null; // no name tooltip over an open card
     tip.el = stack.querySelector('.tm-tip');
