@@ -13,8 +13,8 @@
     campaign_started: { icon: 'rocket', tone: 'violet' },
     campaign_done: { icon: 'circle-check', tone: 'good' },
     delivery_failed: { icon: 'badge-alert', tone: 'danger' },
-    ai_draft: { icon: 'sparkles', tone: 'violet' },
-    ai_auto: { icon: 'send', tone: 'violet' },
+    ai_draft: { orb: true, tone: 'violet' }, // the AI's own work shows the AI's icon (the dotted sphere)
+    ai_auto: { orb: true, tone: 'violet' },
     ai_handover: { icon: 'users', tone: 'warn' },
     ai_qualified: { icon: 'trending-up', tone: 'good' },
     ai_error: { icon: 'badge-alert', tone: 'warn' },
@@ -56,7 +56,7 @@
   function row(n, i) {
     const k = KIND[n.kind] || { icon: 'bell', tone: 'muted' };
     return `<div class="nt-item ${n.read ? '' : 'unread'} ${NT.fresh.has(n.id) ? 'fresh' : ''}" data-id="${n.id}" style="--i:${i}" role="button" tabindex="0">
-      <span class="nt-ico tone-${k.tone}">${icon(k.icon, 17)}</span>
+      <span class="nt-ico tone-${k.tone}">${k.orb ? '<svg class="orb-icon" data-orb-icon="17"></svg>' : icon(k.icon, 17)}</span>
       <span class="nt-main">
         <b>${esc(n.title)}</b>
         ${n.body ? `<span class="nt-body">${esc(n.body)}</span>` : ''}
@@ -91,6 +91,7 @@
     list.forEach((n) => { const d = dayLabel(n.ts); if (!groups.has(d)) groups.set(d, []); groups.get(d).push(n); });
     let i = 0;
     $('#ntList').innerHTML = [...groups].map(([day, items]) => `<section class="nt-day"><h3>${esc(day)}</h3><div class="card nt-card">${items.map((n) => row(n, i++)).join('')}</div></section>`).join('');
+    Orb.hydrate($('#ntList'));
     NT.fresh.clear();
   }
 

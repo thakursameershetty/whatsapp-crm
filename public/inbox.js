@@ -33,6 +33,7 @@
   const FAIL_HELP = {
     131049: ['Meta held this back', "WhatsApp limits how many marketing messages one person gets from businesses. Meta decided this person had enough for now — it isn't a problem with your number or template. Try again in a day or two, or switch this template's category to Utility if it's an update rather than an offer."],
     131026: ['Not delivered', "This number isn't on WhatsApp, or their app is too old to receive it."],
+    131031: ['Account locked by Meta', 'Meta locked the WhatsApp Business Account behind this number, so nothing it sends is delivered. See WhatsApp Manager → Account quality for why, and resend once it is unlocked.'],
     131047: ['Reply window closed', 'More than 24 hours since they last wrote, so only a template can be sent.'],
     131056: ['Too many messages too quickly', 'Wait a little before sending this person another message.'],
     131048: ['Spam limit reached', 'Too many people blocked or reported this number recently. Meta is limiting what it can send.'],
@@ -40,12 +41,23 @@
     132001: ['Template not found', "Meta doesn't have this template in this language. Sync templates and check its name."],
     132015: ['Template paused', 'Meta paused this template because of low ratings. Use another one or edit it in WhatsApp Manager.'],
   };
-  function failedNote(err) {
+  // Failures that sending the same message again can't fix: not on WhatsApp, window closed (needs a
+  // template instead), or the template itself is missing or paused.
+  const NO_RESEND = new Set(['131026', '131047', '132001', '132015']);
+  function failedNote(m) {
+    const err = m.error;
     const code = (String(err).match(/\b(1\d{5})\b/) || [])[1];
     const h = FAIL_HELP[code];
-    return h
-      ? `<div class="ib-err" title="${esc(err)}"><b>${esc(h[0])}</b> · ${esc(h[1])}</div>`
-      : `<div class="ib-err">Not delivered: ${esc(err)}</div>`;
+    const why = h
+      ? `<span title="${esc(err)}"><b>${esc(h[0])}</b> · ${esc(h[1])}</span>`
+      : `<span>Not delivered: ${esc(err)}</span>`;
+    const end = current()?.windowEndsAt;
+    const windowOpen = end && new Date(end) > new Date();
+    const canResend = !m.local && m.id && !NO_RESEND.has(code) && (m.type === 'template' || (m.type === 'text' && windowOpen));
+    const action = m.resentAt
+      ? `<span class="ib-resent">Sent again</span>`
+      : canResend ? `<button class="ib-resend" data-resend="${esc(m.id)}">${icon('refresh-cw', 12)}Resend</button>` : '';
+    return `<div class="ib-err">${why}${action}</div>`;
   }
 
   function listTime(ts) {
@@ -380,7 +392,7 @@
       ${ct ? (ct.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS_PILL[ct.status] || ''}">${esc(STATUS_LABEL[ct.status] || ct.status)}</span>`) : ''}
       ${ct ? ct.tags.map(tagOf).filter(Boolean).slice(0, 3).map((x) => `<span class="tag-chip tag-${esc(x.color)}" title="${esc(x.name)}">${esc(x.name)}</span>`).join('') : ''}
       ${ct ? `<button class="btn sm quiet" data-ai="contact" title="Open contact">${icon('users', 14)}Contact</button>` : ''}
-      ${ai ? `<button class="ib-ai-toggle ${ai.on ? 'on' : ''}" data-ai="toggle" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Click to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Click to stop for this chat.' : ai.off ? 'AI is off for this chat. Click to turn on.' : 'Turn on the lead assistant in Settings to draft replies automatically.'}" aria-pressed="${ai.on}"><svg class="orb-icon" data-orb-icon="14"></svg>AI ${ai.auto ? 'auto-reply' : ai.on ? 'on' : 'off'}</button>` : ''}` : '';
+      ${ai ? `<label class="ib-ai-switch ${ai.on ? 'on' : ''}" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Switch off to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Switch off to stop for this chat.' : ai.off ? 'AI is off for this chat. Switch on to let it help.' : 'Turn on the lead assistant in Settings to draft replies automatically.'}"><span>${state.settings.leadAgent?.autoReply ? 'AI auto-reply' : 'AI drafts'}</span>${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm', knob: '<svg class="orb-icon" data-orb-icon="14"></svg>' })}</label>` : ''}` : '';
     Orb.hydrate(hx);
     const lead = ct?.lead || {};
     const bits = [['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v);
@@ -531,10 +543,11 @@
         <div class="ib-bubble ${m.type}">${msgBody(m, byWamid)}${react ? `<span class="ib-reacts">${esc(react)}</span>` : ''}</div>
         ${m.wamid && m.dir === 'in' ? `<button class="ib-reply-btn" data-reply="${esc(m.wamid)}" title="Reply" aria-label="Reply">${icon('reply', 14)}</button>` : ''}
       </div>`;
-      if (m.status === 'failed' && m.error) html += failedNote(m.error);
+      if (m.status === 'failed' && m.error) html += failedNote(m);
       prev = m;
     }
     box.innerHTML = html ? html + '</section>' : '';
+    Orb.hydrate(box);
     ib.seenKey = ib.key;
     if (toBottom || nearBottom) ib.stick = true;
     if (ib.stick) box.scrollTop = box.scrollHeight;
@@ -553,7 +566,7 @@
     }
     const src = m.media?.id ? `/api/media/${enc(m.media.id)}` : '';
     let textInside = true;
-    if (m.auto) h += `<div class="ib-label ib-auto">${icon('sparkles', 11)}Auto-reply · AI</div>`;
+    if (m.auto) h += `<div class="ib-label ib-auto"><svg class="orb-icon" data-orb-icon="11"></svg>Auto-reply · AI</div>`;
     switch (m.type) {
       case 'template': {
         const t = state.templates.find((x) => x.id === m.templateId);
@@ -595,6 +608,46 @@
     if (textInside && m.text) h += `<div class="ib-text">${fmtText(m.text)}<span class="ib-spacer ${m.dir}"></span></div>`;
     return h + `<span class="ib-meta ${m.text || m.type === 'unsupported' ? '' : 'over'}">${meta}</span>`;
   }
+
+  // AI on/off for this chat (the switch in the chat header).
+  $('#ibChat').addEventListener('change', async (e) => {
+    const cb = e.target.closest('[data-ai-switch]');
+    if (!cb) return;
+    if (!state.settings.leadAgent?.enabled) {
+      cb.checked = false;
+      showTab('settings');
+      return toast('Turn on the lead assistant under Settings → Lead assistant');
+    }
+    const key = ib.key;
+    cb.disabled = true;
+    try {
+      const ai = await api(`/inbox/${enc(key)}/ai`, { method: 'POST', body: { off: !cb.checked } });
+      if (ib.key === key && ib.thread) { ib.thread.ai = ai; renderAi(); renderLead(); }
+      loadList().catch(() => {});
+    } catch (err) {
+      cb.checked = !cb.checked;
+      toast(err.message, 'error');
+    } finally {
+      cb.disabled = false;
+    }
+  });
+
+  // Send a failed message again, as it was.
+  $('#ibChat').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-resend]');
+    if (!b || b.disabled) return;
+    b.disabled = true;
+    b.textContent = 'Sending…';
+    const key = ib.key;
+    try {
+      await api(`/inbox/${enc(key)}/resend`, { method: 'POST', body: { id: b.dataset.resend } });
+      if (ib.key === key) await loadThread();
+    } catch (err) {
+      toast(err.message, 'error');
+      b.disabled = false;
+      b.innerHTML = `${icon('refresh-cw', 12)}Resend`;
+    }
+  });
 
   // Jump to a quoted message; start a reply.
   $('#ibChat').addEventListener('click', (e) => {

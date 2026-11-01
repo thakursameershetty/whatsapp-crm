@@ -390,7 +390,7 @@
       // Slightly heavier dots, so a still orb weighs the same as the line icons beside it.
       const orb = mountOrb(svg, { size: Number(svg.dataset.orbIcon) || 16, dotSize: 1.35 });
       orb.pause();
-      const host = svg.closest('button, a, .btn, h2, .as-name') || svg;
+      const host = svg.closest('button, a, label, .btn, h2, .as-name, [role="button"]') || svg;
       host.addEventListener('pointerenter', orb.play);
       host.addEventListener('pointerleave', orb.pause);
       host.addEventListener('focusin', orb.play);

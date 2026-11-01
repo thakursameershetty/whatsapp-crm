@@ -1603,7 +1603,7 @@ app.get('/api/inbox/:key', wrap((req, res) => {
     if (c.demo && !db.settings.demoMode) continue;
     for (const r of c.recipients) {
       if (r.phone !== wa || r.senderId !== senderId || !(r.sentAt || r.failedAt)) continue;
-      sent.push({ id: r.messageId || c.id + wa, wamid: r.messageId, dir: 'out', type: 'template', templateId: c.templateId, templateName: c.templateName, values: r.values, campaign: c.name, ts: r.sentAt || r.failedAt, status: r.status, error: r.error, demo: Boolean(c.demo), seed: Boolean(c.seed) });
+      sent.push({ id: r.messageId || c.id + wa, wamid: r.messageId, dir: 'out', type: 'template', templateId: c.templateId, templateName: c.templateName, values: r.values, campaign: c.name, ts: r.sentAt || r.failedAt, status: r.status, error: r.error, resentAt: r.resentAt, demo: Boolean(c.demo), seed: Boolean(c.seed) });
     }
   }
   const messages = [...own, ...sent].sort((a, b) => a.ts.localeCompare(b.ts));
@@ -1637,21 +1637,53 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
   if (!demo && !sender.accessToken) throw fail(`"${sender.label}" has no access token`);
   const { text, replyTo, templateId, values = {} } = req.body;
 
-  let msg;
-  if (templateId) {
-    const template = db.templates.find((t) => t.id === templateId);
-    if (!template) throw fail('Pick a template');
-    const filled = withLinkDefaults(template, values);
-    const empty = templateVariables(template.components).find((v) => !String(filled[v.key] ?? '').trim());
-    if (empty) throw fail(`Fill in ${empty.where} ${empty.name}`);
-    const linkErr = valuesProblem(template, filled);
-    if (linkErr) throw fail(linkErr);
-    const wamid = await sendTemplate(sender, template, wa, filled, demo);
-    msg = { type: 'template', templateId, templateName: template.name, values, wamid };
-    res.json(recordOut(key, msg));
-  } else {
-    res.json(await sendInboxText(key, text, { replyTo }));
+  if (templateId) res.json(await sendInboxTemplate(key, templateId, values));
+  else res.json(await sendInboxText(key, text, { replyTo }));
+}));
+
+// A template message in a conversation (works any time, inside or outside the 24-hour window).
+async function sendInboxTemplate(key, templateId, values = {}) {
+  const { senderId, wa } = splitKey(key);
+  const sender = db.senders.find((s) => s.id === senderId);
+  if (!sender) throw fail('This WhatsApp number is no longer connected');
+  if (!db.settings.demoMode && !sender.accessToken) throw fail(`"${sender.label}" has no access token`);
+  const template = db.templates.find((t) => t.id === templateId);
+  if (!template) throw fail('Pick a template');
+  const filled = withLinkDefaults(template, values);
+  const empty = templateVariables(template.components).find((v) => !String(filled[v.key] ?? '').trim());
+  if (empty) throw fail(`Fill in ${empty.where} ${empty.name}`);
+  const linkErr = valuesProblem(template, filled);
+  if (linkErr) throw fail(linkErr);
+  const wamid = await sendTemplate(sender, template, wa, filled, db.settings.demoMode);
+  return recordOut(key, { type: 'template', templateId, templateName: template.name, values, wamid });
+}
+
+// Send a message that wasn't delivered again, as it was: a text (only inside the 24-hour window) or the
+// same template with the same values. Works for Inbox messages and for campaign messages shown in the
+// thread. The failed one is marked so it can't be sent again twice by accident.
+app.post('/api/inbox/:key/resend', wrap(async (req, res) => {
+  const key = req.params.key;
+  const { senderId, wa } = splitKey(key);
+  const msgId = String(req.body.id || '');
+  let orig = db.messages.find((m) => m.id === msgId && m.key === key && m.dir === 'out');
+  let mark = orig;
+  if (!orig) {
+    for (const c of db.campaigns) {
+      const r = c.recipients.find((x) => x.phone === wa && x.senderId === senderId && (x.messageId || c.id + wa) === msgId);
+      if (r) { orig = { type: 'template', templateId: c.templateId, values: r.values, status: r.status, resentAt: r.resentAt }; mark = r; break; }
+    }
   }
+  if (!orig) throw fail('Message not found', 404);
+  if (orig.status !== 'failed') throw fail('This message was delivered, so there is nothing to send again');
+  if (orig.resentAt) throw fail('This message was already sent again');
+  let msg;
+  if (orig.type === 'text') msg = await sendInboxText(key, orig.text, { replyTo: orig.context });
+  else if (orig.type === 'template') msg = await sendInboxTemplate(key, orig.templateId, orig.values || {});
+  else throw fail("This kind of message can't be sent again from here");
+  mark.resentAt = new Date().toISOString();
+  save();
+  broadcast({ kind: 'status', key });
+  res.json(msg);
 }));
 
 // Demo mode only: pretend the customer in a conversation wrote a message, so the Inbox and

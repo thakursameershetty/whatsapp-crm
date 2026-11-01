@@ -302,9 +302,9 @@ function confirmDialog({ title, message = '', confirmText = 'OK', danger = false
   });
 }
 
-// Ceramic ON/OFF switch markup.
-const toggleHtml = ({ checked, attrs = '', size = '' }) =>
-  `<span class="toggle ${size}"><input type="checkbox" ${checked ? 'checked' : ''} ${attrs} /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span>`;
+// Ceramic ON/OFF switch markup. `knob` is optional markup inside the moving knob (e.g. the AI orb).
+const toggleHtml = ({ checked, attrs = '', size = '', knob = '' }) =>
+  `<span class="toggle ${size}"><input type="checkbox" ${checked ? 'checked' : ''} ${attrs} /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob">${knob}</span></span></span>`;
 
 // A person's avatar colour: a pastel hue from their number, the same everywhere they appear.
 function avatarStyle(seed) {
@@ -619,9 +619,9 @@ function renderSenders() {
         <dt>Phone number ID</dt><dd>${esc(s.phoneNumberId)}</dd>
         <dt>WABA ID</dt><dd>${esc(s.wabaId || '—')}</dd>
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
-        ${s.qualityRating ? `<dt>Quality</dt><dd>${esc(s.qualityRating)}</dd>` : ''}
+        ${s.qualityRating ? `<dt>Quality</dt><dd>${qualityTag(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
-        ${s.lastCheckedAt ? `<dt>Connection</dt><dd class="kv-ok">Connected · checked ${esc(relTime(s.lastCheckedAt))}</dd>` : ''}
+        ${s.lastCheckedAt ? `<dt>Connection</dt><dd><span class="tag good">Connected</span><span class="tag-note">checked ${esc(relTime(s.lastCheckedAt))}</span></dd>` : ''}
       </dl>
       <div class="row tight">
         <button class="btn sm" data-test="${s.id}">${icon('zap', 15)}Test connection</button>
@@ -2305,11 +2305,19 @@ function renderFunnel(st) {
 
 // --- Number health ---
 
-// 'TIER_2K' → '2,000 people / 24h, whole portfolio'.
+// 'TIER_2K' → '2,000 people / 24h' (the whole business portfolio shares it).
 function tierText(tier) {
   if (tier === 'TIER_UNLIMITED') return 'Unlimited';
   const m = /^TIER_(\d+)(K)?$/.exec(tier || '');
-  return m ? `${(Number(m[1]) * (m[2] ? 1000 : 1)).toLocaleString()} people / 24h, whole portfolio` : tier;
+  return m ? `${(Number(m[1]) * (m[2] ? 1000 : 1)).toLocaleString()} people / 24h` : tier;
+}
+
+// Meta's quality rating as a small tag, in the words WhatsApp Manager uses (High / Medium / Low).
+const QUALITY = { GREEN: ['High', 'good'], YELLOW: ['Medium', 'warn'], RED: ['Low', 'bad'] };
+function qualityTag(rating) {
+  const [label, cls] = QUALITY[rating] || ['Not rated yet', 'muted'];
+  const why = { good: 'People are responding well to your messages.', warn: 'Some people blocked or reported this number recently.', bad: 'Many people blocked or reported this number recently. Meta may limit or lock it.', muted: "Meta hasn't rated this number yet; it needs more messages first." }[cls];
+  return `<span class="tag ${cls}" title="Meta quality rating: ${esc(rating)}. ${esc(why)}">${label}</span>`;
 }
 
 function renderHealth(st) {
