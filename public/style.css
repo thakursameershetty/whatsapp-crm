@@ -4590,7 +4590,7 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .tmm-link { flex-basis: 100%; display: flex; gap: 6px; }
 .tmm-link input { flex: 1; height: 32px; margin: 0; font-size: 12px; }
 .tmm-list { display: flex; flex-direction: column; margin: 0 -8px; max-height: min(52vh, 440px); overflow-y: auto; border-top: 1px solid var(--hair); padding-top: 6px; }
-.tmm-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 10px; }
+.tmm-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 8px; border-radius: 10px; }
 .tmm-row:hover { background: var(--sunk); }
 .tmm-row .tm-face { width: 40px; height: 40px; box-shadow: none; font-size: 13px; }
 .tmm-row.invited .tm-face { opacity: 0.6; }
@@ -4598,7 +4598,7 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .tmm-who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 14px; }
 .tmm-who b .muted { font-weight: 400; color: var(--muted); }
 .tmm-who > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--muted); }
-.tmm-role { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 6px 0 10px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: 500 13px Inter, sans-serif; cursor: pointer; }
+.tmm-role { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px 0 10px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: 500 13px Inter, sans-serif; cursor: pointer; }
 .tmm-role:hover, .tmm-role[aria-expanded="true"] { background: var(--surface); color: var(--text); box-shadow: var(--sh-raised); }
 .tmm-role.static { cursor: default; padding-right: 10px; }
 .tmm-role.static:hover { background: none; box-shadow: none; color: var(--muted); }
@@ -4611,7 +4611,7 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .tmm-hint { margin: 8px 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--hair); }
 .tmm-out { margin: 0 0 14px; }
 .tmm-list { border-top: 0; padding-top: 0; }
-.tmm-role { margin-right: -6px; }
+.tmm-role { margin-right: 0; } /* a clear gap to the row's edge (the row has 8px padding) */
 
 /* Edit your account: the profile photo */
 .ae-photo { display: flex; align-items: center; gap: 14px; margin: 2px 0 16px; padding: 12px; border-radius: 12px; background: var(--sunk); }
