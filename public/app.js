@@ -446,7 +446,7 @@ function renderSettings() {
   renderMode();
 }
 
-// Settings → Webhook: is Meta actually reaching the app? Last event of each kind, and the setup steps ticked off.
+// Settings → Webhook: is Meta actually reaching the app? When it last sent each kind of event.
 function renderWebhookStatus() {
   const w = state.settings.webhookSeen || {};
   const live = !state.settings.demoMode;
@@ -454,21 +454,14 @@ function renderWebhookStatus() {
   const state_ = !live ? ['muted', 'Demo mode', 'Nothing real comes in while Demo mode is on.']
     : recent ? ['good', 'Receiving events', `Meta last reached the app ${relTime(w.lastAt)}.`]
     : w.lastAt ? ['warn', 'Quiet lately', `Nothing from Meta since ${relTime(w.lastAt)}. Check the webhook is still subscribed.`]
-    : ['bad', 'Nothing received yet', 'Meta hasn’t sent anything here yet. Finish the steps below, then send yourself a message.'];
+    : ['bad', 'Nothing received yet', 'Meta hasn’t sent anything here yet. Add the URL and token above in Meta, subscribe to messages, then message your number.'];
   const row = (label, at, hint) => `<div class="wh-ev"><span class="wh-dot ${at ? 'on' : ''}"></span><b>${label}</b><span>${at ? relTime(at) : hint}</span></div>`;
-  const hasNum = state.senders.some((s) => s.hasToken);
-  const step = (done, text) => `<li class="${done ? 'done' : ''}"><i>${done ? icon('check-one', 12) : ''}</i><span>${text}</span></li>`;
   $('#whStatus').innerHTML = `
     <div class="wh-head"><span class="tag ${state_[0]}">${state_[1]}</span><span class="wh-sub">${esc(state_[2])}</span></div>
     <div class="wh-evs">
       ${row('Incoming messages', w.messageAt, 'none yet')}
       ${row('Delivery updates', w.statusAt, 'none yet')}
-    </div>
-    <ol class="wh-steps">
-      ${step(hasNum || Boolean(w.lastAt), 'Connect a number under <b>Numbers</b>')}
-      ${step(Boolean(w.lastAt), 'Paste the Callback URL and Verify token in Meta → WhatsApp → Configuration')}
-      ${step(Boolean(w.messageAt), 'Subscribe to the <code>messages</code> field, then message your number to test')}
-    </ol>`;
+    </div>`;
 }
 
 // Read receipts: saved as soon as you pick one (like a switch), not with the Save button.
