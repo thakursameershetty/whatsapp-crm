@@ -181,7 +181,7 @@
     const tsel = $('#ibTemplate');
     tsel.classList.toggle('hidden', !tplNames.length);
     if (ib.template && !tplNames.includes(ib.template)) ib.template = '';
-    tsel.innerHTML = `<option value="">All templates</option>` + tplNames.map((n) => `<option value="${esc(n)}">${esc(n)} (${ib.convs.filter((c) => (c.templates || []).includes(n)).length})</option>`).join('');
+    tsel.innerHTML = `<option value="">All templates</option>` + tplNames.map((n) => `<option value="${esc(n)}" data-tag="${esc(catLabel((state.templates || []).find((t) => t.name === n)?.category))}">${esc(n)} (${ib.convs.filter((c) => (c.templates || []).includes(n)).length})</option>`).join(''); // data-tag: its category, for the chips in the list
     tsel.value = ib.template;
     const multi = senders.length > 1;
 

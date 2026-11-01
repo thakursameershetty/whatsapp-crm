@@ -4868,3 +4868,8 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .adm-hint:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 /* Admin: room for every column (the AI column made the table wider); smaller screens scroll it sideways */
 .admin { max-width: 1480px; }
+/* Inbox filters: the Templates filter sits beside the All / Unread / Can reply pills when there's room (one number,
+   so no number filter); with the number filter showing, it takes its own row below. */
+.ib-filters { flex-wrap: wrap; }
+.ib-filters .ib-tpl-filter { flex: 1 1 120px; width: auto; min-width: 120px; }
+.ib-filters:has(#ibSenderWrap:not(.hidden)) .ib-tpl-filter { flex-basis: 100%; }
