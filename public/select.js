@@ -30,13 +30,17 @@
     const list = el.querySelector('.ss-list'), q = el.querySelector('.ss-search input');
     const draw = () => {
       const term = (q?.value || '').trim().toLowerCase();
-      let html = '', pendingGroup = null;
+      // Groups (<optgroup>) are sections: a heading with how many of its options are showing, pinned while you
+      // scroll through it, and a line between one section and the next.
+      const shown = (o) => !(term && !o.textContent.toLowerCase().includes(term)) && !(tag && o.dataset.tag !== tag);
+      const counts = [];
+      for (const it of items) { if (it.group != null) counts.push(0); else if (counts.length && shown(it.o)) counts[counts.length - 1]++; }
+      let html = '', pendingGroup = null, gi = -1;
       for (const it of items) {
-        if (it.group != null) { pendingGroup = it.group; continue; }
+        if (it.group != null) { pendingGroup = it.group; gi++; continue; }
         const o = it.o;
-        if (term && !o.textContent.toLowerCase().includes(term)) continue;
-        if (tag && o.dataset.tag !== tag) continue;
-        if (pendingGroup != null) { html += `<div class="ss-group">${esc(pendingGroup)}</div>`; pendingGroup = null; }
+        if (!shown(o)) continue;
+        if (pendingGroup != null) { html += `<div class="ss-group"><span>${esc(pendingGroup)}</span><small>${counts[gi]}</small></div>`; pendingGroup = null; }
         const on = o.selected;
         // Options can carry a small picture: data-photo (an image URL) with data-letter as its fallback, or data-icon.
         const d = o.dataset;
