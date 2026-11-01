@@ -4536,3 +4536,85 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .adm-rep-act { display: flex; gap: 6px; flex: none; }
 .adm-more { margin-top: 8px; border: 0; padding: 0; background: none; color: var(--muted); font: 600 12.5px Inter, sans-serif; cursor: pointer; }
 .adm-more:hover { color: var(--text); }
+
+/* Workspace & team merged: the current workspace's row shows its team on the right */
+.ws-row.current { background: var(--sunk); }
+.ws-team-slot { display: flex; justify-content: flex-end; min-width: 0; }
+.ws-team { display: flex; align-items: center; gap: 8px; }
+.ws-team-l { display: none; }
+.ws-team .tm-row { padding: 0; gap: 8px; flex-wrap: nowrap; }
+.ws-team .tm-face { width: 32px; height: 32px; font-size: 11.5px; box-shadow: 0 0 0 2.5px var(--sunk); }
+.ws-team .tm-stack { padding-left: 8px; }
+.ws-team .tm-av { margin-left: -8px; }
+.ws-team .tm-badge { width: 14px; height: 14px; font-size: 7.5px; right: -3px; bottom: -3px; }
+/* Invite: a small round + (its label shows as a tooltip) */
+.ws-team .tm-add { margin-left: 2px; padding: 0; gap: 0; }
+.ws-team .tm-add .tm-face { width: 30px; height: 30px; border-width: 1.5px; }
+.ws-team .tm-add .tm-face svg { width: 15px; height: 15px; }
+.ws-team .tm-add .tm-name { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translate(-50%, 4px); opacity: 0; }
+.ws-team .tm-add:hover .tm-name, .ws-team .tm-add:focus-visible .tm-name { opacity: 1; transform: translate(-50%, 0); }
+.ws-team .tm-av:hover .tm-pic { transform: translateY(-18%); }
+/* "Current" instead of the old "You're here" pill */
+.ws-cur { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; color: var(--good-text); font-weight: 600; }
+.ws-cur i { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 20%, transparent); }
+#wsList > .ws-team { display: none; }
+.ws-who .ws-cur { color: var(--good-text); font-weight: 600; }
+.ws-row.current .ws-team-slot { padding-right: 6px; }
+.ws-team .tm-add .tm-face { border-color: color-mix(in srgb, var(--text) 35%, transparent); color: var(--text); }
+/* Invite joins the avatar stack: a "+" face tucked under the last teammate, like a group of people plus one */
+.ws-team .tm-row { gap: 0; }
+.ws-team .tm-add { position: relative; z-index: 0; margin-left: -8px; }
+.ws-team .tm-add .tm-face { width: 32px; height: 32px; border: 0; background: var(--surface); color: var(--muted); box-shadow: 0 0 0 2.5px var(--sunk), inset 0 0 0 1px var(--hair); transition: background 0.2s, color 0.2s, transform 0.25s; }
+.ws-team .tm-add:hover .tm-face, .ws-team .tm-add:focus-visible .tm-face { background: var(--text); color: var(--surface); box-shadow: 0 0 0 2.5px var(--sunk); }
+.ws-team .tm-add:hover .tm-pic { transform: none; }
+.ws-team .tm-add:hover .tm-face { transform: scale(1.06); }
+/* (overrides for the stacked invite) */
+.ws-team .tm-add, .ws-team .tm-add:hover, .ws-team .tm-add:focus-visible { height: auto; padding: 0; border: 0; background: none; box-shadow: none; }
+.ws-team .tm-add:focus-visible .tm-face { box-shadow: 0 0 0 2.5px var(--sunk), 0 0 0 4.5px var(--ring); }
+.ws-team .tm-stack { position: relative; z-index: 1; }            /* the faces sit over the "+" */
+.ws-team .tm-face, .ws-team .tm-face[style*="--av-h"] { box-shadow: 0 0 0 3px var(--sunk); }   /* a clear cut-out between faces */
+.ws-team .tm-add .tm-face { box-shadow: 0 0 0 3px var(--sunk), inset 0 0 0 1px var(--hair); }
+.ws-team .tm-add:hover .tm-face { box-shadow: 0 0 0 3px var(--sunk); transform: scale(1.06) rotate(90deg); }
+/* White rings, like a classic avatar group; "+" overlaps the last face */
+.ws-team .tm-face, .ws-team .tm-face[style*="--av-h"] { box-shadow: 0 0 0 2.5px var(--surface); }
+.ws-team .tm-add .tm-face { box-shadow: 0 0 0 2.5px var(--surface), inset 0 0 0 1px var(--hair); }
+.ws-team .tm-add:hover .tm-face, .ws-team .tm-add:focus-visible .tm-face { box-shadow: 0 0 0 2.5px var(--surface); }
+.ws-team .tm-badge { box-shadow: 0 0 0 1.5px var(--surface); }
+.ws-team .tm-add { margin-left: -17px; } /* the last face's button is ~9px wider than the face; this nets an 8px overlap */
+
+/* Team window (invite + everyone with their role) */
+.modal-box.tmm-box { width: min(460px, calc(100vw - 32px)); }
+.tmm-add { display: flex; gap: 8px; margin: 2px 0 6px; }
+.tmm-add input { flex: 1; min-width: 0; height: 42px; margin: 0; border-radius: 99px; padding: 0 16px; }
+.tmm-addbtn { height: 42px; padding: 0 20px; border-radius: 99px; flex: none; transition: background 0.2s, color 0.2s, box-shadow 0.2s, transform 0.15s; }
+.tmm-addbtn:disabled { opacity: 1; color: var(--faint); cursor: default; }
+.tmm-addbtn.ready { background: var(--text); color: var(--surface); box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--text) 50%, transparent); }
+.tmm-addbtn.ready:active { transform: scale(0.97); }
+.tmm-hint { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); }
+.tmm-out { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -2px 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--good-soft); color: var(--good-text); font-size: 13px; }
+.tmm-out > span { flex: 1; }
+.tmm-link { flex-basis: 100%; display: flex; gap: 6px; }
+.tmm-link input { flex: 1; height: 32px; margin: 0; font-size: 12px; }
+.tmm-list { display: flex; flex-direction: column; margin: 0 -8px; max-height: min(52vh, 440px); overflow-y: auto; border-top: 1px solid var(--hair); padding-top: 6px; }
+.tmm-row { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 10px; }
+.tmm-row:hover { background: var(--sunk); }
+.tmm-row .tm-face { width: 40px; height: 40px; box-shadow: none; font-size: 13px; }
+.tmm-row.invited .tm-face { opacity: 0.6; }
+.tmm-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tmm-who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 14px; }
+.tmm-who b .muted { font-weight: 400; color: var(--muted); }
+.tmm-who > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--muted); }
+.tmm-role { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 6px 0 10px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: 500 13px Inter, sans-serif; cursor: pointer; }
+.tmm-role:hover, .tmm-role[aria-expanded="true"] { background: var(--surface); color: var(--text); box-shadow: var(--sh-raised); }
+.tmm-role.static { cursor: default; padding-right: 10px; }
+.tmm-role.static:hover { background: none; box-shadow: none; color: var(--muted); }
+.tmm-row.invited .tmm-role { color: var(--warn); }
+/* Team window alignment: one height and shape for the field and the button, edges lined up */
+.tmm-add input:not([type="checkbox"]) { height: 44px; margin: 0; padding: 0 16px; border-radius: 12px; }
+.tmm-addbtn { height: 44px; min-width: 76px; padding: 0 18px; border-radius: 12px; box-shadow: none; }
+.tmm-addbtn:not(.ready) { background: var(--sunk); box-shadow: inset 0 0 0 1px var(--hair); }
+.tmm-addbtn.ready { box-shadow: none; }
+.tmm-hint { margin: 8px 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--hair); }
+.tmm-out { margin: 0 0 14px; }
+.tmm-list { border-top: 0; padding-top: 0; }
+.tmm-role { margin-right: -6px; }

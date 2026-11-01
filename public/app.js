@@ -2897,12 +2897,85 @@ function allPop(anchor) {
   row.addEventListener('focusin', (e) => { focusEl = e.target.closest('.tm-stack .tm-av'); kick(); });
   row.addEventListener('focusout', () => { focusEl = null; kick(); });
 })();
+// The team window: invite by email at the top, everyone below with their role. Opened from any face or the "+".
+function teamModal({ focus = false } = {}) {
+  const owner = state.team.role === 'owner';
+  const body = openModal('Team', `
+    ${owner ? `<form class="tmm-add" id="tmmForm" novalidate>
+        <input type="email" id="tmmEmail" placeholder="Who else is in? Their email" autocomplete="off" aria-label="Their email" />
+        <button class="btn tmm-addbtn" id="tmmAdd" type="submit" disabled>Add</button>
+      </form>
+      <p class="tmm-hint">${state.me.mail ? 'They’ll get an email invite to join this workspace. Links work for 7 days.' : 'You’ll get a link to send them. Links work for 7 days.'}</p>
+      <div class="tmm-out hidden" id="tmmOut"></div>` : '<p class="tmm-hint">Only owners can invite people or change roles.</p>'}
+    <div class="tmm-list" id="tmmList"></div>`);
+  $('#modal .modal-box').classList.add('tmm-box');
+  const draw = () => {
+    const people = teamPeople();
+    $('#tmmList', body).innerHTML = people.map((p) => {
+      const inv = p.kind === 'invite';
+      const role = inv ? 'Invited' : p.role === 'owner' ? 'Owner' : 'Member';
+      const canMenu = inv ? owner : owner || p.you;
+      return `<div class="tmm-row ${inv ? 'invited' : ''}">
+        <span class="tm-pic">${tmAvatar(p)}</span>
+        <div class="tmm-who"><b>${esc(inv ? p.email : p.name || p.email)}${p.you ? ' <span class="muted">(You)</span>' : ''}</b><span>${inv ? `Expires ${esc(relTime(p.expiresAt))}` : esc(p.email)}</span></div>
+        ${canMenu ? `<button type="button" class="tmm-role" data-key="${esc(p.key)}" aria-haspopup="menu">${role}${icon('chevron-down', 14)}</button>` : `<span class="tmm-role static">${role}</span>`}
+      </div>`;
+    }).join('');
+  };
+  draw();
+  const refresh = async () => { await loadTeam(); draw(); };
+  if (owner) {
+    const input = $('#tmmEmail', body), add = $('#tmmAdd', body);
+    const valid = () => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.value.trim());
+    input.addEventListener('input', () => { add.disabled = !valid(); add.classList.toggle('ready', valid()); });
+    $('#tmmForm', body).addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!valid()) return;
+      guard(async () => {
+        const email = input.value.trim();
+        const r = await api('/team/invites', { method: 'POST', body: { email, role: 'member' } });
+        input.value = ''; add.disabled = true; add.classList.remove('ready');
+        const out = $('#tmmOut', body);
+        out.classList.remove('hidden');
+        out.innerHTML = r.emailed ? `${icon('circle-check', 15)}<span>Invite emailed to <b>${esc(email)}</b>.</span>`
+          : `${icon('circle-check', 15)}<span>Invite ready for <b>${esc(email)}</b>. Send them this link:</span><div class="tmm-link"><input readonly value="${esc(r.link)}" /><button type="button" class="btn sm" id="tmmCopy">${icon('copy', 14)}Copy</button></div>`;
+        $('#tmmCopy', body)?.addEventListener('click', () => { navigator.clipboard.writeText(r.link); toast('Invite link copied'); });
+        await refresh();
+        input.focus();
+      }, add);
+    });
+    if (focus) setTimeout(() => input.focus(), 50);
+  }
+  // Role menu: change role / remove for members; link, resend, cancel for invites; leave for yourself.
+  $('#tmmList', body).addEventListener('click', (e) => {
+    const b = e.target.closest('.tmm-role[data-key]');
+    if (!b) return;
+    const p = teamPeople().find((x) => x.key === b.dataset.key);
+    if (!p) return;
+    const r = b.getBoundingClientRect();
+    const say = (m) => toast(m);
+    const items = p.kind === 'invite' ? [
+      { label: 'Copy invite link', action: () => guard(async () => { const x = await api(`/team/invites/${p.id}/link`, { method: 'POST', body: {} }); await navigator.clipboard.writeText(x.link); say('New invite link copied. The old one no longer works.'); await refresh(); }) },
+      state.me.mail && { label: 'Resend email', action: () => guard(async () => { await api(`/team/invites/${p.id}/link`, { method: 'POST', body: { email: true } }); say(`Invite emailed to ${p.email} again`); await refresh(); }) },
+      '-',
+      { label: 'Cancel invite', danger: true, action: () => guard(async () => { await api('/team/invites/' + p.id, { method: 'DELETE' }); say('Invite cancelled'); await refresh(); }) },
+    ] : [
+      ...(owner ? [
+        { label: 'Owner', kbd: 'manages team & settings', checked: p.role === 'owner', action: () => p.role !== 'owner' && guard(async () => { await api('/team/members/' + p.id, { method: 'PATCH', body: { role: 'owner' } }); say(`${p.name || p.email} is now an owner`); await refresh(); }) },
+        { label: 'Member', kbd: 'sends & replies', checked: p.role !== 'owner', action: () => p.role === 'owner' && guard(async () => { await api('/team/members/' + p.id, { method: 'PATCH', body: { role: 'member' } }); say(`${p.name || p.email} is now a member`); await refresh(); }) },
+      ] : []),
+      ...((p.you ? state.team.members.length > 1 : owner) ? ['-', { label: p.you ? 'Leave workspace' : 'Remove from team', danger: true, action: async () => {
+        if (!(await confirmDialog({ title: p.you ? 'Leave this workspace?' : `Remove ${p.name || p.email}?`, message: p.you ? 'You lose access until someone invites you again.' : 'They lose access to this workspace straight away.', confirmText: p.you ? 'Leave' : 'Remove', danger: true }))) return;
+        guard(async () => { await api('/team/members/' + p.id, { method: 'DELETE' }); if (p.you) location.href = '/'; else { say('Removed from the team'); await refresh(); } });
+      } }] : []),
+    ];
+    Sheet.Menu.open(r.right - 230, r.bottom + 6, items.filter(Boolean));
+  });
+}
 $('#teamRow').addEventListener('click', (e) => {
   const b = e.target.closest('[data-tm]');
   if (!b) return;
-  if (b.dataset.tm === 'add') return invitePop(b);
-  if (b.dataset.tm === 'all') return allPop(b);
-  memberPop(b, teamPeople().find((p) => p.key === b.dataset.tm));
+  teamModal({ focus: b.dataset.tm === 'add' });
 });
 // The account menu: who you are, your workspaces, the theme, and log out.
 const LOGOUT_SVG = '<svg class="logout-ic" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><g class="logout-arrow"><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></g></svg>';
@@ -3033,10 +3106,12 @@ function renderWorkspaces() {
     const cur = w.id === me.workspace.id;
     return `<div class="ws-row ${cur ? 'current' : ''}">
       <span class="acct-av sm" style="${avatarStyle(w.id)}">${esc((w.name || '?').slice(0, 1).toUpperCase())}</span>
-      <span class="ws-who"><b title="${esc(w.name)}">${esc(w.name)}${w.protected ? `<span class="ws-lock-tag" title="Password protected">${icon('lock', 11)}</span>` : ''}</b><span>${w.role === 'owner' ? 'Owner' : 'Member'}</span></span>
-      ${cur ? '<span class="pill scheduled ws-here">You\'re here</span>' : `<button class="btn sm" data-switch-ws="${w.id}">Switch</button>`}
+      <span class="ws-who"><b title="${esc(w.name)}">${esc(w.name)}${w.protected ? `<span class="ws-lock-tag" title="Password protected">${icon('lock', 11)}</span>` : ''}</b><span>${w.role === 'owner' ? 'Owner' : 'Member'}${cur ? '<span class="ws-cur"><i></i>Current</span>' : ''}</span></span>
+      ${cur ? '<div class="ws-team-slot"></div>' : `<button class="btn sm" data-switch-ws="${w.id}">Switch</button>`}
     </div>`;
   }).join('');
+  // The team belongs to the workspace you're in: show it inside that row.
+  $('#wsList .ws-team-slot')?.append($('#wsTeam'));
   $('#wsSettings').classList.toggle('hidden', me.role !== 'owner'); // password and deleting are for owners
   const full = lim != null && me.workspacesOwned >= lim;
   $('#wsNew').disabled = full;

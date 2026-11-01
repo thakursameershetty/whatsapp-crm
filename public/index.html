@@ -600,8 +600,8 @@
           <div class="row tight acct-inline"><input id="wsName" maxlength="40" aria-label="Workspace name" /><button class="btn" id="wsSave">Save</button></div>
           <div class="field-label acct-gap">Your workspaces <span class="opt" id="wsCount"></span></div>
           <div id="wsList" class="ws-list"></div>
-          <div class="field-label acct-gap">Team <span class="opt" id="teamCount"></span></div>
-          <div id="teamRow" class="tm-row" aria-label="Team"></div>
+          <!-- Moved into the current workspace's row by renderWorkspaces() (moved, not rebuilt, so its listeners stay). -->
+          <div class="ws-team" id="wsTeam"><span class="ws-team-l">Team <span class="opt" id="teamCount"></span></span><div id="teamRow" class="tm-row" aria-label="Team"></div></div>
         </div>
       </div>
       <div class="grid-2">
