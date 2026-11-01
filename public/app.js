@@ -743,7 +743,7 @@ function renderSenders() {
       </dl>
       <div class="row tight">
         <button class="btn sm" data-test="${s.id}">${icon('zap', 15)}Test connection</button>
-        <button class="btn quiet sm" data-edit="${s.id}">Edit</button>
+        <button class="btn quiet sm" data-edit="${s.id}">${icon('square-pen', 15)}Edit</button>
         ${numberAccessHtml(s)}
       </div>
     </div>`
