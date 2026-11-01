@@ -3020,7 +3020,7 @@ function numbersPicker(anchor, p, done) {
   };
   draw();
   el.addEventListener('click', (e) => {
-    const m = e.target.closest('[data-mode]');
+    const m = e.target.closest('.np-mode [data-mode]'); // (scoped: <html> has its own data-mode, the theme)
     if (m) { allMode = m.dataset.mode === 'all'; if (!allMode && !pick.size) pick = new Set(state.senders.map((s) => s.id)); draw(); return; }
     const a = e.target.closest('[data-np]');
     if (!a) return;
