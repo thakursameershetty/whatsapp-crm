@@ -434,6 +434,7 @@ function renderSettings() {
   $('#setDelay').value = s.delayMsPerNumber;
   $('#setVerify').value = s.webhookVerifyToken || '';
   $('#webhookUrl').value = location.origin + '/webhook';
+  renderWebhookStatus();
   renderAiSettings();
   const la = s.leadAgent || {};
   $('#laEnabled').checked = Boolean(la.enabled);
@@ -443,6 +444,31 @@ function renderSettings() {
   if (document.activeElement !== $('#laBusiness')) $('#laBusiness').value = la.business || '';
   if (document.activeElement !== $('#laQualified')) $('#laQualified').value = la.qualified || '';
   renderMode();
+}
+
+// Settings → Webhook: is Meta actually reaching the app? Last event of each kind, and the setup steps ticked off.
+function renderWebhookStatus() {
+  const w = state.settings.webhookSeen || {};
+  const live = !state.settings.demoMode;
+  const recent = w.lastAt && Date.now() - Date.parse(w.lastAt) < 7 * 86400000;
+  const state_ = !live ? ['muted', 'Demo mode', 'Nothing real comes in while Demo mode is on.']
+    : recent ? ['good', 'Receiving events', `Meta last reached the app ${relTime(w.lastAt)}.`]
+    : w.lastAt ? ['warn', 'Quiet lately', `Nothing from Meta since ${relTime(w.lastAt)}. Check the webhook is still subscribed.`]
+    : ['bad', 'Nothing received yet', 'Meta hasn’t sent anything here yet. Finish the steps below, then send yourself a message.'];
+  const row = (label, at, hint) => `<div class="wh-ev"><span class="wh-dot ${at ? 'on' : ''}"></span><b>${label}</b><span>${at ? relTime(at) : hint}</span></div>`;
+  const hasNum = state.senders.some((s) => s.hasToken);
+  const step = (done, text) => `<li class="${done ? 'done' : ''}"><i>${done ? icon('check-one', 12) : ''}</i><span>${text}</span></li>`;
+  $('#whStatus').innerHTML = `
+    <div class="wh-head"><span class="tag ${state_[0]}">${state_[1]}</span><span class="wh-sub">${esc(state_[2])}</span></div>
+    <div class="wh-evs">
+      ${row('Incoming messages', w.messageAt, 'none yet')}
+      ${row('Delivery updates', w.statusAt, 'none yet')}
+    </div>
+    <ol class="wh-steps">
+      ${step(hasNum || Boolean(w.lastAt), 'Connect a number under <b>Numbers</b>')}
+      ${step(Boolean(w.lastAt), 'Paste the Callback URL and Verify token in Meta → WhatsApp → Configuration')}
+      ${step(Boolean(w.messageAt), 'Subscribe to the <code>messages</code> field, then message your number to test')}
+    </ol>`;
 }
 
 // Read receipts: saved as soon as you pick one (like a switch), not with the Save button.
@@ -456,6 +482,11 @@ function renderReadReceipts() {
   Motion.patch($('#setRR'), [['open', 'When I open'], ['reply', 'Only when I reply'], ['off', 'Off']].map(([k, l]) => `<button type="button" data-rr="${k}" role="radio" aria-checked="${v === k}" class="${v === k ? 'active' : ''}">${l}</button>`).join(''));
   Motion.segs($('#setRR').parentElement);
   $('#rrHelp').textContent = RR_HELP[v];
+  // Replay the ticks' animation for the chosen mode.
+  const t = $('#rrTicks');
+  t.className = 'rr-ticks';
+  void t.offsetWidth;
+  t.classList.add('play', 'mode-' + v);
 }
 $('#setRR').addEventListener('click', (e) => {
   const b = e.target.closest('[data-rr]');

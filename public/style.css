@@ -4369,3 +4369,43 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .rr-row { align-items: center; gap: 16px; flex-wrap: wrap; }
 .rr-row > div:first-child { flex: 1 1 220px; min-width: 0; }
 .rr-row .seg { flex: none; }
+
+/* Read receipts: animated double ticks (draw in; blue on open, grey → blue on reply, grey when off) */
+.rr-title { display: inline-flex; align-items: center; gap: 8px; }
+.rr-ticks { display: inline-grid; place-items: center; width: 30px; height: 22px; border-radius: 6px; background: var(--sunk); }
+.rr-ticks svg { overflow: visible; }
+.rr-ticks path { fill: none; stroke: var(--faint); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 22; stroke-dashoffset: 0; transition: stroke 0.3s; }
+.rr-ticks.play path { animation: rr-draw 0.45s cubic-bezier(0.3, 0.9, 0.4, 1) both; }
+.rr-ticks.play .t2 { animation-delay: 0.18s; }
+.rr-ticks.mode-open path { stroke: #34b7f1; }
+.rr-ticks.mode-open.play path { animation: rr-draw 0.45s cubic-bezier(0.3, 0.9, 0.4, 1) both, rr-pop 0.35s 0.55s ease-out; }
+.rr-ticks.mode-reply.play path { animation: rr-draw 0.45s cubic-bezier(0.3, 0.9, 0.4, 1) both, rr-blue 0.4s 1s ease-out forwards; }
+.rr-ticks.mode-reply.play .t2 { animation-delay: 0.18s, 1.05s; }
+.rr-ticks.mode-off path { stroke: var(--faint); }
+@keyframes rr-draw { from { stroke-dashoffset: 22; } to { stroke-dashoffset: 0; } }
+@keyframes rr-blue { to { stroke: #34b7f1; } }
+@keyframes rr-pop { 50% { transform: scale(1.12); } }
+.rr-ticks.mode-open.play svg { animation: rr-pop 0.35s 0.6s ease-out; transform-origin: center; }
+.rr-ticks.mode-open.play path { animation: rr-draw 0.45s cubic-bezier(0.3, 0.9, 0.4, 1) both; }
+.rr-ticks.mode-open.play .t2 { animation-delay: 0.18s; }
+/* Hovering the setting plays it again */
+.rr-row:hover .rr-ticks.mode-reply path { animation: rr-draw 0.45s both, rr-blue 0.4s 0.8s forwards; }
+@media (prefers-reduced-motion: reduce) { .rr-ticks path, .rr-ticks svg { animation: none !important; } .rr-ticks.mode-reply path { stroke: #34b7f1; } }
+
+/* Settings → Webhook status */
+.wh-status { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--hair); display: flex; flex-direction: column; gap: 14px; }
+.wh-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.wh-sub { font-size: 13px; color: var(--muted); }
+.wh-evs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.wh-ev { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--sunk); }
+.wh-ev b { font-size: 13px; font-weight: 600; }
+.wh-ev > span:last-child { grid-column: 2; font-size: 12px; color: var(--muted); }
+.wh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.wh-dot.on { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
+.wh-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text); }
+.wh-steps li { display: flex; align-items: flex-start; gap: 9px; line-height: 1.45; }
+.wh-steps li i { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; display: grid; place-items: center; box-shadow: inset 0 0 0 1.5px var(--hair); color: #fff; }
+.wh-steps li.done i { background: var(--good); box-shadow: none; }
+.wh-steps li.done { color: var(--muted); }
+@media (max-width: 640px) { .wh-evs { grid-template-columns: 1fr; } }
+.wh-steps li > span { flex: 1; min-width: 0; } .wh-steps code { white-space: nowrap; }

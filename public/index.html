@@ -620,7 +620,7 @@
           </div>
           <div class="setting-row rr-row">
             <div>
-              <div class="setting-title">Read receipts</div>
+              <div class="setting-title rr-title"><span class="rr-ticks" id="rrTicks" aria-hidden="true"><svg viewBox="0 0 28 18" width="26" height="17"><path class="t1" d="M2 9.5l4.5 4.5L15 4"/><path class="t2" d="M10.5 13.2l.8.8L19.8 4"/></svg></span>Read receipts</div>
               <div class="sub" id="rrHelp">When customers see blue ticks on their messages.</div>
             </div>
             <div class="seg" id="setRR" role="radiogroup" aria-label="Read receipts">
@@ -666,6 +666,7 @@
             <div class="input-group"><input id="setVerify" /><button class="btn sm copy" data-copy="setVerify"
                 data-icon="copy" data-icon-size="14">Copy</button></div>
           </label>
+          <div class="wh-status" id="whStatus"></div>
         </div>
 
         <div class="card span-2 la-host ai-settings">

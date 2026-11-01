@@ -447,6 +447,14 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
 });
 
 function handleWebhookChange(change) {
+  // When Meta last reached this workspace, for the Settings → Webhook status.
+  const v = change.value || {};
+  const hook = (db.settings.webhookSeen ||= {});
+  const now = new Date().toISOString();
+  hook.lastAt = now;
+  if (v.messages?.length) hook.messageAt = now;
+  if (v.statuses?.length) hook.statusAt = now;
+  save();
   const rank = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 };
   const failedIn = new Set(); // campaigns that got new delivery failures in this webhook
   {
