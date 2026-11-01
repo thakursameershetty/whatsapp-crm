@@ -181,7 +181,15 @@
     const tsel = $('#ibTemplate');
     tsel.classList.toggle('hidden', !tplNames.length);
     if (ib.template && !tplNames.includes(ib.template)) ib.template = '';
-    tsel.innerHTML = `<option value="">All templates</option>` + tplNames.map((n) => `<option value="${esc(n)}" data-tag="${esc(catLabel((state.templates || []).find((t) => t.name === n)?.category))}">${esc(n)} (${ib.convs.filter((c) => (c.templates || []).includes(n)).length})</option>`).join(''); // data-tag: its category, for the chips in the list
+    // In sections, like the Send page: by WhatsApp account when the numbers are in more than one, else by category.
+    // data-tag (the category) drives the chips above the list.
+    const tplOf = (n) => (state.templates || []).find((t) => t.name === n);
+    const tplOpt = (n) => `<option value="${esc(n)}" data-tag="${esc(catLabel(tplOf(n)?.category))}">${esc(n)} (${ib.convs.filter((c) => (c.templates || []).includes(n)).length})</option>`;
+    const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))];
+    const sections = accounts.length > 1
+      ? [...accounts.map((w) => [accountLabel(w), tplNames.filter((n) => tplOf(n)?.wabaId === w)]), ['Other', tplNames.filter((n) => !accounts.includes(tplOf(n)?.wabaId))]]
+      : [...new Set(tplNames.map((n) => catLabel(tplOf(n)?.category)))].sort((a, b) => (a === 'Other') - (b === 'Other') || a.localeCompare(b)).map((cat) => [cat, tplNames.filter((n) => catLabel(tplOf(n)?.category) === cat)]);
+    tsel.innerHTML = `<option value="">All templates</option>` + sections.filter(([, ns]) => ns.length).map(([label, ns]) => `<optgroup label="${esc(label)}">${ns.map(tplOpt).join('')}</optgroup>`).join('');
     tsel.value = ib.template;
     const multi = senders.length > 1;
 
