@@ -4781,10 +4781,14 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .adm-ai:has(input:disabled) { opacity: 0.55; cursor: not-allowed; }
 
 /* Inbox: the doodle wallpaper. It sits on the chat panel (which never scrolls), not on the message list, so it
-   stays perfectly still while the messages scroll over it, bounce included.
+   stays perfectly still while the messages scroll over it, bounce included. A layer of the chat colour on top fades
+   it, so it stays behind the messages: --doodle-fade is how much (higher = fainter).
    Light: chat-bg-light.webp, lines a shade darker than the background (#ebe1d5 on #f5f1eb), as in WhatsApp.
-   Dark: chat-bg.png (white lines), faded into the background by a layer of the chat colour on top. */
-.ib-chat { background-image: url("chat-bg-light.webp"); }
-:root[data-mode="dark"] .ib-chat {
-  background-image: linear-gradient(color-mix(in srgb, var(--chat) 93%, transparent), color-mix(in srgb, var(--chat) 93%, transparent)), url("chat-bg.png");
+   Dark: chat-bg.png (white lines). */
+:root { --doodle-fade: 50%; }
+:root[data-mode="dark"] { --doodle-fade: 96%; }
+.ib-chat {
+  --doodle-veil: linear-gradient(color-mix(in srgb, var(--chat) var(--doodle-fade), transparent), color-mix(in srgb, var(--chat) var(--doodle-fade), transparent));
+  background-image: var(--doodle-veil), url("chat-bg-light.webp");
 }
+:root[data-mode="dark"] .ib-chat { background-image: var(--doodle-veil), url("chat-bg.png"); }
