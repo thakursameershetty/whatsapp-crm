@@ -44,20 +44,35 @@
   // Failures that sending the same message again can't fix: not on WhatsApp, window closed (needs a
   // template instead), or the template itself is missing or paused.
   const NO_RESEND = new Set(['131026', '131047', '132001', '132015']);
+  // Your reaction under a customer's message, with whether it reached them (Meta's delivery updates).
+  const REACT_STATUS = { sent: 'Sent', delivered: 'Delivered', read: 'Seen' };
+  function reactMine(rx) {
+    const st = rx.outMsg?.status;
+    const failed = st === 'failed';
+    const title = failed ? `Your reaction wasn't delivered${rx.outMsg.error ? ': ' + rx.outMsg.error : ''}. Open the reactions to try again.` : `Your reaction · ${REACT_STATUS[st] || 'Sending…'}. Open the reactions to change or remove it.`;
+    return `<span class="ib-react-mine ${failed ? 'failed' : ''} ${st === 'sent' || !st ? 'pending' : ''}" title="${esc(title)}">${esc(rx.out)}</span>`;
+  }
   function failedNote(m) {
     const err = m.error;
-    const code = (String(err).match(/\b(1\d{5})\b/) || [])[1];
+    // Meta's error code: "131031: …" from delivery updates, "(#131030) …" from a rejected send, or a 13xxxx in the text.
+    // No code means the error came from this app (e.g. it never reached Meta).
+    const s = String(err || '');
+    const code = (s.match(/^(\d{1,6}):/) || s.match(/\(#(\d+)\)/) || s.match(/\b(1\d{5})\b/) || [])[1];
     const h = FAIL_HELP[code];
-    const why = h
-      ? `<span title="${esc(err)}"><b>${esc(h[0])}</b> · ${esc(h[1])}</span>`
-      : `<span>Not delivered: ${esc(err)}</span>`;
+    // One short line under the message; "Details" opens a small card with the explanation and Meta's own words.
+    const known = code && window.MetaErrors?.byCode[code]; // the Error codes page's entry, for codes not explained here
+    const title = h ? h[0] : known ? known.title : 'Not delivered';
+    const explain = h ? h[1] : known ? `${known.means} ${known.todo}` : '';
+    const raw = s.replace(/^\d+:\s*/, '').replace(/^\(#\d+\)\s*/, '');
     const end = current()?.windowEndsAt;
     const windowOpen = end && new Date(end) > new Date();
     const canResend = !m.local && m.id && !NO_RESEND.has(code) && (m.type === 'template' || (m.type === 'text' && windowOpen));
     const action = m.resentAt
       ? `<span class="ib-resent">Sent again</span>`
       : canResend ? `<button class="ib-resend" data-resend="${esc(m.id)}">${icon('refresh-cw', 12)}Resend</button>` : '';
-    return `<div class="ib-err">${why}${action}</div>`;
+    return `<div class="ib-err">
+      <div class="ib-err-line"><span class="ib-err-ico" aria-hidden="true">!</span><b>${esc(title)}</b>${code ? `<span class="ib-err-code" title="Error code from Meta (WhatsApp), not from this app. Search it to learn more.">Meta ${esc(code)}</span>` : ''}<button class="ib-err-more" data-err-more aria-haspopup="dialog" data-title="${esc(title)}" data-explain="${esc(explain)}" data-code="${esc(code || '')}" data-raw="${esc(raw)}">Details</button>${action}</div>
+    </div>`;
   }
 
   function listTime(ts) {
@@ -504,6 +519,7 @@
       if (m.type !== 'reaction' || !m.reaction?.to) continue;
       const r = reactions.get(m.reaction.to) || {};
       r[m.dir] = m.reaction.emoji || '';
+      if (m.dir === 'out') r.outMsg = m;
       reactions.set(m.reaction.to, r);
     }
     const canReact = windowInfo(current()).open;
@@ -548,9 +564,9 @@
       const age = start != null ? now - start : Infinity;
       const fresh = age < 450;
       html += `<div class="ib-row ${m.dir} ${first ? 'first' : ''} ${react ? 'reacted' : ''} ${fresh ? 'fresh' : ''}" ${fresh && age > 0 ? `style="animation-delay:-${age}ms"` : ''} data-wamid="${esc(m.wamid || '')}">
-        <div class="ib-bubble ${m.type}">${msgBody(m, byWamid)}${react ? `<span class="ib-reacts">${rx.in ? esc(rx.in) : ''}${rx.out ? `<span class="ib-react-mine" title="Your reaction">${esc(rx.out)}</span>` : ''}</span>` : ''}</div>
+        <div class="ib-bubble ${m.type}">${msgBody(m, byWamid)}${react ? `<span class="ib-reacts">${rx.in ? esc(rx.in) : ''}${rx.out ? reactMine(rx) : ''}</span>` : ''}</div>
         ${m.wamid && m.dir === 'in' ? `<button class="ib-reply-btn" data-reply="${esc(m.wamid)}" title="Reply" aria-label="Reply">${icon('reply', 14)}</button>` : ''}
-        ${m.wamid && m.dir === 'in' && canReact ? `<button class="ib-reply-btn ib-react-btn" data-react="${esc(m.wamid)}" data-mine="${esc(rx.out || '')}" title="React" aria-label="React">${icon('smile-plus', 14)}</button>` : ''}
+        ${m.wamid && m.dir === 'in' && canReact ? `<button class="ib-reply-btn ib-react-btn" data-react="${esc(m.wamid)}" data-mine="${esc(rx.outMsg?.status === 'failed' ? '' : rx.out || '')}" title="React" aria-label="React">${icon('smile-plus', 14)}</button>` : ''}
       </div>`;
       if (m.status === 'failed' && m.error) html += failedNote(m);
       prev = m;
@@ -642,32 +658,202 @@
   });
 
   // Emoji reactions: a small picker beside the message; picking the emoji you already used removes it.
-  const REACTIONS = ['👍', '❤️', '😂', '😮', '🙏', '👏'];
-  const closePicker = () => document.querySelectorAll('.ib-react-pick').forEach((p) => { p.closest('.ib-row')?.classList.remove('picking'); p.remove(); });
-  $('#ibChat').addEventListener('click', async (e) => {
-    const pick = e.target.closest('[data-emoji]');
+  // WhatsApp's own quick set, then "+" for more.
+  const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+  const MORE_REACTIONS = ['😀', '😁', '😊', '🙂', '😉', '😍', '🥰', '😘', '😎', '🤩', '🥳', '🤔', '😅', '🤣', '😇', '🙃',
+    '😐', '😬', '🙄', '😴', '😭', '😡', '🤯', '😱', '🤗', '🤝', '👏', '🙌', '💪', '👌', '✌️', '🤞',
+    '👋', '👀', '🔥', '✨', '🎉', '💯', '✅', '❌', '⭐', '💡', '📌', '📞', '💼', '🚀', '💚', '💙'];
+  const emojiBtn = (x, mine) => `<button role="menuitem" data-emoji="${x}" class="${x === mine ? 'on' : ''}" title="${x === mine ? 'Remove reaction' : 'React ' + x}">${x}</button>`;
+  // The picker floats in the page (not inside the message), placed just above the button that opened it, so it
+  // shows up beside the button even on a very tall message. No room above: it opens below. It stays inside the chat.
+  let picker = null;
+  const closePicker = () => {
+    if (!picker) return;
+    picker.el.remove();
+    picker.btn.closest('.ib-row')?.classList.remove('picking');
+    picker = null;
+  };
+  function placePicker() {
+    if (!picker) return;
+    const { el, btn } = picker;
+    const box = ($('#ibMsgs') || document.body).getBoundingClientRect();
+    const b = btn.isConnected ? btn.getBoundingClientRect() : picker.at;
+    picker.at = b;
+    const w = el.offsetWidth, h = el.offsetHeight, gap = 8;
+    // WhatsApp puts the bar to the left of the button, overlapping the message; keep it within the chat.
+    const left = Math.min(Math.max(box.left + gap, b.right - w + 12), box.right - w - gap);
+    let top = b.top - h - gap;
+    if (top < box.top + gap) top = Math.min(b.bottom + gap, box.bottom - h - gap);
+    el.style.left = `${Math.round(left)}px`;
+    el.style.top = `${Math.round(Math.max(top, gap))}px`;
+  }
+  function openPicker(btn) {
+    const mine = btn.dataset.mine;
+    const el = document.createElement('div');
+    el.className = 'ib-react-pick';
+    el.setAttribute('role', 'menu');
+    el.dataset.for = btn.dataset.react;
+    el.dataset.mine = mine;
+    el.dataset.key = ib.key;
+    el.innerHTML = `${REACTIONS.map((x) => emojiBtn(x, mine)).join('')}${mine && !REACTIONS.includes(mine) ? emojiBtn(mine, mine) : ''}<button class="ib-react-plus" data-react-more title="More emojis" aria-label="More emojis">${icon('plus', 20)}</button>`;
+    document.body.appendChild(el);
+    btn.closest('.ib-row')?.classList.add('picking');
+    picker = { el, btn };
+    placePicker();
+  }
+  document.addEventListener('click', async (e) => {
+    const path = e.composedPath(); // taken at click time: "+" swaps the picker's contents, so its button is gone afterwards
+    const inPicker = picker && path.includes(picker.el);
+    const more = inPicker && e.target.closest('[data-react-more]');
+    if (more) {
+      picker.el.classList.add('expanded');
+      picker.el.innerHTML = `<div class="ib-react-grid">${[...REACTIONS, ...MORE_REACTIONS].map((x) => emojiBtn(x, picker.el.dataset.mine)).join('')}</div>`;
+      placePicker();
+      return;
+    }
+    const pick = inPicker && e.target.closest('[data-emoji]');
     if (pick) {
-      const p = pick.closest('.ib-react-pick');
-      const key = ib.key;
-      const emoji = pick.dataset.emoji === p.dataset.mine ? '' : pick.dataset.emoji;
+      const { for: wamid, mine, key } = picker.el.dataset;
+      const emoji = pick.dataset.emoji === mine ? '' : pick.dataset.emoji;
       closePicker();
       try {
-        await api(`/inbox/${enc(key)}/react`, { method: 'POST', body: { wamid: p.dataset.for, emoji } });
+        await api(`/inbox/${enc(key)}/react`, { method: 'POST', body: { wamid, emoji } });
         if (ib.key === key) await loadThread();
       } catch (err) { toast(err.message, 'error'); }
       return;
     }
-    const b = e.target.closest('[data-react]');
-    if (!b) return;
-    const row = b.closest('.ib-row');
-    const open = row.querySelector('.ib-react-pick');
+    if (inPicker) return;
+    const b = e.target.closest('#ibChat [data-react]');
+    const same = b && picker && picker.el.dataset.for === b.dataset.react;
     closePicker();
-    if (open) return;
-    row.classList.add('picking');
-    row.insertAdjacentHTML('beforeend', `<div class="ib-react-pick" role="menu" data-for="${esc(b.dataset.react)}" data-mine="${esc(b.dataset.mine)}">${REACTIONS.map((x) => `<button role="menuitem" data-emoji="${x}" class="${x === b.dataset.mine ? 'on' : ''}" title="${x === b.dataset.mine ? 'Remove reaction' : 'React ' + x}">${x}</button>`).join('')}</div>`);
+    if (b && !same) openPicker(b);
   });
-  document.addEventListener('click', (e) => { if (!e.target.closest('.ib-react-pick, [data-react]')) closePicker(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePicker(); });
+  window.addEventListener('resize', closePicker);
+  document.addEventListener('scroll', (e) => { if (picker && e.target.id === 'ibMsgs') closePicker(); }, true);
+
+  // ---------- Swipe to reply ----------
+  // Trackpad: two fingers left on a message. Touch: swipe it right (as on a phone). The bubble follows the fingers,
+  // a reply arrow appears in the space it leaves and pops once you've gone far enough; let go and the bubble springs
+  // back and the reply starts. Going past the point gets heavier (rubber band), like WhatsApp.
+  const SWIPE_AT = 56, SWIPE_MAX = 84;
+  let sw = null;
+  let wheelQuietUntil = 0; // the trackpad's momentum keeps sending wheel events after a swipe ends; ignore those
+  const canSwipe = (row) => row && row.dataset.wamid && !row.dataset.wamid.startsWith('tmp') && $('#ibText');
+  function beginSwipe(row, dir) {
+    closePicker();
+    const bubble = row.querySelector('.ib-bubble');
+    const ico = document.createElement('span');
+    ico.className = 'ib-swipe-ico';
+    ico.innerHTML = icon('reply', 15);
+    // Sits where the bubble's edge was, so it's uncovered as the bubble slides away.
+    const edge = dir < 0 ? bubble.offsetLeft + bubble.offsetWidth - 34 : bubble.offsetLeft + 6;
+    ico.style.left = `${edge}px`;
+    row.appendChild(ico);
+    row.classList.add('swiping');
+    return { row, bubble, ico, dir, dx: 0, armed: false, timer: 0 };
+  }
+  function moveSwipe(dx) {
+    const d = Math.max(0, dx * sw.dir); // distance in the swipe's direction only
+    const eased = d <= SWIPE_MAX ? d : SWIPE_MAX + (d - SWIPE_MAX) * 0.2;
+    sw.bubble.style.transform = `translateX(${sw.dir * eased}px)`;
+    sw.row.style.setProperty('--swipe', Math.min(1, eased / SWIPE_AT).toFixed(3));
+    const armed = eased >= SWIPE_AT;
+    if (armed !== sw.armed) {
+      sw.armed = armed;
+      sw.row.classList.toggle('swipe-armed', armed);
+      if (armed) navigator.vibrate?.(10);
+    }
+  }
+  function endSwipe() {
+    if (!sw) return;
+    const { row, bubble, ico, armed } = sw;
+    clearTimeout(sw.timer);
+    sw = null;
+    row.classList.add('swipe-back');
+    bubble.style.transform = '';
+    row.style.setProperty('--swipe', 0);
+    setTimeout(() => { row.classList.remove('swipe-back', 'swipe-armed', 'swiping'); ico.remove(); }, 340);
+    if (armed) startReply(row.dataset.wamid);
+  }
+  // Trackpad (two-finger horizontal scroll arrives as wheel events).
+  $('#ibChat').addEventListener('wheel', (e) => {
+    const box = $('#ibMsgs');
+    if (!box || !box.contains(e.target)) return;
+    const horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.2;
+    if (!sw && !horizontal) return;
+    e.preventDefault(); // also keeps the browser's swipe-back-a-page gesture out of the chat
+    if (!sw) {
+      if (performance.now() < wheelQuietUntil) { wheelQuietUntil = performance.now() + 120; return; }
+      const row = e.target.closest('.ib-row');
+      if (!canSwipe(row) || e.deltaX <= 0) return; // fingers left only
+      sw = beginSwipe(row, -1);
+    }
+    sw.dx -= e.deltaX;
+    moveSwipe(sw.dx);
+    clearTimeout(sw.timer);
+    sw.timer = setTimeout(() => { endSwipe(); wheelQuietUntil = performance.now() + 250; }, 180); // no wheel event for a moment = fingers lifted
+  }, { passive: false });
+  // Touch screens: swipe right.
+  let touch = null;
+  $('#ibChat').addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    const row = e.target.closest('#ibMsgs .ib-row');
+    if (canSwipe(row)) touch = { row, x: e.clientX, y: e.clientY, id: e.pointerId };
+  });
+  $('#ibChat').addEventListener('pointermove', (e) => {
+    if (!touch || e.pointerId !== touch.id) return;
+    const dx = e.clientX - touch.x, dy = e.clientY - touch.y;
+    if (!sw) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { touch = null; return; } // scrolling instead
+      if (dx < 10 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      sw = beginSwipe(touch.row, 1);
+      try { touch.row.setPointerCapture(e.pointerId); } catch { /* keeps working without capture */ }
+    }
+    moveSwipe(dx);
+  });
+  const endTouch = (e) => { if (touch && e.pointerId === touch.id) { touch = null; endSwipe(); } };
+  $('#ibChat').addEventListener('pointerup', endTouch);
+  $('#ibChat').addEventListener('pointercancel', endTouch);
+
+  // A failed message's details: a small card floating above the "Details" link (outside the message list, so it
+  // can't be mistaken for a message). Closes on a click elsewhere, scrolling, resizing or Esc.
+  let errPop = null;
+  const closeErrPop = () => { errPop?.el.remove(); errPop?.btn.setAttribute('aria-expanded', 'false'); errPop = null; };
+  document.addEventListener('click', (e) => {
+    if (errPop && e.composedPath().includes(errPop.el)) {
+      const ec = e.target.closest('[data-ec]');
+      if (ec) { e.preventDefault(); const code = ec.dataset.ec; closeErrPop(); window.MetaErrors?.open(code); return; }
+      const c = e.target.closest('[data-copy]');
+      if (c) navigator.clipboard?.writeText(c.dataset.copy).then(() => { c.lastChild.textContent = 'Copied'; setTimeout(() => { if (c.isConnected) c.lastChild.textContent = 'Copy'; }, 1500); }, () => toast("Couldn't copy", 'error'));
+      return;
+    }
+    const b = e.target.closest('#ibChat [data-err-more]');
+    const same = b && errPop?.btn === b;
+    closeErrPop();
+    if (!b || same) return;
+    const el = document.createElement('div');
+    el.className = 'ib-err-pop';
+    el.setAttribute('role', 'dialog');
+    const code = b.dataset.code;
+    el.innerHTML = `<b>${esc(b.dataset.title)}</b>${b.dataset.explain ? `<p>${esc(b.dataset.explain)}</p>` : ''}
+      <div class="ib-err-src">${code
+        ? `<div class="ib-err-codeline"><span>Meta error <code>${esc(code)}</code></span><button class="ib-err-copy" data-copy="${esc(code)}" title="Copy the code">${icon('copy', 13)}Copy</button><a href="/error-codes?code=${esc(code)}" data-ec="${esc(code)}">What it means</a></div><p class="ib-err-raw">${esc(b.dataset.raw)}</p>`
+        : `<p class="ib-err-raw">From this app (it didn't reach Meta): ${esc(b.dataset.raw)}</p>`}</div>`;
+    document.body.appendChild(el);
+    const r = b.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight, gap = 10;
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - w + 28), innerWidth - w - 8); // arrow near the card's right
+    let top = r.top - h - gap, below = false;
+    if (top < 8) { top = r.bottom + gap; below = true; }
+    Object.assign(el.style, { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` });
+    el.style.setProperty('--arrow-x', `${Math.round(r.left + r.width / 2 - left)}px`);
+    el.classList.toggle('below', below);
+    b.setAttribute('aria-expanded', 'true');
+    errPop = { el, btn: b };
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeErrPop(); });
+  window.addEventListener('resize', closeErrPop);
+  document.addEventListener('scroll', (e) => { if (errPop && e.target.id === 'ibMsgs') closeErrPop(); }, true);
 
   // Send a failed message again, as it was.
   $('#ibChat').addEventListener('click', async (e) => {

@@ -527,7 +527,7 @@ app.use(AI_PATHS, (req, res, next) => (req.admin ? next() : res.status(403).json
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // Each page has its own address (/send, /inbox…): they're all the one app page, which shows the right one.
-const APP_PAGES = ['overview', 'assistant', 'inbox', 'contacts', 'send', 'campaigns', 'numbers', 'templates', 'notifications', 'settings'];
+const APP_PAGES = ['overview', 'assistant', 'inbox', 'contacts', 'send', 'campaigns', 'numbers', 'templates', 'notifications', 'settings', 'error-codes'];
 app.get(APP_PAGES.map((p) => '/' + p), (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 // D3 for the dashboard charts, served locally so it works offline.
 app.use('/vendor', express.static(path.join(__dirname, 'node_modules', 'd3', 'dist')));
@@ -1673,11 +1673,20 @@ app.post('/api/inbox/:key/react', wrap(async (req, res) => {
   if (!db.messages.some((m) => m.key === key && m.dir === 'in' && m.wamid === target)) throw fail('Message not found', 404);
   const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in').at(-1);
   if (!lastIn || Date.now() - new Date(lastIn.ts) > WINDOW_MS) throw fail('The 24-hour reply window is closed, so reactions can’t be sent.');
+  // Meta answers with a message id; its delivery updates (sent, delivered, read, failed) then arrive on the
+  // webhook like any message's, so the Inbox can show whether the reaction got through.
+  let wamid = 'wamid.DEMO' + id();
   if (!demo) {
-    await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: wa, type: 'reaction', reaction: { message_id: target, emoji } }) });
+    const r = await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: wa, type: 'reaction', reaction: { message_id: target, emoji } }) });
+    wamid = r.messages?.[0]?.id || '';
   }
   db.messages = db.messages.filter((m) => !(m.key === key && m.dir === 'out' && m.type === 'reaction' && m.reaction?.to === target));
-  if (emoji) db.messages.push({ id: id(), key, senderId, wa, dir: 'out', type: 'reaction', reaction: { emoji, to: target }, ts: new Date().toISOString(), status: 'sent', ...(demo ? { demo: true } : {}) });
+  if (emoji) {
+    const msg = { id: id(), key, senderId, wa, dir: 'out', type: 'reaction', wamid, reaction: { emoji, to: target }, ts: new Date().toISOString(), status: 'sent', ...(demo ? { demo: true } : {}) };
+    db.messages.push(msg);
+    if (wamid) inboxIndex.set(wamid, msg);
+    if (demo) setTimeout(() => { applyStatus(msg, { status: 'delivered' }); save(); broadcast({ kind: 'status', key }); }, 900);
+  }
   save();
   broadcast({ kind: 'message', key, dir: 'out' });
   res.json({ ok: true, emoji });

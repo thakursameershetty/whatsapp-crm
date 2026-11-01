@@ -55,6 +55,8 @@
     <nav id="tabsBottom" class="seg side-nav side-nav-bottom" aria-label="Notifications and settings">
       <button data-icon="bell" data-icon-size="16" data-tab="notifications" title="Notifications"><span
           class="nav-label">Notifications</span><span class="nav-badge hidden" id="notifBadge"></span></button>
+      <button data-icon="badge-alert" data-icon-size="16" data-tab="error-codes" title="Error codes"><span
+          class="nav-label">Error codes</span></button>
       <button data-icon="settings" data-icon-size="16" data-tab="settings" title="Settings"><span
           class="nav-label">Settings</span></button>
     </nav>
@@ -325,6 +327,24 @@
         <div class="seg" id="ntFilter" role="tablist" aria-label="Show"></div>
       </div>
       <div id="ntList" class="nt-list" data-skel="notif:6"></div>
+    </section>
+
+    <!-- ERROR CODES --------------------------------------------------------->
+    <section id="tab-error-codes" class="tab hidden">
+      <div class="section-head">
+        <div>
+          <h1>Error codes</h1>
+          <p class="sub">What WhatsApp's error codes mean and what to do about them. These codes come from Meta, not from
+            this app. <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes" target="_blank"
+              rel="noopener">Meta's full list ↗</a></p>
+        </div>
+      </div>
+      <div class="ec-bar">
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="ecSearch" type="search"
+            placeholder="Search a code or a word, e.g. 131031 or template" autocomplete="off" /></div>
+        <div class="seg" id="ecFilter" role="tablist" aria-label="Category"></div>
+      </div>
+      <div id="ecList" class="ec-list"></div>
     </section>
 
     <!-- SEND -------------------------------------------------------------->
@@ -827,6 +847,7 @@
   <script src="countries.js"></script>
   <script src="password-rules.js"></script>
   <script src="app.js"></script>
+  <script src="error-codes.js"></script>
   <script src="inbox.js"></script>
   <script src="sheet.js"></script>
   <script src="select.js"></script>

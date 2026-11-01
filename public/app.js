@@ -108,6 +108,7 @@ function showTab(name) {
   if (name === 'overview') loadOverview().catch((e) => toast(e.message, 'error'));
   else stopOverviewPolling();
   if (name === 'numbers') refreshStats().then(renderSenders).catch(() => {});
+  if (name === 'error-codes') window.MetaErrors?.render();
   hideTip();
   // The address follows the page (/send, /inbox; the overview is just /), so Back and Forward move
   // between pages and a reload stays where you are.
@@ -2345,7 +2346,7 @@ function qualityTag(rating) {
   const q = QUALITY[rating] || QUALITY_NONE;
   return `<span class="tag ${q.cls} has-pop" tabindex="0">${q.label}
     <span class="tag-pop" role="tooltip">
-      <span class="tp-head"><b>Quality: ${q.label}</b><span>Meta rating · ${esc(rating || 'UNKNOWN')}</span></span>
+      <span class="tp-head"><b>Quality: ${q.label}</b><span>Meta's rating: ${esc(rating || 'UNKNOWN')}</span></span>
       <span class="tp-sec"><i>Why</i>${esc(q.why)}</span>
       <span class="tp-sec"><i>What it means</i>${esc(q.means)}</span>
       <span class="tp-sec"><i>What to do</i>${esc(q.todo)}</span>
