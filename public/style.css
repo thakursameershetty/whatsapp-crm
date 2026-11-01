@@ -314,7 +314,7 @@ body { padding-left: var(--nav-w); }
   position: fixed; top: 0; bottom: 0; left: 0; z-index: 20; width: var(--nav-w);
   display: flex; flex-direction: column; gap: 22px; padding: 18px 14px 16px;
   background: color-mix(in srgb, var(--sunk) 55%, var(--bg));
-  box-shadow: 1px 0 0 var(--hair);
+  box-shadow: inset -1px 0 0 var(--hair); /* inside its own edge: the pinned page headers (z 24–25) would otherwise paint over it */
 }
 .brand { font-weight: 700; font-size: 15px; letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px; white-space: nowrap; padding: 4px 8px; }
 /* The mark: a chat bubble that winks, with a smile that ends in a delivered tick. */
@@ -943,13 +943,8 @@ input.cb:checked { animation: cb-pop 0.28s var(--ease-spring); }
 /* Filters stay reachable while scrolling the overview */
 .filter-bar {
   position: sticky; top: 0; z-index: 9;
-  margin: 0 -12px 18px; padding: 10px 12px; border-radius: var(--r-lg);
+  margin: 0 -12px 18px; padding: 10px 12px;
   background: transparent; transition: background 0.25s, box-shadow 0.25s, backdrop-filter 0.25s;
-}
-.filter-bar.stuck {
-  background: var(--glass-sheen), var(--glass);
-  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: 0 10px 28px -16px rgba(16, 24, 32, 0.35), var(--glass-edge);
 }
 @media (max-width: 900px) { .filter-bar { position: static; } }
 .mini-cols { display: block; width: 100%; height: 34px; }
@@ -4765,3 +4760,9 @@ body { background-attachment: fixed; }
 .sticky-bar::before,
 :is(#ovFilters, #tab-contacts .ct-bar, #tplBar, #campaignList .cp-tools, #tab-report .ec-bar, #tab-reports .list-bar, #tab-notifications .nt-bar)::before { display: none; }
 .sticky-bar.pinned::before { display: block; }
+
+/* Inbox: the same pinned-edge shadow as the other pages, under the list's search/filters and the chat header,
+   once the list or the messages have scrolled underneath them. */
+.ib-tools { position: relative; z-index: 2; transition: box-shadow 0.2s; }
+.ib-head { transition: box-shadow 0.2s; }
+.ib-tools.stuck, .ib-head.stuck { box-shadow: 0 1px 0 var(--hair), 0 8px 16px -14px rgba(0, 0, 0, 0.35); }

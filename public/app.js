@@ -1519,6 +1519,12 @@ function markStuck() {
 }
 addEventListener('scroll', markStuck, { passive: true });
 addEventListener('resize', setupSticky);
+// The Inbox scrolls inside its own panes: shadow the list's tools / the chat header once something is underneath.
+document.addEventListener('scroll', (e) => {
+  const t = e.target;
+  if (t.id === 'ibConvs') $('#tab-inbox .ib-tools')?.classList.toggle('stuck', t.scrollTop > 2);
+  else if (t.id === 'ibMsgs') $('#tab-inbox .ib-head')?.classList.toggle('stuck', t.scrollTop > 2);
+}, { capture: true, passive: true });
 new MutationObserver(() => { clearTimeout(setupSticky.t); setupSticky.t = setTimeout(setupSticky, 50); }).observe(document.querySelector('main') || document.body, { childList: true, subtree: true });
 
 // --- Live: other people's changes, and new versions of the app ---------------------------------------------
@@ -1992,11 +1998,6 @@ $('#kpis').addEventListener('keydown', (e) => {
     loadOverview().catch((e) => toast(e.message, 'error'));
   })
 );
-// Give the filter row its glass background only once it's pinned under the top bar.
-addEventListener('scroll', () => {
-  const bar = $('#ovFilters');
-  if (bar.offsetParent) bar.classList.toggle('stuck', bar.getBoundingClientRect().top <= 0);
-}, { passive: true });
 
 $('#fReset').addEventListener('click', () => {
   state.ov.sender = state.ov.template = '';
