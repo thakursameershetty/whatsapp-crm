@@ -4618,3 +4618,42 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .tmm-out { margin: 0 0 14px; }
 .tmm-list { border-top: 0; padding-top: 0; }
 .tmm-role { margin-right: -6px; }
+
+/* Edit your account: the profile photo */
+.ae-photo { display: flex; align-items: center; gap: 14px; margin: 2px 0 16px; padding: 12px; border-radius: 12px; background: var(--sunk); }
+.ae-photo .acct-av.lg { width: 56px; height: 56px; font-size: 18px; }
+.ae-photo-act { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ae-photo-act .sub { margin: 0 0 6px; font-size: 12px; }
+.ae-photo-act label.btn { margin: 0; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+
+/* Team window: which numbers a member works with */
+.nums-chip { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; height: 22px; padding: 0 7px; border: 0; border-radius: 6px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--hair); color: var(--muted); font: 500 11.5px Inter, sans-serif; cursor: pointer; }
+.nums-chip:hover { color: var(--text); }
+.nums-chip.static { cursor: default; background: none; }
+.nc-faces { display: inline-flex; }
+.nc-faces .sender-photo { width: 15px; height: 15px; font-size: 7px; box-shadow: 0 0 0 1.5px var(--surface); }
+.nc-faces .sender-photo + .sender-photo { margin-left: -4px; }
+.np-pop { width: 320px; padding: 14px; }
+.np { display: flex; flex-direction: column; gap: 10px; }
+.np-h b { display: block; font-size: 14px; }
+.np-h span { font-size: 12.5px; color: var(--muted); }
+.np-mode { align-self: flex-start; }
+.np-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; transition: opacity 0.2s; }
+.np-list.off { opacity: 0.5; }
+.np-row { display: flex; align-items: center; gap: 10px; margin: 0; padding: 7px 8px; border-radius: 8px; cursor: pointer; font-weight: 400; }
+.np-row:hover { background: var(--sunk); }
+.np-row .sender-photo { width: 28px; height: 28px; font-size: 11px; }
+.np-row span { display: flex; flex-direction: column; min-width: 0; }
+.np-row b { font-size: 13px; font-weight: 600; }
+.np-row small { font-size: 11.5px; color: var(--muted); }
+.np-acts { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* A member limited to some numbers: owner-only controls go */
+body.limited #addSender, body.limited #addTemplate, body.limited #syncTemplates, body.limited #saveSettings,
+body.limited #senderList [data-edit], body.limited #senderList [data-del], body.limited #senderList [data-enable],
+body.limited #templateList [data-tedit], body.limited #templateList [data-del], body.limited #setRR,
+body.limited .sender-photo-btn { display: none !important; }
+body.limited #demoRow .toggle { pointer-events: none; opacity: 0.5; }
+.limited-note { display: flex; align-items: flex-start; gap: 8px; margin: -4px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--sunk); color: var(--muted); font-size: 13px; line-height: 1.45; }
+.limited-note svg { flex: none; margin-top: 2px; }
+body.limited #senderList .sender-card .toggle { display: none !important; }

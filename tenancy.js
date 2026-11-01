@@ -601,6 +601,9 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       return res.status(403).send(messagePage('Suspended', 'This workspace is suspended', 'Sending and the dashboard are paused for this workspace. If you think this is a mistake, contact support.', '<a class="auth-btn" href="/logout">Log out</a>'));
     }
     req.role = roleIn(userId, wsId);
+    // Numbers this person may use. null = all (owners always; members unless an owner picked numbers for them).
+    const mem = accounts.members.find((m) => m.userId === userId && m.wsId === wsId);
+    req.senderScope = req.role !== 'owner' && Array.isArray(mem?.senders) ? new Set(mem.senders) : null;
     req.session = session;
     // A workspace with a password: its data stays closed until it's entered in this sign-in. The page itself loads
     // (it shows the password screen), and so do the calls that screen needs.
@@ -661,6 +664,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         admin: req.admin,
         mail: mail.enabled(),
         role: req.role,
+        senders: req.senderScope ? [...req.senderScope] : null, // the numbers you're limited to (null = all)
         workspace: { id: ws.meta.id, name: ws.meta.name, protected: Boolean(ws.meta.lock) },
         locked: isLocked(ws, req.session),
         workspaces: membershipsOf(req.user.id).map((m) => ({ id: m.wsId, name: accounts.workspaces.find((w) => w.id === m.wsId)?.name, role: m.role, protected: Boolean(loaded.get(m.wsId)?.meta.lock) })),
@@ -767,7 +771,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     app.get('/api/team', (req, res) => {
       const wsId = current().meta.id;
       res.json({
-        members: accounts.members.filter((m) => m.wsId === wsId).map((m) => ({ ...publicUser(accounts.users.find((u) => u.id === m.userId) || {}), role: m.role, joinedAt: m.joinedAt, you: m.userId === req.user.id })),
+        members: accounts.members.filter((m) => m.wsId === wsId).map((m) => ({ ...publicUser(accounts.users.find((u) => u.id === m.userId) || {}), role: m.role, joinedAt: m.joinedAt, you: m.userId === req.user.id, senders: m.role === 'owner' || !Array.isArray(m.senders) ? null : m.senders })),
         invites: req.role === 'owner' ? accounts.invites.filter((i) => i.wsId === wsId && new Date(i.expiresAt) > new Date()).map((i) => ({ id: i.id, email: i.email, role: i.role, expiresAt: i.expiresAt, createdAt: i.createdAt || null, invitedBy: accounts.users.find((u) => u.id === i.invitedBy)?.name || null })) : [],
         role: req.role,
       });
@@ -829,9 +833,21 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       ownerOnly(req);
       const m = accounts.members.find((x) => x.wsId === current().meta.id && x.userId === req.params.userId);
       if (!m) throw fail('Not a member', 404);
-      const role = req.body.role === 'owner' ? 'owner' : 'member';
-      if (m.role === 'owner' && role === 'member' && accounts.members.filter((x) => x.wsId === m.wsId && x.role === 'owner').length === 1) throw fail('A workspace needs at least one owner');
-      m.role = role;
+      if ('role' in req.body) {
+        const role = req.body.role === 'owner' ? 'owner' : 'member';
+        if (m.role === 'owner' && role === 'member' && accounts.members.filter((x) => x.wsId === m.wsId && x.role === 'owner').length === 1) throw fail('A workspace needs at least one owner');
+        m.role = role;
+      }
+      // Which numbers a member may use: null = all of them, or a list of this workspace's number ids.
+      if ('senders' in req.body) {
+        if (req.body.senders === null) delete m.senders;
+        else {
+          const known = new Set(current().db.senders.map((s) => s.id));
+          const ids = [...new Set((Array.isArray(req.body.senders) ? req.body.senders : []).map(String))].filter((x) => known.has(x));
+          if (!ids.length) throw fail('Pick at least one number, or choose All numbers');
+          m.senders = ids;
+        }
+      }
       saveAccounts();
       res.json({ ok: true });
     }));

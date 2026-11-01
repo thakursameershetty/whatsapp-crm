@@ -579,6 +579,50 @@ function publicSettings(req) {
   };
 }
 
+// --- Members limited to some numbers ---------------------------------------------------------------
+// An owner can limit a member to chosen numbers (req.senderScope, set in tenancy.js; null = all numbers).
+// Enforced here for every request, so it holds whatever the page does: lists are filtered, a chat or campaign on
+// another number is refused, and workspace-wide changes (settings, numbers, templates) are for owners only.
+// Contacts stay shared with everyone in the workspace.
+const keySender = (key) => { const k = String(key || ''); const i = k.lastIndexOf(':'); return i > 0 ? k.slice(0, i) : ''; };
+const OWNER_ONLY_WRITES = [/^\/api\/settings$/, /^\/api\/senders(\/|$)/, /^\/api\/templates(\/|$)/, /^\/api\/demo\/seed$/];
+app.use('/api', (req, res, next) => {
+  const scope = req.senderScope;
+  if (!scope) return next();
+  const p = req.baseUrl + req.path, write = req.method !== 'GET';
+  const no = (msg) => res.status(403).json({ error: msg });
+  if (write && OWNER_ONLY_WRITES.some((re) => re.test(p)) && !/^\/api\/senders\/[^/]+\/photo\/refresh$/.test(p)) return no('Only the workspace owner can change this.');
+  // A chat: its key starts with the number it's on.
+  const chat = /^\/api\/inbox\/([^/]+)/.exec(p);
+  if (chat && !scope.has(keySender(decodeURIComponent(chat[1])))) return no('This chat is on a number you don’t have access to.');
+  if (p === '/api/demo/inbound' && !scope.has(keySender(req.body?.key))) return no('This chat is on a number you don’t have access to.');
+  // A campaign: seeing it needs one of its numbers; acting on it needs all of them.
+  const camp = /^\/api\/campaigns\/([^/]+)/.exec(p);
+  if (camp) {
+    const c = db.campaigns.find((x) => x.id === camp[1]);
+    if (c && !(write ? c.senderIds.every((x) => scope.has(x)) : c.senderIds.some((x) => scope.has(x)))) return no('This campaign uses a number you don’t have access to.');
+  }
+  // Sending: only from your numbers.
+  if (p === '/api/campaigns' && write && (req.body?.senderIds || []).some((x) => !scope.has(x))) return no('You can only send from your own numbers.');
+  if (p === '/api/send/test' && !scope.has(req.body?.senderId)) return no('You can only send from your own numbers.');
+  if (/^\/api\/senders\/([^/]+)\/photo/.test(p) && !scope.has(p.split('/')[3])) return no('That number isn’t yours.');
+  // Lists: only what's on your numbers.
+  if (req.method === 'GET') {
+    const send = res.json.bind(res);
+    const wabas = new Set(db.senders.filter((s) => scope.has(s.id)).map((s) => s.wabaId).filter(Boolean));
+    const notesOk = (n) => (n.link?.key ? scope.has(keySender(n.link.key)) : n.link?.id && n.link?.tab === 'campaigns' ? (db.campaigns.find((c) => c.id === n.link.id)?.senderIds || []).some((x) => scope.has(x)) : true);
+    const filters = {
+      '/api/senders': (b) => b.filter((s) => scope.has(s.id)),
+      '/api/templates': (b) => b.filter((t) => !t.wabaId || wabas.has(t.wabaId)),
+      '/api/campaigns': (b) => b.filter((c) => (c.senderIds || []).some((x) => scope.has(x))),
+      '/api/inbox': (b) => { const conversations = b.conversations.filter((c) => scope.has(keySender(c.key))); return { ...b, conversations, unread: conversations.reduce((n, c) => n + (c.unread || 0), 0) }; },
+      '/api/notifications': (b) => { const notifications = b.notifications.filter(notesOk); return { ...b, notifications, unread: notifications.filter((n) => !n.read).length }; },
+    };
+    if (filters[p]) res.json = (body) => send(filters[p](body));
+  }
+  next();
+});
+
 app.get('/api/settings', (req, res) => res.json(publicSettings(req)));
 
 app.put('/api/settings', (req, res) => {
@@ -1875,7 +1919,9 @@ function computeStats(query = {}) {
   const range = [7, 14, 30, 90].includes(Number(query.range)) ? Number(query.range) : 14;
   const senderF = query.sender || '';
   const templateF = query.template || '';
-  const all = db.campaigns.filter((c) => Boolean(c.demo) === demo);
+  const scope = query.scope || null; // numbers a limited member may see
+  const inScope = (id) => !scope || scope.has(id);
+  const all = db.campaigns.filter((c) => Boolean(c.demo) === demo && c.senderIds.some(inScope));
   const camps = all.filter((c) => (!templateF || c.templateName === templateF) && (!senderF || c.senderIds.includes(senderF)));
 
   // Daily buckets for the range, plus the previous period of the same length for comparisons.
@@ -1897,7 +1943,7 @@ function computeStats(query = {}) {
   const totals = { ...blank(), pending: 0 };
   const prev = blank();
   const perSender = {};
-  for (const s of db.senders) perSender[s.id] = { today: 0, sent: 0, delivered: 0, read: 0, failed: 0 };
+  for (const s of db.senders.filter((x) => inScope(x.id))) perSender[s.id] = { today: 0, sent: 0, delivered: 0, read: 0, failed: 0 };
 
   const add = (bucket, r) => {
     const ok = r.status === 'sent' || r.status === 'delivered' || r.status === 'read';
@@ -1909,7 +1955,7 @@ function computeStats(query = {}) {
 
   for (const c of camps) {
     for (const r of c.recipients) {
-      if (senderF && r.senderId !== senderF) continue;
+      if ((senderF && r.senderId !== senderF) || !inScope(r.senderId)) continue;
       if (r.status === 'pending' || r.status === 'queued') { totals.pending++; continue; }
       const at = r.sentAt || r.failedAt;
       if (!at) continue;
@@ -1945,7 +1991,7 @@ function computeStats(query = {}) {
   for (const m of db.messages) if (m.dir === 'out' && m.type === 'template' && Boolean(m.demo) === demo) count(m.senderId, m.wa, m.ts);
   const shared = (s) => db.senders.filter((x) => group(x) === group(s)).length;
 
-  const senders = db.senders.map((s) => ({
+  const senders = db.senders.filter((s) => inScope(s.id)).map((s) => ({
     id: s.id,
     label: s.label,
     displayPhone: s.displayPhone,
@@ -1988,6 +2034,7 @@ function computeStats(query = {}) {
 // Meta's limit changes as quality and volume change, so it's re-read when the dashboard loads and it's over 6h old.
 const LIMIT_REFRESH_MS = 6 * 3600 * 1000;
 app.get('/api/stats', wrap(async (req, res) => {
+  req.query.scope = req.senderScope; // a member limited to some numbers sees stats for those only
   if (!db.settings.demoMode) {
     const stale = db.senders.filter((s) => s.accessToken && !(Date.parse(s.limitCheckedAt) > Date.now() - LIMIT_REFRESH_MS));
     if (stale.length) {

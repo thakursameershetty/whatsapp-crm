@@ -2661,11 +2661,17 @@ async function loadMe() {
   $('#acctAv').setAttribute('style', avatarStyle(workspace.id));
   $('#acctAv').innerHTML = `${esc((workspace.name || '?').slice(0, 1).toUpperCase())}${faceHtml(user, 'acct-me-badge')}`;
   document.body.classList.toggle('no-ai', !state.me.admin); // hides the Assistant and AI settings
+  // A member limited to some numbers: owner-only controls go (the server refuses them anyway), and Settings says why.
+  const limited = Array.isArray(state.me.senders);
+  document.body.classList.toggle('limited', limited);
+  const ln = $('#limitedNote');
+  if (ln) { ln.classList.toggle('hidden', !limited); if (limited) ln.innerHTML = `${icon('lock', 14)}<span>You work with <b>${state.me.senders.length} number${state.me.senders.length === 1 ? '' : 's'}</b> the owner picked for you. Workspace settings, numbers and templates are changed by the owner.</span>`; }
+  $$('#tab-settings .grid-2 input, #tab-settings .grid-2 select').forEach((x) => { if (x.closest('.card')?.querySelector('#saveSettings')) x.disabled = limited; });
   $('#acctWs').textContent = workspace.name;
   $('#acctUser').textContent = user.name || user.email;
   $('#wsName').value = workspace.name;
   $('#wsName').disabled = $('#wsSave').disabled = state.me.role !== 'owner';
-  $('#acctMe').innerHTML = `<span class="acct-photo">${faceHtml(user, 'lg')}<label class="acct-photo-btn" title="${user.photo ? 'Change your photo' : 'Add a photo'}">${icon('upload', 13)}<input type="file" hidden accept="image/*" id="acctPhotoFile" /></label></span><span class="acct-text"><b>${esc(user.name || user.email)}</b><span>${esc(user.email)}</span></span><span class="pill ${state.me.role === 'owner' ? 'scheduled' : ''}">${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
+  $('#acctMe').innerHTML = `<span class="acct-photo">${faceHtml(user, 'lg')}</span><span class="acct-text"><b>${esc(user.name || user.email)}</b><span>${esc(user.email)}</span></span><span class="pill ${state.me.role === 'owner' ? 'scheduled' : ''}">${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
   $('#acctPhotoRm').classList.toggle('hidden', !user.photo);
   const n = state.me.workspaces.length;
   $('#acctFacts').innerHTML = `<div><dt>Email</dt><dd>${user.emailVerified ? '<span class="acct-ok">Confirmed</span>' : 'Not confirmed yet'}</dd></div>
@@ -2897,6 +2903,56 @@ function allPop(anchor) {
   row.addEventListener('focusin', (e) => { focusEl = e.target.closest('.tm-stack .tm-av'); kick(); });
   row.addEventListener('focusout', () => { focusEl = null; kick(); });
 })();
+// Which numbers a member works with, under their name in the Team window. Owners always have all of them.
+function numsChip(p, canEdit) {
+  // Only members can be limited: owners always use every number, so they get no chip (and with only owners
+  // in the workspace there's nothing to set at all).
+  if (p.role === 'owner') return '';
+  const all = !Array.isArray(p.senders);
+  const ss = all ? [] : p.senders.map((id) => state.senders.find((s) => s.id === id)).filter(Boolean);
+  const label = all ? 'All numbers' : ss.length === 1 ? ss[0].label : `${ss.length} numbers`;
+  const faces = ss.slice(0, 3).map((s) => senderPhotoHtml(s)).join('');
+  const inner = `${faces ? `<span class="nc-faces">${faces}</span>` : icon('phone', 12)}<span>${esc(label)}</span>`;
+  return canEdit
+    ? `<button type="button" class="nums-chip" data-nums="${esc(p.key)}" title="Choose which numbers ${esc(p.name || p.email)} can use">${inner}${icon('chevron-down', 12)}</button>`
+    : `<span class="nums-chip static">${inner}</span>`;
+}
+// Owner picks the numbers a member may use: all of them, or only some.
+function numbersPicker(anchor, p, done) {
+  const r = anchor.getBoundingClientRect();
+  let pick = new Set(Array.isArray(p.senders) ? p.senders : []);
+  let allMode = !Array.isArray(p.senders);
+  const el = Sheet.Menu.panel(r.left, r.bottom + 6, `
+    <div class="np">
+      <div class="np-h"><b>Numbers for ${esc((p.name || p.email).split(' ')[0])}</b><span>They see chats, campaigns and stats only for these, and send only from them.</span></div>
+      <div class="seg np-mode" role="radiogroup"><button type="button" data-mode="all">All numbers</button><button type="button" data-mode="some">Only some</button></div>
+      <div class="np-list"></div>
+      <div class="np-acts"><button type="button" class="btn sm quiet" data-np="cancel">Cancel</button><button type="button" class="btn sm primary" data-np="save">Save</button></div>
+    </div>`);
+  el.classList.add('np-pop');
+  const draw = () => {
+    el.querySelectorAll('.np-mode button').forEach((b) => b.classList.toggle('active', (b.dataset.mode === 'all') === allMode));
+    el.querySelector('.np-list').classList.toggle('off', allMode);
+    el.querySelector('.np-list').innerHTML = state.senders.map((s) => `<label class="np-row"><input type="checkbox" class="cb" value="${esc(s.id)}" ${allMode || pick.has(s.id) ? 'checked' : ''} ${allMode ? 'disabled' : ''} />${senderPhotoHtml(s)}<span><b>${esc(s.label)}</b><small>${esc(s.displayPhone || '')}</small></span></label>`).join('') || '<p class="sub">No numbers yet.</p>';
+    Motion.segs(el);
+  };
+  draw();
+  el.addEventListener('click', (e) => {
+    const m = e.target.closest('[data-mode]');
+    if (m) { allMode = m.dataset.mode === 'all'; if (!allMode && !pick.size) pick = new Set(state.senders.map((s) => s.id)); draw(); return; }
+    const a = e.target.closest('[data-np]');
+    if (!a) return;
+    if (a.dataset.np === 'cancel') return Sheet.Menu.close();
+    guard(async () => {
+      await api('/team/members/' + p.id, { method: 'PATCH', body: { senders: allMode ? null : [...pick] } });
+      Sheet.Menu.close();
+      toast(allMode ? `${p.name || p.email} can use every number` : `${p.name || p.email} can use ${pick.size} number${pick.size === 1 ? '' : 's'}`);
+      await done();
+    }, a);
+  });
+  el.addEventListener('change', (e) => { const c = e.target.closest('input[type=checkbox]'); if (!c) return; if (c.checked) pick.add(c.value); else pick.delete(c.value); el.querySelector('[data-np="save"]').disabled = !allMode && !pick.size; });
+}
+
 // The team window: invite by email at the top, everyone below with their role. Opened from any face or the "+".
 function teamModal({ focus = false } = {}) {
   const owner = state.team.role === 'owner';
@@ -2917,7 +2973,7 @@ function teamModal({ focus = false } = {}) {
       const canMenu = inv ? owner : owner || p.you;
       return `<div class="tmm-row ${inv ? 'invited' : ''}">
         <span class="tm-pic">${tmAvatar(p)}</span>
-        <div class="tmm-who"><b>${esc(inv ? p.email : p.name || p.email)}${p.you ? ' <span class="muted">(You)</span>' : ''}</b><span>${inv ? `Expires ${esc(relTime(p.expiresAt))}` : esc(p.email)}</span></div>
+        <div class="tmm-who"><b>${esc(inv ? p.email : p.name || p.email)}${p.you ? ' <span class="muted">(You)</span>' : ''}</b><span>${inv ? `Expires ${esc(relTime(p.expiresAt))}` : esc(p.email)}</span>${inv ? '' : numsChip(p, owner)}</div>
         ${canMenu ? `<button type="button" class="tmm-role" data-key="${esc(p.key)}" aria-haspopup="menu">${role}${icon('chevron-down', 14)}</button>` : `<span class="tmm-role static">${role}</span>`}
       </div>`;
     }).join('');
@@ -2946,6 +3002,13 @@ function teamModal({ focus = false } = {}) {
     });
     if (focus) setTimeout(() => input.focus(), 50);
   }
+  // Numbers a member may use (owners always have all of them).
+  $('#tmmList', body).addEventListener('click', (e) => {
+    const n = e.target.closest('[data-nums]');
+    if (!n) return;
+    const p = teamPeople().find((x) => x.key === n.dataset.nums);
+    if (p) numbersPicker(n, p, refresh);
+  });
   // Role menu: change role / remove for members; link, resend, cancel for invites; leave for yourself.
   $('#tmmList', body).addEventListener('click', (e) => {
     const b = e.target.closest('.tmm-role[data-key]');
@@ -3009,10 +3072,20 @@ $('#acctBtn').addEventListener('click', (e) => {
     if (act === 'admin') location.href = '/admin.html';
   });
 });
+// The photo block in Edit your account (kept in step when the photo is uploaded or removed).
+const aePhotoHtml = () => faceHtml(state.me.user, 'lg');
+function refreshAePhoto() {
+  const ph = document.getElementById('aePhoto');
+  if (!ph) return;
+  ph.innerHTML = aePhotoHtml();
+  const u = state.me.user, act = ph.parentElement.querySelector('.ae-photo-act .row');
+  act.innerHTML = `<label class="btn sm">${icon('upload', 14)}${u.photo ? 'Change photo' : 'Upload photo'}<input type="file" hidden accept="image/*" id="acctPhotoFile" /></label>${u.photo ? '<button type="button" class="btn sm quiet danger" id="acctPhotoRm">Remove</button>' : ''}`;
+}
 // Edit your own name and email (a new email needs your password, then a confirmation link).
 $('#acctEdit').addEventListener('click', () => {
   const u = state.me.user;
   const body = openModal('Edit your account', `
+    <div class="ae-photo"><span id="aePhoto">${aePhotoHtml()}</span><div class="ae-photo-act"><b>Profile photo</b><span class="sub">Shown to your team and on your messages in the app.</span><div class="row tight"><label class="btn sm">${icon('upload', 14)}${u.photo ? 'Change photo' : 'Upload photo'}<input type="file" hidden accept="image/*" id="acctPhotoFile" /></label>${u.photo ? '<button type="button" class="btn sm quiet danger" id="acctPhotoRm">Remove</button>' : ''}</div></div></div>
     <label>Your name<input id="aeName" maxlength="60" value="${esc(u.name || '')}" autocomplete="name" /></label>
     <label>Email<input id="aeEmail" type="email" value="${esc(u.email)}" autocomplete="email" /></label>
     <label id="aePwWrap" class="hidden">Current password <span class="opt">needed to change your email</span><input id="aePw" type="password" autocomplete="current-password" /></label>
@@ -3182,11 +3255,12 @@ document.addEventListener('change', (e) => {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed');
     toast('Profile photo updated');
     await loadMe(); loadTeam().catch(() => {});
+    refreshAePhoto();
   });
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#acctPhotoRm')) return;
-  guard(async () => { await api('/account/photo', { method: 'DELETE' }); toast('Photo removed'); await loadMe(); loadTeam().catch(() => {}); });
+  guard(async () => { await api('/account/photo', { method: 'DELETE' }); toast('Photo removed'); await loadMe(); loadTeam().catch(() => {}); refreshAePhoto(); });
 });
 // Delete the current workspace: confirm by typing its name, then land in another workspace.
 function deleteWorkspace() {
