@@ -615,6 +615,9 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     // Numbers this person may use. null = all (owners always; members unless an owner picked numbers for them).
     const mem = accounts.members.find((m) => m.userId === userId && m.wsId === wsId);
     req.senderScope = req.role !== 'owner' && Array.isArray(mem?.senders) ? new Set(mem.senders) : null;
+    // The AI assistant: admins always; otherwise the workspace must have AI switched on (by an admin), and then
+    // owners have it and members only when an owner turned it on for them.
+    req.ai = req.admin || (aiOn(ws) && (req.role === 'owner' || mem?.ai === true));
     req.session = session;
     // A workspace with a password: its data stays closed until it's entered in this sign-in. The page itself loads
     // (it shows the password screen), and so do the calls that screen needs.
@@ -673,6 +676,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       res.json({
         user: { ...publicUser(req.user), photo: photoUrl(req.user), emailVerified: req.user.emailVerified !== false, createdAt: req.user.createdAt, deletionRequest: req.user.deletionRequest || null },
         admin: req.admin,
+        ai: req.ai, // you can use the AI assistant here
+        aiWorkspace: aiOn(ws), // AI is switched on for this workspace (owners choose which members get it)
         mail: mail.enabled(),
         role: req.role,
         senders: req.senderScope ? [...req.senderScope] : null, // the numbers you're limited to (null = all)
@@ -782,7 +787,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     app.get('/api/team', (req, res) => {
       const wsId = current().meta.id;
       res.json({
-        members: accounts.members.filter((m) => m.wsId === wsId).map((m) => ({ ...publicUser(accounts.users.find((u) => u.id === m.userId) || {}), role: m.role, joinedAt: m.joinedAt, you: m.userId === req.user.id, senders: m.role === 'owner' || !Array.isArray(m.senders) ? null : m.senders })),
+        members: accounts.members.filter((m) => m.wsId === wsId).map((m) => ({ ...publicUser(accounts.users.find((u) => u.id === m.userId) || {}), role: m.role, joinedAt: m.joinedAt, you: m.userId === req.user.id, senders: m.role === 'owner' || !Array.isArray(m.senders) ? null : m.senders, ai: m.role === 'owner' || m.ai === true || isAdmin(accounts.users.find((u) => u.id === m.userId)), aiAlways: m.role === 'owner' || isAdmin(accounts.users.find((u) => u.id === m.userId)) })),
+        aiWorkspace: aiOn(current()),
         invites: req.role === 'owner' ? accounts.invites.filter((i) => i.wsId === wsId && new Date(i.expiresAt) > new Date()).map((i) => ({ id: i.id, email: i.email, role: i.role, expiresAt: i.expiresAt, createdAt: i.createdAt || null, invitedBy: accounts.users.find((u) => u.id === i.invitedBy)?.name || null })) : [],
         role: req.role,
       });
@@ -859,6 +865,11 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
           m.senders = ids;
         }
       }
+      // The AI assistant for a member (owners always have it, once the workspace has AI).
+      if ('ai' in req.body) {
+        if (!aiOn(current())) throw fail('The AI assistant isn’t switched on for this workspace');
+        if (req.body.ai === true) m.ai = true; else delete m.ai;
+      }
       saveAccounts();
       res.json({ ok: true });
     }));
@@ -910,6 +921,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         return {
           id: m.id, name: m.name, createdAt: m.createdAt, suspended: Boolean(m.suspended), dailyLimit: m.dailyLimit ?? null, legacy: Boolean(m.legacy),
           members: accounts.members.filter((x) => x.wsId === m.id).map((x) => { const u = accounts.users.find((y) => y.id === x.userId); return { id: u?.id, name: u?.name || '', email: u?.email, role: x.role, admin: isAdmin(u) }; }),
+          ai: aiOn(ws), aiBuiltIn: ours(ws),
           demoMode: Boolean(d.settings.demoMode), numbers: d.senders.filter((s) => !s.seed).length, contacts: d.contacts.length,
           campaigns: d.campaigns.filter((c) => !c.demo).length, sent24h: sent(day), sent30d: sent(month), failed30d: failed30, lastActivity: last,
         };
@@ -922,6 +934,10 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       if (typeof req.body.suspended === 'boolean') {
         ws.meta.suspended = req.body.suspended;
         if (req.body.suspended) ws.meta.suspendedAt = now(); else delete ws.meta.suspendedAt;
+      }
+      if (typeof req.body.ai === 'boolean') {
+        if (!req.body.ai && ours(ws)) throw fail('AI is always on for your own workspaces');
+        if (req.body.ai) ws.meta.aiAllowed = true; else delete ws.meta.aiAllowed;
       }
       if ('dailyLimit' in req.body) {
         const n = req.body.dailyLimit === null || req.body.dailyLimit === '' ? null : Math.max(0, Math.floor(Number(req.body.dailyLimit)));
@@ -1074,6 +1090,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
   }
 
   const ours = (ws) => Boolean(ws && (ws.meta.legacy || accounts.members.some((m) => m.wsId === ws.meta.id && isAdmin(accounts.users.find((u) => u.id === m.userId)))));
+  // AI for a workspace: always for ours, and for any other once an admin switches it on (Admin panel).
+  const aiOn = (ws) => Boolean(ws && (ours(ws) || ws.meta.aiAllowed));
 
   return {
     db, save, id, current, forWorkspace, allWorkspaces, byPhoneNumberId, createWorkspace,
@@ -1087,8 +1105,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     // workspace and workspaces an admin belongs to get it.
     demoAllowed: (ws = current()) => ours(ws),
     // The AI features too (the Assistant and the Inbox lead assistant). Pages and APIs check
-    // req.admin; this is for work with no one signed in, like drafting a reply to a webhook.
-    aiAllowed: (ws = current()) => ours(ws),
+    // req.ai (per person); this is for work with no one signed in, like drafting a reply to a webhook.
+    aiAllowed: (ws = current()) => aiOn(ws),
     async flush() { // write everything now (used on shutdown)
       if (accTimer) { clearTimeout(accTimer); accTimer = null; }
       await store.saveAccounts(accounts);

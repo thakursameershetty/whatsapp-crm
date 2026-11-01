@@ -106,7 +106,7 @@ $('[data-tab-go]').addEventListener('click', (e) => showTab(e.currentTarget.data
 // The account menu and the other drawer buttons that leave the page close it too.
 $('#sidebar').addEventListener('click', (e) => { if (e.target.closest('#acctBtn, [data-goto], a[href]') && matchMedia('(max-width: 900px)').matches) setTimeout(() => setDrawer(false), 0); });
 function showTab(name) {
-  if (name === 'assistant' && !state.me?.admin) name = 'overview'; // the AI features are admin-only
+  if (name === 'assistant' && !state.me?.ai) name = 'overview'; // no AI assistant for this person
   const navFor = { reports: 'report' }[name] || name; // pages under another one keep its sidebar item lit
   $$('.side-nav button[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === navFor));
   const wasHidden = $('#tab-' + name)?.classList.contains('hidden');
@@ -1500,7 +1500,7 @@ function setupSticky() {
     document.documentElement.style.setProperty('--gut-top', cs.paddingTop);
   }
   for (const tab of $$('.tab')) {
-    if (/^tab-(inbox|assistant|send|settings)$/.test(tab.id)) continue; // own layouts / a form page
+    if (/^tab-(inbox|assistant|send)$/.test(tab.id)) continue; // own layouts
     const head = [...tab.querySelectorAll('.section-head')].find((h) => !h.closest('.hidden, #campaignDetail, .modal'));
     if (head && !head.classList.contains('sticky-head')) { head.classList.add('sticky-head'); stickyRO.observe(head); }
     tab.querySelectorAll(STICKY_BARS).forEach((b) => { if (!b.classList.contains('sticky-bar')) { b.classList.add('sticky-bar'); stickyRO.observe(b); } });
@@ -1536,7 +1536,17 @@ const LIVE_RELOAD = {
   senders: async () => { await loadSenders(); refreshStats().then(() => state.tab === 'numbers' && renderSenders()).catch(() => {}); },
   templates: () => loadTemplates(),
   settings: async () => { state.settings = await api('/settings'); if (!$('#tab-settings').contains(document.activeElement)) renderSettings(); },
-  team: async () => { await loadMe(); await loadTeam(); await loadSenders(); if (state.tab === 'overview') loadOverview(); },
+  team: async () => {
+    const hadAi = state.me?.ai;
+    await loadMe(); await loadTeam(); await loadSenders();
+    if (state.tab === 'overview') loadOverview();
+    if (hadAi !== state.me.ai) { // the AI assistant was given or taken away: reload what shows it
+      state.settings = await api('/settings');
+      if (!$('#tab-settings').contains(document.activeElement)) renderSettings();
+      if (state.tab === 'assistant' && !state.me.ai) showTab('overview');
+      if (state.tab === 'inbox') window.Inbox?.show();
+    }
+  },
   contacts: () => state.tab === 'contacts' && window.Contacts?.show(),
   campaigns: () => { if (state.tab === 'campaigns') loadCampaigns(); if (state.tab === 'overview') loadOverview(); },
   reports: () => state.tab === 'reports' && window.MetaErrors?.showReports(),
@@ -2752,7 +2762,8 @@ async function loadMe() {
   $('#acctAv').className = 'acct-av ws-av';
   $('#acctAv').setAttribute('style', avatarStyle(workspace.id));
   $('#acctAv').innerHTML = `${esc((workspace.name || '?').slice(0, 1).toUpperCase())}${faceHtml(user, 'acct-me-badge')}`;
-  document.body.classList.toggle('no-ai', !state.me.admin); // hides the Assistant and AI settings
+  document.body.classList.toggle('no-ai', !state.me.ai); // hides the Assistant and AI settings
+  document.body.classList.toggle('no-ai-manage', !(state.me.admin || (state.me.ai && state.me.role === 'owner'))); // AI keys and setup: owners
   // A member limited to some numbers: owner-only controls go (the server refuses them anyway), and Settings says why.
   const limited = Array.isArray(state.me.senders);
   document.body.classList.toggle('limited', limited);
@@ -3081,6 +3092,15 @@ function numsChip(p, canEdit) {
     ? `<button type="button" class="nums-chip" data-nums="${esc(p.key)}" title="Choose which numbers ${esc(p.name || p.email)} can use">${inner}${icon('chevron-down', 12)}</button>`
     : `<span class="nums-chip static">${inner}</span>`;
 }
+// Whether a member can use the AI assistant (once the workspace has AI). Owners always can, so they get no chip.
+function aiChip(p, canEdit) {
+  if (!state.team.aiWorkspace || p.aiAlways) return '';
+  const inner = `${icon('sparkles', 12)}<span>${p.ai ? 'AI on' : 'AI off'}</span>`;
+  return canEdit
+    ? `<button type="button" class="nums-chip ai-chip ${p.ai ? 'on' : ''}" data-aichip="${esc(p.key)}" aria-pressed="${p.ai}" title="${p.ai ? `${esc(p.name || p.email)} can use the AI assistant. Click to turn it off.` : `Let ${esc(p.name || p.email)} use the AI assistant`}">${inner}</button>`
+    : `<span class="nums-chip ai-chip static ${p.ai ? 'on' : ''}">${inner}</span>`;
+}
+const chipsHtml = (p, canEdit) => { const c = numsChip(p, canEdit) + aiChip(p, canEdit); return c ? `<div class="tmm-chips">${c}</div>` : ''; };
 // Owner picks the numbers a member may use: all of them, or only some.
 function numbersPicker(anchor, p, done) {
   const r = anchor.getBoundingClientRect();
@@ -3137,7 +3157,7 @@ function teamModal({ focus = false } = {}) {
       const canMenu = inv ? owner : owner || p.you;
       return `<div class="tmm-row ${inv ? 'invited' : ''}">
         <span class="tm-pic">${tmAvatar(p)}</span>
-        <div class="tmm-who"><b>${esc(inv ? p.email : p.name || p.email)}${p.you ? ' <span class="muted">(You)</span>' : ''}</b><span>${inv ? `Expires ${esc(relTime(p.expiresAt))}` : esc(p.email)}</span>${inv ? '' : numsChip(p, owner)}</div>
+        <div class="tmm-who"><b>${esc(inv ? p.email : p.name || p.email)}${p.you ? ' <span class="muted">(You)</span>' : ''}</b><span>${inv ? `Expires ${esc(relTime(p.expiresAt))}` : esc(p.email)}</span>${inv ? '' : chipsHtml(p, owner)}</div>
         ${canMenu ? `<button type="button" class="tmm-role" data-key="${esc(p.key)}" aria-haspopup="menu">${role}${icon('chevron-down', 14)}</button>` : `<span class="tmm-role static">${role}</span>`}
       </div>`;
     }).join('');
@@ -3172,6 +3192,18 @@ function teamModal({ focus = false } = {}) {
     if (!n) return;
     const p = teamPeople().find((x) => x.key === n.dataset.nums);
     if (p) numbersPicker(n, p, refresh);
+  });
+  // The AI assistant for a member: one click turns it on or off.
+  $('#tmmList', body).addEventListener('click', (e) => {
+    const c = e.target.closest('[data-aichip]');
+    if (!c) return;
+    const p = teamPeople().find((x) => x.key === c.dataset.aichip);
+    if (!p) return;
+    guard(async () => {
+      await api('/team/members/' + p.id, { method: 'PATCH', body: { ai: !p.ai } });
+      toast(!p.ai ? `${p.name || p.email} can use the AI assistant` : `${p.name || p.email} can no longer use the AI assistant`);
+      await refresh();
+    }, c);
   });
   // Role menu: change role / remove for members; link, resend, cancel for invites; leave for yourself.
   $('#tmmList', body).addEventListener('click', (e) => {

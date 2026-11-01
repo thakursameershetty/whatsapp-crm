@@ -548,9 +548,16 @@ app.use('/api', (req, res, next) => {
   next();
 });
 app.use(security.rateLimit); // after sign-in, so limits are per user
-// The AI features (the Assistant and the Inbox lead assistant) are admin-only for now.
+// An admin switching a workspace's AI on or off: tell that workspace's open pages (they reload who can use it).
+app.patch('/api/admin/workspaces/:id', (req, res, next) => {
+  res.on('finish', () => { if (res.statusCode < 400 && 'ai' in (req.body || {})) broadcastTo(req.params.id, { kind: 'changed', area: 'team', tab: '' }); });
+  next();
+});
+// The AI features (the Assistant and the Inbox lead assistant): admins, and the people a workspace gave it to (req.ai).
 const AI_PATHS = ['/api/ai', /^\/api\/inbox\/[^/]+\/(draft|ai)$/];
-app.use(AI_PATHS, (req, res, next) => (req.admin ? next() : res.status(403).json({ error: 'The AI assistant isn’t available on this account' })));
+app.use(AI_PATHS, (req, res, next) => (req.ai ? next() : res.status(403).json({ error: 'The AI assistant isn’t available on this account' })));
+// Who sets the AI up (keys, provider, the lead assistant): admins, and owners of a workspace with AI.
+const aiManage = (req) => req.admin || (req.ai && req.role === 'owner');
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // Each page has its own address (/send, /inbox…): they're all the one app page, which shows the right one.
@@ -581,8 +588,10 @@ function aiConfig() {
 }
 function publicSettings(req) {
   const { anthropicApiKey, geminiApiKey, leadAgent, aiProvider, geminiModel, ...rest } = db.settings;
-  if (!req.admin) return { ...rest, demoAllowed: tenants.demoAllowed() }; // AI is admin-only
+  if (!req.ai) return { ...rest, demoAllowed: tenants.demoAllowed() }; // no AI for this person
   const ai = aiConfig();
+  // Members with AI use it, but don't see the keys.
+  if (!aiManage(req)) return { ...rest, leadAgent, demoAllowed: tenants.demoAllowed(), aiProvider: ai.provider, hasAiKey: Boolean(ai.key), hasGeminiKey: Boolean(ai.keys.gemini) };
   return {
     ...rest,
     leadAgent,
@@ -654,12 +663,12 @@ app.put('/api/settings', (req, res) => {
   if (!READ_RECEIPTS.includes(db.settings.readReceipts)) db.settings.readReceipts = 'open';
   db.settings.concurrencyPerNumber = Math.min(50, Math.max(1, Number(db.settings.concurrencyPerNumber) || 1));
   db.settings.delayMsPerNumber = Math.max(0, Number(db.settings.delayMsPerNumber) || 0);
-  if (req.admin) saveAiSettings(req.body);
+  if (aiManage(req)) saveAiSettings(req.body);
   save();
   res.json(publicSettings(req));
 });
 
-// AI keys, provider and the lead assistant (admin-only, see AI_PATHS).
+// AI keys, provider and the lead assistant (admins and owners with AI, see aiManage).
 function saveAiSettings(body) {
   // Blank means "keep the saved key"; removing it is an explicit flag.
   if (typeof body.anthropicApiKey === 'string' && body.anthropicApiKey.trim()) db.settings.anthropicApiKey = body.anthropicApiKey.trim();
@@ -1687,7 +1696,7 @@ app.get('/api/inbox/:key', wrap((req, res) => {
     }
   }
   const messages = [...own, ...sent].sort((a, b) => a.ts.localeCompare(b.ts));
-  res.json({ conversation: conversationInfo(key, own, recipientNames()), messages, ai: req.admin ? leadApi.stateFor(key) : null, contact: contactsApi.byPhone(wa) || null, tags: db.tags });
+  res.json({ conversation: conversationInfo(key, own, recipientNames()), messages, ai: req.ai ? leadApi.stateFor(key) : null, contact: contactsApi.byPhone(wa) || null, tags: db.tags });
 }));
 
 // Mark a conversation read here, and (live) send blue ticks to the person.

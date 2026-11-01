@@ -4660,8 +4660,10 @@ body.limited #senderList .sender-card .toggle { display: none !important; }
 .na-face { position: relative; margin-left: -8px; display: inline-grid; }
 .na-face .tm-face { width: 28px; height: 28px; font-size: 10.5px; box-shadow: 0 0 0 2.5px var(--surface); }
 .na-more { width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--sunk); box-shadow: 0 0 0 2.5px var(--surface); font: 600 11px Inter, sans-serif; color: var(--text); z-index: 0; }
-.na-gear { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; transition: background 0.15s, color 0.15s, transform 0.3s; }
-.na-gear:hover { background: var(--sunk); color: var(--text); transform: rotate(45deg); }
+.na-gear { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.na-gear svg { transition: transform 0.3s; }
+.na-gear:hover { background: var(--sunk); color: var(--text); }
+.na-gear:hover svg { transform: rotate(45deg); } /* only the gear turns; the round button stays put */
 /* Number settings modal */
 .nm-head { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; padding: 12px; border-radius: 12px; background: var(--sunk); }
 .nm-head .sender-photo { width: 40px; height: 40px; }
@@ -4730,7 +4732,7 @@ button.adm-people:hover { background: var(--sunk); }
 /* Pinned by the stylesheet itself (not only by a class added after drawing), so a page that redraws its header
    (Campaigns refreshes every few seconds) never has a moment where it isn't pinned. */
 #tab-overview > .section-head, #tab-contacts > .section-head, #tab-templates > .section-head, #tab-numbers > .section-head,
-#tab-notifications > .section-head, #tab-report > .section-head, #tab-reports > .section-head, #campaignList > .section-head {
+#tab-notifications > .section-head, #tab-report > .section-head, #tab-reports > .section-head, #campaignList > .section-head, #tab-settings > .section-head {
   position: sticky; top: var(--stick-top); z-index: 25;
   margin-top: calc(-1 * var(--gut-top, 24px)); margin-left: calc(-1 * var(--gut, 28px)); margin-right: calc(-1 * var(--gut, 28px));
   padding: var(--gut-top, 24px) var(--gut, 28px) 16px; margin-bottom: 8px; background: var(--bg);
@@ -4748,7 +4750,7 @@ button.adm-people:hover { background: var(--sunk); }
 body { background-attachment: fixed; }
 .sticky-head, .sticky-bar, .sticky-bar::before,
 #tab-overview > .section-head, #tab-contacts > .section-head, #tab-templates > .section-head, #tab-numbers > .section-head,
-#tab-notifications > .section-head, #tab-report > .section-head, #tab-reports > .section-head, #campaignList > .section-head,
+#tab-notifications > .section-head, #tab-report > .section-head, #tab-reports > .section-head, #campaignList > .section-head, #tab-settings > .section-head,
 #ovFilters, #tab-contacts .ct-bar, #tplBar, #campaignList .cp-tools, #tab-report .ec-bar, #tab-reports .list-bar, #tab-notifications .nt-bar,
 :is(#ovFilters, #tab-contacts .ct-bar, #tplBar, #campaignList .cp-tools, #tab-report .ec-bar, #tab-reports .list-bar, #tab-notifications .nt-bar)::before {
   background: var(--bg) linear-gradient(180deg, var(--bg-top) 0, var(--bg) 420px) fixed;
@@ -4766,3 +4768,14 @@ body { background-attachment: fixed; }
 .ib-tools { position: relative; z-index: 2; transition: box-shadow 0.2s; }
 .ib-head { transition: box-shadow 0.2s; }
 .ib-tools.stuck, .ib-head.stuck { box-shadow: 0 1px 0 var(--hair), 0 8px 16px -14px rgba(0, 0, 0, 0.35); }
+
+/* Team window: a member's chips (numbers, AI assistant) side by side */
+.tmm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-chip.on { color: var(--accent-text); background: var(--accent-soft); box-shadow: none; }
+.ai-chip.on:hover { color: var(--accent-text); filter: brightness(0.97); }
+.ai-chip.static.on { background: var(--accent-soft); }
+/* Members given the AI assistant use it; its keys and setup stay with owners */
+body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none !important; }
+/* Admin: the AI switch per workspace (locked on for our own) */
+.adm-ai { display: inline-flex; cursor: pointer; }
+.adm-ai:has(input:disabled) { opacity: 0.55; cursor: not-allowed; }
