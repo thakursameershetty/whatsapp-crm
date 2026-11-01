@@ -822,6 +822,14 @@
   const closeErrPop = () => { errPop?.el.remove(); errPop?.btn.setAttribute('aria-expanded', 'false'); errPop = null; };
   document.addEventListener('click', (e) => {
     if (errPop && e.composedPath().includes(errPop.el)) {
+      const rep = e.target.closest('[data-report]');
+      if (rep) {
+        e.preventDefault();
+        const { code, title } = errPop.el.dataset;
+        closeErrPop();
+        window.MetaErrors?.report({ code, area: 'Inbox & replies', from: '/inbox', message: `A message to ${current()?.name || current()?.wa ? (current().name || '+' + current().wa) : 'a contact'} wasn't delivered: ${title}.\n\n` });
+        return;
+      }
       const ec = e.target.closest('[data-ec]');
       if (ec) { e.preventDefault(); const code = ec.dataset.ec; closeErrPop(); window.MetaErrors?.open(code); return; }
       const c = e.target.closest('[data-copy]');
@@ -838,8 +846,11 @@
     const code = b.dataset.code;
     el.innerHTML = `<b>${esc(b.dataset.title)}</b>${b.dataset.explain ? `<p>${esc(b.dataset.explain)}</p>` : ''}
       <div class="ib-err-src">${code
-        ? `<div class="ib-err-codeline"><span>Meta error <code>${esc(code)}</code></span><button class="ib-err-copy" data-copy="${esc(code)}" title="Copy the code">${icon('copy', 13)}Copy</button><a href="/error-codes?code=${esc(code)}" data-ec="${esc(code)}">What it means</a></div><p class="ib-err-raw">${esc(b.dataset.raw)}</p>`
-        : `<p class="ib-err-raw">From this app (it didn't reach Meta): ${esc(b.dataset.raw)}</p>`}</div>`;
+        ? `<div class="ib-err-codeline"><span>Meta error <code>${esc(code)}</code></span><button class="ib-err-copy" data-copy="Meta error ${esc(code)}" title="Copy “Meta error ${esc(code)}”">${icon('copy', 13)}Copy</button><a href="/report?code=${esc(code)}" data-ec="${esc(code)}">What it means</a></div><p class="ib-err-raw">${esc(b.dataset.raw)}</p>`
+        : `<p class="ib-err-raw">From this app (it didn't reach Meta): ${esc(b.dataset.raw)}</p>`}</div>
+      <div class="ib-err-report">Still stuck? <a href="/report" data-report>Report an issue</a></div>`;
+    el.dataset.code = code || '';
+    el.dataset.title = b.dataset.title;
     document.body.appendChild(el);
     const r = b.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight, gap = 10;
     const left = Math.min(Math.max(8, r.left + r.width / 2 - w + 28), innerWidth - w - 8); // arrow near the card's right

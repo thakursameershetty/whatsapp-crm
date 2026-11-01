@@ -134,7 +134,124 @@
       el.classList.remove('hl'); void el.offsetWidth; el.classList.add('hl');
     });
   };
-  ME.open = (code) => { ME.focus = String(code); showTab('error-codes'); };
+  ME.open = (code) => { ME.focus = String(code); showTab('report'); };
+
+  // ---------- Report an issue (pop-ups opened from the page header, or from an error in the Inbox) ----------
+  const rp = { areas: [], reports: [], loaded: false, from: '' };
+  const ago = (ts) => { const m = Math.round((Date.now() - Date.parse(ts)) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(ts).toLocaleDateString(); };
+  async function loadReports() {
+    try { Object.assign(rp, await api('/reports'), { loaded: true }); } catch (e) { rp.error = e.message; }
+    drawCount();
+  }
+  // The open-reports count on the header button.
+  function drawCount() {
+    const n = rp.reports.filter((r) => r.status !== 'resolved').length;
+    const c = $('#rpMineCount');
+    c.textContent = n;
+    c.classList.toggle('hidden', !n);
+  }
+  // ---------- Your reports: a page with expandable reports ----------
+  const rs = { q: '', status: '', open: new Set() };
+  const when = (ts) => new Date(ts).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const PAGE_NAMES = { '/inbox': 'Inbox', '/send': 'Send', '/campaigns': 'Campaigns', '/numbers': 'Numbers', '/templates': 'Templates', '/contacts': 'Contacts', '/': 'Overview' };
+  function drawReportsPage() {
+    const all = rp.reports;
+    const n = (st) => all.filter((r) => !st || (st === 'open' ? r.status !== 'resolved' : r.status === 'resolved')).length;
+    $('#rsFilter').innerHTML = [['', 'All'], ['open', 'Open'], ['resolved', 'Resolved']].map(([k, l]) => `<button data-st="${k}" class="${rs.status === k ? 'active' : ''}" role="tab" aria-selected="${rs.status === k}">${l} <span class="opt">${n(k)}</span></button>`).join('');
+    const q = rs.q.trim().toLowerCase();
+    const shown = all.filter((r) => (!rs.status || (rs.status === 'open' ? r.status !== 'resolved' : r.status === 'resolved'))
+      && (!q || `${r.area} ${r.errorCode} ${r.message} ${r.by}`.toLowerCase().includes(q)));
+    if (rp.error) { $('#rsList').innerHTML = `<div class="card list-empty"><b>Couldn't load reports</b><p>${esc(rp.error)}</p></div>`; return; }
+    if (!all.length) { $('#rsList').innerHTML = `<div class="card list-empty"><b>Nothing reported yet</b><p>When something goes wrong, use <a href="#" data-rs-new>Report an issue</a> and it shows up here with its status.</p></div>`; return; }
+    if (!shown.length) { $('#rsList').innerHTML = `<div class="card list-empty"><b>No reports match</b><p>Try another word or status.</p></div>`; return; }
+    $('#rsList').innerHTML = `<div class="card rs-card">${shown.map((r) => {
+      const open = rs.open.has(r.id);
+      const known = r.errorCode && ME.byCode[r.errorCode];
+      return `<article class="rs-row ${open ? 'open' : ''}">
+        <button class="rs-sum" data-rs="${esc(r.id)}" aria-expanded="${open}">
+          <span class="tag ${r.status === 'resolved' ? 'good' : 'warn'}">${r.status === 'resolved' ? 'Resolved' : 'Open'}</span>
+          <span class="rs-title"><b>${esc(r.area)}</b>${r.errorCode ? `<code>${esc(r.errorCode)}</code>` : ''}<span class="rs-snip">${esc(r.message.replace(/\s*\n+\s*/g, ' '))}</span></span>
+          <span class="rs-when">${esc(ago(r.at))}</span>
+          <span class="rs-chev">${icon('chevron-down', 16)}</span>
+        </button>
+        <div class="rs-body" ${open ? '' : 'hidden'}>
+          <p class="rs-msg">${esc(r.message)}</p>
+          <dl class="rs-facts">
+            <dt>Reported by</dt><dd>${esc(r.by)}${r.byEmail && r.byEmail !== r.by ? ` <span class="muted">${esc(r.byEmail)}</span>` : ''}</dd>
+            <dt>When</dt><dd>${esc(when(r.at))}</dd>
+            <dt>About</dt><dd>${esc(r.area)}</dd>
+            ${r.errorCode ? `<dt>Error code</dt><dd><code>${esc(r.errorCode)}</code> ${known ? `${esc(known.title)} · ` : ''}<a href="/report?code=${esc(r.errorCode)}" data-rs-code="${esc(r.errorCode)}">What it means</a></dd>` : ''}
+            ${r.page ? `<dt>Where</dt><dd>${esc(PAGE_NAMES[r.page] || r.page)}</dd>` : ''}
+            <dt>Status</dt><dd>${r.status === 'resolved' ? `Resolved ${esc(when(r.resolvedAt))}` : 'Open: the team has it and will get back to you by email'}</dd>
+          </dl>
+        </div>
+      </article>`;
+    }).join('')}</div>`;
+  }
+  ME.showReports = async () => {
+    $('#rsList').innerHTML = Skel?.list ? Skel.list(3) : '';
+    await loadReports();
+    drawReportsPage();
+  };
+  async function showReports() { showTab('reports'); }
+  $('#rsSearch').addEventListener('input', (e) => { rs.q = e.target.value; drawReportsPage(); });
+  $('#rsFilter').addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (!b) return; rs.status = b.dataset.st; drawReportsPage(); });
+  $('#rsNewBtn').addEventListener('click', () => { rp.from = ''; showForm(); });
+  $('#rsList').addEventListener('click', (e) => {
+    if (e.target.closest('[data-rs-new]')) { e.preventDefault(); rp.from = ''; showForm(); return; }
+    const code = e.target.closest('[data-rs-code]');
+    if (code) { e.preventDefault(); ME.open(code.dataset.rsCode); return; }
+    const sum = e.target.closest('[data-rs]');
+    if (!sum) return;
+    const id = sum.dataset.rs, row = sum.closest('.rs-row'), open = !rs.open.has(id);
+    if (open) rs.open.add(id); else rs.open.delete(id);
+    row.classList.toggle('open', open);
+    row.querySelector('.rs-body').hidden = !open;
+    sum.setAttribute('aria-expanded', open);
+  });
+  async function showForm({ code = '', area = '', message = '' } = {}) {
+    if (!rp.loaded) await loadReports();
+    const areas = rp.areas.length ? rp.areas : ['Something else'];
+    const body = openModal('Report an issue', `<form class="rp-form" id="rpForm" novalidate>
+        <p class="sub rp-lead">Tell us what went wrong and the team will look into it. If you saw an error code, it may already have a quick fix in the list on the Report an issue page.</p>
+        <label for="rpArea">What's it about?</label>
+        <select id="rpArea">${areas.map((a) => `<option ${a === area ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select>
+        <label for="rpCode">Error code <span class="opt">if you saw one</span></label>
+        <input id="rpCode" inputmode="numeric" autocomplete="off" placeholder="e.g. 131031" maxlength="8" value="${esc(code)}" />
+        <p class="rp-hint hidden" id="rpHint"></p>
+        <label for="rpMsg">What happened?</label>
+        <textarea id="rpMsg" rows="5" maxlength="4000" placeholder="What you did, what you expected, and what happened instead. Which number or contact, if it's about one.">${esc(message)}</textarea>
+        <p class="sub rp-note">Goes to the Spotmies team with your name and email, so we can reply.</p>
+        <div class="modal-actions"><button type="button" class="btn quiet" id="rpCancel">Cancel</button><button class="btn primary" id="rpSend" type="submit" data-icon="send">Send report</button></div>
+      </form>`);
+    LA.hydrate(body);
+    const hint = () => { const c = $('#rpCode', body).value.replace(/\D/g, ''); const e = ME.byCode[c]; $('#rpHint', body).classList.toggle('hidden', !e); if (e) $('#rpHint', body).textContent = `${c} is “${e.title}”: ${e.todo}`; };
+    $('#rpCode', body).addEventListener('input', hint);
+    hint();
+    $('#rpCancel', body).onclick = closeModal;
+    const ta = $('#rpMsg', body);
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+    $('#rpForm', body).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = $('#rpSend', body);
+      btn.disabled = true;
+      try {
+        const r = await api('/reports', { method: 'POST', body: { area: $('#rpArea', body).value, errorCode: $('#rpCode', body).value, message: ta.value, page: rp.from || '' } });
+        rp.reports.unshift(r);
+        rp.from = '';
+        drawCount();
+        if (state.tab === 'reports') { rs.open.add(r.id); drawReportsPage(); }
+        closeModal();
+        toast('Thanks! Your report reached the team. See it under Your reports.');
+      } catch (err) { toast(err.message, 'error'); btn.disabled = false; }
+    });
+  }
+  // From an error in the Inbox: the form opens right there, filled in.
+  ME.report = ({ from = '', ...fill } = {}) => { rp.from = from; showForm(fill); };
+  const baseRender = ME.render;
+  ME.render = (...a) => { baseRender(...a); if (!rp.loaded) loadReports(); };
+  $('#rpNewBtn').addEventListener('click', () => { rp.from = ''; showForm(); });
+  $('#rpMineBtn').addEventListener('click', showReports);
 
   $('#ecSearch').addEventListener('input', (e) => { ui.q = e.target.value; draw(); });
   $('#ecFilter').addEventListener('click', (e) => {

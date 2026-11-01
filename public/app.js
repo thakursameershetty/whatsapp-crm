@@ -84,13 +84,14 @@ $('[data-tab-go]').addEventListener('click', (e) => showTab(e.currentTarget.data
 $('#sidebar').addEventListener('click', (e) => { if (e.target.closest('#acctBtn, [data-goto], a[href]') && matchMedia('(max-width: 900px)').matches) setTimeout(() => setDrawer(false), 0); });
 function showTab(name) {
   if (name === 'assistant' && !state.me?.admin) name = 'overview'; // the AI features are admin-only
-  $$('.side-nav button[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+  const navFor = { reports: 'report' }[name] || name; // pages under another one keep its sidebar item lit
+  $$('.side-nav button[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === navFor));
   const wasHidden = $('#tab-' + name)?.classList.contains('hidden');
   $$('.tab').forEach((t) => t.classList.toggle('hidden', t.id !== 'tab-' + name));
   if (wasHidden) { Motion.enter($('#tab-' + name)); scrollTo(0, 0); } // a new page starts at the top
   state.tab = name;
   // Narrow screens: the top bar names the page, and choosing a page closes the menu.
-  $('#mbarTitle').textContent = $(`.side-nav button[data-tab="${name}"] .nav-label`)?.textContent || 'WhatsApp Sender';
+  $('#mbarTitle').textContent = $(`.side-nav button[data-tab="${navFor}"] .nav-label`)?.textContent || 'WhatsApp Sender';
   setDrawer(false);
   // The inbox fills the window and starts with the sidebar shrunk to icons.
   document.body.classList.toggle('inbox-open', name === 'inbox');
@@ -108,7 +109,8 @@ function showTab(name) {
   if (name === 'overview') loadOverview().catch((e) => toast(e.message, 'error'));
   else stopOverviewPolling();
   if (name === 'numbers') refreshStats().then(renderSenders).catch(() => {});
-  if (name === 'error-codes') window.MetaErrors?.render();
+  if (name === 'report') window.MetaErrors?.render();
+  if (name === 'reports') window.MetaErrors?.showReports();
   hideTip();
   // The address follows the page (/send, /inbox; the overview is just /), so Back and Forward move
   // between pages and a reload stays where you are.
@@ -118,7 +120,9 @@ function showTab(name) {
 }
 // Which page an address means: /send → send; old #send links still work.
 const tabFromUrl = () => {
-  const h = location.hash.slice(1), p = location.pathname.replace(/^\/+|\/+$/g, '');
+  const OLD = { 'error-codes': 'report' }; // pages that were renamed
+  const h0 = location.hash.slice(1), p0 = location.pathname.replace(/^\/+|\/+$/g, '');
+  const h = OLD[h0] || h0, p = OLD[p0] || p0;
   const t = (h && $('#tab-' + h) && h) || (p && $('#tab-' + p) && p) || 'overview';
   return t;
 };
@@ -602,7 +606,17 @@ function renderSenders() {
     });
     return;
   }
-  list.innerHTML = state.senders
+  // Search by name (label or the business name customers see) or number, once there are a few numbers.
+  $('#numBar').classList.toggle('hidden', state.senders.length < 2);
+  const q = (state.numQ || '').trim().toLowerCase();
+  const digits = q.replace(/\D/g, '');
+  const qf = state.numQuality || '';
+  const ratingOf = (s) => (QUALITY[s.qualityRating] ? s.qualityRating : 'NONE');
+  drawNumFilter();
+  const shown = state.senders.filter((s) => (!qf || ratingOf(s) === qf)
+    && (!q || `${s.label} ${s.verifiedName || ''}`.toLowerCase().includes(q) || (digits && String(s.displayPhone || '').replace(/\D/g, '').includes(digits))));
+  if (!shown.length) { list.innerHTML = `<div class="card list-empty"><b>No numbers match</b><p>${q ? `Nothing for “${esc(state.numQ)}”${qf ? ` with ${esc(numQualityLabel(qf).toLowerCase())} quality` : ''}.` : `No numbers with ${esc(numQualityLabel(qf).toLowerCase())} quality.`} <a href="#" data-clear-num>Clear search</a></p></div>`; return; }
+  list.innerHTML = shown
     .map(
       (s) => `
     <div class="card sender-card">
@@ -967,7 +981,18 @@ function renderTemplates() {
   if (!nums.some((s) => s.id === state.tplSender)) state.tplSender = '';
   filt.value = state.tplSender;
   const pick = state.senders.find((s) => s.id === state.tplSender);
-  const shown = pick ? state.templates.filter((t) => canSend(t, pick)) : state.templates;
+  const byNumber = pick ? state.templates.filter((t) => canSend(t, pick)) : state.templates;
+  // Search, category and status filters (the bar shows once there's something to filter).
+  $('#tplBar').classList.toggle('hidden', state.templates.length < 2);
+  const cats = [...new Set(byNumber.map((t) => catLabel(t.category)))].sort();
+  if (state.tplCat && !cats.includes(state.tplCat)) state.tplCat = '';
+  $('#tplCat').innerHTML = ['', ...cats].map((c) => `<button data-cat="${esc(c)}" class="${state.tplCat === c ? 'active' : ''}" role="tab" aria-selected="${state.tplCat === c}">${esc(c || 'All')} <span class="opt">${byNumber.filter((t) => !c || catLabel(t.category) === c).length}</span></button>`).join('');
+  const q = (state.tplQ || '').trim().toLowerCase();
+  const text = (t) => [t.name, t.language, t.category, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase();
+  const shown = byNumber.filter((t) => (!state.tplCat || catLabel(t.category) === state.tplCat)
+    && (!state.tplStatus || String(t.status).toUpperCase() === state.tplStatus)
+    && (!q || text(t).includes(q)));
+  const filtering = q || state.tplCat || state.tplStatus;
   if (!state.templates.length) {
     list.innerHTML = emptyState({
       icon: 'template',
@@ -977,6 +1002,7 @@ function renderTemplates() {
     });
     return;
   }
+  if (filtering && !shown.length) { list.className = 'cards'; list.innerHTML = `<div class="card list-empty"><b>No templates match</b><p>Try another word, category or status. <a href="#" data-clear-tpl>Clear filters</a></p></div>`; return; }
   if (pick && !shown.length) { list.innerHTML = `<p class="sub">No templates for ${esc(pick.label)} yet. Create one, or click Sync from Meta.</p>`; return; }
   const card = (t) => `
     <div class="card tpl-card">
@@ -997,7 +1023,7 @@ function renderTemplates() {
   // All numbers, with numbers in different Business Accounts: one titled section per account.
   const accounts = [...new Set(nums.map((x) => x.wabaId))];
   if (pick || accounts.length < 2) { list.className = 'cards'; list.innerHTML = shown.map(card).join(''); return; }
-  const groups = accounts.map((w) => ({ w, ts: shown.filter((t) => t.wabaId === w) }));
+  const groups = accounts.map((w) => ({ w, ts: shown.filter((t) => t.wabaId === w) })).filter((g) => !filtering || g.ts.length);
   const other = shown.filter((t) => !accounts.includes(t.wabaId));
   if (other.length) groups.push({ w: '', ts: other });
   list.className = 'tpl-groups';
@@ -1015,6 +1041,39 @@ function renderTemplates() {
 }
 
 $('#tplSender').addEventListener('change', (e) => { state.tplSender = e.target.value; renderTemplates(); });
+$('#numSearch').addEventListener('input', (e) => { state.numQ = e.target.value; renderSenders(); });
+// The filter button inside the Numbers search: by Meta quality rating.
+const numQualityLabel = (k) => (k === 'NONE' ? 'Not rated' : QUALITY[k]?.label || 'Any');
+function drawNumFilter() {
+  const k = state.numQuality || '';
+  const b = $('#numFilter');
+  b.classList.toggle('on', Boolean(k));
+  b.innerHTML = `${icon('sliders-horizontal', 15)}${k ? `<span class="num-filter-lbl"><i class="q-dot ${k === 'NONE' ? 'none' : k}"></i>${esc(numQualityLabel(k))}</span>` : ''}`;
+  b.title = k ? `Showing ${numQualityLabel(k).toLowerCase()} quality. Click to change.` : 'Filter by quality';
+}
+$('#numFilter').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const r = e.currentTarget.getBoundingClientRect();
+  const counts = (k) => state.senders.filter((s) => (QUALITY[s.qualityRating] ? s.qualityRating : 'NONE') === k).length;
+  const opt = (k, label) => ({ label: `${(state.numQuality || '') === k ? '✓ ' : '   '}${label}${k ? `  (${counts(k)})` : ''}`, action: () => { state.numQuality = k; renderSenders(); } });
+  Sheet.Menu.open(r.right - 200, r.bottom + 6, [opt('', 'Any quality'), '-', opt('GREEN', 'High'), opt('YELLOW', 'Medium'), opt('RED', 'Low'), opt('NONE', 'Not rated')]);
+});
+$('#senderList').addEventListener('click', (e) => {
+  if (!e.target.closest('[data-clear-num]')) return;
+  e.preventDefault();
+  state.numQ = ''; state.numQuality = ''; $('#numSearch').value = '';
+  renderSenders();
+});
+$('#tplSearch').addEventListener('input', (e) => { state.tplQ = e.target.value; renderTemplates(); });
+$('#tplStatus').addEventListener('change', (e) => { state.tplStatus = e.target.value; renderTemplates(); });
+$('#tplCat').addEventListener('click', (e) => { const b = e.target.closest('[data-cat]'); if (!b) return; state.tplCat = b.dataset.cat; renderTemplates(); });
+$('#templateList').addEventListener('click', (e) => {
+  if (!e.target.closest('[data-clear-tpl]')) return;
+  e.preventDefault();
+  state.tplQ = state.tplCat = state.tplStatus = '';
+  $('#tplSearch').value = ''; $('#tplStatus').value = '';
+  renderTemplates();
+});
 $('#templateList').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
@@ -1050,6 +1109,8 @@ $('#syncTemplates').addEventListener('click', (e) =>
 // One popup for both: the form on the left, the message as WhatsApp shows it on the right (with the
 // sample values). Meta reviews every new or edited template; the result arrives by itself (webhook).
 const TPL_LANGS = [['en', 'English'], ['en_US', 'English (US)'], ['en_GB', 'English (UK)'], ['hi', 'Hindi'], ['te', 'Telugu'], ['ta', 'Tamil'], ['kn', 'Kannada'], ['ml', 'Malayalam'], ['mr', 'Marathi'], ['bn', 'Bengali'], ['gu', 'Gujarati'], ['pa', 'Punjabi'], ['ur', 'Urdu'], ['ar', 'Arabic'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'], ['pt_BR', 'Portuguese (Brazil)'], ['id', 'Indonesian']];
+// A template's category as people read it: MARKETING → Marketing.
+const catLabel = (c) => (c ? String(c).charAt(0).toUpperCase() + String(c).slice(1).toLowerCase() : 'Other');
 const TPL_STATUS = { APPROVED: 'Approved', PENDING: 'In review', REJECTED: 'Rejected', PAUSED: 'Paused', DISABLED: 'Disabled', FLAGGED: 'Flagged', IN_APPEAL: 'In appeal', PENDING_DELETION: 'Being deleted', MANUAL: 'Demo' };
 const isGoUrl = (url) => /\/go\/{{\s*\w+\s*}}$/.test(url || '');
 // What the editor works on, from a saved template (or blank for a new one).

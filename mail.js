@@ -89,6 +89,13 @@ module.exports = {
     body: "Your request to delete your WhatsApp Sender account has reached us. Someone from our team will get in touch before anything is deleted. Until then your account keeps working as usual, and you can cancel the request any time in Settings.",
     footer: "If you didn't ask for this, sign in, cancel the request in Settings and change your password.",
   })),
+  issueReported: (to, r, url) => quietly(send({
+    to, subject: `Issue reported: ${r.area}${r.errorCode ? ` (Meta error ${r.errorCode})` : ''}`,
+    heading: 'Someone reported an issue',
+    body: `<b>${esc(r.by.name || r.by.email)}</b> (${esc(r.by.email)}) in <b>${esc(r.workspace)}</b> reported a problem with <b>${esc(r.area)}</b>.${r.errorCode ? `<br>Meta error code: <b>${esc(r.errorCode)}</b>` : ''}<br><br>“${esc(r.message)}”${r.page ? `<br><br>They were on: ${esc(r.page)}` : ''}`,
+    button: 'Open admin', url,
+    footer: 'You get this because your email is in ADMIN_EMAILS.',
+  })),
   deletionRequested: (to, user, reason, note, url) => quietly(send({
     to, subject: `Account deletion request: ${user.email}`,
     heading: 'Someone asked to delete their account',

@@ -905,6 +905,43 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       res.json({ ok: true });
     }));
 
+    // --- Reported issues: anyone in a workspace can report a problem; admins see them all ----------
+    const REPORT_AREAS = ['Sending & campaigns', 'Inbox & replies', 'Templates', 'Numbers & connection', 'AI assistant', 'Account & billing', 'Something else'];
+    const publicReport = (r) => ({ id: r.id, at: r.at, area: r.area, errorCode: r.errorCode, message: r.message, page: r.page || '', status: r.status, resolvedAt: r.resolvedAt || null, by: r.by.name || r.by.email, byEmail: r.by.email });
+    app.get('/api/reports', wrap((req, res) => {
+      res.json({ areas: REPORT_AREAS, reports: (current()?.db.reports || []).slice(0, 50).map(publicReport) });
+    }));
+    app.post('/api/reports', wrap((req, res) => {
+      const ws = current();
+      if (!ws) throw fail('Open a workspace first');
+      const message = String(req.body.message || '').trim().slice(0, 4000);
+      if (message.length < 5) throw fail('Tell us what happened');
+      const area = REPORT_AREAS.includes(req.body.area) ? req.body.area : 'Something else';
+      const errorCode = String(req.body.errorCode || '').replace(/\D/g, '').slice(0, 8);
+      const page = String(req.body.page || '').slice(0, 200);
+      const r = { id: id(), at: now(), area, errorCode, message, page, status: 'open', by: { id: req.user.id, name: req.user.name || '', email: req.user.email } };
+      (ws.db.reports ||= []).unshift(r);
+      ws.db.reports = ws.db.reports.slice(0, 200);
+      saveWorkspace(ws);
+      for (const to of ADMIN_EMAILS) mail.issueReported(to, { ...r, workspace: ws.meta.name }, `${mail.baseUrl(req)}/admin.html`);
+      res.json(publicReport(r));
+    }));
+    app.get('/api/admin/reports', wrap((req, res) => {
+      adminOnly(req);
+      const all = allWorkspaces().flatMap((ws) => (ws.db.reports || []).map((r) => ({ ...r, wsId: ws.meta.id, workspace: ws.meta.name })));
+      res.json(all.sort((a, b) => (a.status === b.status ? b.at.localeCompare(a.at) : a.status === 'open' ? -1 : 1)).slice(0, 300));
+    }));
+    app.post('/api/admin/reports/:ws/:id', wrap((req, res) => {
+      adminOnly(req);
+      const ws = loaded.get(req.params.ws);
+      const r = ws?.db.reports?.find((x) => x.id === req.params.id);
+      if (!r) throw fail('Not found', 404);
+      r.status = req.body.status === 'open' ? 'open' : 'resolved';
+      if (r.status === 'resolved') r.resolvedAt = now(); else delete r.resolvedAt;
+      saveWorkspace(ws);
+      res.json({ ok: true });
+    }));
+
     // --- Account deletion: the person asks, an admin follows up and does it -------------
     const REASONS = { 'not-using': 'Not using it any more', 'too-expensive': 'Too expensive', 'missing-feature': 'Missing something I need', 'other-tool': 'Switching to another tool', 'testing': 'Was only trying it out', 'privacy': 'Privacy concerns', other: 'Something else' };
     // What deleting this person would do to each workspace they belong to.

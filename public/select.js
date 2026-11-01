@@ -19,7 +19,12 @@
       else if (node.tagName === 'OPTION' && !node.hidden) items.push({ o: node });
     }
     const opts = items.filter((x) => x.o);
-    const el = Sheet.Menu.panel(r.left, r.bottom + 6, `${opts.length >= SEARCH_FROM ? `<div class="search-wrap ss-search">${SEARCH}<input class="search" placeholder="Search" autocomplete="off" aria-label="Search options" /></div>` : ''}<div class="ss-list" role="listbox"></div>`);
+    // <select data-chips> with options tagged data-tag="…": a row of filter chips (All, then each tag with its count).
+    const tags = 'chips' in sel.dataset ? [...new Set(opts.map((x) => x.o.dataset.tag).filter(Boolean))] : [];
+    let tag = '';
+    const chips = tags.length > 1 ? `<div class="ss-chips" role="tablist">${['', ...tags].map((t) => `<button type="button" class="ss-chip ${t ? '' : 'on'}" data-tag="${esc(t)}">${esc(t || 'All')} <span>${opts.filter((x) => (t ? x.o.dataset.tag === t : x.o.dataset.tag)).length}</span></button>`).join('')}</div>` : '';
+    const searchBox = opts.length >= SEARCH_FROM || chips ? `<div class="search-wrap ss-search">${SEARCH}<input class="search" placeholder="Search" autocomplete="off" aria-label="Search options" /></div>` : '';
+    const el = Sheet.Menu.panel(r.left, r.bottom + 6, `${searchBox}${chips}<div class="ss-list" role="listbox"></div>`);
     el.classList.add('ss-pop');
     el.style.minWidth = Math.max(180, r.width) + 'px';
     const list = el.querySelector('.ss-list'), q = el.querySelector('.ss-search input');
@@ -30,6 +35,7 @@
         if (it.group != null) { pendingGroup = it.group; continue; }
         const o = it.o;
         if (term && !o.textContent.toLowerCase().includes(term)) continue;
+        if (tag && o.dataset.tag !== tag) continue;
         if (pendingGroup != null) { html += `<div class="ss-group">${esc(pendingGroup)}</div>`; pendingGroup = null; }
         const on = o.selected;
         html += `<button type="button" role="option" class="ss-opt ${on ? 'on' : ''}" data-i="${o.index}" aria-selected="${on}" ${o.disabled ? 'disabled' : ''}><span>${esc(o.textContent)}</span>${on ? TICK : ''}</button>`;
@@ -54,6 +60,14 @@
     };
     list.addEventListener('click', (e) => { const b = e.target.closest('.ss-opt'); if (b && !b.disabled) pick(Number(b.dataset.i)); });
     q?.addEventListener('input', draw);
+    el.querySelector('.ss-chips')?.addEventListener('click', (e) => {
+      const c = e.target.closest('.ss-chip');
+      if (!c) return;
+      tag = c.dataset.tag;
+      el.querySelectorAll('.ss-chip').forEach((x) => x.classList.toggle('on', x === c));
+      draw();
+      q?.focus({ preventScroll: true });
+    });
     el.addEventListener('keydown', (e) => {
       const btns = [...list.querySelectorAll('.ss-opt:not(:disabled)')], i = btns.indexOf(document.activeElement);
       if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); btns[Math.min(btns.length - 1, i + 1)]?.focus(); }

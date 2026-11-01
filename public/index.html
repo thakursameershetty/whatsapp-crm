@@ -55,8 +55,8 @@
     <nav id="tabsBottom" class="seg side-nav side-nav-bottom" aria-label="Notifications and settings">
       <button data-icon="bell" data-icon-size="16" data-tab="notifications" title="Notifications"><span
           class="nav-label">Notifications</span><span class="nav-badge hidden" id="notifBadge"></span></button>
-      <button data-icon="badge-alert" data-icon-size="16" data-tab="error-codes" title="Error codes"><span
-          class="nav-label">Error codes</span></button>
+      <button data-icon="badge-alert" data-icon-size="16" data-tab="report" title="Report an issue"><span
+          class="nav-label">Report an issue</span></button>
       <button data-icon="settings" data-icon-size="16" data-tab="settings" title="Settings"><span
           class="nav-label">Settings</span></button>
     </nav>
@@ -329,14 +329,18 @@
       <div id="ntList" class="nt-list" data-skel="notif:6"></div>
     </section>
 
-    <!-- ERROR CODES --------------------------------------------------------->
-    <section id="tab-error-codes" class="tab hidden">
+    <!-- REPORT AN ISSUE ----------------------------------------------------->
+    <section id="tab-report" class="tab hidden">
       <div class="section-head">
         <div>
-          <h1>Error codes</h1>
-          <p class="sub">What WhatsApp's error codes mean and what to do about them. These codes come from Meta, not from
-            this app. <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes" target="_blank"
-              rel="noopener">Meta's full list ↗</a></p>
+          <h1>Report an issue</h1>
+          <p class="sub">Look up an error code first: many have a quick fix. These codes come from Meta (WhatsApp), not
+            from this app. <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes"
+              target="_blank" rel="noopener">Meta's full list ↗</a></p>
+        </div>
+        <div class="row tight">
+          <button class="btn" id="rpMineBtn" data-icon="history">Your reports<span class="btn-count hidden" id="rpMineCount"></span></button>
+          <button class="btn primary" id="rpNewBtn" data-icon="square-pen">Report an issue</button>
         </div>
       </div>
       <div class="ec-bar">
@@ -345,6 +349,24 @@
         <div class="seg" id="ecFilter" role="tablist" aria-label="Category"></div>
       </div>
       <div id="ecList" class="ec-list"></div>
+    </section>
+
+    <!-- YOUR REPORTS (under Report an issue) ------------------------------------>
+    <section id="tab-reports" class="tab hidden">
+      <a href="/report" class="back-link" data-goto="report" data-icon="arrow-left" data-icon-size="15">Report an issue</a>
+      <div class="section-head">
+        <div>
+          <h1>Your reports</h1>
+          <p class="sub">Issues reported from this workspace, and whether the team has resolved them. Open one to see everything that was sent.</p>
+        </div>
+        <button class="btn primary" id="rsNewBtn" data-icon="square-pen">Report an issue</button>
+      </div>
+      <div class="list-bar">
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="rsSearch" type="search"
+            placeholder="Search reports" autocomplete="off" /></div>
+        <div class="seg" id="rsFilter" role="tablist" aria-label="Status"></div>
+      </div>
+      <div id="rsList" class="rs-list"></div>
     </section>
 
     <!-- SEND -------------------------------------------------------------->
@@ -425,7 +447,7 @@
           <div class="sp-pane" data-pane="compose">
             <div class="sp-sec">
               <label>Template
-                <select id="templateSelect"></select>
+                <select id="templateSelect" data-chips></select>
               </label>
               <label>Campaign name <span class="opt">optional</span>
                 <input id="campaignName" placeholder="e.g. Diwali offer — Oct 2026" />
@@ -513,7 +535,13 @@
           <h1>Sender numbers</h1>
           <p class="sub">Each WhatsApp number from your Meta Business account. Add as many as you have.</p>
         </div>
-        <button class="btn primary" id="addSender" data-icon="plus">Add number</button>
+        <div class="row tight num-head">
+          <div class="search-wrap num-search hidden" id="numBar" data-icon="search" data-icon-size="15">
+            <input class="search" id="numSearch" type="search" placeholder="Search by name or number" autocomplete="off" />
+            <button type="button" class="num-filter" id="numFilter" aria-haspopup="menu" title="Filter by quality"></button>
+          </div>
+          <button class="btn primary" id="addSender" data-icon="plus">Add number</button>
+        </div>
       </div>
       <div id="senderList" class="cards" data-skel="card:3"></div>
     </section>
@@ -530,6 +558,15 @@
           <button class="btn" id="syncTemplates" data-icon="refresh-cw">Sync from Meta</button>
           <button class="btn primary" id="addTemplate" data-icon="plus">New template</button>
         </div>
+      </div>
+      <div class="list-bar hidden" id="tplBar">
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="tplSearch" type="search"
+            placeholder="Search templates" autocomplete="off" /></div>
+        <div class="seg" id="tplCat" role="tablist" aria-label="Category"></div>
+        <select id="tplStatus" aria-label="Status">
+          <option value="">Any status</option><option value="APPROVED">Approved</option><option value="PENDING">In review</option>
+          <option value="REJECTED">Rejected</option><option value="PAUSED">Paused</option><option value="DISABLED">Disabled</option>
+        </select>
       </div>
       <div id="templateList" class="cards" data-skel="card:3"></div>
     </section>

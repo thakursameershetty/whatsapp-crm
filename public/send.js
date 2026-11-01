@@ -501,7 +501,7 @@
     const sel = $('#templateSelect');
     const prev = sel.value;
     // Templates Meta hasn't approved show, but can't be picked.
-    const opt = (t) => `<option value="${t.id}"${tplSendBlock(t) ? ' disabled' : ''}>${esc(t.name)} · ${esc(t.language)}${t.status && t.status !== 'APPROVED' ? ` (${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status).toLowerCase()})` : ''}</option>`;
+    const opt = (t) => `<option value="${t.id}" data-tag="${esc(catLabel(t.category))}"${tplSendBlock(t) ? ' disabled' : ''}>${esc(t.name)} · ${esc(t.language)}${t.status && t.status !== 'APPROVED' ? ` (${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status).toLowerCase()})` : ''}</option>`;
     // With numbers in different Business Accounts, group the templates by the number(s) that can send them.
     const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))];
     const grouped = accounts.length > 1

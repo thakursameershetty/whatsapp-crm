@@ -527,7 +527,7 @@ app.use(AI_PATHS, (req, res, next) => (req.admin ? next() : res.status(403).json
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // Each page has its own address (/send, /inbox…): they're all the one app page, which shows the right one.
-const APP_PAGES = ['overview', 'assistant', 'inbox', 'contacts', 'send', 'campaigns', 'numbers', 'templates', 'notifications', 'settings', 'error-codes'];
+const APP_PAGES = ['overview', 'assistant', 'inbox', 'contacts', 'send', 'campaigns', 'numbers', 'templates', 'notifications', 'settings', 'report', 'reports', 'error-codes'];
 app.get(APP_PAGES.map((p) => '/' + p), (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 // D3 for the dashboard charts, served locally so it works offline.
 app.use('/vendor', express.static(path.join(__dirname, 'node_modules', 'd3', 'dist')));
