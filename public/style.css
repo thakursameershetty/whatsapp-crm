@@ -4509,8 +4509,7 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .adm-fail.warn .adm-bar i { background: #d99a00; } .adm-fail.warn b { color: var(--warn); }
 .adm-fail.bad .adm-bar i { background: var(--danger); } .adm-fail.bad b { color: var(--danger); }
 .adm-limit { position: relative; display: inline-flex; align-items: center; margin: 0; }
-.adm-limit input { width: 116px; height: 32px; margin: 0; padding-right: 44px; font-variant-numeric: tabular-nums; }
-.adm-limit span { position: absolute; right: 10px; font-size: 11.5px; color: var(--faint); pointer-events: none; }
+.adm-limit input { width: 116px; height: 32px; margin: 0; font-variant-numeric: tabular-nums; }
 .adm-st { text-align: right; white-space: nowrap; }
 .adm-st .tag { margin-right: 6px; }
 .adm-hint { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 3px; border-radius: 50%; background: var(--sunk); color: var(--muted); font-size: 10px; cursor: help; vertical-align: 1px; }
@@ -4518,7 +4517,7 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 @media (max-width: 560px) { .adm { padding: 18px 16px 40px; } .adm-kpis { grid-template-columns: 1fr; } .adm .adm-tools .search { width: 100%; } .adm-gv { grid-template-columns: auto 1fr; } .adm-gv-act { grid-column: 1 / -1; } }
 .adm-table th.num, .adm-table td.num { text-align: right; }
 .adm-table th.num + th:not(.num), .adm-table td.num + td:not(.num) { padding-left: 24px; }
-.adm-limit input { width: 104px; }
+.adm-limit input { width: 84px; }
 /* Reported issues: compact rows */
 .adm-rep { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-top: 1px solid var(--hair); }
 .adm-rep:first-child { border-top: 0; }
@@ -4777,7 +4776,7 @@ body { background-attachment: fixed; }
 /* Members given the AI assistant use it; its keys and setup stay with owners */
 body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none !important; }
 /* Admin: the AI switch per workspace (locked on for our own) */
-.adm-ai { display: inline-flex; cursor: pointer; }
+.adm-ai { display: inline-flex; margin: 0; vertical-align: middle; cursor: pointer; } /* (labels get a bottom margin elsewhere) */
 .adm-ai:has(input:disabled) { opacity: 0.55; cursor: not-allowed; }
 
 /* Inbox: the doodle wallpaper. It sits on the chat panel (which never scrolls), not on the message list, so it
@@ -4863,3 +4862,9 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 /* Desktop: Regenerate and Dismiss keep their words; the icons sit with them */
 .ib-draft-actions [data-ai="regen"] svg, .ib-draft-actions [data-ai="dismiss"] svg { flex: none; }
 @media (prefers-reduced-motion: reduce) { .ib-sheet-panel, .ib-sheet-scrim { transition: none; } }
+/* Admin: the "?" tooltip */
+.adm-tip { position: fixed; z-index: 70; max-width: 260px; padding: 8px 10px; border-radius: 9px; background: #1c1f22; color: #f1f3f5; font-size: 12px; font-weight: 500; line-height: 1.45; white-space: normal; text-transform: none; letter-spacing: 0; pointer-events: none; opacity: 0; transform: translateY(-3px); transition: opacity 0.12s, transform 0.12s; box-shadow: 0 10px 24px -10px rgba(0, 0, 0, 0.45); }
+.adm-tip.on { opacity: 1; transform: none; }
+.adm-hint:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* Admin: room for every column (the AI column made the table wider); smaller screens scroll it sideways */
+.admin { max-width: 1480px; }

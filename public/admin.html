@@ -52,7 +52,7 @@
         </div>
       </div>
       <div class="card adm-table-card"><div class="table-wrap"><table class="data-table adm-table" id="tbl"><thead><tr>
-        <th>Workspace</th><th>People</th><th class="num">Numbers</th><th class="num">Contacts</th><th class="num">Sent today</th><th class="num">Sent 30d</th><th>Failed 30d</th><th>Daily limit <span class="adm-hint" title="Template messages a workspace can send in 24 hours. Empty = no limit.">?</span></th><th>AI <span class="adm-hint" title="The AI assistant. Switched on, the workspace's owners can use it and choose which of their members can too. Always on for your own workspaces.">?</span></th><th>Last active</th><th></th>
+        <th>Workspace</th><th>People</th><th class="num">Numbers</th><th class="num">Contacts</th><th class="num">Sent today</th><th class="num">Sent 30d</th><th>Failed 30d</th><th>Daily limit <span class="adm-hint" tabindex="0" data-tip="Template messages a workspace can send in 24 hours. Leave it empty for no limit.">?</span></th><th>AI <span class="adm-hint" tabindex="0" data-tip="The AI assistant. Switched on, the workspace's owners can use it and choose which of their members can too. Always on for your own workspaces.">?</span></th><th>Last active</th><th></th>
       </tr></thead><tbody><tr><td colspan="11" class="table-empty">Loading…</td></tr></tbody></table></div></div>
     </section>
   </main>
@@ -116,7 +116,7 @@ function render() {
       <td class="num">${w.sent24h ? w.sent24h.toLocaleString() : '<span class="muted">0</span>'}</td>
       <td class="num">${w.sent30d ? w.sent30d.toLocaleString() : '<span class="muted">0</span>'}</td>
       <td>${rate == null ? '<span class="muted">—</span>' : `<div class="adm-fail ${rcls}"><span class="adm-bar"><i style="width:${Math.min(100, rate)}%"></i></span><b>${rate}%</b><span class="muted">${w.failed30d.toLocaleString()}</span></div>`}</td>
-      <td><label class="adm-limit"><input data-limit="${w.id}" value="${w.dailyLimit ?? ''}" placeholder="No limit" inputmode="numeric" aria-label="Daily limit for ${esc(w.name)}" /><span>/ day</span></label></td>
+      <td><label class="adm-limit"><input data-limit="${w.id}" value="${w.dailyLimit ?? ''}" placeholder="No limit" inputmode="numeric" aria-label="Daily limit for ${esc(w.name)} (messages per day)" /></label></td>
       <td><label class="adm-ai" title="${w.aiBuiltIn ? 'Always on for your own workspaces' : w.ai ? 'AI assistant on: owners choose which members get it' : 'Switch on the AI assistant for this workspace'}"><span class="toggle sm"><input type="checkbox" data-ai="${w.id}" ${w.ai ? 'checked' : ''} ${w.aiBuiltIn ? 'disabled' : ''} aria-label="AI assistant for ${esc(w.name)}" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label></td>
       <td class="${isActive(w) ? '' : 'muted'}">${w.lastActivity ? ago(w.lastActivity) : '<span class="muted">Never</span>'}</td>
       <td class="adm-st">${w.suspended ? '<span class="tag bad">Suspended</span>' : ''}<button class="btn sm ${w.suspended ? '' : 'quiet danger'}" data-suspend="${w.id}" data-to="${!w.suspended}">${w.suspended ? 'Unsuspend' : 'Suspend'}</button></td>
@@ -259,6 +259,21 @@ async function load() {
   catch (e) { $('#tbl tbody').innerHTML = `<tr><td colspan="11" class="table-empty">${esc(e.message)}</td></tr>`; }
 }
 $('#q').addEventListener('input', render);
+// The "?" hints: a tooltip right away on hover or keyboard focus (the browser's own title tooltip is slow and easy
+// to miss). It floats over the page, so the table's scroll box can't cut it off.
+const tipEl = Object.assign(document.createElement('div'), { className: 'adm-tip', role: 'tooltip' });
+document.body.append(tipEl);
+const showTip = (h) => {
+  tipEl.textContent = h.dataset.tip;
+  tipEl.classList.add('on');
+  const r = h.getBoundingClientRect(), w = tipEl.offsetWidth;
+  tipEl.style.left = Math.max(12, Math.min(innerWidth - w - 12, r.left + r.width / 2 - w / 2)) + 'px';
+  tipEl.style.top = r.bottom + 8 + 'px';
+};
+const hideTip = () => tipEl.classList.remove('on');
+for (const [ev, fn] of [['mouseover', showTip], ['focusin', showTip]]) document.addEventListener(ev, (e) => { const h = e.target.closest?.('.adm-hint[data-tip]'); if (h) fn(h); });
+for (const ev of ['mouseout', 'focusout']) document.addEventListener(ev, (e) => { if (e.target.closest?.('.adm-hint[data-tip]')) hideTip(); });
+addEventListener('scroll', hideTip, { passive: true, capture: true });
 $('#tbl').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-suspend]');
   if (!b) return;
