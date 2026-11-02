@@ -25,6 +25,8 @@ async function api(path, options = {}) {
   const json = await res.json().catch(() => ({}));
   if (res.status === 401) location.href = '/login';
   if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+  // Something was saved (see "Unsaved changes"). Not the app's own background calls: marking things read, refreshing photos.
+  if (options.method && options.method !== 'GET' && !/\/(read|photo\/refresh)$/.test(path)) markSaved();
   return json;
 }
 
@@ -1558,17 +1560,55 @@ document.addEventListener('live', (e) => {
     Promise.resolve(LIVE_RELOAD[d.area]()).catch(() => {});
   }, 400));
 });
-// A deploy restarts the server with a new build id. When this page sees one it reloads itself, but not while
-// you're typing or have something open: then it waits, with a small note you can click to reload now.
-let BUILD = null, buildToast = null;
+// Unsaved changes: a field you've typed into counts until something is saved (any change the server accepts), you
+// put it back as it was, or its window is closed (closing a form discards it). Search boxes and filters don't count,
+// nor the Inbox reply box (its draft comes back after a reload by itself), nor ticks and switches.
+const edited = new Set();
+const NOT_DATA = 'input[type=search], [role=searchbox], .search, #ibText, [data-no-unsaved], [data-no-unsaved] *';
+const NOT_TYPED = ['checkbox', 'radio', 'range', 'file', 'color', 'button', 'submit'];
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.matches?.('input, textarea, [contenteditable]') && !t.matches(NOT_DATA) && !NOT_TYPED.includes(t.type)) edited.add(t);
+}, true);
+function hasUnsaved() {
+  for (const t of edited) {
+    if (!t.isConnected || t.closest('.modal.hidden, .modal.closing') || ('defaultValue' in t && t.value === t.defaultValue)) edited.delete(t);
+  }
+  return edited.size > 0;
+}
+function markSaved() { edited.clear(); }
+
+// A deploy restarts the server with a new build id. When this page sees one it reloads itself, but never in the
+// middle of something: while you're typing or have a window or menu open it waits, and while anything you've typed
+// isn't saved it asks you to save first. A note says which; clicking it updates now (asking first if that would lose
+// unsaved work). Once you're done, and saved, it updates by itself.
+let BUILD = null, updating = false;
 function checkBuild(build) {
   if (!build) return;
   if (BUILD == null) { BUILD = build; return; }
-  if (build === BUILD) return;
+  if (build === BUILD || updating) return;
+  updating = true;
   const reload = () => { try { sessionStorage.setItem('updated', '1'); } catch {} location.reload(); };
-  if (!busy()) return reload();
-  if (!buildToast) buildToast = toast('A new version of the app is ready. Click to reload, or it reloads once you’re done here.', '', { title: 'Update available', icon: 'refresh-cw', onClick: reload, duration: 600000 });
-  const wait = setInterval(() => { if (!busy() && !document.hidden) { clearInterval(wait); reload(); } }, 4000);
+  if (!busy() && !hasUnsaved()) return reload();
+  let note = null, shown = '';
+  const updateNow = async () => {
+    if (hasUnsaved() && !(await confirmDialog({ title: 'Update without saving?', message: 'What you’ve typed but not saved yet will be lost. Save it first and the app updates by itself.', confirmText: 'Update anyway', danger: true }))) { shown = ''; return; }
+    reload();
+  };
+  const tell = () => {
+    const kind = hasUnsaved() ? 'save' : 'wait';
+    if (kind === shown) return;
+    note?.dismiss();
+    shown = kind;
+    note = kind === 'save'
+      ? toast('A new version of the app is ready. Save what you’re working on and it updates right after. Click to update now.', '', { title: 'Save your changes to update', icon: 'refresh-cw', onClick: updateNow, duration: 600000 })
+      : toast('A new version of the app is ready. Click to update now, or it updates once you’re done here.', '', { title: 'Update available', icon: 'refresh-cw', onClick: updateNow, duration: 600000 });
+  };
+  tell();
+  setInterval(() => {
+    if (!busy() && !hasUnsaved() && !document.hidden) return reload();
+    tell();
+  }, 2000);
 }
 // Backup for when the live stream misses it: ask every 2 minutes, and when you come back to the tab.
 const askBuild = () => api('/version').then((v) => checkBuild(v.build)).catch(() => {});
