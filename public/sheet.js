@@ -919,7 +919,11 @@
       const { width: w, height: h } = node.getBoundingClientRect();
       const below = anchor.bottom + gap, above = anchor.top - gap - h;
       node.style.top = (below + h <= innerHeight - 8 ? below : above >= 8 ? above : Math.max(8, innerHeight - h - 8)) + 'px';
-      node.style.left = Math.max(8, Math.min(anchor.left, innerWidth - w - 8)) + 'px';
+      // the page's width without its scrollbar; a panel that doesn't fit to the right of its button lines up with the
+      // button's right edge instead (so it opens leftward, as a menu at the end of a toolbar should)
+      const vw = document.documentElement.clientWidth;
+      const left = anchor.left + w <= vw - 12 ? anchor.left : (anchor.right ?? anchor.left) - w;
+      node.style.left = Math.max(12, Math.min(left, vw - w - 12)) + 'px';
     }
     document.addEventListener('mousedown', (e) => { if (el && !el.contains(e.target)) close(); }, true);
     document.addEventListener('keydown', (e) => {

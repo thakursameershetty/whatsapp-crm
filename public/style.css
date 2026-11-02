@@ -5176,7 +5176,7 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .fl-svg rect[data-sw="sent"] { fill: var(--cx-sent); } .fl-svg rect[data-sw="failed"] { fill: var(--cx-failed); }
 .fl-figure { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
 .fl-num { font-size: 34px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1.15; }
-.fl-figure span { font-size: 13.5px; color: var(--muted); }
+.fl-figure > span { font-size: 13.5px; color: var(--muted); }
 .fs-bar { height: 28px; }
 .fs-rows { display: flex; flex-direction: column; margin-top: 14px; }
 .fs-row { display: grid; grid-template-columns: 10px 18px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px 0; box-shadow: 0 1px 0 var(--hair); transition: opacity 0.2s; }
@@ -5197,7 +5197,7 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .btn.icon-only { width: 32px; padding: 0; justify-content: center; }
 /* the key under the stacked chart (Sent: outcomes; Failed: reasons) */
 .fl-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
-.fl-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.fl-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .fl-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .tt-code { margin-left: 4px; padding: 0 4px; border-radius: 4px; background: var(--sunk); font: 500 10.5px ui-monospace, Menlo, monospace; color: var(--muted); }
 /* switching between the stacked chart and the line chart: the outgoing one fades rather than vanishing */
@@ -5229,3 +5229,58 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 @container ov (max-width: 860px) { .chart-card > .card-head { flex-wrap: wrap; } }
 /* Inbox list: drawn a page at a time; the note at the end says more are coming as you scroll. */
 .ib-more { padding: 14px 16px 18px; text-align: center; font-size: 12px; color: var(--faint); }
+/* Date filter (datefilter.js): the toolbar button and the calendar to pick days or a range. */
+.df-btn { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border: 0; border-radius: var(--r-md); background: var(--field); box-shadow: var(--sh-sunk); color: var(--muted); font: 500 13px Inter, sans-serif; cursor: pointer; white-space: nowrap; }
+.df-btn:hover { color: var(--text); }
+.df-btn.on { color: var(--text); background: var(--surface); box-shadow: var(--sh-raised); }
+.df-btn svg { flex: none; }
+.df-x { display: grid; place-items: center; width: 18px; height: 18px; margin-right: -4px; border-radius: 50%; color: var(--muted); }
+.df-x:hover { background: var(--sunk); color: var(--text); }
+.df-pop { width: 320px; }
+.df-top { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.df-top .seg { margin: 0; }
+.df-day { position: relative; }
+.df-day.has::after { content: ''; position: absolute; left: 50%; bottom: 4px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--faint); }
+.df-day.on.has::after { background: var(--surface); }
+.df-day.in { background: color-mix(in srgb, var(--text) 10%, var(--surface)); border-radius: 0; }
+.df-hint { font-size: 12.5px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.df-acts { display: flex; gap: 6px; flex: none; }
+.df-top .seg > button { height: 28px; padding: 0 10px; font-size: 12.5px; }
+/* Campaigns → Calendar view: the month, a folder chip per campaign on its day. Chips share the folders' and rows'
+   view-transition names, so switching views morphs one into the other. */
+.vt-camp .cp-cal-chip[data-open] { view-transition-name: var(--vt); }
+.cp-cal { padding: 16px; }
+.cp-cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cp-cal-head b { font-size: 16px; min-width: 150px; text-align: center; }
+.cp-cal-head .sub { margin: 0 auto 0 8px; font-size: 12.5px; }
+.cp-cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; }
+.cp-cal-week span { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding-left: 6px; }
+.cp-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cp-cal-day { display: flex; flex-direction: column; gap: 4px; min-height: 112px; min-width: 0; padding: 6px; border-radius: 12px; background: color-mix(in srgb, var(--sunk) 55%, transparent); }
+.cp-cal-day.out { opacity: 0.45; }
+.cp-cal-day.today { box-shadow: inset 0 0 0 1.5px var(--text); }
+.cp-cal-day.open { min-height: 0; }
+.cp-cal-n { font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 2px 2px; font-variant-numeric: tabular-nums; }
+.cp-cal-day.today .cp-cal-n { color: var(--text); }
+.cp-cal-chip { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 5px 6px; border: 0; border-radius: 9px; background: var(--surface); box-shadow: var(--sh-card); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.cp-cal-chip:hover { transform: translateY(-1px); box-shadow: var(--sh-raised); }
+.cp-cal-chip .cp-pin-folder, .cp-cal-chip .cp-pin-folder svg { width: 22px; height: 18px; flex: none; }
+.cp-cal-t { display: flex; flex-direction: column; min-width: 0; }
+.cp-cal-t b { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-cal-t small { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cp-cal-chip.scheduled { box-shadow: inset 0 0 0 1px var(--hair); background: transparent; }
+.cp-cal-chip.running .cp-cal-t small { color: var(--good-text); font-weight: 600; }
+.cp-cal-more { border: 0; padding: 2px 6px; background: none; color: var(--muted); font: 600 11.5px Inter, sans-serif; text-align: left; cursor: pointer; }
+.cp-cal-more:hover { color: var(--text); }
+@media (max-width: 760px) { .cp-cal-day { min-height: 64px; } .cp-cal-t { display: none; } .cp-cal-week span { text-align: center; padding: 0; } }
+/* the Inbox filter row wraps: the date button takes the next line rather than squeezing the others */
+.ib-filters { flex-wrap: wrap; row-gap: 8px; }
+.ib-filters .df-btn { flex: 1 0 100%; justify-content: flex-start; height: 34px; }
+.ib-filters .df-btn > span { flex: 1; text-align: left; }
+.df-hint kbd { display: inline-block; min-width: 18px; padding: 0 4px; border-radius: 4px; background: var(--sunk); box-shadow: inset 0 -1px 0 var(--hair); font: 600 11px Inter, sans-serif; text-align: center; color: var(--text); }
+.df-day:disabled { opacity: 0.3; }
+/* Overview table: the column names stay at the top while the days scroll, like the totals at the bottom */
+.chart-table thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); box-shadow: inset 0 -1px 0 var(--hair); }
+/* Overview: the top four numbers in the same weight as the big figures ("Where they ended up", campaign results) */
+.kpi-value { font-weight: 600; }
+.fl-of { font-size: 13.5px; color: var(--muted); }

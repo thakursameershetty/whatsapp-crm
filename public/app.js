@@ -2303,6 +2303,8 @@ function renderCharts({ instant = false } = {}) {
   $('#chartTableBtn').textContent = state.ov.table ? 'Chart' : 'Table';
   $('#dayChart').classList.toggle('hidden', state.ov.table);
   $('#dayTable').classList.toggle('hidden', !state.ov.table);
+  // the table has its own marks in the header: no legend above it
+  if (state.ov.table) $('#dayLegend').classList.add('hidden');
   if (state.ov.table) renderChartTable($('#dayTable'), bs);
   else drawChart($('#dayChart'), bs, m, { instant });
 
@@ -2547,6 +2549,22 @@ function hideTipSoon() { const tip = $('#chartTip'); clearTimeout(tip.__hideT); 
 
 // The marks people know from WhatsApp, for labelling counts anywhere: one grey tick (sent), two grey ticks (delivered),
 // two blue ticks (read), a red ! (failed), an envelope stack for the total.
+// A number that rolls to a new value digit by digit, like an odometer: only the digits that change move, up when the
+// number grows and down when it shrinks. Used by the campaign results and the Overview's "Where they ended up".
+function rollNum(el, value) {
+  const text = Number(value || 0).toLocaleString(), old = el.dataset.v ?? '', up = Number(value) >= Number(el.dataset.n ?? value);
+  if (text === old) return;
+  el.dataset.v = text;
+  el.dataset.n = value;
+  const prev = [...old];
+  el.innerHTML = [...text].map((ch, i, all) => {
+    const was = prev[prev.length - (all.length - i)];
+    const moved = old !== '' && /\d/.test(ch) && was !== ch;
+    return '<span class="cx-d' + (moved ? (up ? ' up' : ' down') : '') + '" style="animation-delay:' + i * 70 + 'ms">' + ch + '</span>';
+  }).join('');
+  el.setAttribute('aria-label', text);
+}
+
 function waMark(kind) {
   const tick = (two, cls = '') => `<svg class="cd-tick ${cls}" viewBox="0 0 16 11" width="15" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${two ? 'M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8' : 'M1 5.8 4.2 9 11 1.8'}"/></svg>`;
   return `<span class="wa-mk">${{ sent: tick(false), delivered: tick(true), read: tick(true, 'blue'), failed: '<span class="cd-x">!</span>', total: icon('send', 13) }[kind] || ''}</span>`;
@@ -2822,12 +2840,22 @@ function renderFunnel(st) {
   const pct = (n) => (100 * n / total).toFixed(n / total < 0.1 ? 1 : 0) + '%';
   const r = (i) => { const a = i === 0 ? 6 : 2, z = i === parts.length - 1 ? 6 : 2; return a + 'px ' + z + 'px ' + z + 'px ' + a + 'px'; };
   el.innerHTML = '<div class="fs">' +
-    '<div class="fl-figure"><b class="fl-num">' + total.toLocaleString() + '</b><span>messages tried</span></div>' +
+    '<div class="fl-figure"><b class="fl-num cx-num"></b><span class="fl-of"></span></div>' +
     '<div class="cx-bar fs-bar">' + parts.map(([k, , n], i) => '<i class="cx-seg" data-kind="' + k + '" data-sw="' + k + '" style="flex-grow:' + n + ';border-radius:' + r(i) + '"></i>').join('') + '</div>' +
     '<div class="fs-rows">' + parts.map(([k, l, n, what]) => '<div class="fs-row" data-kind="' + k + '"><i class="cx-sw" data-sw="' + k + '"></i>' + waMark(k) + '<span class="fs-l"><b>' + l + '</b><small>' + what + '</small></span><span class="fs-n"><b>' + n.toLocaleString() + '</b><small>' + pct(n) + '</small></span></div>').join('') + '</div>' +
     (t.pending ? '<div class="fl-foot">Waiting to send <b>' + t.pending.toLocaleString() + '</b></div>' : '') + '</div>';
-  const fs = el.querySelector('.fs');
-  const light = (k) => { fs.classList.toggle('hovering', Boolean(k)); fs.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x.dataset.kind === k)); };
+  const fs = el.querySelector('.fs'), big = fs.querySelector('.fl-num'), of = fs.querySelector('.fl-of');
+  const byKind = Object.fromEntries(parts.map(([k, l, n]) => [k, { l, n }]));
+  // hovering a piece of the bar or a row rolls the big number to that kind's count, as on a campaign's results
+  const light = (k) => {
+    if (fs.dataset.hot === (k || '') && fs.dataset.lit) return;
+    fs.dataset.hot = k || ''; fs.dataset.lit = '1';
+    fs.classList.toggle('hovering', Boolean(k));
+    fs.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x.dataset.kind === k));
+    rollNum(big, k ? byKind[k].n : total);
+    of.innerHTML = k ? '<span class="cx-of-k">' + waMark(k) + esc(byKind[k].l) + '</span> · ' + pct(byKind[k].n) + ' of ' + total.toLocaleString() : 'messages tried';
+  };
+  light(null);
   fs.addEventListener('pointermove', (e) => light(e.target.closest('[data-kind]')?.dataset.kind || null));
   fs.addEventListener('pointerleave', () => light(null));
 }

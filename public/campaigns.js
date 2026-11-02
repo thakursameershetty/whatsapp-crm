@@ -5,7 +5,7 @@
 
 (function () {
   const CP = {
-    list: [], filter: 'all', sort: 'new', q: '', detail: null, show: 'all', sample: 0, chartTable: false,
+    list: [], filter: 'all', sort: 'new', q: '', detail: null, show: 'all', sample: 0, chartTable: false, date: null, calMonth: null, calOpen: null,
     view: (() => { try { return localStorage.getItem('campView') || 'cards'; } catch { return 'cards'; } })(),
   };
   // Auto-made names end in the date ("name_msg — 10/16/2026, 2:06:04 PM"); the date is shown anyway.
@@ -74,6 +74,9 @@
     replies: ['Most replies', (a, b) => (b.replies || 0) - (a.replies || 0)],
   };
 
+  // A campaign's day, for the date filter and the calendar: when it went out, or is scheduled to, or was made.
+  const dayOf = (c) => c.startedAt || c.scheduledAt || c.createdAt;
+
   // Time left for a live send, from its pace so far.
   function eta(c) {
     const s = c.stats || {};
@@ -100,7 +103,10 @@
       .filter((c) => !live(c) && c.status !== 'scheduled' && filter[2](c))
       .filter((c) => !q || [c.name, c.templateName].some((v) => String(v).toLowerCase().includes(q)))
       .filter((c) => !CP.sender || (c.senderIds || []).includes(CP.sender))
+      .filter((c) => DateFilter.match(CP.date, dayOf(c)))
       .sort(SORTS[CP.sort][1]);
+    // the calendar shows sending and scheduled campaigns too, on their days
+    const calRows = [...pinned.filter((c) => (!q || [c.name, c.templateName].some((v) => String(v).toLowerCase().includes(q))) && (!CP.sender || (c.senderIds || []).includes(CP.sender)) && DateFilter.match(CP.date, dayOf(c))), ...rows];
 
     // The last 30 days, in the current mode (the server keeps demo and live campaigns apart).
     const since = Date.now() - 30 * 86400000;
@@ -115,13 +121,15 @@
       <div class="cp-tools">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="cpSearch" placeholder="Search name or template" value="${esc(CP.q)}" aria-label="Search campaigns" /></div>
         <div class="seg" id="cpFilter">${FILTERS.map(([k, label, fn]) => `<button data-f="${k}" class="${k === filter[0] ? 'active' : ''}">${label} <span class="opt">${CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length}</span></button>`).join('')}</div>
+        ${DateFilter.button(CP.date, 'cpDate')}
         <button type="button" class="ct-sortbtn" id="cpSortBtn" aria-haspopup="menu" title="Sorted by ${esc(SORTS[CP.sort][0])}. Click to change.">${icon('arrow-up-down', 14)}<span>${esc(SORTS[CP.sort][0])}</span>${icon('chevron-down', 14)}</button>
         <div class="seg seg-icons cp-view" id="cpView" role="radiogroup" aria-label="View">
           <button data-view="cards" class="${CP.view === 'cards' ? 'active' : ''}" title="Cards" aria-label="Cards" aria-checked="${CP.view === 'cards'}" role="radio">${icon('layout-grid', 15)}</button>
           <button data-view="table" class="${CP.view === 'table' ? 'active' : ''}" title="Table" aria-label="Table" aria-checked="${CP.view === 'table'}" role="radio">${icon('list', 15)}</button>
+          <button data-view="calendar" class="${CP.view === 'calendar' ? 'active' : ''}" title="Calendar" aria-label="Calendar" aria-checked="${CP.view === 'calendar'}" role="radio">${icon('calendar-days', 15)}</button>
         </div>
       </div>
-      ${CP.view === 'cards'
+      ${CP.view === 'calendar' ? calendarHtml(calRows) : CP.view === 'cards'
         ? `<div class="cp-folders">
             <button type="button" class="cp-folder-new" data-goto="send"><b>New campaign</b><span>Pick contacts and a template</span><i>${icon('plus', 22)}</i></button>
             ${rows.map(folderHtml).join('')}
@@ -142,7 +150,69 @@
       Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(SORTS).map(([k, [label]]) => ({ label, checked: k === CP.sort, action: () => { CP.sort = k; renderList(); } })));
     };
     if ($('#cpSender')) $('#cpSender').onchange = (e) => { CP.sender = e.target.value; renderList(); };
+    $('#cpDate').onclick = (e) => {
+      if (e.target.closest('[data-df-clear]')) { CP.date = null; return renderList(); }
+      const marks = new Map();
+      for (const c of CP.list) { const k = DateFilter.keyOf(new Date(dayOf(c))); marks.set(k, (marks.get(k) || 0) + 1); }
+      DateFilter.open(e.currentTarget, { value: CP.date, marks, onChange: (v) => {
+        CP.date = v;
+        // the calendar follows the choice to its month
+        if (v) { const k = v.days ? v.days.at(-1) : v.to; const [y, m] = k.split('-').map(Number); CP.calMonth = new Date(y, m - 1, 1); }
+        renderList();
+      } });
+    };
   }
+
+  // ── Calendar view: the month, each campaign a small folder chip on its day (sent, sending or scheduled). Switching
+  // views morphs each folder (or row) into its chip: they share a view-transition name (--vt). Up to three chips a day;
+  // "+N more" opens the day.
+  function calendarHtml(list) {
+    const byDay = new Map();
+    for (const c of list) { const k = DateFilter.keyOf(new Date(dayOf(c))); (byDay.get(k) || byDay.set(k, []).get(k)).push(c); }
+    for (const cs of byDay.values()) cs.sort((a, b) => String(dayOf(a)).localeCompare(String(dayOf(b))));
+    if (!CP.calMonth) { const newest = list.map(dayOf).sort().at(-1); const d = newest ? new Date(newest) : new Date(); CP.calMonth = new Date(d.getFullYear(), d.getMonth(), 1); }
+    const m = CP.calMonth, today = DateFilter.keyOf(new Date());
+    const first = new Date(m.getFullYear(), m.getMonth(), 1 - m.getDay()); // the Sunday on or before the 1st
+    const weeks = Math.ceil((m.getDay() + new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate()) / 7);
+    const inMonth = list.filter((c) => { const d = new Date(dayOf(c)); return d.getFullYear() === m.getFullYear() && d.getMonth() === m.getMonth(); }).length;
+    const chip = (c) => {
+      const s = c.stats || {}, del = deliveredOf(s);
+      const note = live(c) ? 'Sending' : c.status === 'scheduled' ? new Date(c.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : del ? pctOf(s.read || 0, del) + '% read' : (STATUS_LABEL[c.status] || c.status);
+      return `<button type="button" class="cp-cal-chip ${c.status}" data-open="${c.id}" style="--vt:cp-${c.id};--c:${colorOf(c)}" title="${esc(c.name)} · ${c.total.toLocaleString()} recipients">${miniFolder(c)}<span class="cp-cal-t"><b>${esc(displayName(c))}</b><small>${esc(note)}</small></span></button>`;
+    };
+    let cells = '';
+    for (let i = 0; i < weeks * 7; i++) {
+      const d = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i), k = DateFilter.keyOf(d);
+      const cs = byDay.get(k) || [], open = CP.calOpen === k, shown = open ? cs : cs.slice(0, 3);
+      cells += `<div class="cp-cal-day ${d.getMonth() !== m.getMonth() ? 'out' : ''} ${k === today ? 'today' : ''} ${open ? 'open' : ''}" data-day="${k}">
+        <span class="cp-cal-n">${d.getDate()}</span>
+        ${shown.map(chip).join('')}
+        ${cs.length > 3 ? `<button type="button" class="cp-cal-more" data-calday="${k}">${open ? 'Show less' : '+' + (cs.length - 3) + ' more'}</button>` : ''}
+      </div>`;
+    }
+    return `<div class="card cp-cal">
+      <div class="cp-cal-head">
+        <button type="button" class="dt-nav" data-calnav="-1" aria-label="Previous month">‹</button>
+        <b>${esc(m.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))}</b>
+        <button type="button" class="dt-nav" data-calnav="1" aria-label="Next month">›</button>
+        <span class="sub">${inMonth ? inMonth + ' campaign' + (inMonth === 1 ? '' : 's') + ' this month' : 'No campaigns this month'}</span>
+        <button type="button" class="btn sm quiet" data-calnav="0">Today</button>
+      </div>
+      <div class="cp-cal-week">${[...Array(7)].map((_, i) => `<span>${esc(new Date(2023, 0, 1 + i).toLocaleDateString(undefined, { weekday: 'short' }))}</span>`).join('')}</div>
+      <div class="cp-cal-grid">${cells}</div>
+    </div>`;
+  }
+  document.addEventListener('click', (e) => {
+    const nav = e.target.closest('#campaignList [data-calnav]');
+    if (nav) {
+      const n = Number(nav.dataset.calnav), m = CP.calMonth || new Date();
+      CP.calMonth = n ? new Date(m.getFullYear(), m.getMonth() + n, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      CP.calOpen = null;
+      return renderList();
+    }
+    const more = e.target.closest('#campaignList [data-calday]');
+    if (more) { CP.calOpen = CP.calOpen === more.dataset.calday ? null : more.dataset.calday; renderList(); }
+  });
 
   // Folders ↔ rows: each campaign keeps a view-transition name in both views, so the browser
   // morphs every folder into its row and back. Without support (or with reduced motion) it just swaps.
@@ -475,19 +545,7 @@
   // The big number, as an odometer: a digit that changes rises (or drops, when the number shrinks) out of a slight blur,
   // left to right 70ms apart; a digit that didn't change stays still. Places count from the right, so a new leading
   // digit doesn't shift the rest.
-  function roll(el, value) {
-    const text = num(value), old = el.dataset.v ?? '', up = Number(value) >= Number(el.dataset.n ?? value);
-    if (text === old) return;
-    el.dataset.v = text;
-    el.dataset.n = value;
-    const prev = [...old];
-    el.innerHTML = [...text].map((ch, i, all) => {
-      const was = prev[prev.length - (all.length - i)];
-      const moved = old !== '' && /\d/.test(ch) && was !== ch;
-      return '<span class="cx-d' + (moved ? (up ? ' up' : ' down') : '') + '" style="animation-delay:' + i * 70 + 'ms">' + ch + '</span>';
-    }).join('');
-    el.setAttribute('aria-label', text);
-  }
+  const roll = rollNum; // the odometer number (app.js)
 
   // Light one kind (or none, to clear) in a results card or the Expand window.
   function light(scope, id, c) {

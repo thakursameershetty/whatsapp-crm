@@ -155,7 +155,7 @@
   }
 
   function filtered() {
-    const fk = ib.q + '|' + ib.filter + '|' + ib.sender + '|' + ib.template;
+    const fk = ib.q + '|' + ib.filter + '|' + ib.sender + '|' + ib.template + '|' + JSON.stringify(ib.date) + ib.sort;
     if (fk !== ib.fk) { ib.fk = fk; ib.limit = PAGE; }
     const q = ib.q.toLowerCase();
     const now = Date.now();
@@ -165,8 +165,9 @@
       if (ib.sender && c.senderId !== ib.sender) return false;
       if (ib.template && !(c.templates || []).includes(ib.template)) return false;
       if (q && ![c.name, c.wa, fmtPhone(c.wa), c.last?.text].some((v) => String(v || '').toLowerCase().includes(q))) return false;
+      if (ib.date && !DateFilter.match(ib.date, c.lastAt)) return false; // the day of the latest message
       return true;
-    });
+    }).sort(ib.sort === 'old' ? (a, b) => String(a.lastAt || '').localeCompare(String(b.lastAt || '')) : () => 0);
   }
 
   // Rows a page at a time: a big inbox draws its first PAGE chats, and more as you scroll near the end.
@@ -295,6 +296,26 @@
   $('#ibConvs').addEventListener('click', (e) => {
     const b = e.target.closest('.ib-conv');
     if (b) openConversation(b.dataset.key);
+  });
+  // Date: the day (or days, or range) of a chat's latest message, and newest / oldest first.
+  ib.date = null; ib.sort = 'new';
+  const dateBtn = () => {
+    const old = $('#ibDate');
+    old.outerHTML = DateFilter.button(ib.date, 'ibDate');
+    $('#ibDate').classList.toggle('sorted', ib.sort === 'old');
+  };
+  $('.ib-filters').insertAdjacentHTML('beforeend', DateFilter.button(null, 'ibDate'));
+  $('.ib-filters').addEventListener('click', (e) => {
+    const b = e.target.closest('#ibDate');
+    if (!b) return;
+    if (e.target.closest('[data-df-clear]')) { e.stopPropagation(); ib.date = null; dateBtn(); ib.enter = true; return renderList(); }
+    const marks = new Map();
+    for (const c of ib.convs) if (c.lastAt) { const k = DateFilter.keyOf(new Date(c.lastAt)); marks.set(k, (marks.get(k) || 0) + 1); }
+    DateFilter.open(b, {
+      value: ib.date, marks, sort: ib.sort,
+      onChange: (v) => { ib.date = v; ib.enter = true; renderList(); dateBtn(); },
+      onSort: (s) => { ib.sort = s; ib.enter = true; renderList(); },
+    });
   });
   $('#ibSearch').addEventListener('input', (e) => { ib.q = e.target.value.trim(); ib.enter = true; renderList(); });
   $('#ibSender').addEventListener('change', (e) => { ib.sender = e.target.value; ib.enter = true; renderList(); });
