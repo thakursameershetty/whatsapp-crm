@@ -910,6 +910,17 @@
       openedAt = Date.now();
       return el;
     }
+    // Re-places a panel once its contents are in (a panel filled after it opens was measured nearly empty): below the
+    // anchor when it fits, above it when there's room there instead, and never off screen; taller than the window, it
+    // scrolls inside itself.
+    function fit(node, anchor, gap = 6) {
+      node.style.maxHeight = innerHeight - 16 + 'px';
+      node.style.overflowY = 'auto';
+      const { width: w, height: h } = node.getBoundingClientRect();
+      const below = anchor.bottom + gap, above = anchor.top - gap - h;
+      node.style.top = (below + h <= innerHeight - 8 ? below : above >= 8 ? above : Math.max(8, innerHeight - h - 8)) + 'px';
+      node.style.left = Math.max(8, Math.min(anchor.left, innerWidth - w - 8)) + 'px';
+    }
     document.addEventListener('mousedown', (e) => { if (el && !el.contains(e.target)) close(); }, true);
     document.addEventListener('keydown', (e) => {
       if (!el) return;
@@ -925,7 +936,7 @@
     // (The first moments after opening don't count: the page may still be easing into place.)
     let openedAt = 0;
     addEventListener('scroll', (e) => { if (el && Date.now() - openedAt > 400 && !(e.target instanceof Node && el.contains(e.target))) close(); }, { capture: true, passive: true });
-    return { open, panel, close };
+    return { open, panel, close, fit };
   })();
 
   window.Sheet = { create, letter, parseTsv, Menu };

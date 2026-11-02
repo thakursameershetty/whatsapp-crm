@@ -3118,6 +3118,7 @@ function numbersPicker(anchor, p, done) {
     Motion.segs(el);
   };
   draw();
+  Sheet.Menu.fit(el, r); // now that the numbers are listed: below the chip, or above it near the bottom of the window
   el.addEventListener('click', (e) => {
     const m = e.target.closest('.np-mode [data-mode]'); // (scoped: <html> has its own data-mode, the theme)
     if (m) { allMode = m.dataset.mode === 'all'; if (!allMode && !pick.size) pick = new Set(state.senders.map((s) => s.id)); draw(); return; }
