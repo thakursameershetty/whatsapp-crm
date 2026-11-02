@@ -151,6 +151,7 @@
                 <button data-metric="readRate">Read rate</button>
                 <button data-metric="failed">Failed</button>
               </div>
+              <button class="btn sm icon-only fl-zoom-btn hidden" id="chartZoomBtn" aria-pressed="false"></button>
               <button class="btn quiet sm" id="chartTableBtn">Table</button>
               <button class="btn sm icon-only" id="chartExpandBtn" data-icon="maximize-2" data-icon-size="14" title="Expand" aria-label="Expand"></button>
             </div>
@@ -869,6 +870,7 @@
           <button data-metric="readRate">Read rate</button>
           <button data-metric="failed">Failed</button>
         </div>
+        <button class="btn quiet sm fl-zoom-btn hidden" id="xZoomBtn" aria-pressed="false"></button>
       </div>
       <div id="xChart" class="chart chart-lg"></div><div id="xLegend" class="fl-legend hidden"></div>
       <div id="xTable" class="table-wrap chart-table"></div>
@@ -891,6 +893,7 @@
           <button data-scale="count">Count</button>
         </div>
         <p class="sub o-note" id="oNote"></p>
+        <button class="btn quiet sm fl-zoom-btn hidden" id="oZoomBtn" aria-pressed="false"></button>
       </div>
       <div class="o-grid">
         <div id="oChart" class="chart chart-lg"></div>

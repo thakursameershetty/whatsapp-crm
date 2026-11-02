@@ -26,6 +26,8 @@
     copy: `<rect class="a-front" height="14" rx="2" ry="2" width="14" x="8" y="8"/><path class="a-back" d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>`,
     clock: `<circle cx="12" cy="12" r="10"/><line class="a-hour" x1="12" x2="12" y1="12" y2="6"/><line class="a-min" x1="12" x2="16" y1="12" y2="12"/>`,
     search: `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`,
+    'zoom-in': `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6M8 11h6"/>`,
+    'zoom-out': `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M8 11h6"/>`,
     rocket: `<path class="a-fire" d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>`,
     zap: `<path class="draw" ${PL} d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>`,
     'layout-grid': `<rect class="r1" height="7" rx="1" width="7" x="3" y="3"/><rect class="r2" height="7" rx="1" width="7" x="14" y="3"/><rect class="r3" height="7" rx="1" width="7" x="14" y="14"/><rect class="r4" height="7" rx="1" width="7" x="3" y="14"/>`,

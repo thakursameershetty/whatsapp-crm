@@ -2305,7 +2305,7 @@ function renderCharts({ instant = false } = {}) {
   $('#dayChart').classList.toggle('hidden', state.ov.table);
   $('#dayTable').classList.toggle('hidden', !state.ov.table);
   // the table has its own marks in the header: no legend above it
-  if (state.ov.table) $('#dayLegend').classList.add('hidden');
+  if (state.ov.table) { $('#dayLegend').classList.add('hidden'); $('#chartZoomBtn').classList.add('hidden'); }
   if (state.ov.table) renderChartTable($('#dayTable'), bs);
   else drawChart($('#dayChart'), bs, m, { instant });
 
@@ -2746,7 +2746,7 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   host.classList.toggle('fl-none', nothing);
   if (nothing) {
     d3.select(host).select('svg.fl-svg').remove();
-    host.querySelector('.fl-zoom')?.remove();
+    host.__spike = null; zoomButton(host);
     host.__flowX = null;
     let em = host.querySelector('.fl-empty');
     if (!em) { em = document.createElement('div'); em.className = 'fl-empty'; host.append(em); }
@@ -2780,7 +2780,6 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   const spikeUp = capOf(bs.map(upOf)), spikeDown = capOf(bs.map(downOf));
   const zoom = Boolean(host.__zoom && (spikeUp || spikeDown));
   const capUp = zoom ? spikeUp : 0, capDown = zoom ? spikeDown : 0;
-  if (spikeUp || spikeDown) pad.t = 46; // room for the zoom line above the columns
   const maxUp = share && mode !== 'failed' ? 100 : Math.max(1, capUp || Math.max(...bs.map(upOf)));
   const maxDown = below ? capDown || Math.max(0, ...bs.map(downOf)) : 0;
   const y = d3.scaleLinear().domain([0, maxUp]).nice(4);
@@ -2859,18 +2858,14 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
     .text((c) => fmtNum(mode === 'failed' ? c.b.failed : below ? c.b.sent : tried(c.b)));
   (dur ? cg.transition().delay(dur * 0.8).duration(250) : cg.interrupt()).attr('opacity', 1);
   host.__cut = (b) => cutUp(b) || cutDown(b);
-  // the offer to zoom (or to show everything again), in words
-  let zl = host.querySelector('.fl-zoom');
-  if (spikeUp || spikeDown) {
-    const big = bs.filter((b) => (spikeUp && upOf(b) > spikeUp * 3) || (spikeDown && downOf(b) > spikeDown * 3));
-    const who = big.length === 1 ? big[0].long.replace(/^\w+, /, '') : big.length + ' days';
-    if (!zl) { zl = document.createElement('div'); zl.className = 'fl-zoom'; host.append(zl); }
-    zl.style.left = pad.l + 'px';
-    zl.innerHTML = zoom
-      ? `<span>Zoomed in · ${esc(who)} ${big.length === 1 ? 'goes' : 'go'} off the chart</span><button type="button" data-zoom="0">Show all</button>`
-      : `<span>${esc(who)} ${big.length === 1 ? 'is' : 'are'} much bigger than the other days</span><button type="button" data-zoom="1">Zoom in on the rest</button>`;
-    zl.onclick = (e) => { const z = e.target.closest('[data-zoom]'); if (!z) return; hideTip(); host.__zoom = z.dataset.zoom === '1'; host.__redraw(); };
-  } else zl?.remove();
+  // the days that would run off the chart when zoomed in (fitted to the usual days); the zoom button in the card's
+  // header shows only when there are some
+  const fitUp = spikeUp && d3.scaleLinear().domain([0, spikeUp]).nice(4).domain()[1];
+  const big = spikeUp || spikeDown ? bs.filter((b) => (spikeUp && upOf(b) > fitUp) || (spikeDown && downOf(b) > spikeDown)) : [];
+  host.__spike = big.length ? (big.length === 1 ? big[0].long.replace(/^\w+, /, '') : big.length + ' days') : null;
+  host.__zoomed = zoom;
+  host.__big = new Set(big.map((b) => b.key));
+  zoomButton(host);
   const every = Math.max(1, Math.ceil((bs.length * 64) / (W - pad.l - pad.r)));
   svg.select('.fl-x').selectAll('text').data(bs, (b) => b.key).join('text')
     .attr('x', (b) => x(b.key) + bw / 2).attr('y', H - 8).attr('text-anchor', 'middle').attr('class', 'tick')
@@ -2878,6 +2873,33 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   host.__flowX = { x, bw };
   flowLegend(host, mode, bs, R);
 }
+// Zoom past a spike: a quiet button in the chart's header ("Fit small days" / "Show all"), there only when a day
+// dwarfs the rest; double-clicking the chart does the same.
+const ZOOM_BTN = { dayChart: 'chartZoomBtn', xChart: 'xZoomBtn', oChart: 'oZoomBtn' };
+function zoomButton(host) {
+  const b = document.getElementById(ZOOM_BTN[host.id]);
+  if (!b) return;
+  const show = Boolean(host.__spike) && !host.classList.contains('hidden');
+  b.classList.toggle('hidden', !show);
+  if (!show) return;
+  const label = host.__zoomed ? 'Show all' : 'Fit small days';
+  // the card's header is tight: just the magnifier there (its label in the tooltip), words in the expanded views
+  b.innerHTML = icon(host.__zoomed ? 'zoom-out' : 'zoom-in', 14) + (b.classList.contains('icon-only') ? '' : label);
+  b.setAttribute('aria-label', label);
+  b.setAttribute('aria-pressed', String(Boolean(host.__zoomed)));
+  b.title = host.__zoomed ? `Show all: back to the full scale, with ${host.__spike}` : `Fit small days: ${host.__spike} will run off the top`;
+}
+function toggleZoom(host) {
+  if (!host.__spike || !host.__redraw) return;
+  hideTip();
+  host.__zoom = !host.__zoomed;
+  host.__redraw();
+}
+for (const [h, b] of Object.entries(ZOOM_BTN)) {
+  document.getElementById(b)?.addEventListener('click', () => toggleZoom(document.getElementById(h)));
+  document.getElementById(h)?.addEventListener('dblclick', (e) => { if (e.target.closest('svg.fl-svg')) { e.preventDefault(); toggleZoom(document.getElementById(h)); } });
+}
+
 // The key under the main chart: the four outcomes with their marks, or the failure reasons, each with its total.
 function flowLegend(host, mode, bs, R) {
   const leg = host.id === 'dayChart' ? $('#dayLegend') : host.id === 'xChart' ? $('#xLegend') : null;
@@ -2896,6 +2918,7 @@ function hideFlow(host, { instant = false } = {}) {
   const svg = d3.select(host).select('svg.fl-svg');
   host.classList.remove('fl-host', 'hovering');
   host.__flow = null;
+  host.__spike = null; zoomButton(host);
   const leg = host.id === 'dayChart' ? $('#dayLegend') : host.id === 'xChart' ? $('#xLegend') : null;
   leg?.classList.add('hidden');
   if (svg.empty()) return;
@@ -2931,7 +2954,8 @@ function bindFlowHover(host) {
     const row = (sw, label, v) => '<div class="tt-row cur"><span><i class="cx-sw" data-sw="' + sw + '"></i>' + waMark(sw) + label + '</span><b>' + v.toLocaleString() + pc(v) + '</b></div>';
     showTip('<div class="tt-title">' + esc(b.long) + ' · ' + (b.sent + b.failed).toLocaleString() + ' tried</div>' +
       row('read', 'Read', b.read) + row('delivered', 'Delivered, not read', b.delivered - b.read) + row('sent', 'Sent, not delivered', b.sent - b.delivered) + row('failed', 'Failed', b.failed) +
-      (host.__cut?.(b) ? '<div class="tt-note">Goes off the chart while zoomed in.</div>' : ''), e.clientX, e.clientY);
+      (host.__cut?.(b) ? '<div class="tt-note">Goes off the chart while zoomed in.</div>'
+        : host.__spike && !host.__zoomed && !host.__big?.has(b.key) ? '<div class="tt-note">Small days are hard to see next to ' + esc(host.__spike) + '. Use the zoom button above, or double-click the chart.</div>' : ''), e.clientX, e.clientY);
   });
   host.addEventListener('pointerleave', clear);
 }
