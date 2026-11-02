@@ -2301,7 +2301,11 @@ function renderCharts({ instant = false } = {}) {
   $('#chartTitle').lastChild.textContent = title;
   $('#chartSub').textContent = sub;
   $('#chartTitle').firstElementChild?.replaceWith(document.createRange().createContextualFragment(icon(m.kind === 'rate' ? 'chart-spline' : 'chart-column-increasing', 18)));
-  $('#chartTableBtn').textContent = state.ov.table ? 'Chart' : 'Table';
+  // Table / Chart: an icon button beside Zoom and Expand, showing what a click switches to
+  const tb = $('#chartTableBtn'), tl = state.ov.table ? 'Show as chart' : 'Show as table';
+  tb.innerHTML = icon(state.ov.table ? 'chart-column-increasing' : 'table', 14);
+  tb.title = tl;
+  tb.setAttribute('aria-label', tl);
   $('#dayChart').classList.toggle('hidden', state.ov.table);
   $('#dayTable').classList.toggle('hidden', !state.ov.table);
   // the table has its own marks in the header: no legend above it
@@ -2887,7 +2891,23 @@ function zoomButton(host) {
   b.innerHTML = icon(host.__zoomed ? 'zoom-out' : 'zoom-in', 14) + (b.classList.contains('icon-only') ? '' : label);
   b.setAttribute('aria-label', label);
   b.setAttribute('aria-pressed', String(Boolean(host.__zoomed)));
-  b.title = host.__zoomed ? `Show all: back to the full scale, with ${host.__spike}` : `Fit small days: ${host.__spike} will run off the top`;
+  b.removeAttribute('title'); // the card below explains it instead of the browser's plain tooltip
+}
+// What the zoom button does, in the shared chart tooltip, under the button: what it is, and what a click will do.
+function zoomTipHtml(host) {
+  const who = esc(host.__spike), one = !/ days$/.test(host.__spike);
+  return host.__zoomed
+    ? `<div class="tt-title">${icon('zoom-out', 13)} Show all days</div><div class="tt-body">Zoomed in on the smaller days: ${who} ${one ? 'runs' : 'run'} off the top of the chart, with ${one ? 'its total' : 'their totals'} above.</div><div class="tt-note">Click to go back to the full scale.</div>`
+    : `<div class="tt-title">${icon('zoom-in', 13)} Fit small days</div><div class="tt-body">${who} ${one ? 'is' : 'are'} much bigger than the other days, so they’re hard to see.</div><div class="tt-note">Click to fit the scale to the smaller days. ${who} will run off the top, with ${one ? 'its total' : 'their totals'} shown. Double-clicking the chart does the same.</div>`;
+}
+function showBtnTip(btn, html) {
+  const tip = $('#chartTip');
+  clearTimeout(tip.__hideT);
+  tip.innerHTML = html;
+  tip.classList.remove('hidden');
+  const r = btn.getBoundingClientRect(), w = tip.offsetWidth, vw = document.documentElement.clientWidth;
+  tip.style.left = Math.max(12, Math.min(r.right - w, vw - w - 12)) + 'px';
+  tip.style.top = r.bottom + 8 + 'px';
 }
 function toggleZoom(host) {
   if (!host.__spike || !host.__redraw) return;
@@ -2896,7 +2916,12 @@ function toggleZoom(host) {
   host.__redraw();
 }
 for (const [h, b] of Object.entries(ZOOM_BTN)) {
-  document.getElementById(b)?.addEventListener('click', () => toggleZoom(document.getElementById(h)));
+  const btn = document.getElementById(b), host = document.getElementById(h);
+  btn?.addEventListener('click', () => { toggleZoom(host); if (btn.matches(':hover')) showBtnTip(btn, zoomTipHtml(host)); });
+  btn?.addEventListener('pointerenter', () => host.__spike && showBtnTip(btn, zoomTipHtml(host)));
+  btn?.addEventListener('focus', () => host.__spike && showBtnTip(btn, zoomTipHtml(host)));
+  btn?.addEventListener('pointerleave', hideTip);
+  btn?.addEventListener('blur', hideTip);
   document.getElementById(h)?.addEventListener('dblclick', (e) => { if (e.target.closest('svg.fl-svg')) { e.preventDefault(); toggleZoom(document.getElementById(h)); } });
 }
 
