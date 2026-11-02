@@ -1,4 +1,4 @@
-# WhatsApp Sender
+# SendON
 
 Send WhatsApp template messages to a large list of people with one click, spread across several WhatsApp Business numbers. It uses the official **WhatsApp Business Cloud API** (Meta).
 
@@ -38,7 +38,7 @@ Account emails: **confirm your email** (sent at sign-up, with a banner in the ap
 | Variable | |
 |---|---|
 | `RESEND_API_KEY` | API key from resend.com. Without it, emails are written to the server log instead of sent. |
-| `MAIL_FROM` | Sender, e.g. `WhatsApp Sender <hello@spotmies.com>`. The domain must be verified in Resend. |
+| `MAIL_FROM` | Sender, e.g. `SendON <hello@spotmies.com>`. The domain must be verified in Resend. |
 | `APP_URL` | Optional public address used in email links (otherwise taken from the request). |
 
 ## Security

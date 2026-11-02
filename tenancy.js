@@ -171,7 +171,7 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   const LOGO = `<img class="logo" src="/brand/logo-small.svg" alt="">`;
   function page(title, body) {
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)} · WhatsApp Sender</title><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"><link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg">
+<title>${esc(title)} · SendON</title><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"><link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg">
 <script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}
 // Came back with Back/Forward from memory? Ask the server again (it sends a signed-in person into the app).
 addEventListener('pageshow',function(e){if(e.persisted)location.reload()});</script></head>
@@ -255,11 +255,11 @@ document.querySelectorAll('input[type=password]').forEach(function(inp){
 });
 </script></body></html>`;
   }
-  const brand = `<div class="brand">${LOGO}<span class="brand-name">WhatsApp Sender</span></div>`;
+  const brand = `<div class="brand">${LOGO}<span class="brand-name">SendON</span></div>`;
   // Two-panel card: a gradient panel with a headline on the left, the form on the right.
   const shell = ({ kicker, headline, form }) => `<main class="auth-card">
   <aside class="auth-art" aria-hidden="true">
-    <div class="auth-art-logo">${LOGO}<span>WhatsApp Sender</span></div>
+    <div class="auth-art-logo">${LOGO}<span>SendON</span></div>
     <div class="auth-art-text"><p>${esc(kicker)}</p><h2>${esc(headline)}</h2></div>
   </aside>
   <section class="auth-form">${form}</section>

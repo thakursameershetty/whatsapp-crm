@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Admin · WhatsApp Sender</title>
+  <title>Admin · SendON</title>
   <link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
@@ -179,7 +179,7 @@ function renderDels() {
     ${d.note ? `<blockquote>${esc(d.note)}</blockquote>` : ''}
     <ul class="del-plan">${d.plan.map((p) => `<li class="${p.action}"><b>${esc(p.name)}</b> — ${esc(p.text)}</li>`).join('') || '<li>Not in any workspace</li>'}</ul>
     <div class="del-acts">
-      <a class="btn sm" href="mailto:${encodeURIComponent(d.email)}?subject=${encodeURIComponent('About deleting your WhatsApp Sender account')}">Email them</a>
+      <a class="btn sm" href="mailto:${encodeURIComponent(d.email)}?subject=${encodeURIComponent('About deleting your SendON account')}">Email them</a>
       <button class="btn sm quiet" data-dismiss="${d.id}">Dismiss request</button>
       <button class="btn sm quiet danger" data-delete="${d.id}" data-email="${esc(d.email)}">Delete account…</button>
     </div>

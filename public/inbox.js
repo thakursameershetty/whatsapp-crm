@@ -146,7 +146,7 @@
     const b = $('#inboxBadge');
     b.textContent = ib.unread > 99 ? '99+' : ib.unread;
     b.classList.toggle('hidden', !ib.unread);
-    document.title = (ib.unread ? `(${ib.unread}) ` : '') + 'WhatsApp Sender';
+    document.title = (ib.unread ? `(${ib.unread}) ` : '') + 'SendON';
   }
 
   function filtered() {

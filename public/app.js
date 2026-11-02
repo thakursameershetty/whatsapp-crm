@@ -1,4 +1,4 @@
-// WhatsApp Sender — dashboard (vanilla JS, no build step).
+// SendON — dashboard (vanilla JS, no build step).
 
 const state = {
   settings: {},
@@ -114,7 +114,7 @@ function showTab(name) {
   if (wasHidden) { Motion.enter($('#tab-' + name)); scrollTo(0, 0); } // a new page starts at the top
   state.tab = name;
   // Narrow screens: the top bar names the page, and choosing a page closes the menu.
-  $('#mbarTitle').textContent = $(`.side-nav button[data-tab="${navFor}"] .nav-label`)?.textContent || 'WhatsApp Sender';
+  $('#mbarTitle').textContent = $(`.side-nav button[data-tab="${navFor}"] .nav-label`)?.textContent || 'SendON';
   setDrawer(false);
   // The inbox fills the window and starts with the sidebar shrunk to icons.
   document.body.classList.toggle('inbox-open', name === 'inbox');
@@ -2785,7 +2785,7 @@ async function loadMe() {
   $('#acctDelNote').classList.toggle('hidden', !del);
   if (del) $('#acctDelNote').innerHTML = `<b>Deletion requested</b> on ${new Date(del.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}. Our team will get in touch before anything is deleted. Your account works as usual until then.<button class="btn sm" id="acctDelCancel">Cancel request</button>`;
   renderWorkspaces();
-  document.title = `${workspace.name} · WhatsApp Sender`;
+  document.title = `${workspace.name} · SendON`;
   $('#verifyBanner').classList.toggle('hidden', user.emailVerified);
   $('#verifyEmail').textContent = user.email;
 }

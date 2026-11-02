@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>WhatsApp Sender · WhatsApp campaigns, handled</title>
+<title>SendON · WhatsApp campaigns, handled</title>
 <meta name="description" content="Upload the sheet you already have and every person gets a personal WhatsApp message. See who read it, and answer every reply from one inbox. Built on the official WhatsApp Business API.">
 <link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -72,6 +72,7 @@ p { margin: 0; }
 .mobile-menu { display: none; }
 @media (max-width: 860px) {
   .nav-links, .nav-cta .ghost { display: none; }
+  .nav-cta { margin-left: auto; }
   .menu-btn { display: grid; place-items: center; }
   .nav { padding-right: 6px; height: 52px; }
   .nav .btn.dark { height: 36px; padding: 0 14px; font-size: 13px; }
@@ -158,31 +159,60 @@ section { padding: 112px 0 0; }
 .sec-head h2 { margin-top: 12px; font-size: clamp(28px, 3.6vw, 42px); line-height: 1.1; font-weight: 600; }
 .sec-head p { margin-top: 14px; font-size: 16.5px; color: var(--ink-2); }
 
-/* ---- The whole campaign, in four steps ----
-   Steps on the left, a small drawing of that moment on the right. The thin bar under the open step fills over 7s and, when it
-   ends, opens the next one; hovering holds it, and nothing moves until the section is on screen. Every drawing's resting state
-   is its finished frame, so with reduced motion each step simply shows its result. */
-.flow { margin-top: 56px; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 28px; align-items: stretch; }
-.flow-tabs { display: grid; gap: 8px; align-content: start; }
-.flow-tab { position: relative; display: grid; grid-template-columns: 34px 1fr; gap: 4px 14px; width: 100%; padding: 18px 20px; border: 1px solid transparent; border-radius: 18px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background .2s, border-color .2s; overflow: hidden; }
-.flow-tab:hover { background: color-mix(in srgb, var(--surface) 60%, transparent); }
-.flow-tab.on { background: var(--surface); border-color: var(--line); box-shadow: 0 1px 2px rgba(17,20,23,.04); }
-.flow-tab .n { grid-row: span 2; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font: 500 12px var(--mono); color: var(--muted); background: var(--bg-2); transition: background .2s, color .2s; }
-.flow-tab.on .n { background: var(--ink); color: var(--bg); }
-.flow-tab b { font: 600 17px var(--display); letter-spacing: -0.01em; align-self: center; }
-.flow-tab p { color: var(--muted); font-size: 14.5px; line-height: 1.5; display: none; }
-.flow-tab.on p { display: block; color: var(--ink-2); }
-.flow-tab .prog { position: absolute; left: 20px; right: 20px; bottom: 0; height: 2px; border-radius: 2px; background: var(--bg-2); opacity: 0; }
-.flow-tab.on .prog { opacity: 1; }
-.flow-tab .prog i { display: block; height: 100%; width: 100%; border-radius: inherit; background: var(--ink); transform-origin: left; transform: scaleX(0); }
-.flow-tab.on .prog i { animation: prog 7s linear both; }
-@keyframes prog { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-.flow:hover .prog i, .flow.waiting .prog i, .flow.waiting .flow-panel * { animation-play-state: paused !important; }
+/* ---- How it works: a scroll story ----
+   The four steps scroll past on the left; the app window on the right stays put (sticky) and shows the step that's in the middle
+   of the screen, playing its scene from the start each time it comes in. A rail beside the steps fills as you read.
+   Under 900px there's no sticky window: each scene sits under its own step (the script moves it there) and plays as it arrives.
+   Every scene's resting state is its finished frame, so with reduced motion each step simply shows its result. */
+.story { margin-top: 64px; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 64px; align-items: start; }
+.story-steps { position: relative; padding-left: 52px; counter-reset: st; }
+.story-list { list-style: none; margin: 0; padding: 0; }
+.story-rail { position: absolute; left: 17px; top: 0; bottom: 0; width: 2px; border-radius: 2px; background: var(--line-2); }
+.story-rail i { position: absolute; inset: 0; border-radius: inherit; background: var(--ink); transform-origin: top; transform: scaleY(var(--p, 0)); }
+.story-step { position: relative; min-height: 78vh; display: flex; flex-direction: column; justify-content: center; padding: 40px 0; opacity: .32; transition: opacity .45s var(--ease); }
+.story-step:first-child { min-height: 64vh; justify-content: flex-start; padding-top: 18vh; }
+.story-step:last-child { min-height: 64vh; justify-content: flex-end; padding-bottom: 22vh; }
+.story-step.is-active { opacity: 1; }
+.story-copy { position: relative; }
+.story-step .n { position: absolute; left: -52px; top: 2px; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--bg); box-shadow: inset 0 0 0 1.5px var(--line-2); font: 500 12px var(--mono); color: var(--muted); transition: background .35s, color .35s, box-shadow .35s, transform .45s cubic-bezier(.34, 1.56, .64, 1); }
+.story-step .n::before { content: "0" counter(st); counter-increment: st; }
+.story-step.is-active .n, .story-step.is-past .n { background: var(--ink); color: var(--bg); box-shadow: none; }
+.story-step.is-active .n { transform: scale(1.12); }
+.story-step .kick { font: 500 11.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.story-step h3 { margin-top: 10px; font-size: clamp(24px, 2.6vw, 32px); line-height: 1.12; }
+.story-copy > p { margin-top: 14px; max-width: 440px; font-size: 16.5px; line-height: 1.6; color: var(--ink-2); }
+.story-step ul { list-style: none; margin: 22px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.story-step li { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
+.story-step li svg { color: var(--ink); }
+.story-media { display: none; }
 
-.flow-stage { position: relative; min-height: 460px; border-radius: 24px; background: var(--surface); border: 1px solid var(--line); overflow: hidden; display: grid; place-items: center; padding: 34px; }
-.flow-stage::before { content: ""; position: absolute; inset: 0; background-image: radial-gradient(var(--line) 1px, transparent 1.2px); background-size: 18px 18px; opacity: .7; -webkit-mask-image: radial-gradient(70% 70% at 50% 50%, #000, transparent); mask-image: radial-gradient(70% 70% at 50% 50%, #000, transparent); }
-.flow-panel { position: relative; width: 100%; max-width: 520px; }
-.flow-panel[hidden] { display: none; }
+.story-stage { position: sticky; top: max(96px, calc(50vh - 290px)); border-radius: 26px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; }
+.story-chrome { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--raised); }
+.story-chrome .dots { display: flex; gap: 6px; }
+.story-chrome .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line-2); }
+.story-tabs { display: flex; gap: 4px; margin: 0 auto; padding: 3px; border-radius: 99px; background: var(--bg-2); }
+.story-tabs button { border: 0; background: none; padding: 5px 12px; border-radius: 99px; font: 500 12.5px var(--body); color: var(--muted); cursor: pointer; transition: background .3s, color .3s, box-shadow .3s; }
+.story-tabs button.is-active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(17, 20, 23, .1); }
+.story-chrome .live { display: inline-flex; align-items: center; gap: 6px; font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.story-chrome .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #2bb673; box-shadow: 0 0 0 3px rgba(43, 182, 115, .18); }
+.story-panels { position: relative; display: grid; min-height: 500px; padding: 34px; place-items: center; }
+.story-panels::before { content: ""; position: absolute; inset: 0; background-image: radial-gradient(var(--line) 1px, transparent 1.2px); background-size: 18px 18px; opacity: .7; -webkit-mask-image: radial-gradient(70% 70% at 50% 50%, #000, transparent); mask-image: radial-gradient(70% 70% at 50% 50%, #000, transparent); }
+.story-panel { grid-area: 1 / 1; position: relative; width: 100%; max-width: 520px; transition: opacity .45s var(--ease), transform .55s var(--ease), visibility .45s; }
+.story-panels .story-panel:not(.is-active) { opacity: 0; visibility: hidden; transform: translateY(18px) scale(.98); }
+/* Held until the section is on screen (the script adds .in-view). */
+.story:not(.in-view) .story-panel *, .story:not(.in-view) .story-panel *::before, .story:not(.in-view) .story-panel *::after { animation-play-state: paused !important; }
+@keyframes prog { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (max-width: 900px) {
+  .story { grid-template-columns: minmax(0, 1fr); margin-top: 40px; }
+  .story-stage { display: none; }
+  .story-steps { padding-left: 46px; }
+  .story-rail { left: 15px; }
+  .story-step, .story-step:first-child, .story-step:last-child { min-height: 0; justify-content: flex-start; padding: 0 0 56px; opacity: 1; }
+  .story-step .n { left: -46px; width: 32px; height: 32px; }
+  .story-step:not(.is-active):not(.is-past) .n { background: var(--bg); }
+  .story-media { display: block; margin-top: 24px; }
+}
+@media (prefers-reduced-motion: reduce) { .story-step, .story-panel, .story-step .n { transition: none; } }
 .mock { border-radius: 18px; background: var(--raised); border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; }
 .mock-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .mock-bar b { font-weight: 600; }
@@ -293,11 +323,6 @@ section { padding: 112px 0 0; }
 @keyframes dot { 0%, 100% { transform: translateY(0); opacity: .5; } 50% { transform: translateY(-3px); opacity: 1; } }
 @keyframes btn-life { 0% { opacity: 0; transform: scale(.9); } 20%, 60% { opacity: 1; transform: none; } 70% { opacity: 1; transform: scale(.94); } 100% { opacity: 0; transform: none; } }
 
-@media (max-width: 900px) {
-  .flow { grid-template-columns: 1fr; gap: 16px; }
-  .flow-tab { padding: 14px 16px; }
-  .flow-stage { min-height: 0; padding: 22px 16px; }
-}
 @media (max-width: 560px) {
   .pers { grid-template-columns: 1fr; }
   .people { grid-template-columns: repeat(3, minmax(0, 1fr)); border-right: 0; border-bottom: 1px solid var(--line); }
@@ -345,14 +370,13 @@ section { padding: 112px 0 0; }
 
 /* ---- Live in an afternoon ---- */
 .start { margin-top: 56px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; counter-reset: s; position: relative; }
-.start::before { content: ""; position: absolute; top: 44px; left: 16%; right: 16%; border-top: 1px dashed var(--line-2); }
 .start-step { position: relative; text-align: center; padding: 0 12px; counter-increment: s; }
 .start-step .num { position: relative; width: 88px; height: 88px; margin: 0 auto; border-radius: 26px; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
 .start-step .num::after { content: "0" counter(s); position: absolute; top: -9px; right: -9px; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 99px; display: grid; place-items: center; background: var(--ink); color: var(--bg); font: 500 11px/1 var(--mono); }
 .start-step h3 { margin-top: 22px; font-size: 18px; }
 .start-step p { margin: 8px auto 0; max-width: 300px; font-size: 14.5px; color: var(--ink-2); }
 .start-cta { margin-top: 44px; display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
-@media (max-width: 760px) { .start { grid-template-columns: 1fr; gap: 34px; } .start::before { display: none; } }
+@media (max-width: 760px) { .start { grid-template-columns: 1fr; gap: 34px; } }
 
 /* Trust */
 .trust { margin-top: 56px; display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 22px; background: var(--surface); overflow: hidden; }
@@ -364,6 +388,113 @@ section { padding: 112px 0 0; }
 .trust svg.la { vertical-align: 0; }
 @media (max-width: 860px) { .trust { grid-template-columns: 1fr 1fr; } .trust div:nth-child(2) { border-right: 0; } .trust div:nth-child(-n+2) { border-bottom: 1px solid var(--line); } }
 @media (max-width: 520px) { .trust { grid-template-columns: 1fr; } .trust div { border-right: 0; border-bottom: 1px solid var(--line); } }
+
+/* ---- Companies: logos under the hero ----
+   Each logo rests as a grey silhouette (brightness(0) keeps only its shape), so mixed colours sit together, and turns to its own
+   colours on hover. Logos drawn white for dark backgrounds (Spotmies, EduMoon, MutinyX) were given dark text in their files,
+   so their colour versions read on this light page; Amero X's white background was keyed out with its colours kept. */
+.clients { padding-top: 56px; text-align: center; }
+.clients .mono { display: block; }
+.logos { max-width: 1120px; margin: 26px auto 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 22px 56px; }
+.logo { flex: none; display: flex; align-items: center; height: 48px; }
+.logo img { display: block; height: var(--h, 28px); width: auto; filter: grayscale(1) brightness(0); opacity: .5; transition: filter .4s var(--ease), opacity .4s var(--ease), transform .4s var(--ease); }
+.logo:hover img { filter: grayscale(0) brightness(1); opacity: 1; transform: translateY(-2px); }
+/* Logos built on solid colour panels (Swathi) would be a dark slab as a silhouette, so they rest in grey tones instead. */
+.logo img.tone { filter: grayscale(1) contrast(1.2); opacity: .55; }
+.logo:hover img.tone { filter: grayscale(0) contrast(1); opacity: 1; }
+.logo.word { font: 600 21px/1 var(--display); letter-spacing: -0.03em; color: #000; white-space: nowrap; opacity: .5; transition: opacity .4s var(--ease); }
+.logo.word:hover { opacity: .9; }
+@media (max-width: 560px) { .logos { gap: 16px 32px; } .logo { height: 40px; } .logo img { height: calc(var(--h, 28px) * .78); } .logo.word { font-size: 17px; } }
+@media (prefers-reduced-motion: reduce) { .logo img, .logo.word { transition: none; } .logo:hover img { transform: none; } }
+
+/* ---- Scenes: small SVG animations that play as a section scrolls in ----
+   A scene (.sv) lists its moving parts with data-at="seconds"; the script at the bottom gives each part .is-on at its time.
+   data-loop="s" repeats the scene (the parts without data-keep fade out, reset and play again); it stops off screen.
+   The resting style of every part is its finished state: the script adds .armed to hide parts until their time, so without
+   the script, or with reduced motion, the finished picture shows. .shot parts play a one-off keyframe instead of staying on. */
+.sv .dr { stroke-dasharray: 1; }
+.sv .pop { transform-box: fill-box; transform-origin: center; }
+.armed .dr { transition: stroke-dashoffset var(--t, .8s) var(--e, cubic-bezier(.65, 0, .35, 1)); }
+.armed .dr:not(.is-on) { stroke-dashoffset: 1; }
+.armed .pop { transition: opacity .3s, transform .5s cubic-bezier(.34, 1.56, .64, 1); }
+.armed .pop:not(.is-on) { opacity: 0; transform: scale(.4); }
+.armed .fade { transition: opacity .45s ease; }
+.armed .fade:not(.is-on) { opacity: 0; }
+.sv .pulse { fill: none; stroke-linecap: round; stroke-dasharray: .14 2; stroke-dashoffset: .14; opacity: 0; }
+.armed .pulse.is-on { animation: pulse-run var(--t, .8s) cubic-bezier(.5, 0, .5, 1) forwards; }
+@keyframes pulse-run { 0% { stroke-dashoffset: .14; opacity: 0; } 12%, 85% { opacity: 1; } 100% { stroke-dashoffset: -1; opacity: 0; } }
+@keyframes ping { 0% { opacity: .55; transform: scale(1); } 60%, 100% { opacity: 0; transform: scale(2.1); } }
+.sv.out [data-at]:not([data-keep]):not(.shot) { opacity: 0 !important; transition: opacity .5s ease !important; }
+.sv.rs, .sv.rs * { transition: none !important; }
+.sv:not(.in) *, .sv:not(.in) *::before { animation-play-state: paused !important; }
+
+/* Why switch: one chat at a time from a phone, against the whole sheet at once */
+.vs-stage { margin: -6px -8px 24px; padding: 12px 8px; border-radius: 16px; background: color-mix(in srgb, var(--bg-2) 70%, transparent); }
+.vs-card.new .vs-stage { background: rgba(255, 255, 255, .035); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); }
+.vs-stage svg { display: block; width: 100%; height: auto; overflow: visible; }
+.va-old .wob { fill: none; stroke: var(--faint); stroke-width: 1.4; stroke-linecap: round; --t: 1.3s; }
+.va-old .o-typing circle { fill: var(--faint); transform-box: fill-box; transform-origin: center; }
+.va-old.armed .o-typing circle { animation: dot 1.1s ease-in-out infinite; animation-delay: calc(var(--i) * .15s); }
+.va-old .warn-ring { fill: none; stroke: var(--ink-2); stroke-width: 1.5; opacity: 0; transform-box: fill-box; transform-origin: center; }
+.va-old.armed .warn.is-on .warn-ring { animation: ping 1.5s ease-out .3s infinite; }
+.va-new .fan { fill: none; stroke: rgba(255, 255, 255, .2); stroke-width: 1.3; --t: .7s; }
+.va-new .pulse { stroke: #fff; stroke-width: 4; --t: .85s; }
+.va-new .scan { fill: rgba(255, 255, 255, .13); opacity: 0; }
+.va-new.armed .scan.is-on { animation: scan 1.1s cubic-bezier(.65, 0, .35, 1) forwards; }
+@keyframes scan { 0% { opacity: 0; transform: none; } 12% { opacity: 1; } 88% { opacity: 1; transform: translateY(48px); } 100% { opacity: 0; transform: translateY(48px); } }
+.va-new .hub-ring { fill: none; stroke: rgba(255, 255, 255, .45); stroke-width: 1.5; opacity: 0; transform-box: fill-box; transform-origin: center; }
+.va-new.armed .hub-ring.is-on { animation: ping 1s ease-out forwards; }
+
+/* Getting started: the dashed line fills from step to step, then a dot keeps travelling along it */
+.start-line { position: absolute; top: 38px; left: 16%; right: 16%; height: 12px; pointer-events: none; }
+.start-line svg { display: block; width: 100%; height: 12px; overflow: visible; }
+.sl-base { stroke: var(--line-2); stroke-dasharray: 4 5; }
+.sl-fill { stroke: var(--ink); stroke-width: 1.5; }
+.armed .sl-fill { transition: transform 1.9s cubic-bezier(.65, 0, .35, 1); }
+.armed .sl-fill:not(.is-on) { transform: scaleX(0); }
+.sl-dot { position: absolute; top: 50%; left: 0; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 4px rgba(17, 20, 23, .08); opacity: 0; }
+.armed .sl-dot.is-on { animation: sl-run 3.6s cubic-bezier(.65, 0, .35, 1) infinite; }
+@keyframes sl-run { 0% { left: 0; opacity: 0; } 8%, 92% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+.start-step .num::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; border: 1.5px solid var(--ink); opacity: 0; pointer-events: none; }
+.start.armed:has(.sl-dot.is-on) .start-step:nth-child(3) .num::before { animation: num-ping 3.6s ease-out 1.8s infinite; }
+.start.armed:has(.sl-dot.is-on) .start-step:nth-child(4) .num::before { animation: num-ping 3.6s ease-out 3.55s infinite; }
+@keyframes num-ping { 0% { opacity: .5; transform: scale(1); } 22%, 100% { opacity: 0; transform: scale(1.3); } }
+.start.armed .start-step .num { transition: color .5s, transform .6s cubic-bezier(.34, 1.56, .64, 1), box-shadow .5s; }
+.start.armed .start-step .num::after { transition: background .4s; }
+.start.armed .start-step:not(.is-on) .num { color: var(--line-2); transform: scale(.92); box-shadow: none; }
+.start.armed .start-step:not(.is-on) .num::after { background: var(--faint); }
+@media (max-width: 760px) { .start-line { display: none; } }
+
+/* Built properly: where a message goes, from your sheet to their phone */
+.pipe { margin-top: 56px; display: grid; grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr) 64px minmax(0, 1fr) 64px minmax(0, 1fr); align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); }
+.pipe + .trust { margin-top: 14px; }
+.pn { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 12px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); }
+.pn b { display: block; font: 600 14px/1.3 var(--display); }
+.pn small { display: block; font-size: 12.5px; line-height: 1.35; color: var(--muted); }
+.pn-ic { flex: none; width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--line); color: var(--ink); }
+.pn.hub { background: #111417; border-color: #111417; color: #f1f3f5; }
+.pn.hub small { color: #8d959d; }
+.pn.hub .pn-ic { background: transparent; border: 0; }
+.pn-read { flex: none; margin-left: auto; fill: none; stroke: var(--read); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.pipe.armed .pn.is-on { animation: pn-hit .8s var(--ease); }
+@keyframes pn-hit { 30% { transform: translateY(-3px); box-shadow: 0 10px 24px -12px rgba(17, 20, 23, .4); } }
+.pc { display: block; width: 64px; height: 12px; overflow: visible; }
+.pc .pc-base { fill: none; stroke: var(--line-2); stroke-width: 1.4; stroke-dasharray: 3 4; }
+.pc .pc-tip { fill: none; stroke: var(--faint); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.pc .pulse { stroke: var(--ink); stroke-width: 3.4; --t: .7s; }
+@media (max-width: 1000px) {
+  .pn { position: relative; flex-direction: column; text-align: center; gap: 8px; padding: 14px 8px; }
+  .pn small { display: none; }
+  .pn-read { position: absolute; top: 8px; right: 8px; }
+}
+@media (max-width: 760px) {
+  .pipe { grid-template-columns: minmax(0, 1fr); }
+  .pn { flex-direction: row; text-align: left; gap: 11px; padding: 12px; }
+  .pn small { display: block; }
+  .pn-read { position: static; }
+  .pc { justify-self: center; transform: rotate(90deg); margin: 30px 0; }
+}
+@media (prefers-reduced-motion: reduce) { .sv *, .sv *::before { animation: none !important; transition: none !important; } }
 
 /* FAQ: a card-index drawer (after the TACTILE UI "FAQ Index" block). A recessed aluminium tray of warm-white index cards
    standing one behind another, each question typed along a card's top edge, its subject on a staggered tab. Cards further
@@ -441,15 +572,41 @@ section { padding: 112px 0 0; }
   @keyframes drift { to { transform: translateX(-50%); } }
 }
 
-footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
-.foot { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; padding-top: 28px; border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
-.foot nav { display: flex; gap: 20px; flex-wrap: wrap; }
-.foot a:hover { color: var(--ink); }
-.foot .contact a { color: var(--ink); font-weight: 500; white-space: nowrap; }
+/* ---- Footer: the wordmark in halftone ----
+   "SendON" set enormous, cropped by the bottom edge and printed as a field of dots on a canvas (script at the bottom). Each dot
+   is sized by how much of the letter covers its cell, so the type keeps its edges. The pointer parts the dots on springs and
+   they turn read-tick blue as they're pushed off their place; a click sends a ring through the word. Links sit above it. */
+.hwf { --hwf-bg: #0b0d0f; --hwf-ink: #e9ecef; position: relative; margin-top: 96px; overflow: hidden; isolation: isolate;
+  height: max(420px, calc(150px + 24vw)); background: var(--hwf-bg); color: var(--hwf-ink); border-radius: 36px 36px 0 0; }
+.hwf canvas { position: absolute; inset: 0; z-index: -1; display: block; width: 100%; height: 100%; max-width: none; touch-action: pan-y; }
+.hwf-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.hwf-top { display: grid; grid-template-columns: minmax(0, 1.25fr) repeat(3, minmax(0, 1fr)); gap: 24px; max-width: 1200px; margin: 0 auto;
+  padding: clamp(28px, 4vw, 52px) max(24px, env(safe-area-inset-right)) 0 max(24px, env(safe-area-inset-left));
+  font: 500 11px/1.9 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+.hwf-brand strong { display: flex; align-items: center; gap: 10px; font: 600 15px/1 var(--display); letter-spacing: -0.01em; text-transform: none; }
+.hwf-brand strong .mark { --s: 26px; }
+.hwf-brand span { display: block; margin-top: 12px; opacity: .45; }
+.hwf-col h3 { margin: 0 0 4px; font: inherit; opacity: .4; }
+.hwf-col ul { list-style: none; margin: 0; padding: 0; }
+.hwf a, .hwf-up { color: inherit; text-decoration: none; opacity: .78; background: none; border: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer;
+  background-image: linear-gradient(currentColor, currentColor); background-size: 0% 1px; background-repeat: no-repeat; background-position: 0 100%;
+  transition: opacity .25s ease, background-size .35s cubic-bezier(.2, .7, .1, 1); }
+.hwf a:hover, .hwf-up:hover { opacity: 1; background-size: 100% 1px; }
+.hwf a:focus-visible, .hwf-up:focus-visible { outline: 1px solid currentColor; outline-offset: 3px; border-radius: 2px; opacity: 1; }
+.hwf .hwf-brand a { opacity: 1; background-image: none; }
+.hwf-rule { display: flex; justify-content: space-between; align-items: center; gap: 16px; max-width: calc(1200px - 48px); margin: clamp(20px, 2.8vw, 34px) auto 0; padding-top: 12px;
+  border-top: .5px solid color-mix(in srgb, var(--hwf-ink) 18%, transparent); font: 500 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+.hwf-rule > span { opacity: .45; }
+@media (max-width: 1248px) { .hwf-rule { margin-inline: 24px; } }
+@media (max-width: 720px) {
+  .hwf { border-radius: 28px 28px 0 0; height: 490px; }
+  .hwf-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); row-gap: 22px; }
+  .hwf-brand { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) { .hwf a, .hwf-up { transition: none; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .flow-panel *, .flow-panel *::before, .flow-panel *::after { animation: none !important; }
-  .flow-tab .prog { display: none; }
+  .story-panel *, .story-panel *::before, .story-panel *::after { animation: none !important; }
 }
 </style>
 </head>
@@ -472,7 +629,7 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
 
 <div class="nav-shell">
   <nav class="nav" id="nav" aria-label="Main">
-    <a class="brand" href="#top" aria-label="WhatsApp Sender home"><span class="mark"></span>WhatsApp Sender</a>
+    <a class="brand" href="#top" aria-label="SendON home"><span class="mark"></span>SendON</a>
     <div class="nav-links">
       <a href="#how">How it works</a>
       <a href="#why">Why switch</a>
@@ -480,6 +637,7 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
       <a href="#faq">FAQ</a>
     </div>
     <div class="nav-cta">
+      <a class="btn ghost" href="https://calendly.com/sendon-spotmies" target="_blank" rel="noopener">Book a demo</a>
       <a class="btn ghost" href="/login">Sign in</a>
       <a class="btn dark" href="/signup">Get started</a>
       <button class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="mobileMenu">
@@ -488,7 +646,7 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
     </div>
   </nav>
   <div class="mobile-menu" id="mobileMenu">
-    <a href="#how">How it works</a><a href="#why">Why switch</a><a href="#features">Features</a><a href="#faq">FAQ</a><a href="/login">Sign in</a>
+    <a href="#how">How it works</a><a href="#why">Why switch</a><a href="#features">Features</a><a href="#faq">FAQ</a><a href="https://calendly.com/sendon-spotmies" target="_blank" rel="noopener">Book a demo</a><a href="/login">Sign in</a>
   </div>
 </div>
 
@@ -497,18 +655,24 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="ascii hero-ascii" id="heroAscii" aria-hidden="true"></div>
     <div class="wrap hero-copy">
-      <span class="mark hero-mark" id="heroMark" role="img" aria-label="WhatsApp Sender"></span>
+      <span class="mark hero-mark" id="heroMark" role="img" aria-label="SendON"></span>
       <a class="badge rise" href="#how"><i><svg width="11" height="11" viewBox="0 0 24 24" fill="#04140a"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Z"/></svg></i>Built on the official WhatsApp Business API<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></a>
       <h1 class="rise d1"><span>WhatsApp campaigns,</span><span><em>handled.</em></span></h1>
       <p class="lead rise d2">Upload the sheet you already have. Everyone on it gets a message with their own name, you see who read it, and every reply lands in one inbox your whole team can answer from.</p>
       <div class="hero-cta rise d3">
         <a class="btn glow lg" href="/signup">Get started</a>
-        <a class="btn text lg" href="#how">See how it works</a>
+        <a class="btn text lg" href="https://calendly.com/sendon-spotmies" target="_blank" rel="noopener">Book a demo</a>
       </div>
     </div>
   </header>
 
   <div class="wrap">
+
+    <!-- Companies -->
+    <section class="clients" aria-label="Companies we work with">
+      <span class="mono">Teams we work with</span>
+      <div class="logos"><span class="logo"><img src="/brand/clients/spotmies.webp" alt="Spotmies" style="--h:30px" loading="lazy" decoding="async"></span><span class="logo"><img src="/brand/clients/reaidy.webp" alt="Reaidy" style="--h:22px" loading="lazy" decoding="async"></span><span class="logo"><img src="/brand/clients/openplan-ai.svg" alt="OpenPlan AI" style="--h:26px" loading="lazy" decoding="async"></span><span class="logo"><img src="/brand/clients/mutinyx.svg" alt="MutinyX" style="--h:26px" loading="lazy" decoding="async"></span><span class="logo"><img src="/brand/clients/varun.webp" alt="Varun Motors" style="--h:32px" loading="lazy" decoding="async"></span><span class="logo"><img class="tone" src="/brand/clients/swathi.webp" alt="Swathi Infra Projects" style="--h:46px" loading="lazy" decoding="async"></span><span class="logo"><img src="/brand/clients/reachx.webp" alt="TheReachX" style="--h:24px" loading="lazy" decoding="async"></span><span class="logo"><img src="/brand/clients/mybodyqode.webp" alt="My Body Qode" style="--h:46px" loading="lazy" decoding="async"></span><span class="logo"><img src="/brand/clients/edumoon.webp" alt="EduMoon" style="--h:40px" loading="lazy" decoding="async"></span><span class="logo"><img src="/brand/clients/amerox.webp" alt="Amero X" style="--h:30px" loading="lazy" decoding="async"></span></div>
+    </section>
 
     <!-- The whole campaign, in four steps -->
     <section id="how">
@@ -518,33 +682,58 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
         <p>From the spreadsheet on your desktop to the replies on your phone, without the busywork in between.</p>
       </div>
 
-      <div class="flow waiting" id="flow">
-        <div class="flow-tabs" role="tablist" aria-label="The four steps">
-          <button class="flow-tab on" role="tab" aria-selected="true" aria-controls="fp-0" id="ft-0">
-            <span class="n">01</span><b>Drop in your sheet</b>
-            <p>CSV or Excel, exactly as your team keeps it. Two numbers in one cell, notes, missing names: it's tidied up for you.</p>
-            <span class="prog"><i></i></span>
-          </button>
-          <button class="flow-tab" role="tab" aria-selected="false" aria-controls="fp-1" id="ft-1">
-            <span class="n">02</span><b>Make it personal</b>
-            <p>Write the message once. Every person gets it with their own name and company, so it reads like you wrote it to them.</p>
-            <span class="prog"><i></i></span>
-          </button>
-          <button class="flow-tab" role="tab" aria-selected="false" aria-controls="fp-2" id="ft-2">
-            <span class="n">03</span><b>Send, and step away</b>
-            <p>Hundreds of messages go out at a safe pace, shared across your numbers, now or at the time you pick. Watch them get read.</p>
-            <span class="prog"><i></i></span>
-          </button>
-          <button class="flow-tab" role="tab" aria-selected="false" aria-controls="fp-3" id="ft-3">
-            <span class="n">04</span><b>Answer every reply</b>
-            <p>Replies from every number land in one inbox, with a suggested answer ready and a note of what each lead wants.</p>
-            <span class="prog"><i></i></span>
-          </button>
+      <div class="story" id="story">
+        <div class="story-steps">
+          <span class="story-rail" aria-hidden="true"><i></i></span>
+          <ol class="story-list">
+          <li class="story-step" data-step="0">
+            <div class="story-copy">
+              <span class="n" aria-hidden="true"></span>
+              <span class="kick">Step 1 · Upload</span>
+              <h3>Drop in your sheet</h3>
+              <p>CSV or Excel, exactly as your team keeps it. Two numbers in one cell, notes, missing names: it's tidied up for you before anything goes out.</p>
+              <ul><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>CSV and Excel</li><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>Messy numbers fixed</li><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>Rows that need you, flagged</li></ul>
+            </div>
+            <div class="story-media"></div>
+          </li>
+          <li class="story-step" data-step="1">
+            <div class="story-copy">
+              <span class="n" aria-hidden="true"></span>
+              <span class="kick">Step 2 · Personalise</span>
+              <h3>Make it personal</h3>
+              <p>Write the message once. Every person gets it with their own name and company, so it reads like you wrote it just to them.</p>
+              <ul><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>Their name, their company</li><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>A fallback for blanks</li><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>Meta-approved templates</li></ul>
+            </div>
+            <div class="story-media"></div>
+          </li>
+          <li class="story-step" data-step="2">
+            <div class="story-copy">
+              <span class="n" aria-hidden="true"></span>
+              <span class="kick">Step 3 · Send</span>
+              <h3>Send, and step away</h3>
+              <p>Hundreds of messages go out at a safe pace, shared across your numbers, now or at the time you pick. Then watch them get read.</p>
+              <ul><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>Safe sending pace</li><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>Shared across numbers</li><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>Schedule for later</li></ul>
+            </div>
+            <div class="story-media"></div>
+          </li>
+          <li class="story-step" data-step="3">
+            <div class="story-copy">
+              <span class="n" aria-hidden="true"></span>
+              <span class="kick">Step 4 · Reply</span>
+              <h3>Answer every reply</h3>
+              <p>Replies from every number land in one inbox, with a suggested answer ready and a note of what each lead wants.</p>
+              <ul><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>One shared inbox</li><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>Suggested replies</li><li><svg width="13" height="13" aria-hidden="true"><use href="#i-check"/></svg>A note on every lead</li></ul>
+            </div>
+            <div class="story-media"></div>
+          </li>
+          </ol>
         </div>
 
-        <div class="flow-stage" aria-live="off">
+        <div class="story-stage">
+          <div class="story-chrome"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><nav class="story-tabs" aria-label="Jump to a step"><button type="button" data-go="0" class="is-active">Upload</button><button type="button" data-go="1">Personalise</button><button type="button" data-go="2">Send</button><button type="button" data-go="3">Reply</button></nav><span class="live">Live</span></div>
+          <div class="story-panels" aria-live="off">
           <!-- 1 · Upload -->
-          <div class="flow-panel" id="fp-0" role="tabpanel" aria-labelledby="ft-0">
+          <div class="story-panel" data-step="0">
             <div class="mock">
               <div class="mock-bar">
                 <span data-icon="file-spreadsheet"></span>
@@ -561,7 +750,7 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
           </div>
 
           <!-- 2 · Personalise -->
-          <div class="flow-panel" id="fp-1" role="tabpanel" aria-labelledby="ft-1" hidden>
+          <div class="story-panel" data-step="1">
             <div class="mock">
               <div class="mock-bar"><span data-icon="square-pen"></span><b>One message, 353 people</b></div>
               <div class="pers">
@@ -582,7 +771,7 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
           </div>
 
           <!-- 3 · Send -->
-          <div class="flow-panel" id="fp-2" role="tabpanel" aria-labelledby="ft-2" hidden>
+          <div class="story-panel" data-step="2">
             <div class="mock" style="--tick: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 11'%3E%3Cpath d='M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E&quot;)">
               <div class="mock-bar"><span data-icon="send"></span><b>Diwali offer</b><span class="chip">2 numbers · safe pace</span></div>
               <div class="lanes">
@@ -600,7 +789,7 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
           </div>
 
           <!-- 4 · Reply -->
-          <div class="flow-panel" id="fp-3" role="tabpanel" aria-labelledby="ft-3" hidden>
+          <div class="story-panel" data-step="3">
             <div class="mock">
               <div class="mock-bar">
                 <span class="person" style="padding:0"><span class="av">P</span><span><b>Priya</b><small style="display:block">Northwind · replied to Diwali offer</small></span></span>
@@ -615,6 +804,7 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
             </div>
             <p class="stage-note">One inbox for every number and teammate, with the 24-hour reply window on each chat.</p>
           </div>
+          </div>
         </div>
       </div>
     </section>
@@ -628,6 +818,34 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
       </div>
       <div class="vs">
         <div class="vs-card old la-host">
+          <div class="vs-stage va-old sv" data-loop="9.4">
+            <svg viewBox="0 0 400 132" role="img" aria-label="A phone sending to one contact at a time; most of the list is still waiting">
+              <rect x="24" y="12" width="58" height="108" rx="12" fill="var(--surface)" stroke="var(--faint)" stroke-width="1.5"/>
+              <path d="M46 21h14" stroke="var(--line-2)" stroke-width="3" stroke-linecap="round"/>
+              <rect x="33" y="34" width="30" height="8" rx="4" fill="var(--bg-2)"/>
+              <rect x="43" y="48" width="30" height="8" rx="4" fill="var(--line-2)"/>
+              <rect x="33" y="62" width="24" height="8" rx="4" fill="var(--bg-2)"/>
+              <g class="o-typing"><circle style="--i:0" cx="40" cy="104" r="2.2"/><circle style="--i:1" cx="47" cy="104" r="2.2"/><circle style="--i:2" cx="54" cy="104" r="2.2"/></g>
+              <path class="wob dr" data-at=".4" pathLength="1" d="M84 62C120 58 132 30 168 34S220 52 250 30S300 14 320 16"/>
+              <path class="wob dr" data-at="2.5" pathLength="1" d="M84 66C118 70 140 44 176 50S230 64 262 42S302 34 320 36"/>
+              <path class="wob dr" data-at="4.6" pathLength="1" d="M84 70C124 78 150 52 188 62S236 72 270 54S306 56 320 56"/>
+              <g fill="var(--bg-2)" stroke="var(--line-2)" stroke-width="1.3">
+                <circle cx="330" cy="16" r="7.5"/><circle cx="330" cy="36" r="7.5"/><circle cx="330" cy="56" r="7.5"/>
+              </g>
+              <g fill="none" stroke="var(--line-2)" stroke-width="1.3" stroke-dasharray="2 3">
+                <circle cx="330" cy="76" r="7.5"/><circle cx="330" cy="96" r="7.5"/><circle cx="330" cy="116" r="7.5"/>
+              </g>
+              <g fill="var(--bg-2)"><rect x="344" y="13" width="28" height="6" rx="3"/><rect x="344" y="33" width="24" height="6" rx="3"/><rect x="344" y="53" width="30" height="6" rx="3"/><rect x="344" y="73" width="22" height="6" rx="3"/><rect x="344" y="93" width="28" height="6" rx="3"/><rect x="344" y="113" width="25" height="6" rx="3"/></g>
+              <path class="pop" data-at="1.8" d="M383 16.5l3.2 3.2 6.3-6.6" fill="none" stroke="var(--muted)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <text class="pop" data-at="3.9" x="388" y="40.5" font-size="13" font-weight="600" text-anchor="middle" fill="var(--faint)">?</text>
+              <path class="pop" data-at="6" d="M383 56.5l3.2 3.2 6.3-6.6" fill="none" stroke="var(--muted)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+              <g class="warn pop" data-at="6.6">
+                <circle class="warn-ring" cx="80" cy="14" r="9"/>
+                <circle cx="80" cy="14" r="9" fill="var(--ink-2)"/>
+                <path d="M80 9.6v5.2M80 18.3v.1" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+              </g>
+            </svg>
+          </div>
           <h3>Sending from your phone</h3>
           <p class="sub">The way most teams start.</p>
           <ul>
@@ -639,7 +857,54 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
           </ul>
         </div>
         <div class="vs-card new la-host">
-          <h3>Sending with WhatsApp Sender</h3>
+          <div class="vs-stage va-new sv" data-loop="5.6">
+            <svg viewBox="0 0 400 132" role="img" aria-label="One sheet sent to everyone at once; each message is delivered, then read">
+              <rect x="18" y="26" width="64" height="80" rx="9" fill="#171b1e" stroke="rgba(255,255,255,.16)"/>
+              <path d="M18 35a9 9 0 0 1 9-9h46a9 9 0 0 1 9 9v7H18z" fill="rgba(255,255,255,.08)"/>
+              <path d="M18 58h64M18 74h64M18 90h64M38 42v64" stroke="rgba(255,255,255,.1)"/>
+              <rect class="scan shot" data-at=".2" x="19" y="43" width="62" height="15"/>
+              <path class="dr" data-at=".1" data-keep pathLength="1" d="M82 66H118" stroke="rgba(255,255,255,.22)" stroke-width="1.3" style="--t:.4s"/>
+              <path class="pulse shot" data-at=".5" pathLength="1" d="M82 66H118" stroke="#fff" stroke-width="4" style="--t:.5s"/>
+              <circle class="hub-ring shot" data-at="1" cx="134" cy="66" r="16"/>
+              <g class="pop" data-at=".4" data-keep>
+                <circle cx="134" cy="66" r="16" fill="#f1f3f5"/>
+                <g transform="translate(125.5 57.5) scale(.72)" fill="none" stroke="#0f1214" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></g>
+              </g>
+              <path class="fan dr" data-at=".6" data-keep pathLength="1" d="M150 66C215 66 245 16 321 16"/>
+              <path class="pulse shot" data-at="1.1" pathLength="1" d="M150 66C215 66 245 16 321 16"/>
+              <circle class="pop" data-at="1.9" cx="330" cy="16" r="7.5" fill="#f1f3f5"/>
+              <g transform="translate(377 10.5)"><path class="pop" data-at="2.1" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <g transform="translate(377 10.5)"><path class="fade" data-at="2.9" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="var(--read)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <path class="fan dr" data-at=".6" data-keep pathLength="1" d="M150 66C215 66 245 36 321 36"/>
+              <path class="pulse shot" data-at="1.17" pathLength="1" d="M150 66C215 66 245 36 321 36"/>
+              <circle class="pop" data-at="1.97" cx="330" cy="36" r="7.5" fill="#f1f3f5"/>
+              <g transform="translate(377 30.5)"><path class="pop" data-at="2.17" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <g transform="translate(377 30.5)"><path class="fade" data-at="3.03" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="var(--read)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <path class="fan dr" data-at=".6" data-keep pathLength="1" d="M150 66C215 66 245 56 321 56"/>
+              <path class="pulse shot" data-at="1.24" pathLength="1" d="M150 66C215 66 245 56 321 56"/>
+              <circle class="pop" data-at="2.04" cx="330" cy="56" r="7.5" fill="#f1f3f5"/>
+              <g transform="translate(377 50.5)"><path class="pop" data-at="2.24" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <g transform="translate(377 50.5)"><path class="fade" data-at="3.16" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="var(--read)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <path class="fan dr" data-at=".6" data-keep pathLength="1" d="M150 66C215 66 245 76 321 76"/>
+              <path class="pulse shot" data-at="1.31" pathLength="1" d="M150 66C215 66 245 76 321 76"/>
+              <circle class="pop" data-at="2.11" cx="330" cy="76" r="7.5" fill="#f1f3f5"/>
+              <g transform="translate(377 70.5)"><path class="pop" data-at="2.31" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <g transform="translate(377 70.5)"><path class="fade" data-at="3.29" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="var(--read)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <path class="fan dr" data-at=".6" data-keep pathLength="1" d="M150 66C215 66 245 96 321 96"/>
+              <path class="pulse shot" data-at="1.38" pathLength="1" d="M150 66C215 66 245 96 321 96"/>
+              <circle class="pop" data-at="2.18" cx="330" cy="96" r="7.5" fill="#f1f3f5"/>
+              <g transform="translate(377 90.5)"><path class="pop" data-at="2.38" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <g transform="translate(377 90.5)"><path class="fade" data-at="3.42" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="var(--read)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <path class="fan dr" data-at=".6" data-keep pathLength="1" d="M150 66C215 66 245 116 321 116"/>
+              <path class="pulse shot" data-at="1.45" pathLength="1" d="M150 66C215 66 245 116 321 116"/>
+              <circle class="pop" data-at="2.25" cx="330" cy="116" r="7.5" fill="#f1f3f5"/>
+              <g transform="translate(377 110.5)"><path class="pop" data-at="2.45" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <g transform="translate(377 110.5)"><path class="fade" data-at="3.55" d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8" fill="none" stroke="var(--read)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+              <g fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1.3"><circle cx="330" cy="16" r="7.5"/><circle cx="330" cy="36" r="7.5"/><circle cx="330" cy="56" r="7.5"/><circle cx="330" cy="76" r="7.5"/><circle cx="330" cy="96" r="7.5"/><circle cx="330" cy="116" r="7.5"/></g>
+              <g fill="rgba(255,255,255,.14)"><rect x="344" y="13" width="28" height="6" rx="3"/><rect x="344" y="33" width="24" height="6" rx="3"/><rect x="344" y="53" width="30" height="6" rx="3"/><rect x="344" y="73" width="22" height="6" rx="3"/><rect x="344" y="93" width="28" height="6" rx="3"/><rect x="344" y="113" width="25" height="6" rx="3"/></g>
+            </svg>
+          </div>
+          <h3>Sending with SendON</h3>
           <p class="sub">The same campaign, done for you.</p>
           <ul>
             <li><span class="ic" data-icon="check-one" data-icon-size="12"></span><span><b>Upload the sheet</b> and every row gets its own personal message.</span></li>
@@ -718,24 +983,28 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
         <h2>Live in an afternoon.</h2>
         <p>No developer needed. If you have a WhatsApp Business number on Meta, you're three steps away.</p>
       </div>
-      <div class="start">
-        <div class="start-step la-host">
+      <div class="start sv">
+        <div class="start-line" aria-hidden="true">
+          <svg><line class="sl-base" x1="0" x2="100%" y1="6" y2="6"/><line class="sl-fill" data-at=".3" data-keep x1="0" x2="100%" y1="6" y2="6"/></svg>
+          <i class="sl-dot" data-at="2.5" data-keep></i>
+        </div>
+        <div class="start-step la-host" data-at=".2" data-keep>
           <span class="num" data-icon="smartphone" data-icon-size="30"></span>
           <h3>Connect your number</h3>
           <p>Paste its number ID and access token from Meta. We check them with Meta before saving.</p>
         </div>
-        <div class="start-step la-host">
+        <div class="start-step la-host" data-at="1.25" data-keep>
           <span class="num" data-icon="file-text" data-icon-size="30"></span>
           <h3>Bring your templates</h3>
           <p>Sync the ones you already have in one click, or write a new one here.</p>
         </div>
-        <div class="start-step la-host">
+        <div class="start-step la-host" data-at="2.2" data-keep>
           <span class="num" data-icon="send" data-icon-size="30"></span>
           <h3>Upload and send</h3>
           <p>Drop in your sheet, check the preview, and press send. That's your first campaign.</p>
         </div>
       </div>
-      <div class="start-cta"><a class="btn dark lg" href="/signup">Get started</a></div>
+      <div class="start-cta"><a class="btn dark lg" href="/signup">Get started</a><a class="btn line lg" href="https://calendly.com/sendon-spotmies" target="_blank" rel="noopener">Book a demo</a></div>
     </section>
 
     <!-- Trust -->
@@ -743,6 +1012,16 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
       <div class="sec-head center">
         <span class="mono">Built properly</span>
         <h2>Official, careful, and yours.</h2>
+      </div>
+      <div class="pipe sv" data-loop="5" role="img" aria-label="Your sheet goes to SendON, which keeps your token on the server, then to Meta's official Cloud API, then to each person's WhatsApp, where it's delivered and read">
+        <div class="pn shot" data-at=".1"><span class="pn-ic" data-icon="file-spreadsheet" data-icon-size="18"></span><span><b>Your sheet</b><small>Names and numbers</small></span></div>
+        <svg class="pc" viewBox="0 0 64 12" aria-hidden="true"><path class="pc-base" d="M4 6H58"/><path class="pc-tip" d="M56 2.5 60 6l-4 3.5"/><path class="pulse shot" data-at=".35" pathLength="1" d="M4 6H58"/></svg>
+        <div class="pn hub shot" data-at="1"><span class="pn-ic"><span class="mark" style="--s:30px"></span></span><span><b>SendON</b><small>Your token stays here</small></span></div>
+        <svg class="pc" viewBox="0 0 64 12" aria-hidden="true"><path class="pc-base" d="M4 6H58"/><path class="pc-tip" d="M56 2.5 60 6l-4 3.5"/><path class="pulse shot" data-at="1.15" pathLength="1" d="M4 6H58"/></svg>
+        <div class="pn shot" data-at="1.8"><span class="pn-ic" data-icon="shield-check" data-icon-size="18"></span><span><b>Meta Cloud API</b><small>Approved templates</small></span></div>
+        <svg class="pc" viewBox="0 0 64 12" aria-hidden="true"><path class="pc-base" d="M4 6H58"/><path class="pc-tip" d="M56 2.5 60 6l-4 3.5"/><path class="pulse shot" data-at="1.95" pathLength="1" d="M4 6H58"/></svg>
+        <div class="pn shot" data-at="2.6"><span class="pn-ic" data-icon="smartphone" data-icon-size="18"></span><span><b>Their WhatsApp</b><small>Delivered, then read</small></span>
+          <svg class="pn-read pop" data-at="2.85" viewBox="0 0 16 11" width="19" height="13" aria-hidden="true"><path d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8"/></svg></div>
       </div>
       <div class="trust">
         <div class="la-host"><span data-icon="shield-check" data-icon-size="22"></span><b>Official Cloud API</b><p>Sends through Meta's WhatsApp Business Platform with your own number and approved templates.</p></div>
@@ -791,7 +1070,7 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
           </details>
         </div>
         <div class="fq-front" aria-hidden="true">
-          <span class="fq-holder"><span>WhatsApp Sender · FAQ</span></span>
+          <span class="fq-holder"><span>SendON · FAQ</span></span>
           <span class="fq-pull"></span>
         </div>
       </div>
@@ -813,19 +1092,35 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
         </div>
       </div>
       <p>Connect a number, upload a sheet, and send your first personal campaign today.</p>
-      <div class="hero-cta"><a class="btn dark lg" href="/signup">Get started</a><a class="btn line lg" href="/login">Sign in</a></div>
+      <div class="hero-cta"><a class="btn dark lg" href="/signup">Get started</a><a class="btn line lg" href="https://calendly.com/sendon-spotmies" target="_blank" rel="noopener">Book a demo</a></div>
     </div>
   </div>
 </main>
 
-<footer>
-  <div class="wrap">
-    <div class="foot">
-      <a class="brand" href="#top"><span class="mark"></span>WhatsApp Sender</a>
-      <nav aria-label="Footer"><a href="#how">How it works</a><a href="#why">Why switch</a><a href="#features">Features</a><a href="#faq">FAQ</a><a href="/login">Sign in</a></nav>
-      <span class="contact">Contact us: <a href="tel:+917207333883">+91 72073 33883</a></span>
-      <span>Made by Spotmies</span>
+<footer class="hwf" id="hwf">
+  <canvas aria-hidden="true"></canvas>
+  <span class="hwf-sr">SendON</span>
+  <div class="hwf-top">
+    <div class="hwf-brand">
+      <strong><a class="brand" href="#top" aria-label="SendON home"><span class="mark"></span></a>SendON</strong>
+      <span>WhatsApp campaigns, handled</span>
     </div>
+    <nav class="hwf-col" aria-label="Product">
+      <h3>Product</h3>
+      <ul><li><a href="#how">How it works</a></li><li><a href="#why">Why switch</a></li><li><a href="#features">Features</a></li><li><a href="#faq">FAQ</a></li></ul>
+    </nav>
+    <nav class="hwf-col" aria-label="Get started">
+      <h3>Get started</h3>
+      <ul><li><a href="/signup">Create an account</a></li><li><a href="/login">Sign in</a></li><li><a href="https://calendly.com/sendon-spotmies" target="_blank" rel="noopener">Book a demo</a></li></ul>
+    </nav>
+    <nav class="hwf-col" aria-label="Contact">
+      <h3>Contact</h3>
+      <ul><li><a href="tel:+917207333883">+91 72073 33883</a></li><li><a href="https://spotmies.com" target="_blank" rel="noopener">spotmies.com</a></li></ul>
+    </nav>
+  </div>
+  <div class="hwf-rule">
+    <span>© <span id="hwfYear">2026</span> · Made by Spotmies</span>
+    <button type="button" class="hwf-up" id="hwfUp">Back to top ↑</button>
   </div>
 </footer>
 
@@ -889,30 +1184,171 @@ footer { padding: 56px 0 calc(40px + env(safe-area-inset-bottom)); }
   }), { threshold: 0.6 });
   document.querySelectorAll('.la-host').forEach((el) => seen.observe(el));
 
-  // The four steps. Opening a step restarts its drawing; the bar under it moves on to the next when it fills.
-  // Everything waits (paused) until the section is on screen, so the first step isn't over before anyone sees it.
-  const flow = document.getElementById('flow');
-  const tabs = [...flow.querySelectorAll('.flow-tab')], panels = [...flow.querySelectorAll('.flow-panel')];
-  const open = (i) => {
-    tabs.forEach((t, k) => { t.classList.toggle('on', k === i); t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
-    panels.forEach((p, k) => { p.hidden = k !== i; p.classList.remove('on'); });
-    void panels[i].offsetWidth; // restart its animations
-    panels[i].classList.add('on');
-    window.LA?.play(panels[i]); settle(panels[i]);
-  };
-  tabs.forEach((t, i) => {
-    t.addEventListener('click', () => open(i));
-    t.querySelector('.prog i').addEventListener('animationend', () => open((i + 1) % tabs.length));
-    t.addEventListener('keydown', (e) => {
-      const d = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
-      if (!d) return;
-      e.preventDefault();
-      const n = (i + d + tabs.length) % tabs.length;
-      open(n); tabs[n].focus();
-    });
+  // Scenes (see "Scenes" in the styles): each [data-at] part gets .is-on at its time once the scene is on screen.
+  // A looping scene fades its passing parts, resets them and plays again, and stops (reset) when it scrolls away.
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.querySelectorAll('.sv').forEach((sc) => {
+    const parts = [...sc.querySelectorAll('[data-at]')], loop = parseFloat(sc.dataset.loop) || 0;
+    let timers = [], first = true, done = false;
+    const later = (s, fn) => timers.push(setTimeout(fn, s * 1000));
+    const reset = (all) => {
+      sc.classList.add('rs'); sc.classList.remove('out');
+      parts.forEach((p) => { if (all || !p.hasAttribute('data-keep')) p.classList.remove('is-on'); });
+      sc.getBoundingClientRect(); // apply the reset before transitions come back
+      sc.classList.remove('rs');
+    };
+    const run = () => {
+      parts.forEach((p) => { if (first || !p.hasAttribute('data-keep')) later(parseFloat(p.dataset.at), () => p.classList.add('is-on')); });
+      first = false;
+      if (!loop) { done = true; return; }
+      later(loop - 0.6, () => sc.classList.add('out'));
+      later(loop, () => { timers = []; reset(false); run(); });
+    };
+    sc.classList.add('armed');
+    new IntersectionObserver(([e]) => {
+      sc.classList.toggle('in', e.isIntersecting);
+      if (e.isIntersecting) { if (!done && !timers.length) run(); }
+      else if (loop) { timers.forEach(clearTimeout); timers = []; first = true; reset(true); }
+    }, { threshold: 0.35 }).observe(sc);
   });
-  open(0);
-  new IntersectionObserver((entries) => flow.classList.toggle('waiting', !entries[0].isIntersecting), { threshold: 0.35 }).observe(flow);
+
+  // How it works: the step crossing the middle of the screen is the active one. The sticky window shows its scene, restarted
+  // (its animations replay and its icons play); the rail fills with scroll. Under 900px each scene lives under its own step instead.
+  const story = document.getElementById('story');
+  const sSteps = [...story.querySelectorAll('.story-step')], sPanels = [...story.querySelectorAll('.story-panel')];
+  const sTabs = [...story.querySelectorAll('[data-go]')], sHome = story.querySelector('.story-panels'), sRail = story.querySelector('.story-rail i');
+  const narrow = matchMedia('(max-width: 900px)');
+  let sActive = -1;
+  const playPanel = (p) => { p.classList.remove('on'); void p.offsetWidth; p.classList.add('on'); window.LA?.play(p); settle(p); };
+  const activate = (i) => {
+    if (i === sActive) return;
+    sActive = i;
+    sSteps.forEach((s, k) => { s.classList.toggle('is-active', k === i); s.classList.toggle('is-past', k < i); });
+    sTabs.forEach((t, k) => t.classList.toggle('is-active', k === i));
+    if (narrow.matches) { if (!sPanels[i].classList.contains('on')) playPanel(sPanels[i]); return; }
+    sPanels.forEach((p, k) => { p.classList.toggle('is-active', k === i); p.setAttribute('aria-hidden', String(k !== i)); if (k !== i) p.classList.remove('on'); });
+    playPanel(sPanels[i]);
+  };
+  const place = () => {
+    sPanels.forEach((p, k) => {
+      p.classList.remove('on'); p.removeAttribute('aria-hidden');
+      (narrow.matches ? sSteps[k].querySelector('.story-media') : sHome).appendChild(p);
+    });
+    const was = sActive; sActive = -1; activate(Math.max(was, 0));
+  };
+  narrow.addEventListener('change', place);
+  place();
+  const centre = new IntersectionObserver((entries) => entries.forEach((e) => { if (e.isIntersecting) activate(sSteps.indexOf(e.target)); }), { rootMargin: '-48% 0px -48% 0px' });
+  sSteps.forEach((s) => centre.observe(s));
+  // Scenes hold still while the section is off screen, so the first one hasn't finished before anyone sees it.
+  new IntersectionObserver(([e]) => story.classList.toggle('in-view', e.isIntersecting), { threshold: 0.15 }).observe(story);
+  sTabs.forEach((t, k) => t.addEventListener('click', () => {
+    const s = sSteps[k], top = s.getBoundingClientRect().top + scrollY + s.offsetHeight / 2 - innerHeight / 2;
+    scrollTo({ top, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }));
+  let railQueued = false;
+  const rail = () => {
+    railQueued = false;
+    const r = story.querySelector('.story-steps').getBoundingClientRect();
+    sRail.style.setProperty('--p', Math.min(1, Math.max(0, (innerHeight / 2 - r.top) / r.height)).toFixed(4));
+  };
+  addEventListener('scroll', () => { if (!railQueued) { railQueued = true; requestAnimationFrame(rail); } }, { passive: true });
+  addEventListener('resize', rail); rail();
+
+  // Footer: "SendON" in halftone dots (see "Footer" in the styles). The word is set once on a hidden mask at a size that fills
+  // the width; each grid cell's coverage becomes a dot. Dots spring home after the pointer pushes them, warming to blue as they
+  // go; a click sends a ring outward. The loop sleeps when everything is home, and stops off screen.
+  (() => {
+    const root = document.getElementById('hwf'), canvas = root.querySelector('canvas'), ctx = canvas.getContext('2d');
+    document.getElementById('hwfYear').textContent = new Date().getFullYear();
+    document.getElementById('hwfUp').addEventListener('click', () => scrollTo({ top: 0, behavior: 'smooth' }));
+    if (!ctx) return;
+    const WORD = 'SendON', FONT = '"General Sans", system-ui, -apple-system, sans-serif', WEIGHT = 700;
+    const BG = '#0b0d0f', INK = [233, 236, 239], WARM = [83, 189, 235], RADIUS = 80, CROP = 0.2;
+    let GAP = 6; // dot spacing; finer on phones, where the word is small
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let w = 0, h = 0, dpr = 1, px = -1e5, py = -1e5, raf = 0, visible = false, awake = true, ring = { x: 0, y: 0, t: -1 };
+    let dots = new Float32Array(0), count = 0, grain = null; // per dot: x, y, vx, vy, homeX, homeY, radius
+
+    const layout = () => {
+      const r = root.getBoundingClientRect();
+      w = Math.max(1, Math.round(r.width)); h = Math.max(1, Math.round(r.height)); GAP = w < 600 ? 4 : 6;
+      dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+      const mask = document.createElement('canvas'); mask.width = w; mask.height = h;
+      const m = mask.getContext('2d', { willReadFrequently: true });
+      m.font = `${WEIGHT} 100px ${FONT}`;
+      const size = (w * 0.98 / m.measureText(WORD).width) * 100;
+      m.font = `${WEIGHT} ${size}px ${FONT}`;
+      const box = m.measureText(WORD), cap = box.actualBoundingBoxAscent || size * 0.72;
+      m.fillStyle = '#000'; m.textBaseline = 'alphabetic';
+      m.fillText(WORD, (w - box.width) / 2, h + cap * CROP);
+      const img = m.getImageData(0, 0, w, h).data, list = [];
+      for (let gy = 0; gy < Math.ceil(h / GAP); gy++) for (let gx = 0; gx < Math.ceil(w / GAP); gx++) {
+        let sum = 0; // coverage: mean alpha of a 3×3 sample in the cell
+        for (let sy = 0; sy < 3; sy++) for (let sx = 0; sx < 3; sx++) {
+          const x = Math.min(w - 1, Math.floor(gx * GAP + (sx + 0.5) * GAP / 3)), y = Math.min(h - 1, Math.floor(gy * GAP + (sy + 0.5) * GAP / 3));
+          sum += img[(y * w + x) * 4 + 3];
+        }
+        const cov = sum / (9 * 255);
+        if (cov < 0.06) continue;
+        const hx = gx * GAP + GAP / 2, hy = gy * GAP + GAP / 2;
+        list.push(hx, hy, 0, 0, hx, hy, Math.sqrt(cov) * GAP * 0.56); // area-true radius, so the tone stays even
+      }
+      dots = new Float32Array(list); count = list.length / 7;
+      grain = document.createElement('canvas'); grain.width = grain.height = 256;
+      const g = grain.getContext('2d'), id = g.createImageData(256, 256);
+      for (let i = 0; i < id.data.length; i += 4) { id.data[i] = id.data[i + 1] = id.data[i + 2] = Math.random() * 255; id.data[i + 3] = Math.random() < 0.5 ? 0 : 255; }
+      g.putImageData(id, 0, 0);
+      awake = true;
+    };
+
+    const draw = (now) => {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = BG; ctx.fillRect(0, 0, w, h);
+      const r = reduced ? 0 : RADIUS, age = ring.t < 0 ? 1e9 : now - ring.t, ringR = age * 0.9;
+      let moving = false;
+      for (let i = 0; i < count; i++) {
+        const j = i * 7, hx = dots[j + 4], hy = dots[j + 5];
+        let x = dots[j], y = dots[j + 1], vx = dots[j + 2], vy = dots[j + 3];
+        if (!reduced) {
+          if (age < 900) { // the click ring
+            const dx = hx - ring.x, dy = hy - ring.y, d = Math.sqrt(dx * dx + dy * dy) + 0.001, band = 1 - Math.min(1, Math.abs(d - ringR) / 26);
+            if (band > 0) { const f = band * 3.2 * (1 - age / 900); vx += dx / d * f; vy += dy / d * f; }
+          }
+          const dx = x - px, dy = y - py, d2 = dx * dx + dy * dy; // the pointer's push
+          if (r > 0 && d2 < r * r) { const d = Math.sqrt(d2) + 0.001, f = (1 - d / r) * 2.6; vx += dx / d * f; vy += dy / d * f; }
+          vx = (vx + (hx - x) * 0.05) * 0.84; vy = (vy + (hy - y) * 0.05) * 0.84; // spring home, damped
+          x += vx; y += vy;
+          if (Math.abs(vx) + Math.abs(vy) > 0.02 || Math.abs(x - hx) + Math.abs(y - hy) > 0.05) moving = true;
+          else { x = hx; y = hy; vx = vy = 0; }
+          dots[j] = x; dots[j + 1] = y; dots[j + 2] = vx; dots[j + 3] = vy;
+        }
+        const k = Math.min(1, Math.hypot(x - hx, y - hy) / 28);
+        ctx.fillStyle = k > 0.02 ? `rgb(${INK.map((c, n) => Math.round(c + (WARM[n] - c) * k))})` : `rgb(${INK})`;
+        ctx.beginPath(); ctx.arc(x, y, dots[j + 6], 0, 6.2832); ctx.fill();
+      }
+      if (grain) { // fine print grain over everything
+        ctx.globalAlpha = 0.045; ctx.globalCompositeOperation = 'overlay';
+        ctx.fillStyle = ctx.createPattern(grain, 'repeat'); ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      }
+      awake = moving || age < 900 || px > -1e4;
+    };
+    const loop = (now) => { raf = 0; if (!visible) return; draw(now); if (awake) raf = requestAnimationFrame(loop); };
+    const wake = () => { awake = true; if (!raf && visible) raf = requestAnimationFrame(loop); };
+    const local = (e) => { const b = canvas.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+    root.addEventListener('pointermove', (e) => { if (e.pointerType === 'touch') return; [px, py] = local(e); wake(); });
+    root.addEventListener('pointerleave', () => { px = py = -1e5; wake(); });
+    root.addEventListener('pointerdown', (e) => {
+      if (reduced || e.target.closest('a, button')) return;
+      const [x, y] = local(e); ring = { x, y, t: performance.now() }; wake();
+    });
+    layout(); draw(performance.now());
+    let lastW = w;
+    new ResizeObserver(() => { if (Math.round(root.getBoundingClientRect().width) === lastW && canvas.width) return; layout(); lastW = w; draw(performance.now()); wake(); }).observe(root);
+    new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) wake(); }).observe(root);
+    document.fonts?.ready.then(() => { layout(); draw(performance.now()); wake(); }); // re-set the word once General Sans lands
+  })();
 
   // FAQ drawer: one card out at a time (the shared name does this where it's supported).
   document.querySelectorAll('.fq-card').forEach((d) => d.addEventListener('toggle', () => {

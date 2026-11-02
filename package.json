@@ -1,5 +1,5 @@
 {
-  "name": "whatsapp-sender",
+  "name": "sendon",
   "version": "1.0.0",
   "description": "Bulk WhatsApp template message sender using the WhatsApp Business Cloud API",
   "main": "main.js",

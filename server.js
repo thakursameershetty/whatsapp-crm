@@ -1,4 +1,4 @@
-// WhatsApp bulk sender — Express backend.
+// SendON — Express backend.
 // Each business has its own workspace (tenancy.js: accounts, sign-in, one data file per
 // workspace). Talks to the WhatsApp Cloud API (graph.facebook.com) and runs campaigns across
 // multiple sender numbers.
@@ -527,7 +527,10 @@ app.get(['/', '/welcome'], (req, res, next) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(LANDING);
 });
-app.use((req, res, next) => (PUBLIC_FILES.has(req.path) ? next() : tenants.requireAuth(req, res, next)));
+// The landing page's company logos (public/brand/clients/) are public too.
+const PUBLIC_DIRS = ['/brand/clients/'];
+const isPublic = (p) => PUBLIC_FILES.has(p) || PUBLIC_DIRS.some((d) => p.startsWith(d) && !p.includes('..'));
+app.use((req, res, next) => (isPublic(req.path) ? next() : tenants.requireAuth(req, res, next)));
 
 // --- Live updates for everyone in a workspace --------------------------------------------------------------
 // After any successful change (POST/PUT/PATCH/DELETE under /api), every open page in that workspace is told which
@@ -2344,7 +2347,7 @@ app.post('/api/admin/graph-version', wrap((req, res) => {
 }));
 
 app.listen(PORT, () => {
-  console.log(`WhatsApp Sender running at http://localhost:${PORT}`);
+  console.log(`SendON running at http://localhost:${PORT}`);
   console.log(`${tenants.allWorkspaces().length} workspace(s). Sign up or sign in at /login.`);
   console.log(tenants.adminCount ? `Admin panel: ${tenants.adminCount} admin email(s) from ADMIN_EMAILS.` : 'Admin panel: off (ADMIN_EMAILS is not set).');
 });
