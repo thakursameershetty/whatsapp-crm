@@ -432,6 +432,39 @@
   const STATUS_LABEL = { new: 'New', interested: 'Interested', qualified: 'Qualified', won: 'Won', lost: 'Not interested' };
   const STATUS_PILL = { new: '', interested: 'sent', qualified: 'scheduled', won: 'delivered', lost: 'cancelled' };
 
+  // The stage pill doubles as the lead switch: click it to say whether they're a qualified lead. A choice made here is
+  // locked (the AI can't change it; a lock icon shows), until "Let the AI decide" hands it back.
+  function leadPill(ct) {
+    const lock = ct?.leadLock;
+    const st = ct?.status || 'new';
+    const why = lock ? `You set this: ${lock.qualified ? 'a qualified lead' : 'not a qualified lead'}. The AI won’t change it.` : 'Set by the AI. Click to decide yourself whether they’re a qualified lead.';
+    return `<button type="button" class="pill ib-lead-pill ${STATUS_PILL[st] || ''}${lock ? ' locked' : ''}" data-lead aria-haspopup="menu" title="${esc(why)}">${lock ? icon('lock', 11) : ''}${esc(STATUS_LABEL[st] || st)}${icon('chevron-down', 11)}</button>`;
+  }
+  $('#ibChat').addEventListener('click', (e) => {
+    if (!e.target.closest('[data-lead-more]') || !ib.key) return;
+    (ib.leadOpen ||= new Set());
+    if (ib.leadOpen.has(ib.key)) ib.leadOpen.delete(ib.key); else ib.leadOpen.add(ib.key);
+    renderLead();
+  });
+  // (The phone sheet has the pill too, outside #ibChat: listen on the document.)
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-lead]');
+    if (!b || !ib.key) return;
+    const key = ib.key, ct = ib.thread?.contact, lock = ct?.leadLock;
+    const set = (qualified) => guard(async () => {
+      const r = await api(`/inbox/${enc(key)}/lead`, { method: 'POST', body: { qualified } });
+      if (ib.key === key && ib.thread) { ib.thread.contact = r.contact; renderLead(); }
+      toast(qualified === null ? 'The AI decides again whether they’re a qualified lead' : qualified ? 'Marked as a qualified lead' : 'Marked as not a qualified lead');
+    });
+    const r = b.getBoundingClientRect();
+    Sheet.Menu.open(r.left, r.bottom + 4, [
+      { label: 'Qualified lead', checked: lock?.qualified === true, action: () => set(true) },
+      { label: 'Not a qualified lead', checked: lock?.qualified === false, action: () => set(false) },
+      '-',
+      { label: `Let the AI decide${!lock && ct ? ` (now: ${STATUS_LABEL[ct.status] || ct.status})` : ''}`, checked: !lock, action: () => set(null) },
+    ]);
+  });
+
   function renderLead() {
     const t = ib.thread;
     const ct = t?.contact;
@@ -440,17 +473,24 @@
     if (!hx) return;
     const tagOf = (id) => (t?.tags || []).find((x) => x.id === id);
     hx.innerHTML = t ? `
-      ${ct ? (ct.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS_PILL[ct.status] || ''}">${esc(STATUS_LABEL[ct.status] || ct.status)}</span>`) : ''}
+      ${ct?.optOut ? '<span class="pill failed">Opted out</span>' : leadPill(ct)}
       ${ct ? ct.tags.map(tagOf).filter(Boolean).slice(0, 3).map((x) => `<span class="tag-chip tag-${esc(x.color)}" title="${esc(x.name)}">${esc(x.name)}</span>`).join('') : ''}
-      ${ct ? `<button class="btn sm quiet" data-ai="contact" title="Open contact">${icon('users', 14)}Contact</button>` : ''}
-      ${ai ? `<label class="ib-ai-switch ${ai.on ? 'on' : ''}" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Switch off to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Switch off to stop for this chat.' : ai.off ? 'AI is off for this chat. Switch on to let it help.' : 'Turn on the lead assistant in Settings to draft replies automatically.'}"><span>${state.settings.leadAgent?.autoReply ? 'AI auto-reply' : 'AI drafts'}</span>${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm', knob: '<svg class="orb-icon" data-orb-icon="14"></svg>' })}</label>` : ''}` : '';
+      ${ai ? `<label class="ib-ai-switch ${ai.on ? 'on' : ''}" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Switch off to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Switch off to stop for this chat.' : ai.off ? 'AI is off for this chat. Switch on to let it help.' : 'Turn on the lead assistant in Settings to draft replies automatically.'}"><span class="ibx-l">${state.settings.leadAgent?.autoReply ? 'AI auto-reply' : 'AI drafts'}</span>${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm', knob: '<svg class="orb-icon" data-orb-icon="14"></svg>' })}</label>` : ''}` : '';
     Orb.hydrate(hx);
-    const lead = ct?.lead || {};
+    // This chat's own notes (the server keeps them per chat: the same person may talk to several of our numbers).
+    const lead = t?.chatLead || {};
     const bits = [['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v);
     const strip = $('#ibLead');
     strip.classList.toggle('hidden', !(lead.summary || bits.length));
-    strip.innerHTML = `<span class="ib-lead-sum">${esc(lead.summary || '')}</span>${bits.map(([k, v]) => `<span><b>${k}</b> ${esc(v)}</span>`).join('')}`;
+    // One line, so the chat keeps its room; "More" opens the rest when it doesn't fit (remembered per chat).
+    strip.classList.toggle('open', ib.leadOpen?.has(ib.key) || false);
+    strip.innerHTML = `<div class="ib-lead-body"><span class="ib-lead-sum">${esc(lead.summary || '')}</span>${bits.map(([k, v]) => `<span><b>${k}</b> ${esc(v)}</span>`).join('')}</div><button type="button" class="ib-lead-more hidden" data-lead-more>${strip.classList.contains('open') ? 'Less' : 'More'}</button>`;
+    requestAnimationFrame(() => {
+      const body = strip.querySelector('.ib-lead-body'), more = strip.querySelector('[data-lead-more]');
+      if (body && more) more.classList.toggle('hidden', !strip.classList.contains('open') && body.scrollHeight <= body.clientHeight + 2);
+    });
     renderSheet(t, ct, ai, lead, bits, tagOf);
+    if (ib.infoOpen) renderInfo();
   }
 
   // ---------- Phones: the chat's details in a sheet from the bottom ----------
@@ -467,7 +507,7 @@
         <div><b>${esc(displayName(c))}</b><span>${esc(fmtPhone(c.wa))} · via ${esc(c.senderLabel)}</span></div>
       </div>
       <div class="ibs-chips">
-        ${ct ? (ct.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS_PILL[ct.status] || ''}">${esc(STATUS_LABEL[ct.status] || ct.status)}</span>`) : ''}
+        ${ct?.optOut ? '<span class="pill failed">Opted out</span>' : leadPill(ct)}
         ${tags.map((x) => `<span class="tag-chip tag-${esc(x.color)}">${esc(x.name)}</span>`).join('')}
         <span class="ib-window ${w.open ? 'open' : 'closed'}">${icon(w.open ? 'clock' : 'file-text', 13)}${esc(w.label)}</span>
       </div>
@@ -480,10 +520,109 @@
         <span><b>${state.settings.leadAgent?.autoReply ? 'AI auto-reply' : 'AI drafts'}</b><small>${ai.auto ? 'Replies on its own when they write, within the guardrails.' : ai.on ? 'Drafts a reply when they write, for you to send.' : 'Off for this chat.'}</small></span>
         ${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm' })}
       </label>` : ''}
+      <button class="btn ibs-contact" data-profile>${icon('user', 15)}Profile and other chats</button>
       ${ct ? `<button class="btn ibs-contact" data-ai="contact">${icon('users', 15)}Open contact</button>` : ''}`;
     Orb.hydrate(body);
   }
   const phone = () => matchMedia('(max-width: 900px)').matches;
+  // ---------- Contact info: everything about the person, beside the chat ----------
+  // Opens from their photo or name, or "Contact info" in the header, and stays open as you move between chats. Edits save
+  // as you go (no Edit step): stage, opted out, tags, name, email, company and notes. Below them, this chat's summary and
+  // their other chats with our numbers (only numbers you can see: the server leaves the rest out).
+  const STATUS_ORDER = ['new', 'interested', 'qualified', 'won', 'lost'];
+  let infoReq = 0;
+  function openInfo() { ib.infoOpen = true; renderInfo(); }
+  function closeInfo() {
+    ib.infoOpen = false;
+    $('#ibInfo').classList.add('hidden');
+    $('#inbox').classList.remove('has-info');
+  }
+  const openProfile = openInfo; // (the phone sheet's button)
+  async function renderInfo() {
+    const box = $('#ibInfo');
+    if (!ib.infoOpen || !ib.key || !ib.thread) { box.classList.add('hidden'); $('#inbox').classList.remove('has-info'); return; }
+    const key = ib.key, mine = ++infoReq;
+    let p;
+    try { p = await api(`/inbox/${enc(key)}/profile`); } catch (err) { return toast(err.message, 'error'); }
+    if (mine !== infoReq || ib.key !== key || !ib.thread) return;
+    if (box.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return; // don't redraw under someone typing
+    const c = current(), t = ib.thread, ct = p.contact, lead = t.chatLead || {}, lock = ct?.leadLock;
+    const others = p.chats.filter((x) => !x.current);
+    const via = state.senders.find((x) => x.id === c.senderId);
+    const bits = [['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v);
+    // About: their details as text; the pencil in the header opens the contact form to change them.
+    const about = (k, v) => `<div><dt>${k}</dt><dd class="${v ? '' : 'muted'}">${v ? esc(v) : '—'}</dd></div>`;
+    box.innerHTML = `
+      <div class="ibi-bar"><b>Contact info</b><span class="ibi-bar-acts">${ct ? `<button type="button" class="icon-btn" data-info-edit title="Edit contact" aria-label="Edit contact">${icon('square-pen', 16)}</button>` : ''}<button type="button" class="icon-btn" data-info-close title="Close" aria-label="Close">${icon('x', 17)}</button></span></div>
+      <div class="ibi-scroll">
+        <div class="ct-phead ibi-head">
+          <span class="ib-av xl" style="${avatarStyle(c.wa)}">${initials(c)}</span>
+          <h2>${esc(ct?.name || displayName(c))}</h2>
+          <p><button type="button" class="ibi-copy" data-copy-num="+${esc(c.wa)}" title="Copy the number">${esc(fmtPhone(c.wa))}${icon('copy', 12)}</button></p>
+          ${via ? `<p class="ibi-via">Chatting with ${esc(via.label)}${via.displayPhone ? ' · ' + esc(via.displayPhone) : ''}</p>` : ''}
+        </div>
+        ${ct ? `
+        <section class="ibi-sec">
+          <div class="field-label">Stage${lock ? ` <span class="ibi-lock" title="You set this, so the AI won’t change it">${icon('lock', 11)}set by you</span>` : ' <span class="opt">set by the AI</span>'}</div>
+          <div class="ct-pstatus">${STATUS_ORDER.map((k) => `<button type="button" class="ct-tag ${ct.status === k ? 'active' : ''}" data-info-status="${k}">${esc(STATUS_LABEL[k])}</button>`).join('')}</div>
+          ${lock ? '<button type="button" class="ibi-link" data-info-ai>Let the AI decide again</button>' : ''}
+          <label class="ct-poptout"><span>Opted out <span class="opt">never message them</span></span>${toggleHtml({ checked: ct.optOut, attrs: 'data-info-optout', size: 'sm' })}</label>
+        </section>` : `
+        <section class="ibi-sec ibi-new"><p class="sub">They’re not in your contacts yet.</p><button type="button" class="btn sm primary" data-info-add>${icon('plus', 14)}Add to contacts</button></section>`}
+        ${lead.summary || bits.length ? `<section class="ct-leadbox ibi-sec"><div class="pc-label">This chat, from the lead assistant</div>
+          ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}${bits.length ? `<dl>${bits.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}</section>` : ''}
+        ${ct ? `
+        <section class="ibi-sec">
+          <div class="field-label">Tags</div>
+          <div class="ct-pick ibi-tags">${(t.tags || []).map((x) => `<button type="button" class="ct-tag tag-${esc(x.color)} ${ct.tags.includes(x.id) ? 'active' : ''}" data-info-tag="${x.id}"><i></i><span class="ct-tag-name">${esc(x.name)}</span></button>`).join('') || '<span class="sub">No tags yet. Make them on the Contacts page.</span>'}</div>
+        </section>
+        <section class="ibi-sec">
+          <div class="field-label">About</div>
+          <dl class="ibi-about">${about('Name', ct.name)}${about('Phone', fmtPhone(c.wa))}${about('Email', ct.email)}${about('Company', ct.company)}${about('Notes', ct.notes)}</dl>
+        </section>` : ''}
+        ${others.length ? `<section class="ibi-sec"><div class="field-label">Other chats with your numbers <span class="opt">${others.length}</span></div>
+          <div class="ibi-chats">${others.map((x) => `<button type="button" class="pf-chat" data-pf-open="${esc(x.key)}">
+            <div class="pf-chat-h"><b>${esc(x.number)}</b><time>${esc(relTime(x.lastAt))}</time></div>
+            <p class="pf-sum${x.lead?.summary ? '' : ' muted'}">${esc(x.lead?.summary || 'No summary yet.')}</p>
+            <div class="pf-last">${x.lastDir === 'out' ? 'You: ' : ''}${esc(String(x.lastText || '').slice(0, 90))}</div>
+          </button>`).join('')}</div></section>` : ''}
+        ${ct ? `<button type="button" class="ibi-link ibi-foot" data-info-contacts="${esc(ct.id)}">${icon('users', 13)}Open in Contacts (change number, delete)</button>` : ''}
+      </div>`;
+    box.classList.remove('hidden');
+    $('#inbox').classList.add('has-info');
+    LA.hydrate?.(box);
+  }
+  // Save one change to the contact, then reload the chat (pill, strip and this panel follow).
+  async function saveContact(body, msg) {
+    const ct = ib.thread?.contact;
+    if (!ct) return;
+    await guard(async () => { await api('/contacts/' + ct.id, { method: 'PUT', body }); if (msg) toast(msg); await loadThread(); });
+  }
+  $('#ibInfo').addEventListener('click', (e) => {
+    const ct = ib.thread?.contact, key = ib.key;
+    if (e.target.closest('[data-info-close]')) return closeInfo();
+    if (e.target.closest('[data-info-edit]') && ct) return window.Contacts?.open(ct.id, { inChat: true, onSaved: () => loadThread() });
+    const num = e.target.closest('[data-copy-num]');
+    if (num) return navigator.clipboard?.writeText(num.dataset.copyNum).then(() => toast('Number copied'), () => {});
+    const st = e.target.closest('[data-info-status]');
+    if (st && ct && st.dataset.infoStatus !== ct.status) return saveContact({ status: st.dataset.infoStatus }, `Stage: ${STATUS_LABEL[st.dataset.infoStatus]}`);
+    if (e.target.closest('[data-info-ai]')) return guard(async () => { await api(`/inbox/${enc(key)}/lead`, { method: 'POST', body: { qualified: null } }); toast('The AI decides the stage again'); await loadThread(); });
+    const tg = e.target.closest('[data-info-tag]');
+    if (tg && ct) { const id = tg.dataset.infoTag; return saveContact({ tags: ct.tags.includes(id) ? ct.tags.filter((x) => x !== id) : [...ct.tags, id] }); }
+    if (e.target.closest('[data-info-add]')) {
+      const c = current();
+      return guard(async () => { await api('/contacts', { method: 'POST', body: { phone: '+' + c.wa, name: c.name || '' } }); toast('Added to contacts'); await loadThread(); });
+    }
+    const o = e.target.closest('[data-pf-open]');
+    if (o) return openConversation(o.dataset.pfOpen);
+    const cb = e.target.closest('[data-info-contacts]');
+    if (cb) { showTab('contacts'); window.Contacts?.open(cb.dataset.infoContacts); }
+  });
+  $('#ibInfo').addEventListener('change', (e) => {
+    if (e.target.closest('[data-info-optout]')) saveContact({ optOut: e.target.checked }, e.target.checked ? 'Opted out: they won’t be messaged' : 'They can be messaged again');
+  });
+  $('#ibInfo').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeInfo(); });
+
   function openSheet() {
     const sh = $('#ibSheet');
     if (!sh || sh.classList.contains('open')) return;
@@ -500,7 +639,8 @@
   }
   $('#ibChat').addEventListener('click', (e) => {
     if (e.target.closest('[data-sheet-close]') || e.target.closest('#ibSheet [data-ai="contact"]')) return closeSheet();
-    if (e.target.closest('[data-sheet-open]') && phone()) openSheet();
+    if (e.target.closest('[data-sheet-open]')) { if (phone()) openSheet(); else openInfo(); }
+    if (e.target.closest('[data-profile]')) { closeSheet(); openProfile(); }
     // Long AI notes and drafts show a few lines on phones: tap to read the rest.
     const more = e.target.closest('.ib-handover span, .ib-draft-text');
     if (more && phone()) more.classList.toggle('full');

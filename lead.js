@@ -107,10 +107,22 @@ module.exports = function mountLead(app, ctx) {
     return `[${new Date(m.ts).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}] ${who}: ${body}`;
   };
 
+  // This chat's own notes (summary, need, budget, timeline). Each chat keeps its own: the same person can talk to several
+  // of our numbers, and one chat's notes must not show (or be built on) in another. Chats from before notes were kept
+  // per chat use the contact's, when the person has no chat on any other number.
+  const LEAD_KEYS = ['summary', 'need', 'budget', 'timeline'];
+  function chatLead(key, contact) {
+    const own = db.chats[key]?.lead;
+    if (own) return own;
+    const { senderId, wa } = splitKey(key);
+    const elsewhere = db.messages.some((m) => m.wa === wa && m.senderId !== senderId);
+    return !elsewhere && contact?.lead ? contact.lead : null;
+  }
+
   function prompt(key, contact) {
     const s = settings();
     const known = contact
-      ? Object.entries({ name: contact.name, company: contact.company, email: contact.email, status: contact.status, ...contact.lead, tags: contact.tags.map((t) => db.tags.find((x) => x.id === t)?.name).filter(Boolean).join(', ') })
+      ? Object.entries({ name: contact.name, company: contact.company, email: contact.email, status: contact.status, ...(chatLead(key, contact) || {}), tags: contact.tags.map((t) => db.tags.find((x) => x.id === t)?.name).filter(Boolean).join(', ') })
           .filter(([k, v]) => v && k !== 'updatedAt').map(([k, v]) => `${k}: ${v}`).join('\n')
       : '';
     return `<business_information>
@@ -169,6 +181,11 @@ Draft the next reply to the customer's latest message(s).`;
       const wasQualified = contact?.status === 'qualified';
       const hadHandover = Boolean(ai.handover);
       const updated = r.lead || r.opt_out ? contacts.applyLead(contact?.phone || wa, { ...(r.lead || {}), opt_out: Boolean(r.opt_out) }) : contact;
+      // This chat's own copy of the notes (see chatLead).
+      if (r.lead && LEAD_KEYS.some((k) => String(r.lead[k] ?? '').trim())) {
+        const ch = (db.chats[key] ||= {});
+        ch.lead = { ...(ch.lead || {}), ...Object.fromEntries(LEAD_KEYS.filter((k) => String(r.lead[k] ?? '').trim()).map((k) => [k, String(r.lead[k]).trim().slice(0, 600)])), updatedAt: new Date().toISOString() };
+      }
       ai.draft = reply && !r.opt_out ? { text: reply, at: new Date().toISOString(), basedOn: lastIn.id || lastIn.ts } : null;
       ai.handover = r.handover?.needed ? { reason: String(r.handover.reason || 'A person should reply').slice(0, 200), at: new Date().toISOString() } : ai.handover && !manual ? ai.handover : null;
       ai.error = null;
@@ -277,5 +294,5 @@ Draft the next reply to the customer's latest message(s).`;
     res.json(stateFor(req.params.key));
   }));
 
-  return { onInbound, onSent, stateFor, draft };
+  return { onInbound, onSent, stateFor, draft, chatLead };
 };

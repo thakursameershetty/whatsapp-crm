@@ -1786,7 +1786,7 @@ body.assistant-open main { padding-bottom: 0; }
 /* The AI orb rides in the knob: grey when off, accent when on. */
 .ib-ai-switch .knob { display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .ib-ai-switch input:checked + .track .knob { color: var(--accent-text); }
-.ib-lead { display: flex; gap: 6px 16px; flex-wrap: wrap; align-items: baseline; padding: 8px 18px; font-size: 12.5px; color: var(--muted); background: var(--info-soft); box-shadow: inset 0 -1px 0 var(--hair); }
+.ib-lead { display: flex; gap: 6px 16px; flex-wrap: nowrap; align-items: flex-start; padding: 8px 18px; font-size: 12.5px; color: var(--muted); background: var(--info-soft); box-shadow: inset 0 -1px 0 var(--hair); }
 .ib-lead-sum { color: var(--text); font-weight: 500; }
 .ib-lead b { color: var(--info); font-weight: 600; margin-right: 3px; }
 .ib-ai { display: flex; flex-direction: column; gap: 8px; padding: 0 16px; }
@@ -4956,3 +4956,119 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .cd-ecode { cursor: help; text-decoration: underline dotted; text-decoration-color: var(--faint); text-underline-offset: 3px; }
 .cd-ecode:hover, .cd-ecode:focus-visible { text-decoration-color: currentColor; }
 .ib-err-codeline a { white-space: nowrap; }
+/* Inbox: the stage pill is also the lead switch (inbox.js leadPill). */
+.ib-lead-pill { display: inline-flex; align-items: center; gap: 4px; border: 0; cursor: pointer; font: inherit; }
+.ib-lead-pill svg { opacity: 0.7; }
+.ib-lead-pill:hover { filter: brightness(0.96); }
+.ib-lead-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The chat's summary strip: one line, "More" for the rest (inbox.js renderLead). */
+.ib-lead-body { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; max-height: 19px; overflow: hidden; line-height: 19px; }
+.ib-lead.open .ib-lead-body { max-height: none; }
+.ib-lead-more { flex: none; border: 0; padding: 0; background: none; color: var(--info); font: 600 12px/19px Inter, sans-serif; cursor: pointer; }
+.ib-lead-more:hover { text-decoration: underline; }
+.ib-av, .ib-who { cursor: pointer; }
+/* Profile: the person, and their chats with our numbers (inbox.js openProfile). */
+.pf-box { max-width: 560px; }
+.pf-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.pf-top > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pf-top b { font-size: 16px; }
+.pf-top span { font-size: 13px; color: var(--muted); }
+.ib-av.lg { width: 48px; height: 48px; font-size: 16px; }
+.pf-facts { display: grid; gap: 6px; margin: 0 0 16px; }
+.pf-facts div { display: flex; gap: 12px; font-size: 13px; }
+.pf-facts dt { width: 74px; flex: none; color: var(--muted); }
+.pf-facts dd { margin: 0; }
+.pf-chats { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow: auto; margin-bottom: 4px; }
+.pf-chat { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 12px 14px; border: 0; border-radius: 12px; background: var(--sunk); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.pf-chat:hover { box-shadow: inset 0 0 0 1px var(--hair), var(--sh-card); }
+.pf-chat.current { box-shadow: inset 0 0 0 1.5px var(--info); }
+.pf-chat-h { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.pf-chat-h span { color: var(--muted); }
+.pf-chat-h em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--info); }
+.pf-chat-h time { margin-left: auto; font-size: 12px; color: var(--muted); }
+.pf-sum { margin: 0; font-size: 13px; line-height: 1.45; }
+.pf-bits { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.pf-bits b { color: var(--info); font-weight: 600; margin-right: 3px; }
+.pf-last { font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Inbox → Contact info (inbox.js renderInfo): a third column beside the chat on wide screens, over the chat's right
+   side on narrower ones, the whole screen on phones. */
+.inbox { position: relative; }
+.inbox.has-info { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr) 340px; }
+.ib-info { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); box-shadow: inset 1px 0 0 var(--hair); animation: ibi-in 0.22s var(--ease-out); }
+@keyframes ibi-in { from { opacity: 0; transform: translateX(12px); } }
+.ibi-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: var(--ib-head-h); flex: none; padding: 0 10px 0 20px; box-shadow: 0 1px 0 var(--hair); }
+.ibi-bar-acts { display: flex; gap: 2px; }
+/* The chat header and Contact info's header line up: one height for both. */
+.inbox { --ib-head-h: 64px; }
+.ib-head { min-height: var(--ib-head-h); box-sizing: border-box; }
+.ibi-about { display: grid; gap: 8px; margin: 0; }
+.ibi-about div { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; font-size: 13.5px; }
+.ibi-about dt { color: var(--muted); font-size: 12.5px; }
+.ibi-about dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
+.ibi-about dd.muted { color: var(--faint); }
+.ibi-bar b { font-size: 15px; }
+.ibi-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 20px 20px; }
+.ibi-head { margin-bottom: 18px; }
+.ib-av.xl { width: 84px; height: 84px; font-size: 26px; margin-bottom: 8px; }
+.ibi-copy { display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 2px 6px; margin: 0 -6px; border-radius: 6px; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.ibi-copy svg { opacity: 0; transition: opacity 0.15s; }
+.ibi-copy:hover { background: var(--sunk); color: var(--text); }
+.ibi-copy:hover svg { opacity: 1; }
+.ibi-via { margin-top: 2px; font-size: 12px; color: var(--faint); }
+.ibi-sec { display: block; margin: 0 0 18px; }
+.ibi-sec .field-label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ibi-lock { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--info); }
+.ibi-sec .ct-pstatus { display: flex; flex-wrap: wrap; gap: 6px; }
+.ibi-sec .ct-poptout { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 13px; }
+.ibi-link { display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 0; margin-top: 8px; background: none; color: var(--info); font: 600 12.5px Inter, sans-serif; cursor: pointer; }
+.ibi-link:hover { text-decoration: underline; }
+.ibi-new { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px; border-radius: 12px; background: var(--sunk); }
+.ibi-new .sub { margin: 0; }
+.ibi-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.ibi-field { display: grid; grid-template-columns: 74px minmax(0, 1fr); align-items: center; gap: 10px; margin: 0 0 6px; font-weight: 400; }
+.ibi-field span { font-size: 12.5px; color: var(--muted); }
+.ibi-field input { height: 34px; padding: 0 10px; border-radius: 9px; background: transparent; box-shadow: none; font-size: 13.5px; }
+.ibi-field input:hover { background: var(--sunk); }
+.ibi-field input:focus { background: var(--surface); box-shadow: 0 0 0 1px var(--hair), var(--sh-pressed); }
+.ibi-notes textarea { width: 100%; min-height: 72px; font: 400 13.5px/1.5 Inter, system-ui, sans-serif; }
+.ibi-chats { display: flex; flex-direction: column; gap: 8px; }
+.ibi-foot { margin-top: 4px; color: var(--muted); font-weight: 500; }
+@media (max-width: 1280px) {
+  .inbox.has-info { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); }
+  .ib-info { position: absolute; top: 0; right: 0; bottom: 0; width: 340px; z-index: 6; box-shadow: -12px 0 32px -16px rgba(16, 24, 32, 0.3), inset 1px 0 0 var(--hair); }
+}
+@media (max-width: 900px) {
+  .ib-info { position: fixed; inset: 0; width: auto; z-index: 60; }
+}
+/* With Contact info open the chat is narrower: its header buttons keep their icons and drop their words. */
+@media (min-width: 1281px) { .inbox.has-info .ib-headx .ibx-l { display: none; } }
+/* Contact edit (contacts.js open): a contact page edited in place. Inputs read as plain text until pointed at or focused. */
+.cte-box { max-width: 560px; }
+.cte { display: flex; flex-direction: column; }
+.cte-head { display: flex; align-items: center; gap: 16px; padding: 0 0 16px; margin-bottom: 4px; box-shadow: 0 1px 0 var(--hair); }
+.cte-av-new { display: grid; place-items: center; background: var(--sunk); color: var(--faint); }
+.cte-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cte input.cte-name { height: 40px; margin-left: -10px; padding: 0 10px; border-radius: 10px; background: transparent; box-shadow: none; font: 600 22px/1.2 Inter, system-ui, sans-serif; letter-spacing: -0.01em; color: var(--text); }
+.cte-sub { font-size: 13px; color: var(--muted); }
+.cte-sec { margin-top: 14px; }
+.cte-label { margin-bottom: 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+.cte-rows { display: flex; flex-direction: column; gap: 2px; }
+.cte-row { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 10px; margin: 0; font-weight: 400; }
+.cte-ico { display: grid; place-items: center; color: var(--faint); }
+.cte .cte-row input { height: 38px; margin: 0; padding: 0 10px; border-radius: 10px; background: transparent; box-shadow: none; font-size: 14px; }
+.cte input.cte-name:hover, .cte .cte-row input:hover, .cte .cte-notes:hover { background: var(--sunk); }
+.cte input.cte-name:focus, .cte .cte-row input:focus, .cte .cte-notes:focus { background: var(--surface); box-shadow: 0 0 0 1px var(--hair), var(--sh-pressed); }
+.cte-row:focus-within .cte-ico { color: var(--text); }
+.cte-chips, .cte-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.cte-chip { position: relative; }
+.cte-chip input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.cte-chip:has(input:checked) { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--sh-raised); }
+.cte-chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cte .cte-notes { width: 100%; min-height: 64px; margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--sunk); box-shadow: none; font: 400 14px/1.5 Inter, system-ui, sans-serif; resize: vertical; }
+.cte .ct-leadbox { margin-bottom: 0; }
+.cte-optout { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 10px; margin: 14px 0 0; padding: 12px 0 0; box-shadow: 0 -1px 0 var(--hair); font-weight: 400; cursor: pointer; }
+.cte-optout-t { display: flex; flex-direction: column; }
+.cte-optout-t b { font-size: 13.5px; font-weight: 600; }
+.cte-optout-t small { font-size: 12px; color: var(--muted); }
+/* Save stays in reach however long the page is: the button bar sticks to the bottom of the window. */
+.cte-actions { position: sticky; bottom: -26px; margin: 16px -26px -26px; padding: 14px 26px; background: var(--surface); box-shadow: 0 -1px 0 var(--hair); z-index: 1; }

@@ -598,30 +598,63 @@
 
   // --- One contact ---------------------------------------------------------------
 
-  function open(contactId) {
+  // opts.onSaved: called after the form saves or deletes (e.g. the Inbox's Contact info refreshing itself).
+  function open(contactId, opts = {}) {
     const c = contactId ? CT.contacts.find((x) => x.id === contactId) : null;
     if (contactId && !c) return toast('Contact not found', 'error');
     const chatKey = c && CT.chats.get(c.phone);
     const tags = new Set(c?.tags || []);
     const lead = c?.lead || {};
-    const body = openModal(c ? c.name || fmtPhone(c.phone) : 'Add contact', `
-      <form id="ctForm" class="ct-form">
-        <div class="row"><label>Name<input name="name" value="${esc(c?.name || '')}" /></label>
-          <label>Phone<input name="phone" value="${esc(c ? '+' + c.phone : '')}" required inputmode="tel" maxlength="22" autocomplete="tel" placeholder="98765 43210 or +91 98765 43210" /></label></div>
-        <div class="row"><label>Email<input name="email" type="email" value="${esc(c?.email || '')}" /></label>
-          <label>Company<input name="company" value="${esc(c?.company || '')}" /></label></div>
-        <div class="row"><label>Status<select name="status">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${c?.status === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
-          <label class="ct-optout"><span>Opted out <span class="opt">never message them</span></span>${toggleHtml({ checked: c?.optOut, attrs: 'name="optOut"', size: 'sm' })}</label></div>
-        <div class="field-label">Tags</div>
-        <div class="ct-pick" id="ctPick">${CT.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)} ${tags.has(t.id) ? 'active' : ''}" data-pick="${t.id}"><i></i>${esc(t.name)}</button>`).join('') || '<span class="sub">No tags yet. Create one on the Contacts page.</span>'}</div>
-        <label>Notes<textarea name="notes" rows="3">${esc(c?.notes || '')}</textarea></label>
-        ${lead.summary || lead.need || lead.budget || lead.timeline ? `<div class="ct-leadbox"><div class="pc-label">From the lead assistant</div>
+    // A contact page you edit in place, not a form: the name is the title, details read as text until you point at them,
+    // the stage is chips, opting out is a quiet row at the end. (The fields keep their names: the save below reads them.)
+    const MAIL = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>';
+    const ORG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>';
+    const row = (ico, input, label) => `<label class="cte-row"><span class="cte-ico" title="${label}">${ico}</span>${input}</label>`;
+    const status = c?.status || 'new';
+    const body = openModal(c ? 'Edit contact' : 'Add contact', `
+      <form id="ctForm" class="cte">
+        <div class="cte-head">
+          ${c ? avatar(c, 'xl') : `<span class="ct-av xl cte-av-new">${icon('user', 26)}</span>`}
+          <div class="cte-id">
+            <input class="cte-name" name="name" value="${esc(c?.name || '')}" placeholder="Their name" aria-label="Name" autocomplete="off" />
+            <span class="cte-sub">${c ? esc([fmtPhone(c.phone), c.createdAt && 'added ' + new Date(c.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })].filter(Boolean).join(' · ')) : 'A new contact'}</span>
+          </div>
+        </div>
+
+        <div class="cte-sec">
+          <div class="cte-label">Details</div>
+          <div class="cte-rows">
+            ${row(icon('phone', 16), `<input name="phone" value="${esc(c ? '+' + c.phone : '')}" required inputmode="tel" maxlength="22" autocomplete="tel" placeholder="Phone, e.g. +91 98765 43210" aria-label="Phone" />`, 'Phone')}
+            ${row(MAIL, `<input name="email" type="email" value="${esc(c?.email || '')}" placeholder="Add email" aria-label="Email" autocomplete="off" />`, 'Email')}
+            ${row(ORG, `<input name="company" value="${esc(c?.company || '')}" placeholder="Add company" aria-label="Company" autocomplete="off" />`, 'Company')}
+          </div>
+        </div>
+
+        <div class="cte-sec">
+          <div class="cte-label">Stage</div>
+          <div class="cte-chips" role="radiogroup" aria-label="Stage">${Object.entries(STATUS).map(([k, v]) => `<label class="ct-tag cte-chip"><input type="radio" name="status" value="${k}" ${status === k ? 'checked' : ''} /><span>${v.label}</span></label>`).join('')}</div>
+        </div>
+
+        <div class="cte-sec">
+          <div class="cte-label">Tags</div>
+          <div class="ct-pick cte-tags" id="ctPick">${CT.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)} ${tags.has(t.id) ? 'active' : ''}" data-pick="${t.id}"><i></i>${esc(t.name)}</button>`).join('') || '<span class="sub">No tags yet. Create one on the Contacts page.</span>'}</div>
+        </div>
+
+        <div class="cte-sec">
+          <div class="cte-label">Notes</div>
+          <textarea class="cte-notes" name="notes" rows="3" placeholder="Anything to remember about them">${esc(c?.notes || '')}</textarea>
+        </div>
+
+        ${lead.summary || lead.need || lead.budget || lead.timeline ? `<div class="ct-leadbox cte-sec"><div class="pc-label">From the lead assistant</div>
           ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}
           <dl>${[['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>` : ''}
-        ${c && Object.keys(c.extra || {}).length ? `<details class="ct-extra"><summary>Other details (${Object.keys(c.extra).length})</summary><dl>${Object.entries(c.extra).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></details>` : ''}
-        <div class="modal-actions">
+        ${c && Object.keys(c.extra || {}).length ? `<details class="ct-extra cte-sec"><summary>Other details (${Object.keys(c.extra).length})</summary><dl>${Object.entries(c.extra).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></details>` : ''}
+
+        <label class="cte-optout"><span class="cte-ico">${icon('ban', 16)}</span><span class="cte-optout-t"><b>Opted out</b><small>They’re never messaged while this is on.</small></span>${toggleHtml({ checked: c?.optOut, attrs: 'name="optOut"', size: 'sm' })}</label>
+
+        <div class="modal-actions cte-actions">
           ${c ? `<button type="button" class="btn quiet danger" id="ctDel" style="margin-right:auto">Delete</button>` : ''}
-          ${chatKey ? `<button type="button" class="btn quiet" id="ctChat" data-icon="message-circle">Open chat</button>` : ''}
+          ${chatKey && !opts.inChat ? `<button type="button" class="btn quiet" id="ctChat" data-icon="message-circle">Open chat</button>` : ''}
           <button type="button" class="btn quiet" id="ctCancel">Cancel</button>
           <button class="btn primary">${c ? 'Save' : 'Add contact'}</button>
         </div>
@@ -634,11 +667,13 @@
       b.classList.toggle('active');
     });
     $('#ctCancel', body).onclick = closeModal;
-    if (chatKey) $('#ctChat', body).onclick = () => { closeModal(); showTab('inbox'); window.Inbox?.open(chatKey); };
+    $('#modal .modal-box').classList.add('cte-box');
+    if (!c) $('.cte-name', body).focus();
+    if (chatKey && !opts.inChat) $('#ctChat', body).onclick = () => { closeModal(); showTab('inbox'); window.Inbox?.open(chatKey); };
     if (c) $('#ctDel', body).onclick = async () => {
       closeModal();
       if (!(await confirmDialog({ title: 'Delete this contact?', message: 'Their chats and campaign history stay.', confirmText: 'Delete', danger: true }))) return;
-      await guard(async () => { await api('/contacts/delete', { method: 'POST', body: { ids: [c.id] } }); await refresh(); });
+      await guard(async () => { await api('/contacts/delete', { method: 'POST', body: { ids: [c.id] } }); await refresh(); opts.onSaved?.(); });
     };
     $('#ctForm', body).addEventListener('submit', (e) => {
       e.preventDefault();
@@ -653,6 +688,7 @@
         closeModal();
         await refresh();
         toast(c ? 'Saved' : 'Contact added');
+        opts.onSaved?.();
       }, $('button.primary', e.target));
     });
   }
@@ -826,7 +862,7 @@
       await guard(load);
       render();
     },
-    open: async (id) => { if (!CT.loaded) await load(); open(id); },
+    open: async (id, opts) => { if (!CT.loaded) await load(); open(id, opts); },
     byPhone: (phone) => CT.contacts.find((c) => c.phone === phone),
     tags: () => CT.tags,
     refresh: () => (CT.loaded ? refresh() : load()),

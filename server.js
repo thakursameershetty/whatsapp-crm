@@ -1740,7 +1740,8 @@ app.get('/api/inbox/:key', wrap((req, res) => {
     }
   }
   const messages = [...own, ...sent].sort((a, b) => a.ts.localeCompare(b.ts));
-  res.json({ conversation: conversationInfo(key, own, recipientNames()), messages, ai: req.ai ? leadApi.stateFor(key) : null, contact: contactsApi.byPhone(wa) || null, tags: db.tags });
+  const contact = contactsApi.byPhone(wa) || null;
+  res.json({ conversation: conversationInfo(key, own, recipientNames()), messages, ai: req.ai ? leadApi.stateFor(key) : null, contact, chatLead: leadApi.chatLead(key, contact), tags: db.tags });
 }));
 
 // Mark a conversation read here, and (live) send blue ticks to the person.
@@ -1787,6 +1788,42 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
   const ch = aiWritten ? credits.charge(credits.AI_RATE, credits.keys.aiReply()) : null;
   if (ch === false) throw fail('Out of credits: sending the AI’s suggested reply uses 1 credit. Add credits in Settings → Credits, or edit the reply and send it as your own.', 402);
   try { res.json(await sendInboxText(key, text, { replyTo, ...(ch ? { credit: ch } : {}) })); } catch (e) { credits.refund(ch); throw e; }
+}));
+
+// The person behind a chat: their contact, and every chat they have with our numbers that you can see (a member limited
+// to some numbers sees only those), each with its own notes. Newest first; the open chat is marked.
+app.get('/api/inbox/:key/profile', wrap((req, res) => {
+  const key = req.params.key;
+  const { wa } = splitKey(key);
+  if (!/^\d{6,15}$/.test(wa)) throw fail('Invalid phone number');
+  const scope = req.senderScope;
+  const contact = contactsApi.byPhone(wa) || null;
+  const chats = new Map();
+  for (const m of db.messages) {
+    if (m.wa !== wa || (scope && !scope.has(m.senderId)) || m.type === 'reaction') continue;
+    const x = chats.get(m.key) || chats.set(m.key, { key: m.key, senderId: m.senderId, count: 0, lastAt: '', firstAt: m.ts }).get(m.key);
+    x.count++;
+    if (m.ts >= x.lastAt) { x.lastAt = m.ts; x.lastDir = m.dir; x.lastText = m.text || (m.type === 'template' ? `Template: ${m.templateName || ''}` : m.type); }
+  }
+  const senders = Object.fromEntries(db.senders.map((s) => [s.id, s]));
+  const list = [...chats.values()].filter((x) => senders[x.senderId]).map((x) => ({
+    ...x, current: x.key === key, number: senders[x.senderId].label, displayPhone: senders[x.senderId].displayPhone || '',
+    lead: leadApi.chatLead(x.key, contact),
+  })).sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  const tags = (contact?.tags || []).map((t) => db.tags.find((x) => x.id === t)).filter(Boolean);
+  res.json({ contact, tags, chats: list });
+}));
+
+// A person decides whether this chat's contact is a qualified lead (or hands it back to the AI): contacts.setLead.
+app.post('/api/inbox/:key/lead', wrap((req, res) => {
+  const { wa } = splitKey(req.params.key);
+  if (!/^\d{6,15}$/.test(wa)) throw fail('Invalid phone number');
+  const q = req.body?.qualified;
+  if (q !== true && q !== false && q !== null) throw fail('Say whether they are a qualified lead');
+  const contact = contactsApi.setLead(wa, q, req.user?.email || '');
+  save();
+  contactsApi.notify(req.params.key);
+  res.json({ contact });
 }));
 
 // A template message in a conversation (works any time, inside or outside the 24-hour window).
