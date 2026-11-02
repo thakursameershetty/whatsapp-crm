@@ -957,21 +957,20 @@ $('#senderList').addEventListener('click', (e) => {
 function senderForm(s = null) {
   // Live numbers are checked with Meta before they're saved (the server checks again on Save).
   const live = !state.settings.demoMode;
-  const shared = !s && state.senders.find((x) => x.hasToken && x.wabaId);
   const body = openModal(s ? 'Edit number' : 'Add sender number', `
     <form id="senderForm" novalidate>
       ${s && live && s.hasToken ? `<div class="sf-photo"><span id="sfPhoto">${senderPhotoHtml(s)}</span><div><b>WhatsApp profile photo</b><span class="sub">What customers see on this number's chat. Use your own logo or brand image.</span></div><button type="button" class="btn sm sender-photo-btn" id="sfPhotoBtn">${icon('square-pen', 14)}Edit</button></div>` : ''}
-      <label>Label <span class="opt">up to 40 characters</span><input name="label" required maxlength="40" placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
-      <label>Phone number ID <input name="phoneNumberId" required inputmode="numeric" data-digits maxlength="17" placeholder="From Meta → WhatsApp → API Setup (digits)" value="${esc(s?.phoneNumberId)}" /></label>
-      <label>WhatsApp Business Account ID <span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span>${live ? '<span class="sf-find">' : ''}<input name="wabaId" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Click Find, or paste the ID or Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" />${live ? `<button type="button" class="btn sm" id="sfFind">${icon('search', 14)}Find</button></span>` : ''}</label>
+      <label>Label <span class="opt">up to 40 characters</span><input name="label" required maxlength="40" autocomplete="off" placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
+      <label>Phone number ID <input name="phoneNumberId" required autocomplete="off" inputmode="numeric" data-digits maxlength="17" placeholder="From Meta → WhatsApp → API Setup (digits)" value="${esc(s?.phoneNumberId)}" /></label>
       ${s?.hasToken
         ? `<div class="field-label">Access token</div>
            <div class="sf-token" id="sfSaved"><span>${icon('lock', 14)}Saved token ending in <b>${esc((s.accessTokenMasked || '').slice(-4))}</b></span><button type="button" class="btn sm" id="sfReplace">Replace token</button></div>
-           <label class="hidden" id="sfTokenWrap">New access token<input name="accessToken" type="password" autocomplete="off" placeholder="Paste the new token" /></label>`
-        : `<label>Access token${live ? '' : ' <span class="opt">optional in demo mode</span>'}<input name="accessToken" type="password" autocomplete="off" placeholder="${shared ? 'Leave blank to use the token of ' + esc(shared.label) : 'Permanent system-user token'}" /></label>`}
-      <label>Display phone <span class="opt">${live ? 'filled in from Meta when the number is checked' : 'optional, for your reference'}</span><input name="displayPhone" inputmode="tel" maxlength="22" placeholder="+91 98765 43210" value="${esc(s?.displayPhone)}" /></label>
+           <label class="hidden" id="sfTokenWrap">New access token<input name="accessToken" type="password" autocomplete="new-password" placeholder="Paste the new token" /></label>`
+        : `<label>Access token${live ? '' : ' <span class="opt">optional in demo mode</span>'}<input name="accessToken" type="password" autocomplete="new-password" placeholder="Permanent system-user token" /></label>`}
+      <label>WhatsApp Business Account ID <span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span>${live ? '<span class="sf-find">' : ''}<input name="wabaId" autocomplete="off" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Click Find, or paste the ID or Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" />${live ? `<button type="button" class="btn sm tip-end" id="sfFind" data-tip="I can find it for you with your phone number ID and access token">${icon('search', 14)}Find</button></span>` : ''}</label>
+      <label>Display phone <span class="opt">${live ? 'filled in from Meta when the number is checked' : 'optional, for your reference'}</span><input name="displayPhone" autocomplete="off" inputmode="tel" maxlength="22" placeholder="+91 98765 43210" value="${esc(s?.displayPhone)}" /></label>
       <div class="sf-status hidden" id="sfStatus" role="status" aria-live="polite"></div>
-      <p class="sub">Numbers in the same WhatsApp Business Account can share one token. It's stored only on this server and never shown in full again.</p>
+      <p class="sub">${live ? 'Enter the phone number ID and token, then click Find to fill in the Business Account ID. ' : ''}The token is stored only on this server and never shown in full again.</p>
       <div class="modal-actions">
         ${live ? '<button type="button" class="btn quiet" id="sfTest" data-icon="zap" style="margin-right:auto">Test connection</button>' : ''}
         <button type="button" class="btn quiet" onclick="closeModal()">Cancel</button>
@@ -979,8 +978,6 @@ function senderForm(s = null) {
       </div>
     </form>`);
   const form = $('#senderForm', body), status = $('#sfStatus', body);
-  // Prefill WABA from an existing number to make adding more numbers quicker.
-  if (!s && state.senders[0]?.wabaId) $('[name=wabaId]', body).value = state.senders[0].wabaId;
   $('#sfPhotoBtn', body)?.addEventListener('click', () => {
     const btn = $('#sfPhotoBtn', body);
     guard(async () => {
