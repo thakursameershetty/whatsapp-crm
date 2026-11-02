@@ -5283,7 +5283,6 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .kpi-value { font-weight: 600; }
 .fl-of { font-size: 13.5px; color: var(--muted); }
 /* Overview charts: a cut spike (break band in the card's colour, total above), faint low-volume days in Share */
-.fl-cut path { fill: var(--surface); }
 .fl-cut-n { font: 600 11px Inter, sans-serif; fill: var(--muted); font-variant-numeric: tabular-nums; }
 .fl-col.fl-few rect { opacity: 0.35; }
 .fl-host.hovering .fl-col.fl-few.on rect { opacity: 0.6; }
@@ -5302,3 +5301,9 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .ib-search .num-filter-lbl { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .num-filter .df-x { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: -3px; border-radius: 50%; color: var(--muted); }
 .num-filter .df-x:hover { background: var(--sunk); color: var(--text); }
+/* The offer to zoom past a spike, above the chart */
+.fl-host { position: relative; }
+.fl-zoom { position: absolute; top: 0; right: 12px; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.fl-zoom span { overflow: hidden; text-overflow: ellipsis; }
+.fl-zoom button { flex: none; border: 0; padding: 3px 9px; border-radius: 99px; background: var(--sunk); color: var(--text); font: 600 12px Inter, sans-serif; cursor: pointer; }
+.fl-zoom button:hover { background: var(--hair); }

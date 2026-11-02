@@ -2731,13 +2731,14 @@ function topReasons(bs) {
 const reasonFill = (id, top) => (id === 'other' ? 'var(--faint)' : `color-mix(in srgb, var(--danger) ${REASON_SHADES[top.indexOf(id)] ?? 30}%, var(--surface))`);
 
 function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge', share = false } = {}) {
+  host.__redraw = () => drawFlow(host, bs, { mode, layout, share });
   host.__flow = bs;
   host.__flowMode = mode;
   host.__flowShare = share;
   if (!window.d3 || !host.clientWidth) return;
   host.classList.add('fl-host');
   // the loading placeholder (data-skel) goes once there is something to draw, as the main chart does
-  host.querySelectorAll(':scope > :not(svg):not(.chart-empty)').forEach((n) => n.remove());
+  host.querySelectorAll(':scope > :not(svg):not(.chart-empty):not(.fl-zoom)').forEach((n) => n.remove());
   host.removeAttribute('data-skel');
   const W = host.clientWidth, H = host.clientHeight || 260, pad = { l: 42, r: 12, t: 26, b: 28 };
   // Nothing in the period: no axis, just what this chart will show and the way to get there.
@@ -2745,6 +2746,7 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   host.classList.toggle('fl-none', nothing);
   if (nothing) {
     d3.select(host).select('svg.fl-svg').remove();
+    host.querySelector('.fl-zoom')?.remove();
     host.__flowX = null;
     let em = host.querySelector('.fl-empty');
     if (!em) { em = document.createElement('div'); em.className = 'fl-empty'; host.append(em); }
@@ -2766,15 +2768,19 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   const unit = (b) => (share ? (tried(b) ? 100 / tried(b) : 0) : 1); // a message's height in the scale's units
   const upOf = (b) => (mode === 'failed' ? b.failed : below ? b.sent : tried(b)) * unit(b);
   const downOf = (b) => (below ? b.failed * unit(b) : 0);
-  // A spike (one day far above the rest) would flatten every other day, so in counts the scale fits the usual days and
-  // a spike is cut: drawn to the edge with a break mark and its real total. Share never needs it.
+  // A spike (one day far above the rest) flattens every other day. The scale stays true by default; a line above the
+  // chart offers to zoom in on the usual days, and then a spike runs off the chart (fading out) with its real total.
+  // Share never needs it.
   const capOf = (vals) => {
     const nz = vals.filter((v) => v > 0).sort((a, b) => a - b);
     if (share || nz.length < 3) return 0;
     const q = nz[Math.floor((nz.length - 1) * 0.75)], usual = nz.filter((v) => v <= q * 4).at(-1) || q;
     return nz.at(-1) > Math.max(usual * 3, q * 4) ? usual : 0;
   };
-  const capUp = capOf(bs.map(upOf)), capDown = capOf(bs.map(downOf));
+  const spikeUp = capOf(bs.map(upOf)), spikeDown = capOf(bs.map(downOf));
+  const zoom = Boolean(host.__zoom && (spikeUp || spikeDown));
+  const capUp = zoom ? spikeUp : 0, capDown = zoom ? spikeDown : 0;
+  if (spikeUp || spikeDown) pad.t = 46; // room for the zoom line above the columns
   const maxUp = share && mode !== 'failed' ? 100 : Math.max(1, capUp || Math.max(...bs.map(upOf)));
   const maxDown = below ? capDown || Math.max(0, ...bs.map(downOf)) : 0;
   const y = d3.scaleLinear().domain([0, maxUp]).nice(4);
@@ -2799,6 +2805,14 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
     svg.append('line').attr('class', 'fl-base');
     svg.append('g').attr('class', 'fl-cols');
     svg.append('g').attr('class', 'fl-cuts');
+    // fades for a column that runs off the chart: out at the top (or, below the line, at the bottom)
+    const defs = svg.append('defs');
+    for (const [dir, stops] of [['up', [[0, 0], [0.22, 1]]], ['down', [[0.78, 1], [1, 0]]], ['both', [[0, 0], [0.18, 1], [0.82, 1], [1, 0]]]]) {
+      const g = defs.append('linearGradient').attr('id', `flFadeG-${dir}-${host.id}`).attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
+      for (const [o, a] of stops) g.append('stop').attr('offset', o).attr('stop-color', '#fff').attr('stop-opacity', a);
+      defs.append('mask').attr('id', `flFade-${dir}-${host.id}`).attr('maskContentUnits', 'objectBoundingBox')
+        .append('rect').attr('width', 1).attr('height', 1).attr('fill', `url(#flFadeG-${dir}-${host.id})`);
+    }
     svg.append('rect').attr('class', 'fl-ring').attr('opacity', 0);
     svg.append('g').attr('class', 'fl-x');
     bindFlowHover(host);
@@ -2817,12 +2831,13 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
     const ku = cutUp(b) ? (base - pad.t - (parts.length - 1) * GAP) / upOf(b) : k;
     const kd = cutDown(b) ? (down - GAP - 2) / downOf(b) : k;
     let yy = base - GAP / 2;
-    for (const [id, f] of parts) { const v = f(b) * unit(b), hh = Math.max(2, v * ku); if (v > 0) { out.push({ id, i, y: yy - hh, h: hh }); yy -= hh + GAP; } }
-    if (below && b.failed) out.push({ id: 'failed', i, y: base + GAP / 2 + 1, h: Math.max(2, downOf(b) * kd) });
+    for (const [id, f] of parts) { const v = f(b) * unit(b), hh = Math.max(3, v * ku); if (v > 0) { out.push({ id, i, y: yy - hh, h: hh }); yy -= hh + GAP; } }
+    if (below && b.failed) out.push({ id: 'failed', i, y: base + GAP / 2 + 1, h: Math.max(3, downOf(b) * kd) });
     return out;
   };
   const cols = svg.select('.fl-cols').selectAll('g.fl-col').data(bs, (b) => b.key).join((enter) => enter.append('g').attr('class', 'fl-col')).attr('data-i', (b, i) => i)
-    .classed('fl-few', (b) => share && tried(b) > 0 && tried(b) < few);
+    .classed('fl-few', (b) => share && tried(b) > 0 && tried(b) < few)
+    .attr('mask', (b) => { const d = cutUp(b) && cutDown(b) ? 'both' : cutUp(b) ? 'up' : cutDown(b) ? 'down' : null; return d && `url(#flFade-${d}-${host.id})`; });
   cols.each(function (b, i) {
     const r = d3.select(this).selectAll('rect').data(pieces(b, i), (p) => mode + ':' + p.id)
       .join(
@@ -2836,14 +2851,26 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
     // an instant redraw (a resize) stops an entrance still running, or it would carry on to the old size
     (dur ? r.transition().duration(dur).delay(i * Math.min(30, 400 / bs.length)).ease(d3.easeCubicOut) : r.interrupt()).attr('y', (p) => p.y).attr('height', (p) => p.h);
   });
-  // break marks across cut columns (a slanted band in the card's colour), and the real total above a cut top
-  const cuts = bs.flatMap((b) => [...(cutUp(b) ? [{ key: b.key + ':up', b, y: pad.t + 18, up: true }] : []), ...(cutDown(b) ? [{ key: b.key + ':down', b, y: base + down - 20 }] : [])]);
-  const cg = svg.select('.fl-cuts').selectAll('g.fl-cut').data(cuts, (c) => c.key)
-    .join((enter) => { const g = enter.append('g').attr('class', 'fl-cut').attr('opacity', 0); g.append('path'); g.append('text').attr('class', 'fl-cut-n'); return g; });
-  cg.select('path').attr('d', (c) => { const x0 = x(c.b.key) - 3, x1 = x0 + bw + 6; return `M${x0},${c.y + 5}L${x1},${c.y - 3}L${x1},${c.y + 1}L${x0},${c.y + 9}Z`; });
-  cg.select('text').attr('x', (c) => x(c.b.key) + bw / 2).attr('y', pad.t - 8).attr('text-anchor', 'middle')
-    .text((c) => (c.up ? fmtNum(mode === 'failed' ? c.b.failed : below ? c.b.sent : tried(c.b)) : ''));
+  // zoomed in: the real total above a column that runs off the top
+  const cuts = bs.filter(cutUp).map((b) => ({ key: b.key, b }));
+  const cg = svg.select('.fl-cuts').selectAll('text.fl-cut-n').data(cuts, (c) => c.key)
+    .join((enter) => enter.append('text').attr('class', 'fl-cut-n').attr('opacity', 0));
+  cg.attr('x', (c) => x(c.b.key) + bw / 2).attr('y', pad.t - 12).attr('text-anchor', 'middle')
+    .text((c) => fmtNum(mode === 'failed' ? c.b.failed : below ? c.b.sent : tried(c.b)));
   (dur ? cg.transition().delay(dur * 0.8).duration(250) : cg.interrupt()).attr('opacity', 1);
+  host.__cut = (b) => cutUp(b) || cutDown(b);
+  // the offer to zoom (or to show everything again), in words
+  let zl = host.querySelector('.fl-zoom');
+  if (spikeUp || spikeDown) {
+    const big = bs.filter((b) => (spikeUp && upOf(b) > spikeUp * 3) || (spikeDown && downOf(b) > spikeDown * 3));
+    const who = big.length === 1 ? big[0].long.replace(/^\w+, /, '') : big.length + ' days';
+    if (!zl) { zl = document.createElement('div'); zl.className = 'fl-zoom'; host.append(zl); }
+    zl.style.left = pad.l + 'px';
+    zl.innerHTML = zoom
+      ? `<span>Zoomed in · ${esc(who)} ${big.length === 1 ? 'goes' : 'go'} off the chart</span><button type="button" data-zoom="0">Show all</button>`
+      : `<span>${esc(who)} ${big.length === 1 ? 'is' : 'are'} much bigger than the other days</span><button type="button" data-zoom="1">Zoom in on the rest</button>`;
+    zl.onclick = (e) => { const z = e.target.closest('[data-zoom]'); if (!z) return; hideTip(); host.__zoom = z.dataset.zoom === '1'; host.__redraw(); };
+  } else zl?.remove();
   const every = Math.max(1, Math.ceil((bs.length * 64) / (W - pad.l - pad.r)));
   svg.select('.fl-x').selectAll('text').data(bs, (b) => b.key).join('text')
     .attr('x', (b) => x(b.key) + bw / 2).attr('y', H - 8).attr('text-anchor', 'middle').attr('class', 'tick')
@@ -2903,7 +2930,8 @@ function bindFlowHover(host) {
     const all = b.sent + b.failed, pc = (v) => (host.__flowShare && all ? ' <small>' + fmt1((100 * v) / all) + '%</small>' : '');
     const row = (sw, label, v) => '<div class="tt-row cur"><span><i class="cx-sw" data-sw="' + sw + '"></i>' + waMark(sw) + label + '</span><b>' + v.toLocaleString() + pc(v) + '</b></div>';
     showTip('<div class="tt-title">' + esc(b.long) + ' · ' + (b.sent + b.failed).toLocaleString() + ' tried</div>' +
-      row('read', 'Read', b.read) + row('delivered', 'Delivered, not read', b.delivered - b.read) + row('sent', 'Sent, not delivered', b.sent - b.delivered) + row('failed', 'Failed', b.failed), e.clientX, e.clientY);
+      row('read', 'Read', b.read) + row('delivered', 'Delivered, not read', b.delivered - b.read) + row('sent', 'Sent, not delivered', b.sent - b.delivered) + row('failed', 'Failed', b.failed) +
+      (host.__cut?.(b) ? '<div class="tt-note">Goes off the chart while zoomed in.</div>' : ''), e.clientX, e.clientY);
   });
   host.addEventListener('pointerleave', clear);
 }
