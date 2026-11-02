@@ -3295,7 +3295,8 @@ input.pw-bad, input.pw-bad:focus { box-shadow: var(--sh-sunk), 0 0 0 2px color-m
 .ov-recent .mini-item { margin: 0; padding: 14px 16px; border-radius: 12px; background: color-mix(in srgb, var(--sunk) 55%, transparent); box-shadow: none !important; }
 .ov-recent .mini-item:hover { background: var(--sunk); transform: translateY(-2px); }
 #tab-overview .grid-ov > .card > .seg { align-self: flex-start; }
-#tab-overview .chart-card #dayChart { flex: 1; }
+/* fills the card, but never below its own height (it used to shrink to a sliver beside a short card) */
+#tab-overview .chart-card #dayChart { flex: 1 0 auto; min-height: 260px; }
 /* Recent campaigns: the same little folder (and colour) as on the Campaigns page */
 .rc-item { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 12px; }
 .rc-item .cp-ficon { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
@@ -5072,3 +5073,159 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .cte-optout-t small { font-size: 12px; color: var(--muted); }
 /* Save stays in reach however long the page is: the button bar sticks to the bottom of the window. */
 .cte-actions { position: sticky; bottom: -26px; margin: 16px -26px -26px; padding: 14px 26px; background: var(--surface); box-shadow: 0 -1px 0 var(--hair); z-index: 1; }
+/* Campaign → Results: the red "!" for failures, and the chart under the results. */
+.cd-funnel { gap: 0; }
+.cd-x { display: grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: var(--danger); color: #fff; font: 700 10px/1 Inter, sans-serif; }
+.cd-chart-in { margin-top: 18px; padding-top: 16px; box-shadow: 0 -1px 0 var(--hair); }
+.cd-chart-in .cd-chart svg { height: 190px; }
+/* ══ Campaign results: where every message ended up (campaigns.js) ════════════════════════════════
+   A thick bar cut into one piece per outcome, chips under it, a rolling figure above; Expand shows the same split as
+   a field of dots with every piece explained. The app's chart colours: strengths of ink for how far a message got
+   (read darkest), and the app's own good / info / danger for leads, replies and failures; "still to send" is the
+   meter track. */
+:root {
+  --cx-lead: var(--good); --cx-replied: var(--info); --cx-read: var(--chart); --cx-delivered: var(--chart-2);
+  --cx-sent: var(--chart-3); --cx-failed: var(--danger); --cx-pending: var(--meter-track);
+}
+[data-sw="lead"] { background: var(--cx-lead); } [data-sw="replied"] { background: var(--cx-replied); }
+[data-sw="read"] { background: var(--cx-read); } [data-sw="delivered"] { background: var(--cx-delivered); }
+[data-sw="sent"] { background: var(--cx-sent); } [data-sw="failed"] { background: var(--cx-failed); }
+[data-sw="pending"] { background: var(--cx-pending); }
+.cx { user-select: none; -webkit-user-select: none; }
+.cx-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cx-head .cd-label { margin: 0; }
+.cx-figure { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 14px; }
+.cx-num { display: inline-flex; font-size: 34px; line-height: 1.15; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; overflow: hidden; }
+.cx-d { display: inline-block; }
+/* a digit that changed rises (or drops) a hair out of a 2px blur and lands a touch past its mark */
+.cx-d.up { animation: cx-in-up 0.5s cubic-bezier(0.34, 1.45, 0.64, 1) both; }
+.cx-d.down { animation: cx-in-down 0.5s cubic-bezier(0.34, 1.45, 0.64, 1) both; }
+@keyframes cx-in-up { from { transform: translateY(0.18em); opacity: 0; filter: blur(2px); } }
+@keyframes cx-in-down { from { transform: translateY(-0.18em); opacity: 0; filter: blur(2px); } }
+.cx-of { font-size: 13.5px; color: var(--muted); }
+/* the bar: one shape cut into pieces, round at its ends, nearly square where pieces meet */
+.cx-bar { display: flex; gap: 3px; height: 40px; }
+.cx-seg { display: block; min-width: 3px; flex-basis: 0; cursor: default; transition: flex-grow 0.8s cubic-bezier(0.65, 0, 0.2, 1), opacity 0.22s ease; }
+.cx.hovering .cx-seg:not(.on), .cx.hovering .cx-dot:not(.on), .cx.hovering .cx-row:not(.on) { opacity: 0.3; }
+.cx-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cx-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.cx-chip { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--text) 6%, var(--surface)); color: var(--text); font: 500 12.5px Inter, sans-serif; cursor: default; transition: background-color 0.16s, scale 0.26s cubic-bezier(0.34, 1.56, 0.64, 1); }
+/* keyed to data-on, not :hover, so pointing at a piece of the bar presses its chip too */
+.cx-chip.on { background: color-mix(in srgb, var(--text) 12%, var(--surface)); scale: 0.975; }
+.cx-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cx-sw { display: block; flex: none; width: 9px; height: 9px; border-radius: 2px; }
+/* Expand: the field of dots, filled down each column then across, and every piece explained */
+.cx-box { max-width: 680px; }
+.cx-big .cx-figure { margin-top: 0; }
+.cx-field { display: grid; grid-auto-flow: column; gap: 3px; justify-content: start; max-width: 100%; overflow-x: auto; padding-bottom: 2px; }
+.cx-dot { display: block; border-radius: 3px; animation: cx-dot-in 0.34s cubic-bezier(0.34, 1.2, 0.64, 1) both; transition: opacity 0.22s ease; }
+@keyframes cx-dot-in { from { scale: 0; } }
+.cx-note { margin: 12px 0 0; font-size: 12.5px; }
+.cx-rows { display: flex; flex-direction: column; margin-top: 14px; border-radius: 14px; background: var(--sunk); padding: 4px 14px; }
+.cx-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 12px 0; box-shadow: 0 1px 0 var(--hair); transition: opacity 0.22s ease; }
+.cx-row:last-child { box-shadow: none; }
+.cx-row .cx-sw { margin-top: 5px; width: 10px; height: 10px; }
+.cx-row-t b { font-size: 14px; }
+.cx-row-t p { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--text); }
+.cx-row-t .cx-todo { color: var(--muted); font-size: 12.5px; }
+.cx-row-n { display: flex; flex-direction: column; align-items: flex-end; }
+.cx-row-n b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.cx-row-n span { font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .cx-d.up, .cx-d.down, .cx-dot { animation: none; } .cx-seg { transition: opacity 0.22s; } }
+/* The WhatsApp marks on the results' chips, rows and tooltip: grey ticks, blue ticks for read, the reply arrow, the
+   contacts icon, a red ! for failed, a clock for still to send. */
+.cx-mk { display: inline-grid; place-items: center; width: 16px; color: var(--faint); }
+.cd-tick.blue { color: var(--tick-read); } /* read is WhatsApp blue wherever its ticks show */
+.cx-row-t b { display: inline-flex; align-items: center; gap: 6px; }
+.cx-of-k { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-weight: 500; }
+.chart-tip .cx-sw { width: 8px; height: 8px; }
+.chart-tip .tt-row span .cx-mk { width: 14px; }
+.chart-tip .tt-note { max-width: 240px; color: var(--muted); }
+.cx-chip-n { margin-left: -2px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+/* Campaign → Recipients filter: each status with its mark. */
+#cdShow button { display: inline-flex; align-items: center; gap: 5px; }
+.cd-show-mk { display: inline-grid; place-items: center; color: var(--faint); }
+.cd-show-mk .cd-x { width: 13px; height: 13px; font-size: 9px; }
+/* Expand: the figure, the field, the chips and the note centred under the title; the explanations stay left, to read. */
+.cx-big .cx-figure { justify-content: center; }
+.cx-big .cx-field { width: max-content; max-width: 100%; margin-inline: auto; }
+.cx-big .cx-chips { justify-content: center; }
+.cx-big .cx-note { text-align: center; }
+/* WhatsApp marks beside counts (app.js waMark): the Overview table and its tooltip. */
+.wa-mk { display: inline-grid; place-items: center; width: 16px; flex: none; color: var(--faint); }
+.wa-mk .cd-x { width: 13px; height: 13px; font-size: 9px; }
+.th-mk { display: inline-flex; align-items: center; gap: 5px; }
+.chart-table tfoot td { font-weight: 600; border-top: 1px solid var(--hair); position: sticky; bottom: 0; background: var(--surface); }
+/* A campaign's header: pinned like the other pages' (sticky-head), with its folder beside the name. */
+#cdHead.sticky-head { margin-bottom: 16px; }
+#cdHead .cd-back { margin-bottom: 4px; }
+.cd-name { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cd-name .cp-pin-folder, .cd-name .cp-pin-folder svg { width: 44px; height: 36px; }
+#cdWhy:empty { display: none; }
+#cdWhy .cd-why { margin: 0 0 16px; }
+/* Overview: the main chart's Sent tab, stacked (app.js drawFlow), and the period summary beside it (renderFunnel). */
+.chart.is-flow > .chart-empty { display: none; }
+.fl-svg { position: absolute; inset: 0; display: block; overflow: visible; }
+.fl-svg .grid line { stroke: var(--chart-grid); stroke-width: 1; }
+.fl-svg .tick { font-size: 11px; fill: var(--muted); }
+.fl-base { stroke: var(--line-2, var(--hair)); stroke-width: 1; }
+.fl-col rect { transition: opacity 0.2s ease; }
+.fl-host.hovering .fl-col:not(.on) rect { opacity: 0.3; }
+.fl-ring { fill: none; stroke: var(--faint); stroke-width: 1.5; pointer-events: none; transition: opacity 0.15s; }
+.fl-svg rect[data-sw="read"] { fill: var(--cx-read); } .fl-svg rect[data-sw="delivered"] { fill: var(--cx-delivered); }
+.fl-svg rect[data-sw="sent"] { fill: var(--cx-sent); } .fl-svg rect[data-sw="failed"] { fill: var(--cx-failed); }
+.fl-figure { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.fl-num { font-size: 34px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.fl-figure span { font-size: 13.5px; color: var(--muted); }
+.fs-bar { height: 28px; }
+.fs-rows { display: flex; flex-direction: column; margin-top: 14px; }
+.fs-row { display: grid; grid-template-columns: 10px 18px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px 0; box-shadow: 0 1px 0 var(--hair); transition: opacity 0.2s; }
+.fs-row:last-child { box-shadow: none; }
+.fs-row .cx-sw { width: 9px; height: 9px; }
+.fs-l { display: flex; flex-direction: column; min-width: 0; }
+.fs-l b { font-size: 13.5px; font-weight: 600; }
+.fs-l small, .fs-n small { font-size: 12px; color: var(--muted); }
+.fs-n { display: flex; flex-direction: column; align-items: flex-end; }
+.fs-n b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.fs.hovering .cx-seg:not(.on), .fs.hovering .fs-row:not(.on) { opacity: 0.3; }
+.fl-foot { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.fl-foot b { color: var(--text); }
+/* Overview chart card: the metric switcher in the header beside the title, then Table and Expand. */
+.chart-card > .card-head { align-items: flex-start; }
+.chart-ctl { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.chart-ctl .seg-metric { margin: 0; }
+.btn.icon-only { width: 32px; padding: 0; justify-content: center; }
+/* the key under the stacked chart (Sent: outcomes; Failed: reasons) */
+.fl-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.fl-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.fl-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tt-code { margin-left: 4px; padding: 0 4px; border-radius: 4px; background: var(--sunk); font: 500 10.5px ui-monospace, Menlo, monospace; color: var(--muted); }
+/* switching between the stacked chart and the line chart: the outgoing one fades rather than vanishing */
+.chart > svg.d3chart { transition: opacity 0.3s ease; }
+.chart.is-flow > svg.d3chart { opacity: 0; pointer-events: none; }
+/* The chart card keeps its width whatever its legend says (a wider legend used to resize the chart mid-animation). */
+.grid-ov > .card { min-width: 0; }
+.fl-legend { min-width: 0; }
+/* An empty period: the stacked chart's message, and the summary at zero. */
+.fl-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; padding: 0 24px; color: var(--muted); font-size: 13px; }
+.fl-empty b { color: var(--text); font-size: 15px; font-weight: 600; }
+.fl-empty span:not(.fl-empty-ic) { max-width: 340px; line-height: 1.5; }
+.fl-empty .btn { margin-top: 8px; }
+.fl-empty-ic { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 4px; border-radius: 14px; background: var(--sunk); color: var(--muted); }
+.fl-empty-ic.ok { color: var(--good-text); background: var(--good-soft); }
+.fl-none .fl-empty { background-image: repeating-linear-gradient(to bottom, transparent 0 59px, var(--chart-grid) 59px 60px); background-position: 0 26px; }
+.fs-bar-empty { height: 28px; border-radius: 6px; background: var(--meter-track); }
+.fs-none .fs-row { opacity: 0.85; }
+.fs-none .fs-n b { color: var(--faint); }
+.fs-hint { margin-top: auto; padding-top: 12px; font-size: 12.5px; }
+.fs { display: flex; flex-direction: column; flex: 1; }
+/* icons in the chart's empty message keep their own size (".chart svg" fills the chart) */
+.chart .fl-empty svg { width: auto; height: auto; }
+/* the chart header stays one row: the title side gives way (its subtitle trims) rather than pushing the switcher down */
+.chart-card > .card-head { flex-wrap: nowrap; }
+.chart-card > .card-head > div:first-child { min-width: 0; }
+.chart-card > .card-head > div:first-child .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-ctl { flex: none; flex-wrap: nowrap; }
+@container ov (max-width: 860px) { .chart-card > .card-head { flex-wrap: wrap; } }
+/* Inbox list: drawn a page at a time; the note at the end says more are coming as you scroll. */
+.ib-more { padding: 14px 16px 18px; text-align: center; font-size: 12px; color: var(--faint); }

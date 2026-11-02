@@ -1667,12 +1667,18 @@ function recipientNames() {
   return names;
 }
 
-function conversationInfo(key, msgs, names) {
+// msgs: this chat's messages, oldest first. ctx (from the list): lookups built once for every chat, so building the list
+// stays one pass over the messages however many chats there are.
+function conversationInfo(key, msgs, names, ctx = null) {
   const { senderId, wa } = splitKey(key);
   const chat = db.chats[key] || {};
-  const sender = db.senders.find((s) => s.id === senderId);
-  const lastIn = msgs.filter((m) => m.dir === 'in').at(-1);
-  const last = msgs.filter((m) => m.type !== 'reaction').at(-1) || msgs.at(-1);
+  const sender = ctx ? ctx.senders.get(senderId) : db.senders.find((s) => s.id === senderId);
+  let lastIn = null, last = null, unread = 0;
+  for (const m of msgs) {
+    if (m.dir === 'in') { lastIn = m; if (!chat.lastReadAt || m.ts > chat.lastReadAt) unread++; }
+    if (m.type !== 'reaction') last = m;
+  }
+  last ||= msgs.at(-1);
   return {
     key,
     senderId,
@@ -1681,16 +1687,16 @@ function conversationInfo(key, msgs, names) {
     name: chat.name || names.get(wa) || '',
     last: last && { dir: last.dir, type: last.type, text: last.text || last.templateName || '', status: last.status, ts: last.ts, reaction: last.reaction },
     lastAt: last?.ts || null,
-    unread: msgs.filter((m) => m.dir === 'in' && (!chat.lastReadAt || m.ts > chat.lastReadAt)).length,
+    unread,
     windowEndsAt: lastIn ? new Date(new Date(lastIn.ts).getTime() + WINDOW_MS).toISOString() : null,
-    ...conversationExtras(key, wa),
+    ...conversationExtras(key, wa, lastIn, ctx),
   };
 }
 
 // Lead assistant and contact details shown on each conversation.
-function conversationExtras(key, wa) {
-  const ai = leadApi.stateFor(key);
-  const c = contactsApi.byPhone(wa);
+function conversationExtras(key, wa, lastIn, ctx) {
+  const ai = leadApi.stateFor(key, lastIn ?? null);
+  const c = ctx ? ctx.contacts.get(wa) : contactsApi.byPhone(wa);
   return {
     ai: { on: ai.on, busy: ai.busy, hasDraft: Boolean(ai.draft), handover: Boolean(ai.handover) },
     contact: c ? { id: c.id, status: c.status, optOut: c.optOut, tags: c.tags } : null,
@@ -1720,10 +1726,23 @@ app.get('/api/inbox', (req, res) => {
     for (const r of c.recipients) if (r.sentAt || r.failedAt) addTpl(chatKey(r.senderId, r.phone), c.templateName);
   }
   for (const m of inboxMessages()) if (m.type === 'template') addTpl(m.key, m.templateName);
-  const conversations = [...byKey].map(([key, msgs]) => ({ ...conversationInfo(key, msgs.sort((a, b) => a.ts.localeCompare(b.ts)), names), templates: [...(tpls.get(key) || [])] }));
+  const ctx = { senders: new Map(db.senders.map((s) => [s.id, s])), contacts: new Map(db.contacts.map((c) => [c.phone, c])) };
+  const conversations = [...byKey].map(([key, msgs]) => ({ ...conversationInfo(key, sorted(msgs), names, ctx), templates: [...(tpls.get(key) || [])] }));
   conversations.sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
-  res.json({ conversations, unread: conversations.reduce((n, c) => n + c.unread, 0) });
+  sendJson(req, res, { conversations, unread: conversations.reduce((n, c) => n + c.unread, 0) });
 });
+// Messages are stored in the order they arrive, so they're nearly always sorted already: only sort when they aren't.
+function sorted(msgs) {
+  for (let i = 1; i < msgs.length; i++) if (msgs[i - 1].ts > msgs[i].ts) return msgs.sort((a, b) => a.ts.localeCompare(b.ts));
+  return msgs;
+}
+// A big JSON reply, gzipped when the browser accepts it (the Inbox list is mostly repeated keys: ~10x smaller).
+function sendJson(req, res, body) {
+  const text = JSON.stringify(body);
+  if (text.length < 20000 || !/\bgzip\b/.test(req.headers['accept-encoding'] || '')) return res.type('json').send(text);
+  res.set({ 'Content-Encoding': 'gzip', 'Content-Type': 'application/json; charset=utf-8', Vary: 'Accept-Encoding' });
+  res.send(require('zlib').gzipSync(text, { level: 6 }));
+}
 
 app.get('/api/inbox/:key', wrap((req, res) => {
   const key = req.params.key;
@@ -1739,9 +1758,12 @@ app.get('/api/inbox/:key', wrap((req, res) => {
       sent.push({ id: r.messageId || c.id + wa, wamid: r.messageId, dir: 'out', type: 'template', templateId: c.templateId, templateName: c.templateName, values: r.values, campaign: c.name, ts: r.sentAt || r.failedAt, status: r.status, error: r.error, resentAt: r.resentAt, demo: Boolean(c.demo), seed: Boolean(c.seed) });
     }
   }
-  const messages = [...own, ...sent].sort((a, b) => a.ts.localeCompare(b.ts));
+  const all = [...own, ...sent].sort((a, b) => a.ts.localeCompare(b.ts));
+  // The latest `limit` messages (default 150); the chat asks for more when you scroll back to the top.
+  const limit = Math.max(20, Math.min(5000, Number(req.query.limit) || 150));
+  const messages = all.slice(-limit);
   const contact = contactsApi.byPhone(wa) || null;
-  res.json({ conversation: conversationInfo(key, own, recipientNames()), messages, ai: req.ai ? leadApi.stateFor(key) : null, contact, chatLead: leadApi.chatLead(key, contact), tags: db.tags });
+  sendJson(req, res, { conversation: conversationInfo(key, own, recipientNames()), messages, earlier: all.length - messages.length, ai: req.ai ? leadApi.stateFor(key) : null, contact, chatLead: leadApi.chatLead(key, contact), tags: db.tags });
 }));
 
 // Mark a conversation read here, and (live) send blue ticks to the person.
@@ -2055,7 +2077,7 @@ function computeStats(query = {}) {
     const d = new Date();
     d.setHours(12, 0, 0, 0);
     d.setDate(d.getDate() - i);
-    days.push({ date: dayKey(d), sent: 0, delivered: 0, read: 0, failed: 0 });
+    days.push({ date: dayKey(d), sent: 0, delivered: 0, read: 0, failed: 0, reasons: {} });
   }
   const byDay = Object.fromEntries(days.map((d) => [d.date, d]));
   const startKey = days[0].date;
@@ -2075,7 +2097,12 @@ function computeStats(query = {}) {
     if (ok) bucket.sent++;
     if (r.status === 'delivered' || r.status === 'read') bucket.delivered++;
     if (r.status === 'read') bucket.read++;
-    if (r.status === 'failed') bucket.failed++;
+    if (r.status === 'failed') {
+      bucket.failed++;
+      // by reason (Meta's error code, or the message when there is none), for the Overview's Failed chart
+      const why = String(r.error || '').match(/^(\d{2,6}):/)?.[1] || (/not on whatsapp/i.test(r.error || '') ? '131026' : 'other');
+      if (bucket.reasons) bucket.reasons[why] = (bucket.reasons[why] || 0) + 1;
+    }
   };
 
   for (const c of camps) {

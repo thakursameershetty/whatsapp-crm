@@ -144,22 +144,23 @@
               <h2 id="chartTitle" data-icon="chart-column-increasing">Messages sent</h2>
               <p class="sub" id="chartSub">Per day, last 14 days</p>
             </div>
-            <div class="row tight">
+            <div class="chart-ctl">
+              <div class="seg seg-metric" id="metricSeg">
+                <button data-metric="sent" class="active">Sent</button>
+                <button data-metric="deliveryRate">Delivery rate</button>
+                <button data-metric="readRate">Read rate</button>
+                <button data-metric="failed">Failed</button>
+              </div>
               <button class="btn quiet sm" id="chartTableBtn">Table</button>
-              <button class="btn sm" id="chartExpandBtn" data-icon="maximize-2" data-icon-size="14">Expand</button>
+              <button class="btn sm icon-only" id="chartExpandBtn" data-icon="maximize-2" data-icon-size="14" title="Expand" aria-label="Expand"></button>
             </div>
           </div>
-          <div class="seg seg-metric" id="metricSeg">
-            <button data-metric="sent" class="active">Sent</button>
-            <button data-metric="deliveryRate">Delivery rate</button>
-            <button data-metric="readRate">Read rate</button>
-            <button data-metric="failed">Failed</button>
-          </div>
           <div id="dayChart" class="chart" data-skel="chart"></div>
+          <div id="dayLegend" class="fl-legend hidden"></div>
           <div id="dayTable" class="table-wrap chart-table hidden"></div>
         </div>
         <div class="card la-host funnel-card">
-          <h2 data-icon="users">Delivery funnel</h2>
+          <h2 data-icon="check-check">Where they ended up</h2>
           <p class="sub" id="funnelSub" style="margin:-10px 0 18px">How far your messages got</p>
           <div id="funnel" data-skel="bars:4"></div>
         </div>
@@ -864,7 +865,7 @@
           <button data-metric="failed">Failed</button>
         </div>
       </div>
-      <div id="xChart" class="chart chart-lg"></div>
+      <div id="xChart" class="chart chart-lg"></div><div id="xLegend" class="fl-legend hidden"></div>
       <div id="xTable" class="table-wrap chart-table"></div>
     </div>
   </div>

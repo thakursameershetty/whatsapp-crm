@@ -339,12 +339,12 @@
       CP.show = 'all';
       CP.sample = 0;
       el.innerHTML = `
-        <div class="cd-head" id="cdHead"></div>
+        <div class="cd-head sticky-head" id="cdHead"></div>
+        <div id="cdWhy"></div>
         <div class="cd-top">
           <div class="card cd-msg" id="cdMsg"></div>
-          <div class="card cd-funnel" id="cdFunnel"></div>
+          <div class="card cd-funnel" id="cdFunnel"><div id="cdFunnelBody"></div><div class="cd-chart-in" id="cdChart"></div></div>
         </div>
-        <div class="card cd-chart-card" id="cdChart"></div>
         <div class="card cd-fail hidden" id="cdFail"></div>
         <div class="card cd-recips">
           <div class="cd-recips-head"><h2>Recipients</h2><div class="seg" id="cdShow"></div></div>
@@ -408,13 +408,16 @@
     $('#cdHead').innerHTML = `
       <button class="btn ghost sm cd-back" data-cd="back">${icon('arrow-left', 15)}Campaigns</button>
       <div class="cd-title">
-        <div><h1>${esc(c.name)} <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${c.demo ? ' <span class="pill demo">demo</span>' : ''}</h1>
-          <p class="sub">Template <code>${esc(c.templateName)}</code> · ${nums.length ? esc(nums.join(', ')) : `${c.senderIds.length} number(s)`} · ${esc(when)}</p></div>
+        <div class="cd-name">${miniFolder(c)}<div><h1>${esc(c.name)} <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${c.demo ? ' <span class="pill demo">demo</span>' : ''}</h1>
+          <p class="sub">Template <code>${esc(c.templateName)}</code> · ${nums.length ? esc(nums.join(', ')) : `${c.senderIds.length} number(s)`} · ${esc(when)}</p></div></div>
         <div class="cd-actions">${primary}
           <button class="btn" data-cd="follow" ${sentOf(s) || s.failed ? '' : 'disabled'}>Follow up ${icon('chevron-down', 14)}</button>
           <button class="btn quiet cd-more" data-cd="more" aria-label="More actions">⋯</button></div>
-      </div>${why}`;
+      </div>`;
+    // Why it stopped sits under the pinned header, not in it, so the header stays one height.
+    $('#cdWhy').innerHTML = why;
     LA.hydrate($('#cdHead'));
+    window.setupSticky?.();
   }
   function duration(a, b) {
     const s = Math.max(0, (new Date(b) - new Date(a)) / 1000);
@@ -435,42 +438,207 @@
     requestAnimationFrame(() => $('#cdMsg .cd-msg-more')?.classList.toggle('hidden', !CP.msgOpen && ph.scrollHeight <= ph.clientHeight + 2));
   }
 
-  // Sent → delivered → read → replied → leads, under the campaign's total. Each row has the mark people know from
-  // WhatsApp: one grey tick (sent), two grey ticks (delivered), two blue ticks (read), the reply arrow, the contacts icon.
-  // Each bar is a share of what was sent.
-  const TICK1 = '<svg class="cd-tick" viewBox="0 0 16 11" width="18" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 5.8 4.2 9 11 1.8"/></svg>';
-  const TICK2 = '<svg class="cd-tick" viewBox="0 0 16 11" width="18" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8"/></svg>';
-  function renderFunnel(c) {
-    const s = c.stats || {};
-    const total = c.recipients?.length ?? c.total ?? 0;
-    const sent = sentOf(s), del = deliveredOf(s), read = s.read || 0;
-    const steps = [
-      ['Sent', sent, null, TICK1, 'sent'],
-      ['Delivered', del, sent, TICK2, 'delivered'],
-      ['Read', read, del, TICK2, 'read'],
-      ['Replied', c.replies || 0, read || del, icon('reply', 15), 'replied'],
-      ['Leads', c.leads || 0, c.replies || 0, icon('users', 15), 'leads'],
-    ];
-    $('#cdFunnel').innerHTML = `
-      <div class="cd-label cd-label-row"><span>Results</span><span class="cd-total"><b>${total.toLocaleString()}</b> ${total === 1 ? 'message' : 'messages'} in this campaign</span></div>
-      <div class="cd-steps">${steps.map(([label, n, of, mark, cls], i) => `
-        <div class="cd-step s${i}">
-          <div class="cd-step-top"><span class="cd-step-name"><i class="cd-mark ${cls}">${mark}</i>${label}</span><b>${n.toLocaleString()}</b>${of != null ? `<em>${of ? pctOf(n, of) + '%' : '—'}</em>` : total && n !== total ? `<em>of ${total.toLocaleString()}</em>` : ''}</div>
-          <div class="cd-step-bar"><i style="width:${sent ? Math.max(n ? 1.5 : 0, (100 * n) / sent) : 0}%"></i></div>
-        </div>`).join('')}</div>
-      <p class="sub cd-foot">${[
-        s.pending ? `${s.pending.toLocaleString()} still to send` : '',
-        s.failed ? `<span class="bad-text">${s.failed.toLocaleString()} failed</span>` : '',
-        c.skipped?.length ? `${c.skipped.length.toLocaleString()} skipped before sending (invalid, duplicate or opted out)` : '',
-        'percentages are of the step before',
-      ].filter(Boolean).join(' · ')}</p>`;
+  // ── Results: where every message ended up ─────────────────────────────────────────────────
+  // Every message is counted once, at the furthest it got: a lead, else replied, else read, delivered, sent, failed or
+  // still to send. So the bar is a true split (its pieces add up to the campaign), not steps inside steps, which is
+  // what made "sent 230, delivered 218, read 139" hard to read. Expand shows the same split as a field of dots, one per
+  // message, with every piece explained.
+  // Built like the app's other charts: D3 joins and its easing (750ms, cubic out), the app's chart colours (strengths
+  // of ink for how far a message got, the app's good/info/danger for leads, replies and failures), the WhatsApp marks
+  // people know, and the shared chart tooltip (#chartTip, showTip/hideTip) with the same hover rule: what's under the
+  // pointer lights, the rest fades, and moving off clears it at once.
+  const TICK = (two, cls = '') => '<svg class="cd-tick ' + cls + '" viewBox="0 0 16 11" width="16" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + (two ? 'M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8' : 'M1 5.8 4.2 9 11 1.8') + '"/></svg>';
+  const KINDS = [
+    { id: 'lead', name: 'Leads', mark: () => icon('users', 14), what: 'Replied, and are now a qualified lead or a won deal.', todo: 'Follow up from the Inbox while it’s warm.' },
+    { id: 'replied', name: 'Replied', mark: () => icon('reply', 14), what: 'Wrote back to this message.', todo: 'Answer them in the Inbox. The lead assistant can draft it.' },
+    { id: 'read', name: 'Read', mark: () => TICK(true, 'blue'), what: 'Opened it (blue ticks), and haven’t replied yet.', todo: 'Nothing urgent. A follow-up in a few days can nudge them.' },
+    { id: 'delivered', name: 'Delivered', mark: () => TICK(true), what: 'On their phone (two grey ticks), not opened yet. People who turned off read receipts stay here even after reading.', todo: 'Give it time. Follow up → “Send again to people who didn’t read” if it stays here.' },
+    { id: 'sent', name: 'Sent', mark: () => TICK(false), what: 'Accepted by WhatsApp (one grey tick), but not on their phone yet: it’s off or offline. WhatsApp keeps trying for up to 30 days.', todo: 'Wait: most arrive once the phone is back online.' },
+    { id: 'failed', name: 'Failed', mark: () => '<span class="cd-x">!</span>', what: 'Didn’t reach them. Each one has a reason from Meta.', todo: 'See “Why it failed” below, and retry the ones that can go through.' },
+    { id: 'pending', name: 'Still to send', mark: () => icon('clock', 14), what: 'Waiting in the queue to go out.', todo: 'They go out at the campaign’s safe pace.' },
+  ];
+  const KIND = Object.fromEntries(KINDS.map((k) => [k.id, k]));
+  const kindOf = (r) => {
+    if (r.status === 'failed') return 'failed';
+    if (r.status === 'pending' || r.status === 'queued' || !r.status) return 'pending';
+    if (r.replied) return ['qualified', 'won'].includes(r.contactStatus) ? 'lead' : 'replied';
+    return { read: 'read', delivered: 'delivered' }[r.status] || 'sent';
+  };
+  const split = (c) => {
+    const n = Object.fromEntries(KINDS.map((k) => [k.id, 0]));
+    for (const r of c.recipients || []) n[kindOf(r)]++;
+    return n;
+  };
+  const num = (v) => Number(v || 0).toLocaleString();
+  const DUR = () => (Motion.reduce() ? 0 : 750);
+
+  // The big number, as an odometer: a digit that changes rises (or drops, when the number shrinks) out of a slight blur,
+  // left to right 70ms apart; a digit that didn't change stays still. Places count from the right, so a new leading
+  // digit doesn't shift the rest.
+  function roll(el, value) {
+    const text = num(value), old = el.dataset.v ?? '', up = Number(value) >= Number(el.dataset.n ?? value);
+    if (text === old) return;
+    el.dataset.v = text;
+    el.dataset.n = value;
+    const prev = [...old];
+    el.innerHTML = [...text].map((ch, i, all) => {
+      const was = prev[prev.length - (all.length - i)];
+      const moved = old !== '' && /\d/.test(ch) && was !== ch;
+      return '<span class="cx-d' + (moved ? (up ? ' up' : ' down') : '') + '" style="animation-delay:' + i * 70 + 'ms">' + ch + '</span>';
+    }).join('');
+    el.setAttribute('aria-label', text);
   }
+
+  // Light one kind (or none, to clear) in a results card or the Expand window.
+  function light(scope, id, c) {
+    const n = split(c), total = (c.recipients || []).length;
+    if (scope.dataset.hot === (id || '') && scope.dataset.lit) return;
+    scope.dataset.hot = id || '';
+    scope.dataset.lit = '1';
+    scope.classList.toggle('hovering', Boolean(id));
+    scope.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x.dataset.kind === id));
+    const big = scope.querySelector('.cx-num'), of = scope.querySelector('.cx-of');
+    if (big) roll(big, id ? n[id] : total);
+    if (of) of.innerHTML = id ? '<span class="cx-of-k">' + KIND[id].mark() + esc(KIND[id].name) + '</span> · ' + pctOf(n[id], total) + '% of ' + num(total) : (total === 1 ? 'message in this campaign' : 'messages in this campaign');
+  }
+  // The shared chart tooltip, in its usual layout: a title, rows, a note.
+  function tipFor(id, c) {
+    const n = split(c), total = (c.recipients || []).length, k = KIND[id];
+    return '<div class="tt-title">' + esc(c.name) + '</div>' +
+      '<div class="tt-row cur"><span><i class="cx-sw" data-sw="' + id + '"></i><span class="cx-mk">' + k.mark() + '</span>' + esc(k.name) + '</span><b>' + num(n[id]) + ' · ' + pctOf(n[id], total) + '%</b></div>' +
+      '<div class="tt-note">' + esc(k.what) + '</div>';
+  }
+
+  // The legend: each piece with its mark, name and count, so the numbers read without pointing at anything.
+  const chipsHtml = (n) => '<div class="cx-chips">' + KINDS.filter((k) => n[k.id]).map((k) => '<button type="button" class="cx-chip" data-kind="' + k.id + '"><i class="cx-sw" data-sw="' + k.id + '"></i><span class="cx-mk">' + k.mark() + '</span>' + esc(k.name) + '<span class="cx-chip-n">(' + num(n[k.id]) + ')</span></button>').join('') + '</div>';
+
+  // The bar, as a D3 join: a piece per outcome, its width easing to its share (and from its old share on a refresh).
+  // One rounded shape cut into pieces: round at its two ends, nearly square where two pieces meet.
+  function drawBar(el, c) {
+    const n = split(c);
+    const data = KINDS.filter((k) => n[k.id]).map((k) => ({ id: k.id, v: n[k.id] }));
+    const r = (i) => { const a = i === 0 ? 6 : 2, z = i === data.length - 1 ? 6 : 2; return a + 'px ' + z + 'px ' + z + 'px ' + a + 'px'; };
+    const segs = d3.select(el).selectAll('i.cx-seg').data(data, (d) => d.id)
+      .join((enter) => enter.append('i').attr('class', 'cx-seg').style('flex-grow', 0))
+      .attr('data-kind', (d) => d.id).attr('data-sw', (d) => d.id)
+      .attr('tabindex', 0).attr('aria-label', (d) => KIND[d.id].name + ': ' + num(d.v))
+      .style('border-radius', (d, i) => r(i));
+    segs.order();
+    const d = DUR();
+    (d ? segs.transition().duration(d).ease(d3.easeCubicOut) : segs).style('flex-grow', (x) => x.v);
+  }
+
+  function renderFunnel(c) {
+    const n = split(c), total = (c.recipients || []).length;
+    const body = $('#cdFunnelBody');
+    let cx = body.querySelector('.cx');
+    if (!cx || cx.dataset.cid !== c.id) {
+      body.innerHTML = '<div class="cx" data-cid="' + esc(c.id) + '">' +
+        '<div class="cx-head"><span class="cd-label">Results</span><button type="button" class="btn sm quiet" data-cx-expand>Expand</button></div>' +
+        '<div class="cx-figure"><span class="cx-num"></span><span class="cx-of"></span></div>' +
+        '<div class="cx-bar"></div><div class="cx-chipwrap"></div><div class="cx-foot"></div></div>';
+      cx = body.querySelector('.cx');
+      wireCx(cx);
+    }
+    cx.__c = c;
+    cx.querySelector('[data-cx-expand]').classList.toggle('hidden', !total);
+    if (total) drawBar(cx.querySelector('.cx-bar'), c); else cx.querySelector('.cx-bar').innerHTML = '';
+    cx.querySelector('.cx-chipwrap').innerHTML = total ? chipsHtml(n) : '<p class="sub">Nothing sent yet.</p>';
+    cx.querySelector('.cx-foot').innerHTML = c.skipped?.length ? '<p class="sub cd-foot">' + num(c.skipped.length) + ' skipped before sending (invalid, duplicate or opted out)</p>' : '';
+    const hot = cx.dataset.hot && n[cx.dataset.hot] ? cx.dataset.hot : null;
+    delete cx.dataset.lit;
+    light(cx, hot, c);
+  }
+
+  // Expand: the same split as a field of dots, one per message (or one per few, in a big campaign), filled down each
+  // column then across, with every piece explained beneath.
+  function expandResults(c) {
+    hideTip();
+    const n = split(c), total = (c.recipients || []).length;
+    const per = Math.max(1, Math.ceil(total / 600));
+    const dots = [];
+    for (const k of KINDS) { const d = n[k.id] ? Math.max(1, Math.round(n[k.id] / per)) : 0; for (let i = 0; i < d; i++) dots.push({ i: dots.length, id: k.id }); }
+    // The field fills the window's width: about 2.6 columns per row (a wide field reads better than a tall one), and
+    // dots as big as fit across 600px, between 8 and 22px. Up to ~600 dots: past that, one dot is several messages.
+    const cols = Math.max(10, Math.min(48, Math.round(Math.sqrt(dots.length * 2.6))));
+    const rows = Math.ceil(dots.length / cols);
+    const size = Math.max(8, Math.min(22, Math.floor((600 - 3 * (cols - 1)) / cols)));
+    const rowsHtml = KINDS.filter((k) => n[k.id]).map((k) => '<div class="cx-row" data-kind="' + k.id + '"><i class="cx-sw" data-sw="' + k.id + '"></i><div class="cx-row-t"><b><span class="cx-mk">' + k.mark() + '</span>' + esc(k.name) + '</b><p>' + esc(k.what) + '</p><p class="cx-todo">' + esc(k.todo) + '</p></div><div class="cx-row-n"><b>' + num(n[k.id]) + '</b><span>' + pctOf(n[k.id], total) + '%</span></div></div>').join('');
+    const body = openModal('Where every message ended up', '<div class="cx cx-big">' +
+      '<div class="cx-figure"><span class="cx-num"></span><span class="cx-of"></span></div>' +
+      '<div class="cx-field" style="grid-template-rows:repeat(' + rows + ',' + size + 'px);grid-template-columns:repeat(' + cols + ',' + size + 'px)"></div>' +
+      chipsHtml(n) +
+      '<p class="sub cx-note">Each message is counted once, at the furthest it got' + (per > 1 ? '. One dot is about ' + per + ' messages' : '') + '. Point at a dot, a chip or a row to see it.</p>' +
+      '<div class="cx-rows">' + rowsHtml + '</div></div>');
+    $('#modal .modal-box').classList.add('cx-box');
+    const cx = body.querySelector('.cx');
+    const field = cx.querySelector('.cx-field');
+    field.__grid = { size, gap: 3, rows, cols, dots };
+    // The dots, as a D3 join: they come in with a short ripple from the first. Once in, the inline styles are dropped,
+    // so fading the ones you aren't pointing at (CSS) can take over.
+    const sel = d3.select(field).selectAll('i').data(dots).join('i')
+      .attr('class', 'cx-dot').attr('data-kind', (d) => d.id).attr('data-sw', (d) => d.id);
+    if (DUR()) sel.style('opacity', 0).style('scale', 0.4).transition().duration(340).delay((d) => Math.min(600, d.i * 2)).ease(d3.easeCubicOut).style('opacity', 1).style('scale', 1)
+      .on('end interrupt', function () { this.style.removeProperty('opacity'); this.style.removeProperty('scale'); });
+    cx.__c = c;
+    wireCx(cx);
+    light(cx, null, c);
+  }
+
+  // Which piece the pointer is over, by position rather than by element: anywhere over the dot field is its nearest dot,
+  // anywhere over the bar is the piece under that point (the 3px gaps belong to their neighbours). So moving across an
+  // area stays on it, without hunting for the exact square or flickering off in a gap.
+  function kindAtPoint(e, scope) {
+    const field = e.target.closest?.('.cx-field');
+    if (field && scope.contains(field) && field.__grid) {
+      const { size, gap, rows, cols, dots } = field.__grid, r = field.getBoundingClientRect(), step = size + gap;
+      const col = Math.max(0, Math.min(cols - 1, Math.floor((e.clientX - r.left + field.scrollLeft + gap / 2) / step)));
+      const row = Math.max(0, Math.min(rows - 1, Math.floor((e.clientY - r.top + gap / 2) / step)));
+      return dots[Math.min(dots.length - 1, col * rows + row)].id;
+    }
+    const bar = e.target.closest?.('.cx-bar');
+    if (bar && scope.contains(bar)) {
+      let best = null, dist = Infinity;
+      for (const seg of bar.children) {
+        const s = seg.getBoundingClientRect(), d = e.clientX < s.left ? s.left - e.clientX : e.clientX > s.right ? e.clientX - s.right : 0;
+        if (d < dist) { dist = d; best = seg.dataset.kind; }
+      }
+      return best;
+    }
+    return null;
+  }
+
+  // The hover rule the app's charts use: under the pointer lights (and shows the tooltip), anything else clears.
+  function wireCx(scope) {
+    const kindAt = (t) => t.closest?.('[data-kind]');
+    const clear = () => { light(scope, null, scope.__c); hideTip(); };
+    scope.addEventListener('pointermove', (e) => {
+      // The field and the bar: by position, with the tooltip.
+      const k = kindAtPoint(e, scope);
+      if (k) { light(scope, k, scope.__c); return showTip(tipFor(k, scope.__c), e.clientX, e.clientY); }
+      // Chips and explanation rows: by element, no tooltip (they say it already).
+      const t = kindAt(e.target);
+      if (!t || !scope.contains(t)) return clear();
+      light(scope, t.dataset.kind, scope.__c);
+      hideTip();
+    });
+    scope.addEventListener('pointerleave', clear);
+    scope.addEventListener('focusin', (e) => {
+      const t = kindAt(e.target);
+      if (!t) return;
+      light(scope, t.dataset.kind, scope.__c);
+      if (t.matches('.cx-seg')) { const r = t.getBoundingClientRect(); showTip(tipFor(t.dataset.kind, scope.__c), r.left + r.width / 2, r.top); }
+    });
+    scope.addEventListener('focusout', clear);
+  }
+  document.addEventListener('click', (e) => { if (e.target.closest('[data-cx-expand]') && CP.c) expandResults(CP.c); });
 
   // Deliveries over time: how many had been sent, delivered and read by each moment. The three
   // lines nest (read ≤ delivered ≤ sent), so they're drawn as layered areas, labelled at the end.
   function renderChart(c) {
     const el = $('#cdChart');
-    const rs = c.recipients.filter((r) => r.sentAt);
+    // Messages that failed (even after being sent) are left out, so the chart ends on the same numbers as the tiles above.
+    const rs = c.recipients.filter((r) => r.sentAt && r.status !== 'failed');
     if (!rs.length) { el.innerHTML = `<div class="cd-label">Over time</div><p class="sub">${c.status === 'scheduled' ? 'Shows up once it starts sending.' : 'Nothing sent yet.'}</p>`; return; }
     const times = (k) => rs.map((r) => r[k] && new Date(r[k]).getTime()).filter(Boolean).sort((a, b) => a - b);
     const series = [['Sent', times('sentAt'), 'var(--chart-3)'], ['Delivered', times('deliveredAt'), 'var(--chart-2)'], ['Read', times('readAt'), 'var(--chart)']];
@@ -481,7 +649,7 @@
     const counts = series.map(([, t]) => { const out = []; let k = 0; for (let i = 0; i <= N; i++) { while (k < t.length && t[k] <= at(i)) k++; out.push(k); } return out; });
     const max = Math.max(1, counts[0][N]);
     // Drawn at the card's real width (redrawn on resize), so text and lines keep their shape.
-    const W = Math.max(320, Math.round(el.clientWidth - 48)), H = 200, L = 40, R = 116, Tp = 12, B = 26;
+    const W = Math.max(320, Math.round(el.clientWidth)), H = 190, L = 40, R = 116, Tp = 12, B = 26;
     const x = (i) => L + ((W - L - R) * i) / N;
     const y = (v) => Tp + (H - Tp - B) * (1 - v / max);
     const area = (vals) => `M${x(0)},${y(0)} ${vals.map((v, i) => `L${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')} L${x(N)},${y(0)} Z`;
@@ -508,21 +676,18 @@
           <line class="cd-cross hidden" id="cdCross" y1="${Tp}" y2="${H - B}"/>
           <rect x="${L}" y="${Tp}" width="${W - L - R}" height="${H - Tp - B}" fill="transparent" id="cdHit"/>
         </svg>
-        <div class="cd-tip hidden" id="cdTip"></div>
       </div>`}`;
     if (CP.chartTable) return;
-    const hit = $('#cdHit'), tip = $('#cdTip'), cross = $('#cdCross'), plot = $('#cdPlot');
+    const hit = $('#cdHit'), cross = $('#cdCross'), plot = $('#cdPlot');
     hit.addEventListener('pointermove', (e) => {
       const box = plot.getBoundingClientRect();
       const px = e.clientX - box.left;
       const i = Math.max(0, Math.min(N, Math.round(((px - L) / (W - L - R)) * N)));
       cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.classList.remove('hidden');
-      tip.innerHTML = `<b>${esc(fmtT(at(i)))}</b>${series.map(([n, , col], k) => `<span><i style="background:${col}"></i>${n}<em>${counts[k][i].toLocaleString()}</em></span>`).join('')}`;
-      tip.classList.remove('hidden');
-      const left = x(i);
-      tip.style.left = Math.min(box.width - tip.offsetWidth - 4, Math.max(4, left + 12)) + 'px';
+      // The shared chart tooltip, as on the Overview: the time, then a row per line with its key.
+      showTip(`<div class="tt-title">${esc(fmtT(at(i)))}</div>${series.map(([n, , col], k) => `<div class="tt-row cur"><span><i class="key" style="background:${col}"></i>${n}</span><b>${counts[k][i].toLocaleString()}</b></div>`).join('')}`, e.clientX, e.clientY);
     });
-    hit.addEventListener('pointerleave', () => { tip.classList.add('hidden'); cross.classList.add('hidden'); });
+    hit.addEventListener('pointerleave', () => { hideTip(); cross.classList.add('hidden'); });
   }
 
   // Failures grouped by reason, in plain words, with Retry where trying again can work.
@@ -615,8 +780,18 @@
       sel: prev && !fresh ? prev.sel : undefined,
     };
     const counts = Object.fromEntries(Object.entries(SHOW).map(([k, [, f]]) => [k, c.recipients.filter(f).length]));
-    $('#cdShow').innerHTML = Object.entries(SHOW).map(([k, [label]]) => (k === 'all' || counts[k] || CP.show === k ? `<button data-show="${k}" class="${CP.show === k ? 'active' : ''}">${label} <span class="n">${counts[k].toLocaleString()}</span></button>` : '')).join('');
-    Motion.segs($('#cdShow'));
+    // The filter, with the mark each status has elsewhere (ticks, the reply arrow, a red !, a clock). Its buttons are
+    // redrawn only when what they show changes: a click just moves .active, so the pill slides there (a redraw would
+    // make the app's seg control snap it, as a new control).
+    const MARK = { read: () => TICK(true, 'blue'), delivered: () => TICK(true), sent: () => TICK(false), replied: () => icon('reply', 13), failed: () => '<span class="cd-x">!</span>', pending: () => icon('clock', 13) };
+    const show = $('#cdShow');
+    const opts = Object.keys(SHOW).filter((k) => k === 'all' || counts[k] || CP.show === k);
+    const sig = opts.map((k) => k + ':' + counts[k]).join('|');
+    if (show.dataset.sig !== sig) {
+      show.dataset.sig = sig;
+      show.innerHTML = opts.map((k) => `<button data-show="${k}" class="${CP.show === k ? 'active' : ''}">${MARK[k] ? `<span class="cd-show-mk">${MARK[k]()}</span>` : ''}${SHOW[k][0]} <span class="n">${counts[k].toLocaleString()}</span></button>`).join('');
+      Motion.segs(show);
+    } else show.querySelectorAll(':scope > button').forEach((b) => b.classList.toggle('active', b.dataset.show === CP.show));
     if (!grid.api) {
       grid.api = Sheet.create(grid.root, {
         sheet: () => grid.sheet,

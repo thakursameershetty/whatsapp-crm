@@ -250,9 +250,9 @@ Draft the next reply to the customer's latest message(s).`;
   }
 
   // What the Inbox shows for a conversation.
-  function stateFor(key) {
+  function stateFor(key, known) {
     const ai = db.chats[key]?.ai || {};
-    const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in').at(-1);
+    const lastIn = known !== undefined ? known : db.messages.filter((m) => m.key === key && m.dir === 'in').at(-1);
     return {
       on: Boolean(settings().enabled) && !ai.off,
       auto: Boolean(settings().autoReply) && !ai.off,

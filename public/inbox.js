@@ -133,13 +133,18 @@
 
   // ---------- Conversation list ----------
 
+  // The list, from the server. A reply that's the same as what's on screen (most live updates touch one chat) is
+  // left alone: no redraw at all.
   async function loadList() {
     const res = await api('/inbox');
+    const sig = res.conversations.map((c) => c.key + c.lastAt + c.unread + (c.last?.status || '') + (c.ai?.busy ? 1 : 0) + (c.ai?.hasDraft ? 1 : 0) + (c.ai?.handover ? 1 : 0) + (c.name || '')).join('|');
+    const same = ib.loaded && sig === ib.sig;
+    ib.sig = sig;
     ib.convs = res.conversations;
     ib.unread = res.unread;
     ib.loaded = true;
     renderBadge();
-    if (visible()) renderList();
+    if (visible() && !same) renderList();
   }
 
   function renderBadge() {
@@ -150,6 +155,8 @@
   }
 
   function filtered() {
+    const fk = ib.q + '|' + ib.filter + '|' + ib.sender + '|' + ib.template;
+    if (fk !== ib.fk) { ib.fk = fk; ib.limit = PAGE; }
     const q = ib.q.toLowerCase();
     const now = Date.now();
     return ib.convs.filter((c) => {
@@ -162,7 +169,18 @@
     });
   }
 
+  // Rows a page at a time: a big inbox draws its first PAGE chats, and more as you scroll near the end.
+  const PAGE = 60;
+  ib.limit = PAGE;
   function renderList() {
+    renderFilters();
+    renderRows();
+  }
+  function renderFilters() {
+    // Rebuilt only when the numbers or the templates on offer change (they rarely do).
+    const fsig = state.senders.map((x) => x.id + x.label + (x.photoUrl || '')).join() + '|' + [...new Set(ib.convs.map((c) => c.senderId))].join() + '|' + [...new Set(ib.convs.flatMap((c) => c.templates || []))].join() + '|' + ib.convs.length + '|' + ib.sender + ib.template;
+    if (fsig === ib.fsig) return;
+    ib.fsig = fsig;
     // Number filter only matters with more than one number in play.
     // Every number in the workspace (not only ones with chats yet), each with how many chats it has.
     const senders = [...new Map([...state.senders.map((x) => [x.id, x.label]), ...ib.convs.map((c) => [c.senderId, c.senderLabel])])];
@@ -191,9 +209,15 @@
       : [...new Set(tplNames.map((n) => catLabel(tplOf(n)?.category)))].sort((a, b) => (a === 'Other') - (b === 'Other') || a.localeCompare(b)).map((cat) => [cat, tplNames.filter((n) => catLabel(tplOf(n)?.category) === cat)]);
     tsel.innerHTML = `<option value="">All templates</option>` + sections.filter(([, ns]) => ns.length).map(([label, ns]) => `<optgroup label="${esc(label)}">${ns.map(tplOpt).join('')}</optgroup>`).join('');
     tsel.value = ib.template;
-    const multi = senders.length > 1;
-
-    const list = filtered();
+  }
+  function renderRows() {
+    const multi = new Set([...state.senders.map((x) => x.id), ...ib.convs.map((c) => c.senderId)]).size > 1;
+    const all = filtered();
+    // the open chat stays drawn even when it's further down than the page
+    const at = all.findIndex((c) => c.key === ib.key);
+    if (at >= ib.limit) ib.limit = Math.ceil((at + 1) / PAGE) * PAGE;
+    const list = all.slice(0, ib.limit);
+    ib.more = all.length > list.length;
     const box = $('#ibConvItems');
     // Where each row was, so rows that move (a new message lifts a chat to the top) can glide there.
     const before = new Map($$('.ib-conv', box).map((el) => [el.dataset.key, el.getBoundingClientRect().top]));
@@ -219,12 +243,19 @@
             </span>
           </button>`;
         })
-        .join('');
+        .join('') + (ib.more ? `<div class="ib-more" aria-hidden="true">${(all.length - list.length).toLocaleString()} more chats below</div>` : '');
     }
     animateList(before);
     placeHighlight();
     if (!ib.key) renderChat();
   }
+  // Near the end of the drawn rows: draw the next page.
+  $('#ibConvs').addEventListener('scroll', (e) => {
+    const el = e.currentTarget;
+    if (!ib.more || el.scrollHeight - el.scrollTop - el.clientHeight > 400) return;
+    ib.limit += PAGE;
+    renderRows();
+  }, { passive: true });
 
   // Rows that moved glide from their old spot; new rows fade in. After a filter or search,
   // the results cascade in instead.
@@ -297,7 +328,8 @@
     // The old conversation slides out as this one slides in; the list highlight glides across.
     await Motion.morph(() => {
       $('#inbox').classList.add('has-chat');
-      renderList();
+      $$('#ibConvItems .ib-conv').forEach((r) => r.classList.toggle('active', r.dataset.key === key));
+      placeHighlight();
       renderChat();
     }, 'ib');
     await loadThread(true);
@@ -319,7 +351,9 @@
   async function loadThread(toBottom = false) {
     const key = ib.key;
     if (!key) return;
-    const t = await api('/inbox/' + enc(key));
+    // the latest messages; more when you've scrolled back to the top (ib.span grows per chat)
+    const span = ib.spans?.[key] || 150;
+    const t = await api('/inbox/' + enc(key) + '?limit=' + span);
     if (key !== ib.key) return; // switched while loading
     // Keep messages still being sent (not on the server yet).
     const pending = (ib.thread?.messages || []).filter((m) => m.status === 'pending' || m.local);
@@ -328,13 +362,25 @@
     renderChat(toBottom);
   }
 
+  async function loadEarlier(box) {
+    const key = ib.key;
+    ib.loadingEarlier = true;
+    (ib.spans ||= {})[key] = (ib.spans[key] || 150) + 150;
+    const fromBottom = box.scrollHeight - box.scrollTop;
+    try {
+      await loadThread(false);
+      if (ib.key === key) box.scrollTop = box.scrollHeight - fromBottom; // stay on the same message
+    } finally { ib.loadingEarlier = false; }
+  }
+
   function markRead() {
     const c = ib.convs.find((x) => x.key === ib.key);
     if (!c || !c.unread || document.hidden || !visible()) return;
     ib.unread -= c.unread;
     c.unread = 0;
     renderBadge();
-    renderList();
+    const row = $(`#ibConvItems .ib-conv[data-key="${CSS.escape(c.key)}"]`);
+    if (row) { row.classList.remove('unread'); row.querySelector('.ib-count')?.remove(); }
     api(`/inbox/${enc(c.key)}/read`, { method: 'POST' }).catch(() => {});
   }
 
@@ -417,6 +463,8 @@
       if (ib.stick) toLatest();
     };
     msgs.addEventListener('scroll', () => {
+      // at the top of a long chat: fetch the next older batch, keeping your place
+      if (msgs.scrollTop < 80 && ib.thread?.earlier > 0 && !ib.loadingEarlier) loadEarlier(msgs);
       ib.stick = gap() < 48;
       jump.classList.toggle('hidden', gap() < 160);
     }, { passive: true });
@@ -1392,6 +1440,8 @@
     async show() {
       scrollTo(0, 0);
       fit();
+      // what was loaded last time shows at once (no skeleton, no jump); the fresh list replaces it only if it differs
+      ib.fsig = null;
       renderList();
       renderChat(true);
       await loadList().catch((e) => toast(e.message, 'error'));

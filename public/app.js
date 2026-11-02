@@ -1503,6 +1503,8 @@ function setupSticky() {
     if (/^tab-(inbox|assistant|send)$/.test(tab.id)) continue; // own layouts
     const head = [...tab.querySelectorAll('.section-head')].find((h) => !h.closest('.hidden, #campaignDetail, .modal'));
     if (head && !head.classList.contains('sticky-head')) { head.classList.add('sticky-head'); stickyRO.observe(head); }
+    const cd = tab.querySelector('#cdHead.sticky-head'); // an open campaign's own header (campaigns.js)
+    if (cd && !cd.__sticky) { cd.__sticky = true; stickyRO.observe(cd); }
     tab.querySelectorAll(STICKY_BARS).forEach((b) => { if (!b.classList.contains('sticky-bar')) { b.classList.add('sticky-bar'); stickyRO.observe(b); } });
   }
   markStuck();
@@ -1511,7 +1513,7 @@ function setupSticky() {
 function markStuck() {
   const tab = $(`#tab-${state.tab}`);
   if (!tab) return;
-  const head = tab.querySelector('.sticky-head'), bar = [...tab.querySelectorAll('.sticky-bar')].find((b) => b.offsetParent);
+  const head = [...tab.querySelectorAll('.sticky-head')].find((h) => h.offsetParent), bar = [...tab.querySelectorAll('.sticky-bar')].find((b) => b.offsetParent);
   const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stick-top')) || 0;
   const barStuck = bar && bar.getBoundingClientRect().top <= top + (head?.offsetHeight || 0) + 1 && scrollY > 0;
   head?.classList.toggle('stuck', scrollY > 2 && !bar); // with a toolbar, only the toolbar draws the edge line
@@ -2112,8 +2114,8 @@ function makeBuckets(days, range) {
   const out = [];
   for (let end = days.length; end > 0; end -= 7) {
     const chunk = days.slice(Math.max(0, end - 7), end);
-    const b = { key: chunk[0].date, sent: 0, delivered: 0, read: 0, failed: 0 };
-    chunk.forEach((d) => { b.sent += d.sent; b.delivered += d.delivered; b.read += d.read; b.failed += d.failed; });
+    const b = { key: chunk[0].date, sent: 0, delivered: 0, read: 0, failed: 0, reasons: {} };
+    chunk.forEach((d) => { b.sent += d.sent; b.delivered += d.delivered; b.read += d.read; b.failed += d.failed; for (const [k, n] of Object.entries(d.reasons || {})) b.reasons[k] = (b.reasons[k] || 0) + n; });
     b.label = end === days.length ? 'This week' : dayLabel(chunk[0].date);
     b.long = `${dayLabel(chunk[0].date)} – ${dayLabel(chunk[chunk.length - 1].date)}`;
     out.unshift(b);
@@ -2317,6 +2319,12 @@ function drawChart(el, bs, m, { instant = false } = {}) {
   if (!el.offsetParent || !window.d3) return;
   const W = el.clientWidth, H = el.clientHeight;
   if (!W || !H) return;
+  // Sent: where each day's messages ended up; Failed: each day's failures by reason (both stacked, drawFlow). The rates
+  // stay this chart. Between the two kinds the outgoing one sinks to the line and fades while the other grows in.
+  const flow = m === METRICS.sent ? 'sent' : m === METRICS.failed ? 'failed' : null;
+  el.classList.toggle('is-flow', Boolean(flow));
+  if (flow) return drawFlow(el, bs, { instant, mode: flow });
+  if (el.__flow) hideFlow(el, { instant });
   const pad = { l: 42, r: 12, t: 26, b: 28 };
   const base = H - pad.b;
   const isRate = m.kind === 'rate';
@@ -2324,7 +2332,9 @@ function drawChart(el, bs, m, { instant = false } = {}) {
   let svg = d3.select(el).select('svg.d3chart');
   const first = svg.empty();
   if (first) {
-    el.innerHTML = '<div class="chart-empty hidden"><div><strong></strong><span></span></div></div>';
+    // (keep a stacked chart that is still fading out: only the placeholder goes)
+    el.querySelectorAll(':scope > :not(svg.fl-svg)').forEach((n) => n.remove());
+    el.insertAdjacentHTML('beforeend', '<div class="chart-empty hidden"><div><strong></strong><span></span></div></div>');
     svg = d3.select(el).insert('svg', ':first-child').attr('class', 'd3chart').attr('role', 'img');
     svg.append('g').attr('class', 'grid');
     svg.append('g').attr('class', 'yticks');
@@ -2500,12 +2510,12 @@ function bindChartHover(el) {
     const ch = svg.querySelector('line.crosshair');
     ch.setAttribute('x1', cx(b)); ch.setAttribute('x2', cx(b)); ch.setAttribute('opacity', isRate ? 1 : 0);
     const dr = rateOf(b, METRICS.deliveryRate), rr = rateOf(b, METRICS.readRate);
-    const row = (key, label, value) => `<div class="tt-row ${state.ov.metric === key ? 'cur' : ''}"><span><i class="key ${state.ov.metric === key ? '' : 'none'}"></i>${label}</span><b>${value}</b></div>`;
-    showTip(`<div class="tt-title">${esc(b.long)}</div>
-      ${row('sent', 'Sent', b.sent.toLocaleString())}
-      ${row('deliveryRate', 'Delivered', `${b.delivered.toLocaleString()}${dr == null ? '' : ` · ${fmt1(dr)}%`}`)}
-      ${row('readRate', 'Read', `${b.read.toLocaleString()}${rr == null ? '' : ` · ${fmt1(rr)}%`}`)}
-      ${row('failed', 'Failed', b.failed.toLocaleString())}
+    const row = (key, mk, label, value) => `<div class="tt-row ${state.ov.metric === key ? 'cur' : ''}"><span><i class="key ${state.ov.metric === key ? '' : 'none'}"></i>${waMark(mk)}${label}</span><b>${value}</b></div>`;
+    showTip(`<div class="tt-title">${esc(b.long)} · ${(b.sent + b.failed).toLocaleString()} message${b.sent + b.failed === 1 ? '' : 's'}</div>
+      ${row('sent', 'sent', 'Sent', b.sent.toLocaleString())}
+      ${row('deliveryRate', 'delivered', 'Delivered', `${b.delivered.toLocaleString()}${dr == null ? '' : ` · ${fmt1(dr)}%`}`)}
+      ${row('readRate', 'read', 'Read', `${b.read.toLocaleString()}${rr == null ? '' : ` · ${fmt1(rr)}%`}`)}
+      ${row('failed', 'failed', 'Failed', b.failed.toLocaleString())}
       ${isRate && b[m.den] ? `<div class="tt-note ${b[m.den] < FEW ? 'few' : ''}">${b[m.den] < FEW ? `Only ${b[m.den]} message${b[m.den] === 1 ? '' : 's'}, so one message moves this rate a lot` : `${m.short} based on ${b[m.den].toLocaleString()} ${m.den} messages`}</div>` : ''}`, px, py);
   };
   const clear = () => {
@@ -2535,13 +2545,26 @@ function showTip(html, x, y) {
 const hideTip = () => $('#chartTip').classList.add('hidden');
 function hideTipSoon() { const tip = $('#chartTip'); clearTimeout(tip.__hideT); tip.__hideT = setTimeout(hideTip, 60); }
 
+// The marks people know from WhatsApp, for labelling counts anywhere: one grey tick (sent), two grey ticks (delivered),
+// two blue ticks (read), a red ! (failed), an envelope stack for the total.
+function waMark(kind) {
+  const tick = (two, cls = '') => `<svg class="cd-tick ${cls}" viewBox="0 0 16 11" width="15" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${two ? 'M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8' : 'M1 5.8 4.2 9 11 1.8'}"/></svg>`;
+  return `<span class="wa-mk">${{ sent: tick(false), delivered: tick(true), read: tick(true, 'blue'), failed: '<span class="cd-x">!</span>', total: icon('send', 13) }[kind] || ''}</span>`;
+}
+
+// The numbers behind the chart. Total = every message tried that day (sent + failed); sent, delivered and read nest
+// inside it, which the header marks make clear. A totals row closes the period.
 function renderChartTable(el, bs) {
   const pctCell = (v) => (v == null ? '<td class="muted">—</td>' : `<td>${fmt1(v)}%</td>`);
-  el.innerHTML = `<table><thead><tr><th>${bs.length > 20 || state.stats.range === 90 ? 'Week' : 'Day'}</th><th>Sent</th><th>Delivered</th><th>Delivery rate</th><th>Read</th><th>Read rate</th><th>Failed</th></tr></thead><tbody>${bs
+  const n = (v) => v.toLocaleString();
+  const sum = bs.reduce((a, b) => ({ sent: a.sent + b.sent, delivered: a.delivered + b.delivered, read: a.read + b.read, failed: a.failed + b.failed }), { sent: 0, delivered: 0, read: 0, failed: 0 });
+  const th = (k, label, title) => `<th title="${title}"><span class="th-mk">${waMark(k)}${label}</span></th>`;
+  const row = (label, b, cls = '') => `<tr class="${cls}"><td>${label}</td><td>${n(b.sent + b.failed)}</td><td>${n(b.sent)}</td><td>${n(b.delivered)}</td>${pctCell(rateOf(b, METRICS.deliveryRate))}<td>${n(b.read)}</td>${pctCell(rateOf(b, METRICS.readRate))}<td>${n(b.failed)}</td></tr>`;
+  el.innerHTML = `<table><thead><tr><th>${bs.length > 20 || state.stats.range === 90 ? 'Week' : 'Day'}</th>${th('total', 'Total', 'Every message tried: sent + failed')}${th('sent', 'Sent', 'Accepted by WhatsApp (one grey tick or more)')}${th('delivered', 'Delivered', 'On their phone (two grey ticks or blue)')}<th>Delivery rate</th>${th('read', 'Read', 'Opened (blue ticks)')}<th>Read rate</th>${th('failed', 'Failed', 'Didn’t reach them')}</tr></thead><tbody>${bs
     .slice()
     .reverse()
-    .map((b) => `<tr><td>${esc(b.long)}</td><td>${b.sent.toLocaleString()}</td><td>${b.delivered.toLocaleString()}</td>${pctCell(rateOf(b, METRICS.deliveryRate))}<td>${b.read.toLocaleString()}</td>${pctCell(rateOf(b, METRICS.readRate))}<td>${b.failed.toLocaleString()}</td></tr>`)
-    .join('')}</tbody></table>`;
+    .map((b) => row(esc(b.long), b))
+    .join('')}</tbody><tfoot>${row('Total for the period', sum, 'tt-total')}</tfoot></table>`;
 }
 
 $('#chartTableBtn').addEventListener('click', () => {
@@ -2549,7 +2572,12 @@ $('#chartTableBtn').addEventListener('click', () => {
   saveOv();
   renderCharts();
 });
-new ResizeObserver(() => drawChartsInstant()).observe($('#dayChart'));
+// Redraw at the new size only when the size really changed: a redraw is instant, and would cut short a chart that is
+// still animating (e.g. switching Sent → Failed), which a same-size notification would otherwise do.
+{ let lastW = 0, lastH = 0;
+  new ResizeObserver(([e]) => { const { width: w, height: hh } = e.contentRect; if (Math.round(w) === lastW && Math.round(hh) === lastH) return; const first = !lastW; lastW = Math.round(w); lastH = Math.round(hh); if (first) return;
+    // after any animation in flight has finished, so a resize never cuts it short
+    clearTimeout(window.__rsT); window.__rsT = setTimeout(drawChartsInstant, 900); }).observe($('#dayChart')); }
 new ResizeObserver(() => drawChartsInstant()).observe($('#xChart'));
 function drawChartsInstant() {
   if (!state.stats) return;
@@ -2603,27 +2631,205 @@ document.addEventListener('keydown', (e) => e.key === 'Escape' && closeChartModa
 
 // --- Funnel ---
 
-function renderFunnel(st) {
-  const t = st.totals;
-  $('#funnelSub').textContent = `In the last ${st.range} days${st.filters.sender || st.filters.template ? ' · filtered' : ''}`;
-  if (!t.sent && !t.failed) {
-    $('#funnel').innerHTML = emptyMini('chart', 'Nothing sent in this period. Try a wider date range.');
+// "Messages sent", day by day, stacked: one column per day (or week), built from where that day's messages ended up.
+// Above the line, from the bottom: read (darkest), delivered but not read, sent but not delivered yet; below it, what
+// failed. The same pieces and colours as a campaign's Results bar (style.css --cx-*). Drawn into the main chart when its
+// Sent tab is on (drawChart hands over), with the main chart's axis and the app's hover rule: the column nearest the
+// pointer is outlined, the rest fade, the shared tooltip shows; moving off clears it.
+const FLOW = [
+  ['read', (b) => b.read],
+  ['delivered', (b) => b.delivered - b.read],
+  ['sent', (b) => b.sent - b.delivered],
+];
+// Failed, by reason: the period's biggest reasons, each a strength of the app's danger red, and the rest as Other.
+const REASON_SHADES = [100, 72, 50, 34];
+function reasonLabel(code) {
+  if (code === 'other') return 'Other reasons';
+  const e = window.MetaErrors?.byCode[code];
+  return e ? e.title : 'Meta error ' + code;
+}
+function topReasons(bs) {
+  const sum = {};
+  for (const b of bs) for (const [k, n] of Object.entries(b.reasons || {})) sum[k] = (sum[k] || 0) + n;
+  const all = Object.entries(sum).sort((a, b) => b[1] - a[1]);
+  const top = all.filter(([k]) => k !== 'other').slice(0, REASON_SHADES.length).map(([k]) => k);
+  return { top, hasOther: all.some(([k]) => !top.includes(k)) };
+}
+const reasonFill = (id, top) => (id === 'other' ? 'var(--faint)' : `color-mix(in srgb, var(--danger) ${REASON_SHADES[top.indexOf(id)] ?? 30}%, var(--surface))`);
+
+function drawFlow(host, bs, { instant = false, mode = 'sent' } = {}) {
+  host.__flow = bs;
+  host.__flowMode = mode;
+  if (!window.d3 || !host.clientWidth) return;
+  host.classList.add('fl-host');
+  // the loading placeholder (data-skel) goes once there is something to draw, as the main chart does
+  host.querySelectorAll(':scope > :not(svg):not(.chart-empty)').forEach((n) => n.remove());
+  host.removeAttribute('data-skel');
+  const W = host.clientWidth, H = host.clientHeight || 260, pad = { l: 42, r: 12, t: 26, b: 28 };
+  // Nothing in the period: no axis, just what this chart will show and the way to get there.
+  const nothing = !bs.some((b) => (mode === 'failed' ? b.failed : b.sent + b.failed));
+  host.classList.toggle('fl-none', nothing);
+  if (nothing) {
+    d3.select(host).select('svg.fl-svg').remove();
+    host.__flowX = null;
+    let em = host.querySelector('.fl-empty');
+    if (!em) { em = document.createElement('div'); em.className = 'fl-empty'; host.append(em); }
+    const days = bs.length > 20 ? 'this period' : `the last ${bs.length} days`;
+    em.innerHTML = mode === 'failed'
+      ? `<span class="fl-empty-ic ok">${icon('circle-check', 20)}</span><b>Nothing failed in ${days}</b><span>Failures show up here day by day, grouped by Meta’s reason.</span>`
+      : `<span class="fl-empty-ic">${icon('send', 20)}</span><b>Nothing sent in ${days}</b><span>Each day’s messages show up here as they go out: read, delivered, sent and failed.</span><button type="button" class="btn sm primary" data-goto="send">${icon('plus', 14)}New campaign</button>`;
+    const leg = host.id === 'dayChart' ? $('#dayLegend') : host.id === 'xChart' ? $('#xLegend') : null;
+    leg?.classList.add('hidden');
     return;
   }
-  const rows = [
-    ['Sent', t.sent, 'messages'],
-    ['Delivered', t.delivered, 'reached the phone'],
-    ['Read', t.read, 'opened the chat'],
-  ];
-  $('#funnel').innerHTML =
-    rows
-      .map(([name, v, note], i) => `<div class="funnel-row">
-        <div class="funnel-name">${name}</div>
-        <div class="funnel-track"><div class="funnel-bar" data-w="${t.sent ? ((100 * v) / t.sent).toFixed(2) : 0}" data-k="fn-${name}"></div></div>
-        <div class="funnel-val"><span><b data-count="${v}" data-fmt="int" data-k="fnv-${name}">0</b> ${note}</span><span>${i === 1 ? `<b data-count="${t.sent ? ((100 * v) / t.sent).toFixed(2) : 0}" data-fmt="pct1" data-k="fnp-${name}">0</b><b>%</b> of sent` : i === 2 ? `<b data-count="${t.delivered ? ((100 * v) / t.delivered).toFixed(2) : 0}" data-fmt="pct1" data-k="fnp-${name}">0</b><b>%</b> of delivered` : ''}</span></div>
-      </div>`)
-      .join('') +
-    `<div class="funnel-note"><span>Failed <b data-count="${t.failed}" data-fmt="int" data-k="fn-failed">0</b></span><span>Waiting to send <b data-count="${t.pending}" data-fmt="int" data-k="fn-pending">0</b></span></div>`;
+  host.querySelector('.fl-empty')?.remove();
+  const R = mode === 'failed' ? topReasons(bs) : null;
+  host.__flowReasons = R;
+  const upOf = (b) => (mode === 'failed' ? b.failed : b.sent);
+  const maxUp = Math.max(1, ...bs.map(upOf)), maxDown = mode === 'failed' ? 0 : Math.max(0, ...bs.map((b) => b.failed));
+  const y = d3.scaleLinear().domain([0, maxUp]).nice(4);
+  // One scale for both sides, so a day's failures read true against what got through; below the line is just enough
+  // room for the worst day's failures (at least a sliver).
+  const usable = H - pad.t - pad.b, top = y.domain()[1];
+  const down = maxDown ? Math.max(16, (usable * maxDown) / (top + maxDown)) : 8;
+  const base = pad.t + usable - down;
+  y.range([base, pad.t]);
+  const k = (base - pad.t) / top;
+  const x = d3.scaleBand().domain(bs.map((b) => b.key)).range([pad.l, W - pad.r]).paddingInner(bs.length > 20 ? 0.3 : 0.38).paddingOuter(0.15);
+  const bw = x.bandwidth(), GAP = 2, dur = instant || Motion.reduce() ? 0 : 750;
+  let svg = d3.select(host).select('svg.fl-svg');
+  if (svg.empty()) {
+    svg = d3.select(host).append('svg').attr('class', 'fl-svg').attr('role', 'img');
+    svg.append('g').attr('class', 'grid');
+    svg.append('g').attr('class', 'yticks');
+    svg.append('line').attr('class', 'fl-base');
+    svg.append('g').attr('class', 'fl-cols');
+    svg.append('rect').attr('class', 'fl-ring').attr('opacity', 0);
+    svg.append('g').attr('class', 'fl-x');
+    bindFlowHover(host);
+  }
+  svg.attr('viewBox', `0 0 ${W} ${H}`).attr('width', W).attr('height', H).attr('aria-label', 'Messages per day: read, delivered, sent and failed');
+  const ticks = y.ticks(4).filter(Number.isInteger);
+  svg.select('.grid').selectAll('line').data(ticks).join('line').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (v) => y(v)).attr('y2', (v) => y(v));
+  svg.select('.yticks').selectAll('text').data(ticks).join('text').attr('class', 'tick').attr('x', pad.l - 10).attr('y', (v) => y(v) + 4).attr('text-anchor', 'end').text((v) => fmtNum(v));
+  svg.select('.fl-base').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', base + 0.5).attr('y2', base + 0.5);
+  const parts = mode === 'failed'
+    ? [...R.top.map((code) => [code, (b) => b.reasons?.[code] || 0]), ...(R.hasOther ? [['other', (b) => b.failed - R.top.reduce((s, c) => s + (b.reasons?.[c] || 0), 0)]] : [])]
+    : FLOW;
+  const pieces = (b, i) => {
+    const out = [];
+    let yy = base - GAP / 2;
+    for (const [id, f] of parts) { const v = f(b), hh = Math.max(2, v * k); if (v > 0) { out.push({ id, i, y: yy - hh, h: hh }); yy -= hh + GAP; } }
+    if (mode !== 'failed' && b.failed) out.push({ id: 'failed', i, y: base + GAP / 2 + 1, h: Math.max(2, b.failed * k) });
+    return out;
+  };
+  const cols = svg.select('.fl-cols').selectAll('g.fl-col').data(bs, (b) => b.key).join((enter) => enter.append('g').attr('class', 'fl-col')).attr('data-i', (b, i) => i);
+  cols.each(function (b, i) {
+    const r = d3.select(this).selectAll('rect').data(pieces(b, i), (p) => mode + ':' + p.id)
+      .join(
+        (enter) => enter.append('rect').attr('rx', 3).attr('y', base).attr('height', 0),
+        (update) => update,
+        // pieces of the other mode, or a reason that's gone: back down to the line, then out
+        (exit) => (dur ? exit.transition().duration(dur / 2).ease(d3.easeCubicIn).attr('y', base).attr('height', 0).remove() : exit.remove()),
+      )
+      .attr('data-sw', (p) => (mode === 'failed' ? null : p.id)).style('fill', (p) => (mode === 'failed' ? reasonFill(p.id, R.top) : null))
+      .attr('x', x(b.key)).attr('width', bw);
+    // an instant redraw (a resize) stops an entrance still running, or it would carry on to the old size
+    (dur ? r.transition().duration(dur).delay(i * Math.min(30, 400 / bs.length)).ease(d3.easeCubicOut) : r.interrupt()).attr('y', (p) => p.y).attr('height', (p) => p.h);
+  });
+  const every = Math.max(1, Math.ceil((bs.length * 64) / (W - pad.l - pad.r)));
+  svg.select('.fl-x').selectAll('text').data(bs, (b) => b.key).join('text')
+    .attr('x', (b) => x(b.key) + bw / 2).attr('y', H - 8).attr('text-anchor', 'middle').attr('class', 'tick')
+    .text((b, i) => ((bs.length - 1 - i) % every === 0 ? b.label : ''));
+  host.__flowX = { x, bw };
+  flowLegend(host, mode, bs, R);
+}
+// The key under the main chart: the four outcomes with their marks, or the failure reasons, each with its total.
+function flowLegend(host, mode, bs, R) {
+  const leg = host.id === 'dayChart' ? $('#dayLegend') : host.id === 'xChart' ? $('#xLegend') : null;
+  if (!leg) return;
+  const sum = (f) => bs.reduce((s, b) => s + f(b), 0);
+  const item = (sw, fill, mk, label, n) => '<span><i class="cx-sw"' + (sw ? ' data-sw="' + sw + '"' : '') + (fill ? ' style="background:' + fill + '"' : '') + '></i>' + mk + esc(label) + ' <b>(' + n.toLocaleString() + ')</b></span>';
+  leg.innerHTML = mode === 'failed'
+    ? [...R.top, ...(R.hasOther ? ['other'] : [])].map((code) => item('', reasonFill(code, R.top), '', reasonLabel(code), code === 'other' ? sum((b) => b.failed - R.top.reduce((s, c) => s + (b.reasons?.[c] || 0), 0)) : sum((b) => b.reasons?.[code] || 0))).join('')
+    : [['read', 'Read', (b) => b.read], ['delivered', 'Delivered', (b) => b.delivered - b.read], ['sent', 'Sent', (b) => b.sent - b.delivered], ['failed', 'Failed', (b) => b.failed]]
+      .map(([sw, l, f]) => [sw, l, sum(f)]).filter(([, , n]) => n).map(([sw, l, n]) => item(sw, '', waMark(sw), l, n)).join('');
+  leg.classList.remove('hidden');
+}
+function hideFlow(host, { instant = false } = {}) {
+  host.querySelector('.fl-empty')?.remove();
+  host.classList.remove('fl-none');
+  const svg = d3.select(host).select('svg.fl-svg');
+  host.classList.remove('fl-host', 'hovering');
+  host.__flow = null;
+  const leg = host.id === 'dayChart' ? $('#dayLegend') : host.id === 'xChart' ? $('#xLegend') : null;
+  leg?.classList.add('hidden');
+  if (svg.empty()) return;
+  if (instant || Motion.reduce()) return svg.remove();
+  const base = Number(svg.select('.fl-base').attr('y1')) || 0;
+  svg.classed('leaving', true).selectAll('.fl-col rect').interrupt().transition().duration(320).ease(d3.easeCubicIn).attr('y', base).attr('height', 0);
+  svg.transition().duration(360).style('opacity', 0).remove();
+}
+
+function bindFlowHover(host) {
+  const clear = () => { host.classList.remove('hovering'); host.querySelectorAll('.fl-col.on').forEach((c) => c.classList.remove('on')); d3.select(host).select('.fl-ring').attr('opacity', 0); hideTip(); };
+  host.addEventListener('pointermove', (e) => {
+    const bs = host.__flow, g = host.__flowX;
+    if (!bs || !g || !e.target.closest('svg.fl-svg')) return;
+    // the column nearest the pointer, anywhere across the chart, gaps included
+    const px = e.clientX - host.getBoundingClientRect().left;
+    let i = 0, best = Infinity;
+    bs.forEach((b, j) => { const d = Math.abs(g.x(b.key) + g.bw / 2 - px); if (d < best) { best = d; i = j; } });
+    const b = bs[i];
+    host.classList.add('hovering');
+    host.querySelectorAll('.fl-col').forEach((c) => c.classList.toggle('on', Number(c.dataset.i) === i));
+    const box = host.querySelectorAll('.fl-col')[i]?.getBBox();
+    if (box?.height) d3.select(host).select('.fl-ring').attr('x', box.x - 4).attr('y', box.y - 4).attr('width', box.width + 8).attr('height', box.height + 8).attr('rx', 7).attr('opacity', 1);
+    else d3.select(host).select('.fl-ring').attr('opacity', 0);
+    if (host.__flowMode === 'failed') {
+      const R = host.__flowReasons, codes = [...R.top, ...(R.hasOther ? ['other'] : [])];
+      const n = (code) => (code === 'other' ? b.failed - R.top.reduce((s, c) => s + (b.reasons?.[c] || 0), 0) : b.reasons?.[code] || 0);
+      return showTip('<div class="tt-title">' + esc(b.long) + ' · ' + b.failed.toLocaleString() + ' failed</div>' +
+        codes.filter((c) => n(c)).map((c) => '<div class="tt-row cur"><span><i class="cx-sw" style="background:' + reasonFill(c, R.top) + '"></i>' + esc(reasonLabel(c)) + (c !== 'other' ? ' <code class="tt-code">' + c + '</code>' : '') + '</span><b>' + n(c).toLocaleString() + '</b></div>').join('') +
+        (b.failed ? '' : '<div class="tt-note">Nothing failed this day.</div>'), e.clientX, e.clientY);
+    }
+    const row = (sw, label, v) => '<div class="tt-row cur"><span><i class="cx-sw" data-sw="' + sw + '"></i>' + waMark(sw) + label + '</span><b>' + v.toLocaleString() + '</b></div>';
+    showTip('<div class="tt-title">' + esc(b.long) + ' · ' + (b.sent + b.failed).toLocaleString() + ' tried</div>' +
+      row('read', 'Read', b.read) + row('delivered', 'Delivered, not read', b.delivered - b.read) + row('sent', 'Sent, not delivered', b.sent - b.delivered) + row('failed', 'Failed', b.failed), e.clientX, e.clientY);
+  });
+  host.addEventListener('pointerleave', clear);
+}
+
+// The period at a glance, beside the chart: the total, one bar split by where messages ended up, and a row per piece
+// with its mark, count and share. Pointing at a piece or a row lights it (the app's hover rule).
+function renderFunnel(st) {
+  const t = st.totals, total = t.sent + t.failed;
+  $('#funnelSub').textContent = `Where messages ended up · last ${st.range} days${st.filters.sender || st.filters.template ? ' · filtered' : ''}`;
+  const el = $('#funnel');
+  if (!total) {
+    const guide = [['read', 'Read', 'They opened it: two blue ticks'], ['delivered', 'Delivered', 'On their phone: two grey ticks'], ['sent', 'Sent', 'WhatsApp accepted it: one grey tick'], ['failed', 'Failed', 'It didn’t reach them, with Meta’s reason']];
+    el.innerHTML = '<div class="fs fs-none"><div class="fl-figure"><b class="fl-num">0</b><span>messages tried</span></div><div class="fs-bar fs-bar-empty"></div>' +
+      '<div class="fs-rows">' + guide.map(([k, l, what]) => '<div class="fs-row"><i class="cx-sw" data-sw="' + k + '"></i>' + waMark(k) + '<span class="fs-l"><b>' + l + '</b><small>' + what + '</small></span><span class="fs-n"><b>0</b></span></div>').join('') + '</div>' +
+      '<p class="sub fs-hint">Send a campaign and this fills in: where every message ended up.</p></div>';
+    return;
+  }
+  const parts = [
+    ['read', 'Read', t.read, 'Opened (blue ticks)'],
+    ['delivered', 'Delivered', t.delivered - t.read, 'On their phone, not opened yet'],
+    ['sent', 'Sent', t.sent - t.delivered, 'Accepted, phone not reached yet'],
+    ['failed', 'Failed', t.failed, 'Didn’t reach them'],
+  ].filter(([, , n]) => n > 0);
+  const pct = (n) => (100 * n / total).toFixed(n / total < 0.1 ? 1 : 0) + '%';
+  const r = (i) => { const a = i === 0 ? 6 : 2, z = i === parts.length - 1 ? 6 : 2; return a + 'px ' + z + 'px ' + z + 'px ' + a + 'px'; };
+  el.innerHTML = '<div class="fs">' +
+    '<div class="fl-figure"><b class="fl-num">' + total.toLocaleString() + '</b><span>messages tried</span></div>' +
+    '<div class="cx-bar fs-bar">' + parts.map(([k, , n], i) => '<i class="cx-seg" data-kind="' + k + '" data-sw="' + k + '" style="flex-grow:' + n + ';border-radius:' + r(i) + '"></i>').join('') + '</div>' +
+    '<div class="fs-rows">' + parts.map(([k, l, n, what]) => '<div class="fs-row" data-kind="' + k + '"><i class="cx-sw" data-sw="' + k + '"></i>' + waMark(k) + '<span class="fs-l"><b>' + l + '</b><small>' + what + '</small></span><span class="fs-n"><b>' + n.toLocaleString() + '</b><small>' + pct(n) + '</small></span></div>').join('') + '</div>' +
+    (t.pending ? '<div class="fl-foot">Waiting to send <b>' + t.pending.toLocaleString() + '</b></div>' : '') + '</div>';
+  const fs = el.querySelector('.fs');
+  const light = (k) => { fs.classList.toggle('hovering', Boolean(k)); fs.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x.dataset.kind === k)); };
+  fs.addEventListener('pointermove', (e) => light(e.target.closest('[data-kind]')?.dataset.kind || null));
+  fs.addEventListener('pointerleave', () => light(null));
 }
 
 // --- Number health ---

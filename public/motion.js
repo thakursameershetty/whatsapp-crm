@@ -88,9 +88,11 @@
       placeThumb(seg, muts.some((m) => m.type === 'childList' && m.target === seg));
     }).observe(seg, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class'] });
     // A control inside something hidden (e.g. the expanded chart dialog) has no size yet;
-    // place the thumb once it's shown or resized. (The first callback is just the initial size.)
+    // place the thumb once it's shown or resized. (The first callback is just the initial size.) It slides: the
+    // control also resizes when the active option turns bold and its text grows, and snapping then would jump the
+    // thumb on every choice. A thumb that isn't showing yet still snaps into place (placeThumb).
     let seen = false;
-    new ResizeObserver(() => { if (seen) placeThumb(seg, true); seen = true; }).observe(seg);
+    new ResizeObserver(() => { if (seen) placeThumb(seg); seen = true; }).observe(seg);
     const last = seg.id && lastPos.get(seg.id);
     if (last && !reduce()) {
       th.style.transition = 'none';
