@@ -1152,7 +1152,58 @@ module.exports = function mountAi(app, ctx) {
       const s = db.senders.find((x) => x.id === body.senderId);
       if (s) lines.push(`Sender number selected in the composer: "${s.label}" (id ${s.id}). Use it unless the person says otherwise.`);
     }
+    const refs = refLines(body.refs);
+    if (refs.length) lines.push('The person pointed at these with @ or / in their message (use them; they are what "this", "it" or "these" refer to):', ...refs);
     return `<context>\n${lines.join('\n')}\n</context>`;
+  }
+
+  // The pills from the composer (@ for things, / for actions), as plain facts and instructions for the model.
+  // Looked up here, so what the model sees is the workspace's own data, not what the page sent.
+  const COMMANDS = {
+    overview: 'Command /overview: give a short overview of how sending is going (get_stats for the last 14 days unless they say otherwise): volume, delivery and read rates, failures and their main reasons, and anything that needs attention.',
+    summarize: 'Command /summarize: summarise the items referenced (or, if none, this conversation so far) in a few plain bullet points.',
+    format: 'Command /format: clean up the attached sheet(s) so they are ready to send (build_sheet): valid WhatsApp numbers only, tidy names and columns, drop junk rows, merge duplicates. Ask what counts as valid first if unsure. If no sheet is attached, ask them to attach one.',
+    help: 'Command /help: explain briefly what you can do in SendON, with a few example requests, and mention that @ refers to templates, campaigns, contacts, tags and numbers, and / runs actions like /overview or /explain.',
+    explain: 'Command /explain: explain the referenced error code in plain words: what it means, why it usually happens, and what to do about it. If useful, check list_campaigns for where it occurred recently.',
+  };
+  function refLines(refs) {
+    const out = [];
+    const sd = (s) => s ? `${s.sent || 0} sent, ${s.delivered || 0} delivered, ${s.read || 0} read, ${s.failed || 0} failed` : 'no stats yet';
+    for (const r of (Array.isArray(refs) ? refs : []).slice(0, 20)) {
+      const id = String(r?.id ?? '');
+      if (r?.type === 'template') {
+        const t = db.templates.find((x) => x.id === id || x.name === id);
+        if (!t) continue;
+        const body = (t.components || []).find((c) => c.type === 'BODY')?.text || '';
+        out.push(`- Template "${t.name}" (id ${t.id}, ${t.category || 'category unknown'}, ${t.language || ''}, status ${t.status || 'unknown'})${body ? `: "${body.slice(0, 600)}"` : ''}`);
+      } else if (r?.type === 'campaign') {
+        const c = db.campaigns.find((x) => x.id === id);
+        if (!c) continue;
+        const reasons = {};
+        for (const x of c.recipients) if (x.status === 'failed') { const k = String(x.error || 'unknown').slice(0, 80); reasons[k] = (reasons[k] || 0) + 1; }
+        const top = Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${n}× ${k}`).join('; ');
+        out.push(`- Campaign "${c.name}" (id ${c.id}${c.test ? ', a test send' : ''}): status ${c.status}, template ${c.templateName}, ${c.recipients.length} recipients, ${sd(c.stats)}${c.startedAt ? `, started ${c.startedAt}` : c.scheduledAt ? `, scheduled for ${c.scheduledAt}` : ''}${top ? `. Main failure reasons: ${top}` : ''}`);
+      } else if (r?.type === 'contact') {
+        const c = db.contacts.find((x) => x.id === id);
+        if (!c) continue;
+        const tags = c.tags.map((t) => db.tags.find((x) => x.id === t)?.name).filter(Boolean).join(', ');
+        out.push(`- Contact ${c.name || '(no name)'} +${c.phone}${c.email ? `, ${c.email}` : ''}${c.company ? `, ${c.company}` : ''}: stage ${c.status}${c.optOut ? ', OPTED OUT (never message)' : ''}${tags ? `, tags ${tags}` : ''}${c.lead?.summary ? `. Lead notes: ${String(c.lead.summary).slice(0, 300)}` : ''}${c.notes ? `. Notes: ${String(c.notes).slice(0, 300)}` : ''}`);
+      } else if (r?.type === 'tag') {
+        const t = db.tags.find((x) => x.id === id);
+        if (!t) continue;
+        const n = db.contacts.filter((c) => !c.optOut && c.tags.includes(t.id)).length;
+        out.push(`- Contact tag "${t.name}": ${n} contact${n === 1 ? '' : 's'} who can be messaged (use_contacts with this tag to send to them)`);
+      } else if (r?.type === 'sender') {
+        const s = db.senders.find((x) => x.id === id);
+        if (!s) continue;
+        out.push(`- Sender number "${s.label}" (id ${s.id}) ${s.displayPhone || ''}: ${s.enabled === false ? 'switched off' : 'in use'}, quality ${s.qualityRating || 'unknown'}${s.messagingLimit ? `, limit ${s.messagingLimit}` : ''}`);
+      } else if (r?.type === 'error') {
+        out.push(`- Meta error code ${id.replace(/\D/g, '').slice(0, 7)}${r.detail ? `: ${String(r.detail).slice(0, 400)}` : ''}`);
+      } else if (r?.type === 'command' && COMMANDS[id]) {
+        out.push(`- ${COMMANDS[id]}`);
+      }
+    }
+    return out;
   }
 
   // The tool results owed for the turn that paused, plus the answer to the pausing call.
@@ -1437,18 +1488,90 @@ module.exports = function mountAi(app, ctx) {
     res.json({ ok: true });
   }));
 
+  // The composer's @ picker: the best few matches of each kind for what's typed (or the most recent, with nothing
+  // typed), searched here so a big workspace never sends its whole contact book to the page. Ranked exact >
+  // starts with > a word starts with > contains, then by how recent. A member limited to some numbers only sees
+  // campaigns, templates and numbers of theirs (contacts and tags are shared in a workspace).
+  app.get('/api/ai/refs', wrap((req, res) => {
+    const q = String(req.query.q || '').trim().toLowerCase().slice(0, 60);
+    const only = ['template', 'campaign', 'contact', 'tag', 'sender'].includes(req.query.kind) ? req.query.kind : null;
+    const per = only ? 30 : q ? 6 : 4;
+    const scope = req.senderScope;
+    const demo = Boolean(db.settings.demoMode);
+    const digits = q.replace(/\D/g, '');
+    const rank = (...fields) => {
+      if (!q) return 1;
+      let best = 0;
+      for (const f of fields) {
+        const v = String(f || '').toLowerCase();
+        if (!v) continue;
+        if (v === q) best = Math.max(best, 100);
+        else if (v.startsWith(q)) best = Math.max(best, 80);
+        else if (v.split(/[\s_\-.@/]+/).some((w) => w.startsWith(q))) best = Math.max(best, 60);
+        else if (v.includes(q)) best = Math.max(best, 40);
+      }
+      return best;
+    };
+    // the name counts fully; other fields (a campaign's template, a contact's company or email) count for less
+    const rankW = (...pairs) => Math.max(0, ...pairs.map(([f, w]) => rank(f) * w));
+    const top = (list) => list.filter((x) => x.score > 0).sort((a, b) => b.score - a.score || String(b.at || '').localeCompare(String(a.at || ''))).slice(0, per).map(({ score, at, ...x }) => x);
+    const senders = db.senders.filter((s) => !scope || scope.has(s.id));
+    const wabas = new Set(senders.map((s) => s.wabaId).filter(Boolean));
+    const accountOf = (waba) => { const ss = db.senders.filter((s) => s.wabaId === waba); return ss.length ? ss.map((s) => s.label).join(', ') : ''; };
+    const manyAccounts = new Set(db.senders.map((s) => s.wabaId).filter(Boolean)).size > 1;
+    const camps = db.campaigns.filter((c) => Boolean(c.demo) === demo && (!scope || c.senderIds.some((x) => scope.has(x))));
+    const lastUsed = {};
+    for (const c of camps) { const t = c.startedAt || c.createdAt; if (t > (lastUsed[c.templateId] || '')) lastUsed[c.templateId] = t; }
+    const day = (t) => (t ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '');
+    const out = {};
+    if (!only || only === 'template') {
+      out.template = top(db.templates.filter((t) => !scope || !t.wabaId || wabas.has(t.wabaId)).map((t) => ({
+        type: 'template', id: t.id, label: t.name, score: rank(t.name), at: lastUsed[t.id] || t.syncedAt || '',
+        sub: [t.language, String(t.category || '').toLowerCase(), t.status && t.status !== 'APPROVED' ? String(t.status).toLowerCase() : '', manyAccounts && t.wabaId ? accountOf(t.wabaId) : ''].filter(Boolean).join(' · '),
+      })));
+    }
+    if (!only || only === 'campaign') {
+      out.campaign = top(camps.map((c) => {
+        const at = c.startedAt || c.scheduledAt || c.createdAt;
+        return { type: 'campaign', id: c.id, label: c.name, score: rankW([c.name, 1], [c.templateName, 0.5]), at, sub: [c.status, day(at), `${c.recipients.length.toLocaleString()} recipients`, c.test ? 'test' : ''].filter(Boolean).join(' · ') };
+      }));
+    }
+    if (!only || only === 'contact') {
+      out.contact = top(db.contacts.map((c) => ({
+        type: 'contact', id: c.id, label: c.name || '+' + c.phone, phone: c.phone,
+        score: Math.max(rankW([c.name, 1], [c.company, 0.7], [c.email, 0.6]), digits.length > 2 && c.phone.includes(digits) ? 70 : 0), at: c.lastMessageAt || c.updatedAt || c.createdAt,
+        sub: ['+' + c.phone, c.company, c.optOut ? 'opted out' : ''].filter(Boolean).join(' · '),
+      })));
+    }
+    if (!only || only === 'tag') {
+      out.tag = top(db.tags.map((t) => { const n = db.contacts.filter((c) => c.tags.includes(t.id)).length; return { type: 'tag', id: t.id, label: t.name, color: t.color, score: rank(t.name), at: String(n).padStart(9, '0'), sub: `${n.toLocaleString()} contact${n === 1 ? '' : 's'}` }; }));
+    }
+    if (!only || only === 'sender') {
+      out.sender = top(senders.map((s) => ({ type: 'sender', id: s.id, label: s.label, score: Math.max(rank(s.label), digits.length > 2 && String(s.displayPhone || '').replace(/\D/g, '').includes(digits) ? 70 : 0), at: s.createdAt || '', sub: [s.displayPhone, s.qualityRating ? 'quality ' + String(s.qualityRating).toLowerCase() : '', s.enabled === false ? 'off' : ''].filter(Boolean).join(' · ') })));
+    }
+    res.json(out);
+  }));
+
   app.post('/api/ai/chat', async (req, res) => {
     let session;
     try {
       session = getSession(req.body.sessionId, Boolean(!req.body.sessionId));
       if (session.busy) throw fail('Wait for the current reply to finish', 409);
-      if (!String(req.body.text || '').trim() && req.body.answer == null) throw fail('Type a message');
+      if (!String(req.body.text || '').trim() && req.body.answer == null && !(Array.isArray(req.body.refs) && req.body.refs.length)) throw fail('Type a message');
       providerFor(session); // fail fast, before streaming, when no key is set or the provider changed
       // An answer from our AI (not the workspace's own key) uses 1 credit (credits.js).
       if (aiConfig().platform && !ctx.credits?.enough(ctx.credits.AI_RATE)) throw fail('Out of credits: each Assistant answer uses 1 credit. Add credits in Settings → Credits.', 402);
     } catch (e) {
       return res.status(e.httpStatus || 400).json({ error: e.message });
     }
+    // Pills: a member limited to some numbers can only point at campaigns and numbers they can see.
+    const scope = req.senderScope;
+    req.body.refs = (Array.isArray(req.body.refs) ? req.body.refs : []).filter((r) => {
+      if (!scope) return true;
+      if (r?.type === 'campaign') return (db.campaigns.find((c) => c.id === r.id)?.senderIds || []).some((x) => scope.has(x));
+      if (r?.type === 'sender') return scope.has(r.id);
+      return true;
+    }).slice(0, 20);
     session.busy = true;
     res.set({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
     res.flushHeaders();
@@ -1456,7 +1579,8 @@ module.exports = function mountAi(app, ctx) {
     const shown = String(req.body.shown ?? req.body.text ?? req.body.answer ?? '').slice(0, 8000);
     const newFiles = [...session.files.values()].filter((f) => !f.announced).map((f) => ({ name: f.name, sheet: f.sheet, rows: f.rows.length }));
     const chat = chatFor(session, shown || newFiles[0]?.name);
-    chat.messages.push({ role: 'user', text: shown, files: newFiles, ts: new Date().toISOString() });
+    const pills = req.body.refs.map((r) => ({ type: String(r.type).slice(0, 12), id: String(r.id ?? '').slice(0, 60), label: String(r.label ?? '').slice(0, 80) }));
+    chat.messages.push({ role: 'user', text: shown, files: newFiles, ...(pills.length ? { refs: pills } : {}), ts: new Date().toISOString() });
     const reply = { role: 'ai', items: [], ts: new Date().toISOString() };
     chat.messages.push(reply);
     const record = (ev) => {

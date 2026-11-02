@@ -5,6 +5,7 @@
 
 (function () {
   const AS = {
+    refs: [], // @ / pills in the prompt, sent with the next message
     sessionId: null,
     pending: [], // attached files not yet sent with a message
     files: new Map(), // localId -> file, every file this conversation has seen
@@ -164,12 +165,183 @@
     input.style.height = Math.min(input.scrollHeight, 220) + 'px';
   }
   function syncSend() {
-    const empty = !input.value.trim();
+    const empty = !input.value.trim() && !AS.refs.length;
     $('#cmpSend').disabled = AS.busy || empty;
     $('#composer').classList.toggle('busy', AS.busy);
     $('#cmpHint').textContent = AS.busy ? 'Working…' : AS.pending.length && empty ? 'Now say what to do with the file' : '';
   }
   input.addEventListener('input', () => { autosize(); syncSend(); });
+
+  // --- @ and / in the prompt -------------------------------------------------------------
+  // @ points at things (templates, campaigns, contacts, tags, numbers); / runs an action (overview, summarize, format,
+  // help, explain an error code). Picking one takes away what was typed and adds a pill above the text; the server
+  // looks each pill up and hands the AI its details (ai.js refLines). Arrows / Enter / Tab pick, Esc closes.
+  const KIND = {
+    template: { label: 'Template', icon: 'file-text' },
+    campaign: { label: 'Campaign', icon: 'send' },
+    contact: { label: 'Contact', icon: 'user' },
+    tag: { label: 'Tag', icon: 'tag' },
+    sender: { label: 'Number', icon: 'phone' },
+    command: { label: 'Action', icon: 'zap' },
+    error: { label: 'Error code', icon: 'badge-alert' },
+  };
+  const COMMANDS = [
+    { id: 'overview', label: '/overview', sub: 'How sending is going: volume, rates, failures' },
+    { id: 'summarize', label: '/summarize', sub: 'Sum up what you point at, or this chat' },
+    { id: 'format', label: '/format', sub: 'Clean up an attached sheet so it’s ready to send' },
+    { id: 'explain', label: '/explain', sub: 'What a Meta error code means and what to do', more: true },
+    { id: 'help', label: '/help', sub: 'What the assistant can do' },
+  ];
+  // @ searches on the server (best matches per kind, ranked, scoped to what this person can use): nothing big is
+  // downloaded, however many contacts or templates there are. Tabs narrow it to one kind (←/→, or "@c:" style).
+  const TABS = [['all', 'All'], ['template', 'Templates'], ['campaign', 'Campaigns'], ['contact', 'Contacts'], ['tag', 'Tags'], ['sender', 'Numbers']];
+  const PREFIX = { t: 'template', template: 'template', templates: 'template', c: 'campaign', campaign: 'campaign', campaigns: 'campaign', p: 'contact', contact: 'contact', contacts: 'contact', people: 'contact', g: 'tag', tag: 'tag', tags: 'tag', n: 'sender', number: 'sender', numbers: 'sender' };
+  const ORDER = ['template', 'campaign', 'contact', 'tag', 'sender'];
+  let searchCtl = null;
+  const cache = new Map();
+  async function search(q, kind) {
+    const key = kind + '|' + q;
+    if (cache.has(key)) return cache.get(key);
+    searchCtl?.abort();
+    searchCtl = new AbortController();
+    const r = await fetch(`/api/ai/refs?${new URLSearchParams({ q, ...(kind !== 'all' ? { kind } : {}) })}`, { signal: searchCtl.signal, credentials: 'same-origin' });
+    if (!r.ok) throw new Error('search failed');
+    const j = await r.json();
+    const items = ORDER.flatMap((k) => j[k] || []);
+    if (cache.size > 80) cache.clear();
+    cache.set(key, items);
+    setTimeout(() => cache.delete(key), 30000); // fresh enough while typing; new data shows up after
+    return items;
+  }
+  function commands(q, mode) {
+    q = q.toLowerCase();
+    if (mode === 'explain') {
+      const list = window.MetaErrors?.list || [];
+      return list.filter((e) => !q || String(e.code).includes(q) || String(e.title).toLowerCase().includes(q)).slice(0, 30).map((e) => ({ type: 'error', id: String(e.code), label: `Error ${e.code}`, sub: e.title, detail: [e.title, e.means, e.todo && 'What to do: ' + e.todo].filter(Boolean).join('. ') }));
+    }
+    return COMMANDS.filter((c) => !q || c.id.startsWith(q) || c.sub.toLowerCase().includes(q)).map((c) => ({ type: 'command', ...c }));
+  }
+  const pick = document.createElement('div');
+  pick.className = 'ref-pick hidden';
+  pick.setAttribute('role', 'listbox');
+  $('#composer').append(pick);
+  let P = null; // { sym, start, mode, items, i }
+  // what's typed before the caret: an @ or / starting a word, and the text after it
+  const tokenAt = () => {
+    const upto = input.value.slice(0, input.selectionStart);
+    const m = /(^|\s)([@/])(explain\s+)?(?:([a-z]+):)?([\w.\-+ ]{0,40}?)$/i.exec(upto);
+    if (!m) return null;
+    // "@c:diwali" → campaigns only; a space ends a word unless it's an /explain or the picker is narrowed
+    const kind = m[4] ? PREFIX[m[4].toLowerCase()] : null;
+    if (m[4] && !kind) return null;
+    if (/ /.test(m[5]) && !kind && !m[3]) return null;
+    return { sym: m[2], start: upto.length - m[0].length + m[1].length, q: m[5].trim(), mode: m[3] ? 'explain' : null, kind };
+  };
+  const pillHtml = (r, removable = true) => {
+    const k = KIND[r.type] || KIND.command;
+    const lead = r.type === 'contact' ? `<span class="rp-av" style="${avatarStyle(r.phone || r.id)}">${esc((r.label || '?').replace(/^\+/, '').slice(0, 1).toUpperCase())}</span>`
+      : r.type === 'tag' ? `<i class="rp-dot tag-${esc(r.color || '')}"></i>` : icon(k.icon, 13);
+    return `<span class="ref-pill rp-${r.type}" title="${esc(k.label)}: ${esc(r.label)}">${lead}<span>${esc(r.label)}</span>${removable ? `<button type="button" class="rp-x" data-unref="${esc(r.type + ':' + r.id)}" aria-label="Remove ${esc(r.label)}">${icon('x', 11)}</button>` : ''}</span>`;
+  };
+  function renderRefs() {
+    let row = $('#cmpRefs');
+    if (!row) { row = document.createElement('div'); row.id = 'cmpRefs'; row.className = 'cmp-refs'; $('#composer').insertBefore(row, input); }
+    row.innerHTML = AS.refs.map((r) => pillHtml(r)).join('');
+    row.classList.toggle('hidden', !AS.refs.length);
+    syncSend();
+  }
+  $('#composer').addEventListener('click', (e) => {
+    const x = e.target.closest('[data-unref]');
+    if (!x) return;
+    AS.refs = AS.refs.filter((r) => r.type + ':' + r.id !== x.dataset.unref);
+    renderRefs();
+    input.focus();
+  });
+  let tab = 'all', pickT = null, seq = 0;
+  async function openPick() {
+    const tk = tokenAt();
+    if (!tk) return closePick();
+    if (tk.kind) tab = tk.kind;
+    else if (!P) tab = 'all';
+    const same = P && P.sym === tk.sym && P.q === tk.q && P.mode === tk.mode && P.tab === tab;
+    if (tk.sym === '/') { P = { ...tk, tab, items: commands(tk.q, tk.mode), i: same ? P.i : 0 }; return drawPick(); }
+    // @: ask the server (after a short pause while typing); keep showing the last results meanwhile
+    P = { ...tk, tab, items: P?.sym === '@' ? P.items : [], i: same ? P.i : 0, loading: true };
+    drawPick();
+    clearTimeout(pickT);
+    const my = ++seq;
+    pickT = setTimeout(async () => {
+      try {
+        const items = await search(tk.q, tab);
+        if (my !== seq || !P) return;
+        P = { ...P, items, loading: false, i: Math.min(P.i, Math.max(0, items.length - 1)) };
+        drawPick();
+      } catch (e) { if (e.name !== 'AbortError' && P) { P.loading = false; drawPick(); } }
+    }, cache.has(tab + '|' + tk.q) ? 0 : 120);
+  }
+  function drawPick() {
+    const head = P.mode === 'explain' ? 'Explain an error code' : P.sym === '/' ? 'Actions' : 'Point at something';
+    const tabs = P.sym === '@' ? `<div class="rpk-tabs" role="tablist">${TABS.map(([k, l]) => `<button type="button" role="tab" data-tab="${k}" class="${k === P.tab ? 'on' : ''}" aria-selected="${k === P.tab}">${l}</button>`).join('')}</div>` : '';
+    let last = '';
+    const list = P.items.length ? P.items.map((it, i) => {
+      const grp = it.type !== last && P.sym === '@' && P.tab === 'all' ? `<div class="rpk-grp">${esc(KIND[it.type].label)}s</div>` : '';
+      last = it.type;
+      return `${grp}<button type="button" role="option" class="rpk-item ${i === P.i ? 'on' : ''}" data-i="${i}" aria-selected="${i === P.i}">${pillHtml(it, false)}<small>${esc(it.sub || '')}</small></button>`;
+    }).join('') : P.loading ? '<div class="rpk-empty">Searching…</div>' : `<div class="rpk-empty">${P.q ? `Nothing matches “${esc(P.q)}”` : 'Nothing here yet'}</div>`;
+    pick.innerHTML = `<div class="rpk-head">${esc(head)}<span>${P.sym === '@' ? (P.q ? 'best matches' : 'most recent') + ' · ←/→ to switch' : P.mode === 'explain' ? 'type a code or words' : 'type to filter'}</span></div>${tabs}<div class="rpk-list${P.loading && P.items.length ? ' loading' : ''}">${list}</div>`;
+    pick.classList.remove('hidden');
+    pick.querySelector('.rpk-item.on')?.scrollIntoView({ block: 'nearest' });
+  }
+  function closePick() { P = null; clearTimeout(pickT); seq++; pick.classList.add('hidden'); }
+  const switchTab = (k) => { if (!P || P.sym !== '@') return; tab = k; P.i = 0; P.tab = k; openPick(); };
+  function choose(i) {
+    const it = P?.items[i];
+    if (!it) return;
+    // take out what was typed (@diw…, /expl…)
+    const before = input.value.slice(0, P.start), after = input.value.slice(input.selectionStart).replace(/^\s+/, '');
+    if (it.type === 'command' && it.more) { // /explain: now pick the code
+      input.value = before + '/explain ' + after;
+      const c = before.length + 9;
+      input.setSelectionRange(c, c);
+      if (!AS.refs.some((r) => r.type === 'command' && r.id === 'explain')) AS.refs.push({ type: 'command', id: 'explain', label: '/explain' });
+      renderRefs();
+      return openPick();
+    }
+    // one space where the word was (none at the start)
+    const gap = before && after && !/\s$/.test(before) ? ' ' : '';
+    input.value = before + gap + after;
+    input.setSelectionRange(before.length + gap.length, before.length + gap.length);
+    if (!AS.refs.some((r) => r.type === it.type && r.id === it.id)) AS.refs.push({ type: it.type, id: it.id, label: it.label, ...(it.phone ? { phone: it.phone } : {}), ...(it.color ? { color: it.color } : {}), ...(it.detail ? { detail: it.detail } : {}) });
+    closePick();
+    renderRefs();
+    autosize();
+    input.focus();
+  }
+  input.addEventListener('input', () => openPick());
+  input.addEventListener('click', () => openPick());
+  input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) closePick(); }, 150));
+  pick.addEventListener('mousedown', (e) => e.preventDefault()); // keep the caret in the box
+  pick.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-tab]');
+    if (t) return switchTab(t.dataset.tab);
+    const b = e.target.closest('.rpk-item');
+    if (b) choose(Number(b.dataset.i));
+  });
+  input.addEventListener('keydown', (e) => {
+    if (!P || pick.classList.contains('hidden')) {
+      // Backspace at the very start takes off the last pill
+      if (e.key === 'Backspace' && !input.selectionStart && !input.selectionEnd && AS.refs.length) { AS.refs.pop(); renderRefs(); }
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopImmediatePropagation(); P.i = (P.i + (e.key === 'ArrowDown' ? 1 : -1) + P.items.length) % Math.max(1, P.items.length); drawPick(); }
+    else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && P.sym === '@') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      const k = TABS.findIndex(([x]) => x === P.tab), n = TABS.length;
+      switchTab(TABS[(k + (e.key === 'ArrowRight' ? 1 : -1) + n) % n][0]);
+    }
+    else if ((e.key === 'Enter' || e.key === 'Tab') && P.items.length) { e.preventDefault(); e.stopImmediatePropagation(); choose(P.i); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closePick(); }
+  }, true);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
@@ -178,8 +350,10 @@
   });
   $('#composer').addEventListener('submit', (e) => {
     e.preventDefault();
-    const text = input.value.trim();
-    if (!text || AS.busy) return;
+    let text = input.value.trim();
+    if ((!text && !AS.refs.length) || AS.busy) return;
+    // just pills (say "/overview"): their names are the message
+    if (!text) text = AS.refs.map((r) => r.label).join(' ');
     send({ text });
   });
   $('#cmpFile').addEventListener('change', (e) => { attach(e.target.files); e.target.value = ''; });
@@ -269,7 +443,7 @@
     greet();
     for (const h of AS.orbs) h.destroy();
     AS.orbs.clear();
-    Object.assign(AS, { sessionId: null, pending: [], files: new Map(), openQuestion: null, openPlans: new Map() });
+    Object.assign(AS, { sessionId: null, pending: [], files: new Map(), openQuestion: null, openPlans: new Map(), refs: [] });
     $('#asThread').innerHTML = '';
     setActive(false);
     renderPending();
@@ -316,13 +490,18 @@
     else setActive(true);
     if (!AS.chatId && $('#asTitle').classList.contains('muted')) setTitle(String(shown ?? text).replace(/\s+/g, ' ').trim().slice(0, 70));
     const files = AS.pending.slice();
+    const refs = AS.refs.slice();
     const thread = $('#asThread');
 
     // Anything left waiting is now settled by this message.
     if (AS.openQuestion && answer == null) resolveQuestion(AS.openQuestion.el, null, text);
     for (const [, p] of AS.openPlans) if (p.plan.status === 'pending') { p.plan.status = 'superseded'; renderPlan(p.el, p.plan); }
 
-    thread.insertAdjacentHTML('beforeend', `<div class="msg-user">${files.length ? `<div class="mu-files">${groupsOf(files).map((g) => fileChip(g, false)).join('')}</div>` : ''}<div class="mu-bubble">${esc(shown ?? text)}</div></div>`);
+    const shownText = String(shown ?? text);
+    const onlyPills = refs.length && shownText === refs.map((r) => r.label).join(' ');
+    thread.insertAdjacentHTML('beforeend', `<div class="msg-user">${files.length ? `<div class="mu-files">${groupsOf(files).map((g) => fileChip(g, false)).join('')}</div>` : ''}${refs.length ? `<div class="mu-refs">${refs.map((r) => pillHtml(r, false)).join('')}</div>` : ''}${onlyPills ? '' : `<div class="mu-bubble">${esc(shownText)}</div>`}</div>`);
+    AS.refs = [];
+    renderRefs();
     LA.hydrate(thread);
     thread.scrollTop = thread.scrollHeight;
     input.value = '';
@@ -341,7 +520,7 @@
       }
       AS.pending = [];
       renderPending();
-      await stream({ sessionId: AS.sessionId, text, answer, shown: shown ?? undefined, senderId: $('#cmpSender').value || undefined }, (ev) => onEvent(turn, ev));
+      await stream({ sessionId: AS.sessionId, text, answer, shown: shown ?? undefined, senderId: $('#cmpSender').value || undefined, refs }, (ev) => onEvent(turn, ev));
     } catch (e) {
       turn.stopSteps();
       if (e.status === 412) {
@@ -1197,7 +1376,9 @@
     msgs.forEach((m, i) => {
       if (m.role === 'user') {
         const files = (m.files || []).map((f) => `<span class="file-chip static">${icon('file-spreadsheet', 16)}<span class="fc-text"><span class="fc-name">${esc(f.sheet ? `${f.name} · ${f.sheet}` : f.name)}</span><span class="fc-meta">${(f.rows || 0).toLocaleString()} rows</span></span></span>`).join('');
-        thread.insertAdjacentHTML('beforeend', `<div class="msg-user">${files ? `<div class="mu-files">${files}</div>` : ''}${m.text ? `<div class="mu-bubble">${esc(m.text)}</div>` : ''}</div>`);
+        const pills = (m.refs || []).map((r) => pillHtml(r, false)).join('');
+        const onlyPills = m.refs?.length && m.text === m.refs.map((r) => r.label).join(' ');
+        thread.insertAdjacentHTML('beforeend', `<div class="msg-user">${files ? `<div class="mu-files">${files}</div>` : ''}${pills ? `<div class="mu-refs">${pills}</div>` : ''}${m.text && !onlyPills ? `<div class="mu-bubble">${esc(m.text)}</div>` : ''}</div>`);
         return;
       }
       const el = document.createElement('div');
