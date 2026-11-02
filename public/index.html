@@ -131,6 +131,7 @@
         <label class="inline">Template <select id="fTemplate">
             <option value="">All templates</option>
           </select></label>
+        <label class="inline f-tests hidden" id="fTests"></label>
         <button class="btn quiet sm hidden" id="fReset">Reset filters</button>
         <span class="filter-note" id="fNote"></span>
       </div>
@@ -404,6 +405,9 @@
               id="spPhone"></select></label>
           <button class="tool" id="spExport" title="Download this sheet, with your edits, as CSV" data-icon="download"
             data-icon-size="15">Export</button>
+          <button class="tool" id="spSaveContacts" title="Save the people on this sheet to Contacts" data-icon="users"
+            data-icon-size="15">Save contacts</button>
+          <button class="tool sp-ask-ai" id="spAskAi" title="Ask the AI to tidy this sheet: it asks you what counts as valid, then builds a clean one"><svg class="orb-icon" data-orb-icon="15" aria-hidden="true"></svg>Ask AI</button>
           <span class="sp-sep"></span>
           <button class="tool sp-panel-btn" id="spPanelBtn" title="Show or hide the message panel" aria-pressed="true"
             data-icon="panel-right-open" data-icon-size="16">Message</button>
@@ -461,6 +465,10 @@
               <label>Campaign name <span class="opt">optional</span>
                 <input id="campaignName" placeholder="e.g. Diwali offer — Oct 2026" />
               </label>
+              <label class="sp-test" title="A test send is tagged, and left out of the Overview’s numbers">
+                <span class="sp-test-t"><b>This is a test</b><small id="spTestHint">Left out of the Overview’s numbers</small></span>
+                <span class="toggle sm"><input type="checkbox" id="spTest" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span>
+              </label>
             </div>
             <div class="sp-sec">
               <div class="field-label">Send from <span class="opt" id="sendFromHint">split evenly across the numbers you turn on</span>
@@ -491,7 +499,21 @@
                   <div class="bubble" id="preview"><span class="muted">Select a template</span></div>
                 </div>
                 <div class="sub" id="previewNote"></div>
-              <button type="button" class="btn sp-prev-test" id="spPrevTest" data-icon="send" data-icon-size="14">Send a test of this message</button>
+              <div class="sp-testwrap">
+                <button type="button" class="btn sp-prev-test" id="spPrevTest" data-icon="send" data-icon-size="14" aria-expanded="false">Send a test of this message</button>
+                <div class="sp-testpop hidden" id="testPop" role="dialog" aria-label="Send a test of this message">
+                  <b>Send a test</b>
+                  <div class="seg seg-sm sp-test-who" id="testWho" role="radiogroup" aria-label="Send the test to">
+                    <button type="button" data-who="me" class="active" role="radio" aria-checked="true">My number</button>
+                    <button type="button" data-who="lead" role="radio" aria-checked="false">Person in preview</button>
+                  </div>
+                  <div class="row tight">
+                    <input id="testPhone" placeholder="Your number, e.g. 9876543210" inputmode="tel" maxlength="22" />
+                    <button class="btn primary" id="testSend">Send</button>
+                  </div>
+                  <span class="sub" id="testNote"></span>
+                </div>
+              </div>
               </div>
               <div class="sp-sec sp-duo-fields">
                 <div class="field-label">Fill in the variables <span class="opt">from a column, or the same text for
@@ -511,19 +533,6 @@
           <div class="seg" id="sendMode">
             <button data-mode="now" class="active" data-icon="zap" data-icon-size="15">Now</button>
             <button data-mode="schedule" data-icon="clock" data-icon-size="15">Later</button>
-          </div>
-          <div class="sp-testwrap">
-            <button type="button" class="btn quiet" id="testOpen" data-icon="send" data-icon-size="15"
-              aria-expanded="false">Send test</button>
-            <div class="sp-testpop hidden" id="testPop" role="dialog" aria-label="Send a test to yourself">
-              <b>Send a test to yourself</b>
-              <div class="row tight">
-                <input id="testPhone" placeholder="Your number, e.g. 9876543210" inputmode="tel" maxlength="22" />
-                <button class="btn primary" id="testSend">Send</button>
-              </div>
-              <span class="sub" id="testNote">Uses the template and the recipient in the preview, from the first number
-                you turned on.</span>
-            </div>
           </div>
           <input type="datetime-local" id="scheduleAt" class="hidden" />
           <button class="btn primary big" id="sendAll">Send</button>

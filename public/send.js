@@ -194,6 +194,7 @@
       const sh = current();
       if (!sh) return;
       sh.dirty = true;
+      autoPhone(sh);
       if (kind === 'cols' || kind === 'rename' || kind === 'table') { renderPhoneSelect(); renderMapping(); }
       renderChrome();
     },
@@ -205,7 +206,7 @@
     },
     adoptTable(sh, block) {
       const t = toTable(block);
-      Object.assign(sh, { headers: t.headers, rows: t.rows.map((cells) => ({ cells, on: true })), widths: autoWidths(t.headers, t.rows), filters: {}, phoneName: guessPhone(t.headers, t.rows) });
+      Object.assign(sh, { headers: t.headers, rows: t.rows.map((cells) => ({ cells, on: true })), widths: autoWidths(t.headers, t.rows), wraps: [], filters: {}, phoneName: guessPhone(t.headers, t.rows) });
       recheck(sh);
       renderPhoneSelect();
       onTemplateChange();
@@ -218,15 +219,38 @@
     rowMenuExtras: (sh, rows) => {
       const can = rows.filter((r) => r.st !== 'invalid' && r.st !== 'empty');
       if (!can.length) return [];
-      return ['-', { label: can.every((r) => r.on) ? 'Leave out of the send' : 'Include in the send', action: () => { const on = !can.every((r) => r.on); can.forEach((r) => (r.on = on)); grid.redraw(); renderChrome(); } }];
+      const withPhone = rows.filter((r) => r.phone);
+      return ['-', { label: can.every((r) => r.on) ? 'Leave out of the send' : 'Include in the send', action: () => { const on = !can.every((r) => r.on); can.forEach((r) => (r.on = on)); grid.redraw(); renderChrome(); } },
+        ...(withPhone.length ? [{ label: `Save ${withPhone.length === 1 ? 'as a contact' : withPhone.length.toLocaleString() + ' as contacts'}`, action: () => saveContacts(withPhone) }] : [])];
     },
     find: () => openFind(),
     notify: (m) => toast(m),
   });
   const otherHas = (sh, name) => SP.sheets.some((x) => x !== sh && x.included && x.headers.includes(name));
 
+  // The phone column follows the data until someone picks it: as numbers are typed or pasted into a column, that
+  // column becomes the phone column (the picker flashes and says so). No column that looks like numbers yet, with data
+  // in the sheet: the picker asks for one. Picking it yourself (the picker, or a column's menu) ends the guessing.
+  function autoPhone(sh) {
+    if (sh.phonePicked) return;
+    const rows = sh.rows.map((r) => r.cells);
+    const g = guessPhone(sh.headers, rows);
+    const hasData = rows.some((r) => r.some((v) => String(v ?? '').trim()));
+    if (g && g !== sh.phoneName) {
+      sh.phoneName = g;
+      recheck(sh);
+      renderPhoneSelect();
+      grid.redraw();
+      const pick = $('#spPhone').closest('.sp-phone');
+      pick.classList.remove('flash'); void pick.offsetWidth; pick.classList.add('flash');
+      toast(`Phone numbers found in “${g}”: sending to that column`);
+    }
+    $('#spPhone').closest('.sp-phone').classList.toggle('needs', hasData && !sh.phoneName);
+  }
+
   function setPhone(name) {
     const sh = current();
+    sh.phonePicked = Boolean(name);
     sh.phoneName = name;
     recheck(sh);
     renderPhoneSelect();
@@ -353,7 +377,9 @@
 
   $('#spBlank').addEventListener('click', () => {
     const headers = ['phone', 'name'];
-    SP.sheets.push(makeSheet({ name: `Sheet ${SP.sheets.length + 1}`, headers, rows: Array.from({ length: 40 }, () => ['', '']) }));
+    const sh = makeSheet({ name: `Sheet ${SP.sheets.length + 1}`, headers, rows: Array.from({ length: 40 }, () => ['', '']) });
+    sh.phoneName = 'phone'; // by its title until there's data (then it follows the numbers: autoPhone)
+    SP.sheets.push(sh);
     activate(SP.sheets.length - 1);
     grid.select(0, 0);
     toast('Blank sheet ready · type, or paste from Excel or Google Sheets');
@@ -374,6 +400,9 @@
   function renderPhoneSelect() {
     const sh = current();
     $('#spPhone').innerHTML = sh ? `${sh.phoneName ? '' : '<option value="">— choose —</option>'}${sh.headers.map((h) => `<option ${h === sh.phoneName ? 'selected' : ''}>${esc(h)}</option>`).join('')}` : '';
+    const pick = $('#spPhone').closest('.sp-phone');
+    pick.classList.toggle('needs', Boolean(sh && !sh.phoneName && sh.rows.some((r) => r.st !== 'empty')));
+    pick.title = pick.classList.contains('needs') ? 'Choose the column with the WhatsApp numbers' : 'The column with the WhatsApp numbers';
   }
   $('#spPhone').addEventListener('change', (e) => setPhone(e.target.value));
   $('#spUndo').addEventListener('click', () => { grid.undo(); grid.focus(); });
@@ -411,6 +440,112 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
+  // --- Save as contacts -----------------------------------------------------------------
+  // The people on this sheet into Contacts (matched by number, so saving again updates them): everyone who'll get the
+  // message, every valid number, or just the rows picked. Name / email / company from the matching columns, the
+  // rest as extra details if wanted, and tags for everyone saved.
+  async function saveContacts(picked = null) {
+    const sh = current();
+    if (!sh) return;
+    const book = await api('/contacts');
+    const existing = new Set(book.contacts.map((c) => c.phone));
+    const guess = (re, not) => sh.headers.find((h) => re.test(h) && !(not && not.test(h))) || '';
+    const map = {
+      name: guess(/^(full[ _-]?)?name$|contact name|customer|^name\b/i) || guess(/name/i, /company|business|file|user ?name|campaign|ad|form/i),
+      email: guess(/e-?mail/i),
+      company: guess(/^(company|company[ _-]?name|business[ _-]?name|organi[sz]ation|firm|brand|shop[ _-]?name)$/i),
+    };
+    const sets = {
+      send: sh.rows.filter((r) => r.phone && r.on && (r.st === 'valid' || r.st === 'duplicate')),
+      valid: sh.rows.filter((r) => r.phone),
+      ...(picked ? { picked } : {}),
+    };
+    const S = { which: picked ? 'picked' : 'send', extra: true, tags: new Set() };
+    const label = { send: 'Getting this message', valid: 'Every valid number', picked: 'Selected rows' };
+    const uniq = (rows) => [...new Map(rows.map((r) => [r.phone, r])).values()];
+    const body = openModal('Save as contacts', `
+      <p class="sub ib-modal-sub">From <b>${esc(sh.name)}</b>. People are matched by number, so anyone already in Contacts is updated, not duplicated.</p>
+      <div class="field-label">Who to save</div>
+      <div class="seg sc-which" id="scWhich" role="radiogroup" aria-label="Who to save">${Object.keys(sets).map((k) => `<button type="button" data-which="${k}" class="${k === S.which ? 'active' : ''}" role="radio" aria-checked="${k === S.which}">${label[k]} <span class="opt">${uniq(sets[k]).length.toLocaleString()}</span></button>`).join('')}</div>
+      <div class="ci-map">${['name', 'email', 'company'].map((k) => `<label>${k[0].toUpperCase() + k.slice(1)}<select data-map="${k}"><option value="">—</option>${sh.headers.filter((h) => h !== sh.phoneName).map((h) => `<option ${h === map[k] ? 'selected' : ''}>${esc(h)}</option>`).join('')}</select></label>`).join('')}</div>
+      <label class="ci-check"><input type="checkbox" class="cb" id="scExtra" checked /> Keep other columns as extra details</label>
+      <div class="field-label">Tag everyone saved</div>
+      <div class="ct-pick" id="scTags">${book.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)}" data-pick="${t.id}"><i></i>${esc(t.name)}</button>`).join('')}</div>
+      <input id="scNewTags" placeholder="New tags, separated by commas (e.g. ${esc(sh.name.replace(/\.(csv|tsv|txt|xlsx?)$/i, ''))})" />
+      <div class="modal-actions"><span class="ci-summary" id="scSummary"></span><button class="btn quiet" id="scCancel">Cancel</button><button class="btn primary" id="scGo">Save</button></div>`);
+    body.closest('.modal-box').classList.add('ci-box');
+    const collect = () => {
+      const at = (h) => sh.headers.indexOf(h);
+      const used = new Set([sh.phoneName, ...Object.values(map)].filter(Boolean));
+      return uniq(sets[S.which]).map((r) => {
+        const get = (k) => (map[k] ? String(r.cells[at(map[k])] ?? '').trim() : '');
+        const extra = S.extra ? Object.fromEntries(sh.headers.filter((h) => !used.has(h) && String(r.cells[at(h)] ?? '').trim()).map((h) => [h, String(r.cells[at(h)]).trim()])) : {};
+        return { phone: r.phone, name: get('name'), email: get('email'), company: get('company'), extra };
+      });
+    };
+    const summary = () => {
+      const rows = collect(), fresh = rows.filter((r) => !existing.has(r.phone)).length;
+      $('#scSummary', body).textContent = rows.length ? `${rows.length.toLocaleString()} people · ${fresh.toLocaleString()} new, ${(rows.length - fresh).toLocaleString()} already saved` : 'Nobody with a valid number here';
+      $('#scGo', body).disabled = !rows.length;
+      $('#scGo', body).textContent = rows.length ? `Save ${rows.length.toLocaleString()}` : 'Save';
+    };
+    body.addEventListener('change', (e) => {
+      const t = e.target;
+      if (t.dataset.map) map[t.dataset.map] = t.value;
+      if (t.id === 'scExtra') S.extra = t.checked;
+      summary();
+    });
+    $('#scWhich', body).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-which]');
+      if (!b) return;
+      S.which = b.dataset.which;
+      $$('#scWhich [data-which]', body).forEach((x) => { x.classList.toggle('active', x === b); x.setAttribute('aria-checked', String(x === b)); });
+      summary();
+    });
+    Motion.segs(body);
+    $('#scTags', body).addEventListener('click', (e) => {
+      const b = e.target.closest('[data-pick]');
+      if (!b) return;
+      S.tags.has(b.dataset.pick) ? S.tags.delete(b.dataset.pick) : S.tags.add(b.dataset.pick);
+      b.classList.toggle('active');
+    });
+    $('#scCancel', body).onclick = closeModal;
+    $('#scGo', body).onclick = (e) => guard(async () => {
+      const newTags = $('#scNewTags', body).value.split(',').map((x) => x.trim()).filter(Boolean);
+      const r = await api('/contacts/import', { method: 'POST', body: { rows: collect(), tags: [...S.tags], newTags } });
+      closeModal();
+      toast(`Saved to Contacts: ${r.added.toLocaleString()} new, ${r.updated.toLocaleString()} updated${r.invalid ? `, ${r.invalid} skipped` : ''}`);
+    }, e.currentTarget);
+    summary();
+  }
+  // --- Ask AI: tidy the sheet(s) in the Assistant ---------------------------------------
+  // The sheets going into this send (or just this one), as they are now with your edits, are attached in the Assistant
+  // with a prompt drafted for you to check and send. The Assistant builds a clean sheet (build_sheet) and asks when
+  // it isn't sure what counts as valid; its result opens back here with "Open in Send".
+  $('#spAskAi').addEventListener('click', () => {
+    const sh = current();
+    if (!sh || !window.Assistant?.attachTables) return;
+    const list = SP.sheets.filter((x) => (x === sh || x.included) && x.rows.some((r) => r.st !== 'empty'));
+    if (!list.length) return toast('Nothing to tidy yet: this sheet has no rows. Paste or open a contact list first.', 'error');
+    const tables = list.map((x) => ({
+      file: x.file || x.name, sheet: x.file && x.file !== x.name ? x.name : '', name: x.file && x.file !== x.name ? `${x.file} · ${x.name}` : x.name,
+      headers: x.headers.slice(), rows: x.rows.filter((r) => r.st !== 'empty').map((r) => r.cells.map((v) => String(v ?? ''))), phone: x.phoneName || '',
+    }));
+    const many = tables.length > 1;
+    const prompt = `Clean up ${many ? `these ${tables.length} sheets and combine them into one` : 'this sheet'} so it's ready to send: keep only real contacts with a valid WhatsApp number, tidy the names and other columns, drop junk rows (titles, notes, test entries, blanks) and merge duplicates. Before you build it, ask me anything you're unsure about, like which column has the numbers or which rows count as valid.`;
+    showTab('assistant');
+    window.Assistant.attachTables(tables, prompt);
+  });
+
+  $('#spSaveContacts').addEventListener('click', () => {
+    const sh = current();
+    if (!sh) return;
+    if (!sh.rows.some((r) => r.phone)) return toast('No valid numbers on this sheet to save yet.', 'error');
+    // several rows selected in the grid: offer just those too
+    const sel = grid.selectedRows().filter((r) => r.phone);
+    guard(() => saveContacts(sel.length > 1 ? sel : null));
+  });
+
   $('#spPanelBtn').addEventListener('click', () => {
     SP.panel = !SP.panel;
     try { localStorage.setItem('sendPanel', SP.panel ? '1' : '0'); } catch {}
@@ -843,6 +978,10 @@
       ex.classList.toggle('is-off', none);
       ex.setAttribute('aria-disabled', String(none));
       ex.title = none ? 'Nothing to export yet: this sheet has no rows' : 'Download this sheet, with your edits, as CSV';
+      const sv = $('#spSaveContacts'), noPhones = !sh.rows.some((r) => r.phone);
+      sv.classList.toggle('is-off', noPhones);
+      sv.setAttribute('aria-disabled', String(noPhones));
+      sv.title = noPhones ? 'No valid numbers on this sheet yet' : 'Save the people on this sheet to Contacts';
       $('#spUndo').disabled = !grid.canUndo();
       $('#spRedo').disabled = !grid.canRedo();
     } else $('#spMeta').textContent = 'Open a contact list to start';
@@ -859,19 +998,22 @@
 
   // Move shifted rows back under the right headers, as one undo step.
   function fixShifted(sh, groups) {
-    const saved = { headers: sh.headers.slice(), widths: sh.widths.slice(), cells: sh.rows.map((r) => r.cells.slice()), phone: sh.phoneName };
+    const saved = { headers: sh.headers.slice(), widths: sh.widths.slice(), wraps: (sh.wraps || []).slice(), cells: sh.rows.map((r) => r.cells.slice()), phone: sh.phoneName };
     const fixed = realignShiftedRows(saved.headers, saved.cells, groups);
     const widthOf = new Map(saved.headers.map((h, i) => [h, saved.widths[i]]));
+    const wrapOf = new Map(saved.headers.map((h, i) => [h, Boolean(saved.wraps[i])])); // wrap follows the column by name
     grid.apply({
       kind: 'cols',
       do() {
         sh.headers = fixed.headers.slice();
         sh.widths = fixed.headers.map((h) => widthOf.get(h) ?? 160);
+        sh.wraps = fixed.headers.map((h) => wrapOf.get(h) || false);
         sh.rows.forEach((r, i) => { r.cells = fixed.rows[i].slice(); });
       },
       undo() {
         sh.headers = saved.headers.slice();
         sh.widths = saved.widths.slice();
+        sh.wraps = saved.wraps.slice();
         sh.rows.forEach((r, i) => { r.cells = saved.cells[i].slice(); });
         sh.phoneName = saved.phone;
       },
@@ -944,10 +1086,23 @@
     }
   });
 
+  // "This is a test": suggested (switched on) for a handful of people or a name with "test" in it, until you set it
+  let testTouched = false;
+  function suggestTest(count) {
+    const name = $('#campaignName').value, few = count > 0 && count <= 5, named = /test/i.test(name);
+    if (!testTouched) $('#spTest').checked = few || named;
+    $('#spTestHint').textContent = !testTouched && (few || named)
+      ? `Suggested: ${named ? 'the name says test' : `only ${count} ${count === 1 ? 'person' : 'people'}`} · left out of the Overview’s numbers`
+      : 'Left out of the Overview’s numbers';
+  }
+  $('#spTest').addEventListener('change', () => { testTouched = true; suggestTest(recipients().list.length); });
+  $('#campaignName').addEventListener('input', () => suggestTest(recipients().list.length));
+
   function renderSummary() {
     Draft.save();
     const { list, skip, sheets } = recipients();
     const count = list.length;
+    suggestTest(count);
     const nums = state.selectedSenders.size;
     const t = currentTemplate();
     const emptyFixed = t?.variables.find((v) => { const m = SP.mapping[v.key]; return !m || (m.type === 'fixed' && !String(m.value).trim()); });
@@ -1015,21 +1170,51 @@
     renderSummary();
   });
 
-  // Send test: a small pop-up from the bottom bar, available at any step.
-  try { $('#testPhone').value = localStorage.getItem('testPhone') || ''; } catch {}
-  const closeTest = () => { $('#testPop').classList.add('hidden'); $('#testOpen').setAttribute('aria-expanded', 'false'); };
-  $('#testOpen').addEventListener('click', (e) => {
+  // Send a test (under the preview): to your own number (remembered), or to the person shown in the preview, with
+  // their values: exactly the message they'd get.
+  let myTestPhone = '';
+  try { myTestPhone = localStorage.getItem('testPhone') || ''; } catch {}
+  let testWho = 'me';
+  const leadOf = () => {
+    const x = previewTarget();
+    if (!x?.obj?.__phone) return null;
+    const nameKey = Object.keys(x.obj).find((k) => /^(full[ _-]?)?name$|^name\b|contact name|customer/i.test(k)) || Object.keys(x.obj).find((k) => /name/i.test(k) && !/company|business|file|user ?name/i.test(k));
+    return { phone: x.obj.__phone, name: nameKey ? x.obj[nameKey] : '' };
+  };
+  function renderTest() {
+    const t = currentTemplate(), lead = leadOf(), input = $('#testPhone');
+    $$('#testWho button').forEach((b) => {
+      const on = b.dataset.who === testWho;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', String(on));
+      if (b.dataset.who === 'lead') b.disabled = !lead;
+    });
+    Motion.segs($('#testPop'));
+    if (testWho === 'lead' && lead) {
+      input.value = '+' + lead.phone;
+      input.readOnly = true;
+      $('#testNote').innerHTML = !t ? 'Choose a template first (Setup).' : `Sends “${esc(t.name)}” to <b>${esc(lead.name || '+' + lead.phone)}</b> with their values, from the first number you turned on. <span class="sp-test-real">This is a real message to them.</span>`;
+    } else {
+      input.readOnly = false;
+      if (input.value.startsWith('+') && lead && input.value === '+' + lead.phone) input.value = myTestPhone;
+      if (!input.value) input.value = myTestPhone;
+      $('#testNote').textContent = t ? `Sends “${t.name}” as the person in the preview would get it, from the first number you turned on.` : 'Choose a template first (Setup).';
+    }
+  }
+  const closeTest = () => { $('#testPop').classList.add('hidden'); $('#spPrevTest').setAttribute('aria-expanded', 'false'); };
+  $('#spPrevTest').addEventListener('click', (e) => {
     e.stopPropagation();
     const open = $('#testPop').classList.toggle('hidden') === false;
-    $('#testOpen').setAttribute('aria-expanded', String(open));
-    if (open) {
-      const t = currentTemplate();
-      $('#testNote').textContent = t ? `Sends “${t.name}” with the values of the recipient in the preview, from the first number you turned on.` : 'Choose a template first (Setup).';
-      $('#testPhone').focus();
-    }
+    $('#spPrevTest').setAttribute('aria-expanded', String(open));
+    if (open) { renderTest(); if (testWho === 'me') $('#testPhone').focus(); else $('#testSend').focus(); }
   });
-  // The same pop-up, opened from under the preview.
-  $('#spPrevTest').addEventListener('click', (e) => { e.stopPropagation(); if ($('#testPop').classList.contains('hidden')) $('#testOpen').click(); else $('#testPhone').focus(); });
+  $('#testWho').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-who]');
+    if (!b || b.disabled) return;
+    if (testWho === 'me') myTestPhone = $('#testPhone').value;
+    testWho = b.dataset.who;
+    renderTest();
+  });
   $('#testPhone').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#testSend').click(); if (e.key === 'Escape') closeTest(); });
   document.addEventListener('click', (e) => { if (!e.target.closest('.sp-testwrap')) closeTest(); });
 
@@ -1046,7 +1231,7 @@
       for (const v of empty) values[v.key] = 'test';
       const phone = $('#testPhone').value;
       if (phoneError(phone)) { $('#testPhone').focus(); throw new Error(phoneError(phone)); }
-      try { localStorage.setItem('testPhone', phone); } catch {}
+      if (testWho === 'me') { myTestPhone = phone; try { localStorage.setItem('testPhone', phone); } catch {} }
       const r = await api('/send/test', { method: 'POST', body: { senderId, templateId: t.id, phone, values } });
       toast(`${r.demo ? '(Demo) ' : ''}Test sent to +${r.to}${empty.length ? ` · ${empty.length} empty variable${empty.length > 1 ? 's' : ''} sent as “test”` : ''}`);
       closeTest();
@@ -1075,10 +1260,11 @@
       if (!ok) return;
       const c = await api('/campaigns', {
         method: 'POST',
-        body: { name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true },
+        body: { name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, test: $('#spTest').checked },
       });
       toast(scheduledAt ? `Scheduled ${c.total} messages for ${new Date(scheduledAt).toLocaleString()}` : `Campaign started — ${c.total} messages queued`);
       $('#campaignName').value = '';
+      testTouched = false;
       showTab('campaigns');
       openCampaign(c.id);
     }, e.target)
@@ -1147,7 +1333,7 @@
     const pack = () => ({
       v: 1, savedAt: Date.now(), active: SP.active, mapping: SP.mapping,
       sheets: SP.sheets.map((sh) => ({
-        name: sh.name, file: sh.file, headers: sh.headers, widths: sh.widths, phoneName: sh.phoneName, included: sh.included, dirty: sh.dirty,
+        name: sh.name, file: sh.file, headers: sh.headers, widths: sh.widths, wraps: sh.wraps, phoneName: sh.phoneName, included: sh.included, dirty: sh.dirty,
         rows: sh.rows.map((r) => (r.pick?.length ? [r.cells, r.on ? 1 : 0, r.pick] : [r.cells, r.on ? 1 : 0])),
         filters: Object.fromEntries(Object.entries(sh.filters || {}).map(([c, x]) => [c, { text: x.text || '', values: x.values ? [...x.values] : null }])),
       })),
@@ -1171,7 +1357,7 @@
       restoring = true;
       try {
         SP.sheets = d.sheets.map((x) => {
-          const sh = { id: nextId++, name: x.name, file: x.file, headers: x.headers, widths: x.widths, phoneName: x.phoneName, included: x.included, dirty: x.dirty,
+          const sh = { id: nextId++, name: x.name, file: x.file, headers: x.headers, widths: x.widths, wraps: x.wraps || [], phoneName: x.phoneName, included: x.included, dirty: x.dirty,
             rows: x.rows.map(([cells, on, pick]) => ({ cells, on: Boolean(on), ...(pick ? { pick } : {}) })),
             filters: Object.fromEntries(Object.entries(x.filters || {}).map(([c, f]) => [c, { text: f.text, ...(f.values ? { values: new Set(f.values) } : {}) }])) };
           recheck(sh);

@@ -65,7 +65,9 @@
     ['all', 'All', () => true],
     ['completed', 'Completed', (c) => c.status === 'completed'],
     ['stopped', 'Stopped', (c) => c.status === 'stopped' || c.status === 'cancelled'],
+    ['tests', 'Tests', (c) => Boolean(c.test)], // shown only when there are some
   ];
+  const TEST_PILL = '<span class="pill test" title="A test send: left out of the Overview’s numbers">Test</span>';
   const SORTS = {
     new: ['Newest', (a, b) => String(b.startedAt || b.createdAt).localeCompare(String(a.startedAt || a.createdAt))],
     old: ['Oldest', (a, b) => String(a.startedAt || a.createdAt).localeCompare(String(b.startedAt || b.createdAt))],
@@ -110,17 +112,19 @@
 
     // The last 30 days, in the current mode (the server keeps demo and live campaigns apart).
     const since = Date.now() - 30 * 86400000;
-    const recent = CP.list.filter((c) => new Date(c.startedAt || c.createdAt).getTime() >= since && Boolean(c.demo) === Boolean(state.settings.demoMode));
+    // (tests left out, as on the Overview)
+    const inWindow = CP.list.filter((c) => new Date(c.startedAt || c.createdAt).getTime() >= since && Boolean(c.demo) === Boolean(state.settings.demoMode));
+    const recent = inWindow.filter((c) => !c.test), testsOut = inWindow.length - recent.length;
     const T = recent.reduce((a, c) => { const s = c.stats || {}; a.sent += sentOf(s); a.del += deliveredOf(s); a.read += s.read || 0; a.rep += c.replies || 0; a.leads += c.leads || 0; return a; }, { sent: 0, del: 0, read: 0, rep: 0, leads: 0 });
 
     el.innerHTML = `
       <div class="section-head"><div><h1>Campaigns</h1>
-        <p class="sub cp-summary">Last 30 days · <b>${T.sent.toLocaleString()}</b> sent · <b>${pctOf(T.del, T.sent)}%</b> delivered · <b>${pctOf(T.read, T.del)}%</b> read · <b>${T.rep.toLocaleString()}</b> repl${T.rep === 1 ? 'y' : 'ies'} · <b>${T.leads.toLocaleString()}</b> lead${T.leads === 1 ? '' : 's'}</p></div>
+        <p class="sub cp-summary">Last 30 days · <b>${T.sent.toLocaleString()}</b> sent · <b>${pctOf(T.del, T.sent)}%</b> delivered · <b>${pctOf(T.read, T.del)}%</b> read · <b>${T.rep.toLocaleString()}</b> repl${T.rep === 1 ? 'y' : 'ies'} · <b>${T.leads.toLocaleString()}</b> lead${T.leads === 1 ? '' : 's'}${testsOut ? ` <span class="cp-tests-out">· ${testsOut} test${testsOut === 1 ? '' : 's'} not counted</span>` : ''}</p></div>
         <div class="row tight cp-head-actions">${state.senders.length > 1 ? `<select id="cpSender" aria-label="Number"><option value="">All numbers</option>${state.senders.map((x) => `<option value="${x.id}" ${x.id === CP.sender ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>` : ''}<button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
       ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
       <div class="cp-tools">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="cpSearch" placeholder="Search name or template" value="${esc(CP.q)}" aria-label="Search campaigns" /></div>
-        <div class="seg" id="cpFilter">${FILTERS.map(([k, label, fn]) => `<button data-f="${k}" class="${k === filter[0] ? 'active' : ''}">${label} <span class="opt">${CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length}</span></button>`).join('')}</div>
+        <div class="seg" id="cpFilter">${FILTERS.filter(([k, , fn]) => k !== 'tests' || k === filter[0] || CP.list.some((c) => !live(c) && c.status !== 'scheduled' && fn(c))).map(([k, label, fn]) => `<button data-f="${k}" class="${k === filter[0] ? 'active' : ''}">${label} <span class="opt">${CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length}</span></button>`).join('')}</div>
         ${DateFilter.button(CP.date, 'cpDate')}
         <button type="button" class="ct-sortbtn" id="cpSortBtn" aria-haspopup="menu" title="Sorted by ${esc(SORTS[CP.sort][0])}. Click to change.">${icon('arrow-up-down', 14)}<span>${esc(SORTS[CP.sort][0])}</span>${icon('chevron-down', 14)}</button>
         <div class="seg seg-icons cp-view" id="cpView" role="radiogroup" aria-label="View">
@@ -178,7 +182,7 @@
     const chip = (c) => {
       const s = c.stats || {}, del = deliveredOf(s);
       const note = live(c) ? 'Sending' : c.status === 'scheduled' ? new Date(c.scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : del ? pctOf(s.read || 0, del) + '% read' : (STATUS_LABEL[c.status] || c.status);
-      return `<button type="button" class="cp-cal-chip ${c.status}" data-open="${c.id}" style="--vt:cp-${c.id};--c:${colorOf(c)}" title="${esc(c.name)} · ${c.total.toLocaleString()} recipients">${miniFolder(c)}<span class="cp-cal-t"><b>${esc(displayName(c))}</b><small>${esc(note)}</small></span></button>`;
+      return `<button type="button" class="cp-cal-chip ${c.status}${c.test ? ' is-test' : ''}" data-open="${c.id}" style="--vt:cp-${c.id};--c:${colorOf(c)}" title="${esc(c.name)} · ${c.total.toLocaleString()} recipients">${miniFolder(c)}<span class="cp-cal-t"><b>${esc(displayName(c))}</b><small>${c.test ? 'Test · ' : ''}${esc(note)}</small></span></button>`;
     };
     let cells = '';
     for (let i = 0; i < weeks * 7; i++) {
@@ -239,7 +243,7 @@
     return `<div class="cp-pin ${isLive ? 'is-live' : 'is-scheduled'}" data-open="${c.id}" style="--c:${colorOf(c)}">
       ${miniFolder(c)}
       <div class="cp-pin-main">
-        <span class="cp-pin-state">${isLive ? '<span class="cp-dot"></span>Sending now' : `${icon('clock', 12)}Scheduled`}${c.demo ? '<span class="pill demo">demo</span>' : ''}</span>
+        <span class="cp-pin-state">${isLive ? '<span class="cp-dot"></span>Sending now' : `${icon('clock', 12)}Scheduled`}${c.demo ? '<span class="pill demo">demo</span>' : ''}${c.test ? TEST_PILL : ''}</span>
         <b title="${esc(c.name)}">${esc(c.name)}</b>
         <span class="cp-pin-sub">${icon('file-text', 13)}<span title="${esc(c.templateName)}">${esc(c.templateName)}</span></span>
       </div>
@@ -278,7 +282,7 @@
     const sent = sentOf(s), del = deliveredOf(s);
     return `<button type="button" class="cp-folder" data-open="${c.id}" style="--c:${colorOf(c)};--vt:cp-${c.id}" title="${esc(c.name)}">
       <span class="cf-tab"></span><span class="cf-paper"></span><span class="cf-body"></span>
-      <span class="cp-folder-top">${c.status !== 'completed' ? `<span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>` : ''}${c.demo ? '<span class="pill demo">demo</span>' : ''}${c.leads ? `<span class="cp-folder-leads">${c.leads} lead${c.leads > 1 ? 's' : ''}</span>` : ''}</span>
+      <span class="cp-folder-top">${c.status !== 'completed' ? `<span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>` : ''}${c.demo ? '<span class="pill demo">demo</span>' : ''}${c.test ? TEST_PILL : ''}${c.leads ? `<span class="cp-folder-leads">${c.leads} lead${c.leads > 1 ? 's' : ''}</span>` : ''}</span>
       <span class="cp-folder-body">
         <b>${esc(displayName(c))}</b>
         <small>${esc(c.templateName)} · ${esc(shortDate(c.startedAt || c.createdAt))}</small>
@@ -305,7 +309,7 @@
     const s = c.stats || {};
     const sent = sentOf(s), del = deliveredOf(s), tried = sent + (s.failed || 0); // delivered out of everyone tried: failures count
     return `<tr data-open="${c.id}" style="--vt:cp-${c.id};--c:${colorOf(c)}">
-      <td><div class="cp-who"><span class="cp-ficon" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span><div class="cp-name"><b title="${esc(c.name)}">${esc(displayName(c))}</b><span>${esc(c.templateName)}${c.demo ? ' · <span class="pill demo">demo</span>' : ''}${c.status !== 'completed' ? ` · <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>` : ''}</span></div></div></td>
+      <td><div class="cp-who"><span class="cp-ficon" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span><div class="cp-name"><b title="${esc(c.name)}">${esc(displayName(c))}</b><span>${esc(c.templateName)}${c.demo ? ' · <span class="pill demo">demo</span>' : ''}${c.test ? ' · ' + TEST_PILL : ''}${c.status !== 'completed' ? ` · <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>` : ''}</span></div></div></td>
       <td class="num">${c.total.toLocaleString()}</td>
       <td><div class="cp-bar" title="${del.toLocaleString()} of ${tried.toLocaleString()} delivered${s.failed ? ` · ${s.failed.toLocaleString()} failed` : ''}"><span><i style="width:${pctOf(del, tried)}%"></i></span><b>${tried ? pctOf(del, tried) + '%' : '—'}</b></div></td>
       <td class="num">${del ? pctOf(s.read || 0, del) + '%' : '—'}</td>
@@ -478,7 +482,7 @@
     $('#cdHead').innerHTML = `
       <button class="btn ghost sm cd-back" data-cd="back">${icon('arrow-left', 15)}Campaigns</button>
       <div class="cd-title">
-        <div class="cd-name">${miniFolder(c)}<div><h1>${esc(c.name)} <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${c.demo ? ' <span class="pill demo">demo</span>' : ''}</h1>
+        <div class="cd-name">${miniFolder(c)}<div><h1>${esc(c.name)} <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${c.demo ? ' <span class="pill demo">demo</span>' : ''}${c.test ? ' ' + TEST_PILL : ''}</h1>
           <p class="sub">Template <code>${esc(c.templateName)}</code> · ${nums.length ? esc(nums.join(', ')) : `${c.senderIds.length} number(s)`} · ${esc(when)}</p></div></div>
         <div class="cd-actions">${primary}
           <button class="btn" data-cd="follow" ${sentOf(s) || s.failed ? '' : 'disabled'}>Follow up ${icon('chevron-down', 14)}</button>
@@ -966,6 +970,14 @@
     const running = live(c);
     Sheet.Menu.open(Math.min(r.left, innerWidth - 240), r.bottom + 4, [
       { label: 'Export CSV', action: () => { location.href = `/api/campaigns/${c.id}/export.csv`; } },
+      // a test send stays listed, but out of the Overview's numbers
+      { label: c.test ? 'Not a test: count it again' : 'Mark as test', action: () => guard(async () => {
+        await api(`/campaigns/${c.id}/test`, { method: 'POST', body: { test: !c.test } });
+        const inList = CP.list.find((x) => x.id === c.id);
+        if (inList) inList.test = !c.test || undefined;
+        toast(c.test ? 'Counted in the Overview again' : 'Marked as a test: left out of the Overview’s numbers');
+        await open(c.id);
+      }) },
       ...(c.status === 'scheduled' ? [{ label: 'Cancel the schedule', danger: true, action: () => guard(async () => {
         if (!(await confirmDialog({ title: 'Cancel the schedule?', message: "It won't send automatically. You can still send it later.", confirmText: 'Cancel schedule', danger: true }))) return;
         await api(`/campaigns/${c.id}/cancel`, { method: 'POST' });

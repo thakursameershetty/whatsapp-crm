@@ -1612,11 +1612,12 @@ body.assistant-open main { padding-bottom: 0; }
 .sg .sg-letters th { top: 0; height: 24px; text-align: center; font: 600 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--faint); letter-spacing: 0.04em; overflow: visible; }
 .sg .sg-names th { top: 24px; height: 32px; color: var(--text); font-weight: 600; cursor: pointer; }
 .sg thead th.on { background: color-mix(in srgb, var(--info) 14%, var(--sheet-head)); color: var(--info); }
-.sg .sg-letters th { position: sticky; }
+.sg .sg-letters th { position: sticky; z-index: 3; } /* above the names row: a column's resize handle reaches down over it */
+.sg .sg-letters th.sg-corner { z-index: 5; } /* the top-left corner stays above every header cell scrolling under it */
 .sg-menu { position: absolute; right: 3px; top: 2px; width: 20px; height: 19px; border: 0; border-radius: 5px; background: none; color: var(--muted); font-size: 10px; line-height: 1; cursor: pointer; opacity: 0; }
 .sg .sg-letters th:hover .sg-menu, .sg .sg-letters th.on .sg-menu { opacity: 1; }
 .sg-menu:hover { background: var(--surface); color: var(--text); }
-.sg-rz { position: absolute; top: 0; right: -3px; bottom: -32px; width: 7px; cursor: col-resize; z-index: 3; touch-action: none; }
+.sg-rz { position: absolute; top: 0; right: -1px; bottom: -32px; width: 7px; cursor: col-resize; z-index: 3; touch-action: none; }
 .sg-rz:hover { background: color-mix(in srgb, var(--info) 45%, transparent); }
 .sg-tag { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 6px; border-radius: 5px; background: var(--info-soft); color: var(--info); vertical-align: -4px; }
 .sg-filtered { margin-left: 6px; color: var(--info); font-size: 12px; }
@@ -1640,9 +1641,12 @@ body.assistant-open main { padding-bottom: 0; }
 .sg td.ph.dup { color: var(--warn); }
 .sg .sg-spacer td { padding: 0; height: auto; box-shadow: none; }
 .sg .sg-none { height: auto; padding: 48px 16px; text-align: center; color: var(--muted); box-shadow: none; white-space: normal; }
-.sg-edit {
-  position: absolute; z-index: 5; margin: 0; padding: 0 8px; border: 0; border-radius: 0; font: 13px Inter, sans-serif;
-  background: var(--surface); color: var(--text); box-shadow: 0 0 0 2px var(--info), 0 6px 18px -6px rgba(16, 24, 32, 0.35) !important;
+/* The cell editor sits exactly on the cell, as in a spreadsheet: same size, font and padding, the selected cell's
+   blue outline, square corners. (!important: the app's general input style would make it a big rounded field.) */
+.sg-wrap .sg-edit, input.sg-edit {
+  position: absolute; z-index: 5; box-sizing: border-box !important; margin: 0 !important; padding: 0 8px !important; min-height: 0 !important;
+  border: 0 !important; border-radius: 0 !important; font: 13px/29px Inter, sans-serif !important; letter-spacing: normal !important;
+  background: var(--surface) !important; color: var(--text); box-shadow: inset 0 0 0 2px var(--info) !important; transition: none !important;
 }
 .sg-edit:focus { outline: 0; }
 
@@ -5085,7 +5089,7 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
    meter track. */
 :root {
   --cx-lead: var(--good); --cx-replied: var(--info); --cx-read: var(--chart); --cx-delivered: var(--chart-2);
-  --cx-sent: var(--chart-3); --cx-failed: var(--danger); --cx-pending: var(--meter-track);
+  --cx-sent: var(--chart-3); --cx-failed: color-mix(in oklch, var(--danger) 62%, var(--surface)); /* failed areas: a muted red (the full alert red stays on the ! marks and error text) */ --cx-pending: var(--meter-track);
 }
 [data-sw="lead"] { background: var(--cx-lead); } [data-sw="replied"] { background: var(--cx-replied); }
 [data-sw="read"] { background: var(--cx-read); } [data-sw="delivered"] { background: var(--cx-delivered); }
@@ -5309,3 +5313,55 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .chart-tip .tt-body { max-width: 260px; margin-top: 4px; font-size: 12px; color: var(--text); line-height: 1.45; }
 .chart-tip .tt-note { max-width: 260px; line-height: 1.45; }
 .tool.is-off { opacity: 0.35; }
+/* between the stacked chart and the rate line, the rate chart fades rather than snapping */
+.chart svg.d3chart { transition: opacity 0.35s ease; }
+@media (prefers-reduced-motion: reduce) { .chart svg.d3chart { transition: none; } }
+/* Test campaigns: a quiet grey tag, a slightly faded folder, and the note in the Campaigns summary */
+.pill.test { background: var(--sunk); color: var(--muted); box-shadow: inset 0 0 0 1px var(--hair); }
+.cp-folder:has(.pill.test) .cf-body, .cp-folder:has(.pill.test) .cf-tab { filter: saturate(0.35); }
+.cp-cal-chip.is-test { opacity: 0.7; }
+.cp-tests-out { color: var(--faint); }
+.f-tests { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.f-tests.hidden { display: none; }
+.f-tests .opt { font-size: 11.5px; color: var(--faint); margin-left: -4px; }
+.sp-test { display: flex !important; align-items: center; justify-content: space-between; gap: 12px; margin-top: 2px; cursor: pointer; }
+.sp-test-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sp-test-t b { font-size: 13px; font-weight: 600; color: var(--text); }
+.sp-test-t small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.sc-which { margin: 0 0 16px; }
+.sc-which .opt { margin-left: 4px; font-variant-numeric: tabular-nums; }
+.ci-box #scTags { margin-top: 2px; }
+.ci-box .ci-check + .field-label { margin-top: 14px; }
+.ci-box .ci-map { margin-bottom: 12px; }
+/* Send page: the phone-column picker flashes when it follows the data, and asks when there's data but no column */
+.sp-phone.flash select { animation: sp-flash 1.4s var(--ease-out, ease-out); }
+@keyframes sp-flash { 0%, 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--tick-read) 45%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.sp-phone.needs { color: var(--warn); }
+.sp-phone.needs select { box-shadow: 0 0 0 1.5px var(--warn); }
+.sp-ask-ai .orb-icon { width: 15px; height: 15px; }
+@media (prefers-reduced-motion: reduce) { .sp-phone.flash select { animation: none; } }
+/* The ? beside a field's name: what it is and where to find it, in the app's dark tooltip */
+.sf-help { position: relative; display: inline-grid; place-items: center; width: 15px; height: 15px; margin: 0 4px 0 1px; border-radius: 50%; background: var(--sunk); box-shadow: inset 0 0 0 1px var(--hair); color: var(--muted); font: 700 10px/1 Inter, sans-serif; vertical-align: 1px; cursor: help; }
+.sf-help:hover, .sf-help:focus-visible { color: var(--text); background: var(--surface); outline: 0; }
+.help-tip { position: fixed; z-index: 80; max-width: 300px; padding: 9px 12px; border-radius: 9px; background: #1c1f22; color: #fff; font: 500 12.5px/1.5 Inter, sans-serif; box-shadow: 0 8px 24px rgba(16, 24, 32, 0.22); pointer-events: none; animation: help-in 0.14s var(--ease-out, ease-out); }
+.help-tip.hidden { display: none; }
+.help-tip::after { content: ''; position: absolute; left: var(--arrow-x, 12px); bottom: -5px; width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
+.help-tip.below::after { bottom: auto; top: -5px; }
+@keyframes help-in { from { opacity: 0; transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .help-tip { animation: none; } }
+/* Insert between rows / columns: a small round + centred on the line under the pointer */
+.sg-ins { position: absolute; z-index: 6; width: 16px; height: 16px; margin: -8px 0 0 -8px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--info); color: #fff; box-shadow: 0 0 0 2px var(--surface), 0 2px 6px rgba(16, 24, 32, 0.25); cursor: pointer; animation: sg-ins-in 0.14s var(--ease-out, ease-out); }
+.sg-ins.hidden { display: none; }
+.sg-ins:hover { transform: scale(1.12); }
+@keyframes sg-ins-in { from { transform: scale(0.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sg-ins { animation: none; } }
+/* Wrapped columns: the text wraps inside the cell (up to 8 lines), and a tall row's cells sit at the top */
+.sg tr.tall > td, .sg tr.tall > th { vertical-align: top; }
+.sg td.wrap { white-space: normal; text-overflow: clip; }
+.sg td.wrap .sg-wt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden; padding: 6px 0; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Send a test: opens under the preview's button, the width of the preview column */
+.sp-duo .sp-testwrap .sp-testpop, .sp-testwrap .sp-testpop { top: calc(100% + 8px); bottom: auto; left: 0; right: 0; width: auto; transform-origin: top center; }
+.sp-test-who { align-self: flex-start; }
+.sp-test-who button:disabled { opacity: 0.45; cursor: not-allowed; }
+.sp-test-real { color: var(--warn); font-weight: 500; }
+#testPhone[readonly] { color: var(--muted); }

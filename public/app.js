@@ -957,23 +957,59 @@ $('#senderList').addEventListener('click', (e) => {
     }, b);
 });
 
+// What each field of the number form is, and where to find it in Meta (the ? beside its name).
+const SF_HELP = {
+  label: 'Your own name for this number, shown only inside SendON (e.g. “Sales line 1”). Customers never see it.',
+  phoneNumberId: 'Meta’s ID for the number, not the phone number itself (about 15 digits). Find it in Meta for Developers → your app → WhatsApp → API Setup, under the “From” number. Or WhatsApp Manager → Phone numbers → click the number.',
+  accessToken: 'Lets SendON send from this number. Use a permanent token: Meta Business Settings → Users → System users → add one as Admin → Generate new token → pick your app, tick whatsapp_business_messaging and whatsapp_business_management. The temporary token on API Setup stops working after 24 hours.',
+  wabaId: 'The WhatsApp Business Account this number belongs to; templates are synced from it. Click Find to fill it in, or see Meta Business Settings → Accounts → WhatsApp accounts, or API Setup under the phone number ID.',
+  displayPhone: 'The number customers see, with the country code (e.g. +91 98765 43210). Click Find to read it from Meta.',
+};
+const sfHelp = (k) => `<span class="sf-help" tabindex="0" role="img" aria-label="Help: ${esc(SF_HELP[k])}" data-help="${esc(SF_HELP[k])}">?</span>`;
+// The dark help tooltip for any [data-help] (the ? icons): drawn on top of everything, modals included, so nothing
+// clips it; above its icon, or below when there's no room above, and kept inside the window.
+{
+  const tip = document.createElement('div');
+  tip.className = 'help-tip hidden';
+  tip.setAttribute('role', 'tooltip');
+  document.body.append(tip);
+  let at = null;
+  const show = (el) => {
+    at = el;
+    tip.textContent = el.dataset.help;
+    tip.classList.remove('hidden', 'below');
+    const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight, vw = document.documentElement.clientWidth;
+    const below = r.top - h - 10 < 8;
+    tip.classList.toggle('below', below);
+    const left = Math.max(8, Math.min(r.left + r.width / 2 - 22, vw - w - 8));
+    tip.style.left = left + 'px';
+    tip.style.top = (below ? r.bottom + 10 : r.top - h - 10) + 'px';
+    tip.style.setProperty('--arrow-x', Math.max(10, Math.min(w - 20, r.left + r.width / 2 - left - 5)) + 'px');
+  };
+  const hide = () => { at = null; tip.classList.add('hidden'); };
+  document.addEventListener('pointerover', (e) => { const el = e.target.closest?.('[data-help]'); if (el && el !== at) show(el); else if (!el && at) hide(); });
+  document.addEventListener('focusin', (e) => { const el = e.target.closest?.('[data-help]'); if (el) show(el); });
+  document.addEventListener('focusout', (e) => { if (e.target === at) hide(); });
+  addEventListener('scroll', hide, true);
+}
+
 function senderForm(s = null) {
   // Live numbers are checked with Meta before they're saved (the server checks again on Save).
   const live = !state.settings.demoMode;
   const body = openModal(s ? 'Edit number' : 'Add sender number', `
     <form id="senderForm" novalidate>
       ${s && live && s.hasToken ? `<div class="sf-photo"><span id="sfPhoto">${senderPhotoHtml(s)}</span><div><b>WhatsApp profile photo</b><span class="sub">What customers see on this number's chat. Use your own logo or brand image.</span></div><button type="button" class="btn sm sender-photo-btn" id="sfPhotoBtn">${icon('square-pen', 14)}Edit</button></div>` : ''}
-      <label>Label <span class="opt">up to 40 characters</span><input name="label" required maxlength="40" autocomplete="off" placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
-      <label>Phone number ID <input name="phoneNumberId" required autocomplete="off" inputmode="numeric" data-digits maxlength="17" placeholder="From Meta → WhatsApp → API Setup (digits)" value="${esc(s?.phoneNumberId)}" /></label>
+      <label>Label ${sfHelp('label')}<span class="opt">up to 40 characters</span><input name="label" required maxlength="40" autocomplete="off" placeholder="e.g. Sales line 1" value="${esc(s?.label)}" /></label>
+      <label>Phone number ID ${sfHelp('phoneNumberId')}<input name="phoneNumberId" required autocomplete="off" inputmode="numeric" data-digits maxlength="17" placeholder="From Meta → WhatsApp → API Setup (digits)" value="${esc(s?.phoneNumberId)}" /></label>
       ${s?.hasToken
-        ? `<div class="field-label">Access token</div>
+        ? `<div class="field-label">Access token ${sfHelp('accessToken')}</div>
            <div class="sf-token" id="sfSaved"><span>${icon('lock', 14)}Saved token ending in <b>${esc((s.accessTokenMasked || '').replace(/^•+/, ''))}</b></span><button type="button" class="btn sm" id="sfReplace">Replace token</button></div>
            <label class="hidden" id="sfTokenWrap">New access token<input name="accessToken" type="password" autocomplete="new-password" placeholder="Paste the new token" /></label>`
-        : `<label>Access token${live ? '' : ' <span class="opt">optional in demo mode</span>'}<input name="accessToken" type="password" autocomplete="new-password" placeholder="Permanent system-user token" /></label>`}
-      <label>WhatsApp Business Account ID <span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span>${live ? '<span class="sf-find">' : ''}<input name="wabaId" autocomplete="off" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Click Find, or paste the ID or Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" />${live ? `<button type="button" class="btn sm tip-end" id="sfFind" data-tip="I can find it for you with your phone number ID and access token">${icon('search', 14)}Find</button></span>` : ''}</label>
-      <label>Display phone <span class="opt">${live ? 'filled in from Meta when the number is checked' : 'optional, for your reference'}</span><input name="displayPhone" autocomplete="off" inputmode="tel" maxlength="22" placeholder="+91 98765 43210" value="${esc(s?.displayPhone)}" /></label>
+        : `<label>Access token ${sfHelp('accessToken')}${live ? '' : '<span class="opt">optional in demo mode</span>'}<input name="accessToken" type="password" autocomplete="new-password" placeholder="Permanent system-user token" /></label>`}
+      <label>WhatsApp Business Account ID ${sfHelp('wabaId')}<span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span>${live ? '<span class="sf-find">' : ''}<input name="wabaId" autocomplete="off" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Click Find, or paste the ID or Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" />${live ? `<button type="button" class="btn sm tip-end" id="sfFind" data-tip="I can find it for you with your phone number ID and access token">${icon('search', 14)}Find</button></span>` : ''}</label>
+      <label>Display phone ${sfHelp('displayPhone')}<span class="opt">${live ? 'filled in from Meta when the number is checked' : 'optional, for your reference'}</span>${live ? '<span class="sf-find">' : ''}<input name="displayPhone" autocomplete="off" inputmode="tel" maxlength="22" placeholder="${live ? 'Click Find, or type it with the country code' : '+91 98765 43210'}" value="${esc(s?.displayPhone)}" />${live ? `<button type="button" class="btn sm tip-end" id="sfFindPhone" data-tip="I can read it from Meta with your phone number ID and access token">${icon('search', 14)}Find</button></span>` : ''}</label>
       <div class="sf-status hidden" id="sfStatus" role="status" aria-live="polite"></div>
-      <p class="sub">${live ? 'Enter the phone number ID and token, then click Find to fill in the Business Account ID. ' : ''}The token is stored only on this server and never shown in full again.</p>
+      <p class="sub">${live ? 'Enter the phone number ID and token, then click Find to fill in the Business Account ID and display phone. ' : ''}The token is stored only on this server and never shown in full again.</p>
       <div class="modal-actions">
         ${live ? '<button type="button" class="btn quiet" id="sfTest" data-icon="zap" style="margin-right:auto">Test connection</button>' : ''}
         <button type="button" class="btn quiet" onclick="closeModal()">Cancel</button>
@@ -1028,6 +1064,18 @@ function senderForm(s = null) {
       const r = await api('/senders/find-waba', { method: 'POST', body: { ...fields(), senderId: s?.id } });
       $('[name=wabaId]', body).value = r.wabaId;
       show('ok', `${icon('circle-check', 15)}<span><b>Found</b> · ${r.name ? esc(r.name) + ' · ' : ''}${esc(r.wabaId)}</span>`);
+    } catch (err) { show('bad', esc(err.message)); }
+  }, e.currentTarget));
+  // Fills the display phone (and the account ID, if empty) by checking the number with Meta.
+  $('#sfFindPhone', body)?.addEventListener('click', (e) => guard(async () => {
+    if (!fields().phoneNumberId) { $('[name=phoneNumberId]', body).focus(); show('bad', 'Enter the phone number ID first'); return; }
+    show('busy', '<span class="sf-spin"></span>Reading the number from Meta…');
+    try {
+      const r = await api('/senders/verify', { method: 'POST', body: { ...fields(), senderId: s?.id } });
+      const i = r.info;
+      $('[name=displayPhone]', body).value = i.displayPhone || '';
+      if (i.wabaId && !$('[name=wabaId]', body).value) $('[name=wabaId]', body).value = i.wabaId;
+      show('ok', `${icon('circle-check', 15)}<span><b>Found</b> · ${esc(i.displayPhone || '')}${i.verifiedName ? ' · ' + esc(i.verifiedName) : ''}</span>`);
     } catch (err) { show('bad', esc(err.message)); }
   }, e.currentTarget));
   form.addEventListener('submit', (e) => {
@@ -1492,7 +1540,11 @@ document.addEventListener('live', (e) => { if (e.detail?.kind === 'templates') l
 const STICKY_BARS = '#ovFilters, .ct-bar, #tplBar, .cp-tools, .ec-bar, #tab-reports .list-bar, .nt-bar';
 // Exact (fractional) heights of the pinned header (--head-h) and toolbar (--bar-h), for whatever pins below them.
 const stickyRO = new ResizeObserver((es) => { for (const e of es) e.target.closest('.tab')?.style.setProperty(e.target.classList.contains('sticky-bar') ? '--bar-h' : '--head-h', e.target.getBoundingClientRect().height + 'px'); });
+// (The Inbox, Assistant and Send pages have their own layouts: nothing pins there, so nothing is measured there.
+// Measuring forces the browser to lay out the whole page, which on a long chat is a visible hitch.)
+const OWN_LAYOUT = /^(inbox|assistant|send)$/;
 function setupSticky() {
+  if (OWN_LAYOUT.test(state.tab)) return;
   const main = document.querySelector('main');
   if (main) {
     const cs = getComputedStyle(main);
@@ -1511,6 +1563,7 @@ function setupSticky() {
 }
 // A thin line under whatever is pinned at the moment, so the edge reads against the scrolling content.
 function markStuck() {
+  if (OWN_LAYOUT.test(state.tab)) return;
   const tab = $(`#tab-${state.tab}`);
   if (!tab) return;
   const head = [...tab.querySelectorAll('.sticky-head')].find((h) => h.offsetParent), bar = [...tab.querySelectorAll('.sticky-bar')].find((b) => b.offsetParent);
@@ -1527,7 +1580,12 @@ document.addEventListener('scroll', (e) => {
   if (t.id === 'ibConvs') $('#tab-inbox .ib-tools')?.classList.toggle('stuck', t.scrollTop > 2);
   else if (t.id === 'ibMsgs') $('#tab-inbox .ib-head')?.classList.toggle('stuck', t.scrollTop > 2);
 }, { capture: true, passive: true });
-new MutationObserver(() => { clearTimeout(setupSticky.t); setupSticky.t = setTimeout(setupSticky, 50); }).observe(document.querySelector('main') || document.body, { childList: true, subtree: true });
+// Pages that pin things re-check when their content changes; changes inside the Inbox, Assistant and Send (which
+// redraw often) are ignored.
+new MutationObserver((recs) => {
+  if (recs.every((r) => r.target.closest?.('#tab-inbox, #tab-assistant, #tab-send'))) return;
+  clearTimeout(setupSticky.t); setupSticky.t = setTimeout(setupSticky, 50);
+}).observe(document.querySelector('main') || document.body, { childList: true, subtree: true });
 
 // --- Live: other people's changes, and new versions of the app ---------------------------------------------
 // Someone else changed something in this workspace: reload just that part (a moment later, so a burst of
@@ -1943,7 +2001,7 @@ let ovTimer = null;
 const stopOverviewPolling = () => { clearTimeout(ovTimer); ovTimer = null; };
 
 async function refreshStats() {
-  const q = new URLSearchParams({ range: state.ov.range, sender: state.ov.sender, template: state.ov.template });
+  const q = new URLSearchParams({ range: state.ov.range, sender: state.ov.sender, template: state.ov.template, tests: state.ov.tests ? '1' : '' });
   let st = await api('/stats?' + q);
   // A remembered filter can point at a number or template that no longer exists (e.g. after
   // reloading the demo workspace). The dropdown would show "All", yet still filter everything out.
@@ -1953,7 +2011,7 @@ async function refreshStats() {
     if (staleSender) state.ov.sender = '';
     if (staleTemplate) state.ov.template = '';
     saveOv();
-    st = await api('/stats?' + new URLSearchParams({ range: state.ov.range, sender: state.ov.sender, template: state.ov.template }));
+    st = await api('/stats?' + new URLSearchParams({ range: state.ov.range, sender: state.ov.sender, template: state.ov.template, tests: state.ov.tests ? '1' : '' }));
   }
   state.stats = st;
   return state.stats;
@@ -2001,6 +2059,11 @@ function renderFilters(st) {
   $('#fSender').closest('label').classList.toggle('hidden', st.senders.length < 2 && !st.filters.sender); // nothing to choose between
   fill($('#fTemplate'), st.options.templates.map((t) => [t, t]), st.filters.template);
   $('#fReset').classList.toggle('hidden', !st.filters.sender && !st.filters.template);
+  // Test campaigns are left out of these numbers; the switch shows only when there are some
+  const ft = $('#fTests');
+  ft.classList.toggle('hidden', !st.tests && !st.filters.tests);
+  if (st.tests || st.filters.tests) ft.innerHTML = `Include tests <span class="opt">${st.tests}</span>${toggleHtml({ checked: st.filters.tests, attrs: 'id="fTestsOn" aria-label="Include test campaigns in these numbers"', size: 'sm' })}`;
+  ft.title = st.filters.tests ? 'Test campaigns are counted in these numbers' : `${st.tests} test campaign${st.tests === 1 ? ' is' : 's are'} left out of these numbers`;
   $('#fNote').textContent = `Changes compare with the previous ${st.range} days${st.range === 90 ? ' · grouped by week' : ''}`;
   syncControls();
 }
@@ -2049,6 +2112,13 @@ $('#kpis').addEventListener('keydown', (e) => {
     loadOverview().catch((e) => toast(e.message, 'error'));
   })
 );
+
+$('#fTests').addEventListener('change', (e) => {
+  if (e.target.id !== 'fTestsOn') return;
+  state.ov.tests = e.target.checked;
+  saveOv();
+  loadOverview().catch((err) => toast(err.message, 'error'));
+});
 
 $('#fReset').addEventListener('click', () => {
   state.ov.sender = state.ov.template = '';
@@ -2355,6 +2425,8 @@ function drawChart(el, bs, m, { instant = false } = {}) {
     svg.append('text').attr('class', 'peak').attr('text-anchor', 'middle').attr('opacity', 0);
     svg.append('g').attr('class', 'hits');
     bindChartHover(el);
+    // made fresh (e.g. the first switch from the stacked chart to a rate): fade in, as later switches do (style.css)
+    if (!instant && !Motion.reduce()) svg.style('opacity', 0).transition().duration(350).style('opacity', 1).on('end', () => svg.style('opacity', null));
   }
   svg.attr('viewBox', `0 0 ${W} ${H}`).attr('aria-label', `${m.label}, ${bs.length} ${bs.length > 20 ? 'periods' : 'days'}`);
 
@@ -2732,7 +2804,7 @@ function topReasons(bs) {
   const top = all.filter(([k]) => k !== 'other').slice(0, REASON_SHADES.length).map(([k]) => k);
   return { top, hasOther: all.some(([k]) => !top.includes(k)) };
 }
-const reasonFill = (id, top) => (id === 'other' ? 'var(--faint)' : `color-mix(in srgb, var(--danger) ${REASON_SHADES[top.indexOf(id)] ?? 30}%, var(--surface))`);
+const reasonFill = (id, top) => (id === 'other' ? 'var(--faint)' : `color-mix(in srgb, var(--cx-failed) ${REASON_SHADES[top.indexOf(id)] ?? 30}%, var(--surface))`);
 
 function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge', share = false } = {}) {
   host.__redraw = () => drawFlow(host, bs, { mode, layout, share });
@@ -2750,6 +2822,7 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   host.classList.toggle('fl-none', nothing);
   if (nothing) {
     d3.select(host).select('svg.fl-svg').remove();
+    host.__flY = null;
     host.__spike = null; zoomButton(host);
     host.__flowX = null;
     let em = host.querySelector('.fl-empty');
@@ -2822,9 +2895,26 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   }
   svg.attr('viewBox', `0 0 ${W} ${H}`).attr('width', W).attr('height', H).attr('aria-label', 'Messages per day: read, delivered, sent and failed');
   const ticks = y.ticks(4).filter(Number.isInteger);
-  svg.select('.grid').selectAll('line').data(ticks).join('line').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (v) => y(v)).attr('y2', (v) => y(v));
-  svg.select('.yticks').selectAll('text').data(ticks).join('text').attr('class', 'tick').attr('x', pad.l - 10).attr('y', (v) => y(v) + 4).attr('text-anchor', 'end').text((v) => fmtNum(v) + (share ? '%' : ''));
-  svg.select('.fl-base').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', base + 0.5).attr('y2', base + 0.5);
+  // Axis: the gridlines and numbers ride the scale change with the columns (as the rate chart's do): a value on both
+  // scales slides to its new place, a new one fades in from where it would have been, an old one slides off and fades.
+  const TA = (sel) => (dur ? sel.transition().duration(dur).ease(d3.easeCubicOut) : sel.interrupt());
+  const y0 = host.__flY || y;
+  host.__flY = y.copy();
+  const clampY = (v) => Math.max(pad.t - 12, Math.min(base, v));
+  const tkey = (v) => (share ? '%' : '') + v;
+  svg.select('.grid').selectAll('line').data(ticks, tkey).join(
+    (enter) => enter.append('line').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (v) => clampY(y0(v))).attr('y2', (v) => clampY(y0(v))).attr('opacity', 0),
+    (update) => update,
+    (exit) => (dur ? exit.transition().duration(dur).ease(d3.easeCubicOut).attr('opacity', 0).attr('y1', (v) => clampY(y(v))).attr('y2', (v) => clampY(y(v))).remove() : exit.remove()),
+  ).call((s) => TA(s).attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (v) => y(v)).attr('y2', (v) => y(v)).attr('opacity', 1));
+  svg.select('.yticks').selectAll('text').data(ticks, tkey).join(
+    (enter) => enter.append('text').attr('class', 'tick').attr('x', pad.l - 10).attr('text-anchor', 'end').attr('y', (v) => clampY(y0(v)) + 4).attr('opacity', 0),
+    (update) => update,
+    (exit) => (dur ? exit.transition().duration(dur).ease(d3.easeCubicOut).attr('opacity', 0).attr('y', (v) => clampY(y(v)) + 4).remove() : exit.remove()),
+  ).text((v) => fmtNum(v) + (share ? '%' : '')).call((s) => TA(s).attr('x', pad.l - 10).attr('y', (v) => y(v) + 4).attr('opacity', 1));
+  const bl = svg.select('.fl-base');
+  if (bl.attr('y1') == null) bl.attr('y1', base + 0.5).attr('y2', base + 0.5);
+  TA(bl).attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', base + 0.5).attr('y2', base + 0.5);
   const parts = mode === 'failed'
     ? [...R.top.map((code) => [code, (b) => b.reasons?.[code] || 0]), ...(R.hasOther ? [['other', (b) => b.failed - R.top.reduce((s, c) => s + (b.reasons?.[c] || 0), 0)]] : [])]
     : below ? FLOW : [...FLOW, ['failed', (b) => b.failed]];
@@ -2871,9 +2961,13 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   host.__big = new Set(big.map((b) => b.key));
   zoomButton(host);
   const every = Math.max(1, Math.ceil((bs.length * 64) / (W - pad.l - pad.r)));
-  svg.select('.fl-x').selectAll('text').data(bs, (b) => b.key).join('text')
-    .attr('x', (b) => x(b.key) + bw / 2).attr('y', H - 8).attr('text-anchor', 'middle').attr('class', 'tick')
-    .text((b, i) => ((bs.length - 1 - i) % every === 0 ? b.label : ''));
+  // day labels: slide to their new places; new days fade in, gone ones fade out
+  svg.select('.fl-x').selectAll('text').data(bs, (b) => b.key).join(
+    (enter) => enter.append('text').attr('class', 'tick').attr('text-anchor', 'middle').attr('x', (b) => x(b.key) + bw / 2).attr('opacity', 0),
+    (update) => update,
+    (exit) => (dur ? exit.transition().duration(dur / 2).attr('opacity', 0).remove() : exit.remove()),
+  ).attr('y', H - 8).text((b, i) => ((bs.length - 1 - i) % every === 0 ? b.label : ''))
+    .call((s) => TA(s).attr('x', (b) => x(b.key) + bw / 2).attr('opacity', 1));
   host.__flowX = { x, bw };
   flowLegend(host, mode, bs, R);
 }
@@ -2943,6 +3037,7 @@ function hideFlow(host, { instant = false } = {}) {
   const svg = d3.select(host).select('svg.fl-svg');
   host.classList.remove('fl-host', 'hovering');
   host.__flow = null;
+  host.__flY = null;
   host.__spike = null; zoomButton(host);
   const leg = host.id === 'dayChart' ? $('#dayLegend') : host.id === 'xChart' ? $('#xLegend') : null;
   leg?.classList.add('hidden');
@@ -3151,7 +3246,7 @@ function renderRecent(st) {
         <span class="cp-ficon" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span>
         <div class="mini-title" title="${esc(c.name)}">${esc(window.campaignDisplayName ? campaignDisplayName(c) : c.name)}</div>
         <div class="mini-right" title="${delivered.toLocaleString()} of ${tried.toLocaleString()} delivered${s.failed ? ` · ${s.failed.toLocaleString()} failed` : ''}"><b><span data-count="${pct(delivered, tried)}" data-k="rc-${c.id}">0</span>%</b>delivered</div>
-        <div class="mini-meta"><span class="pill ${c.status}" style="height:18px;font-size:10.5px">${c.status}</span> ${relTime(c.startedAt || c.createdAt)} · ${c.total.toLocaleString()} recipients</div>
+        <div class="mini-meta"><span class="pill ${c.status}" style="height:18px;font-size:10.5px">${c.status}</span>${c.test ? ' <span class="pill test" style="height:18px;font-size:10.5px" title="A test send: not counted in these numbers">Test</span>' : ''} ${relTime(c.startedAt || c.createdAt)} · ${c.total.toLocaleString()} recipients</div>
         <div class="mini-progress"><span data-w="${pct(sent + (s.failed || 0), c.total)}" data-k="rp-${c.id}"></span></div>
       </div>`;
     })

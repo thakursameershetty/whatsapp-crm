@@ -380,9 +380,14 @@
     if (key !== ib.key) return; // switched while loading
     // Keep messages still being sent (not on the server yet).
     const pending = (ib.thread?.messages || []).filter((m) => m.status === 'pending' || m.local);
-    ib.thread = t;
     t.messages.push(...pending);
+    // Nothing new since it was drawn (coming back to the Inbox, a poll): keep what's on screen. Redrawing a long
+    // chat costs a few frames, and that's the stutter you'd see.
+    const sig = JSON.stringify([key, t.earlier, t.chatLead, t.messages.map((m) => [m.id, m.status, m.text?.length, m.reaction])]);
+    ib.thread = t;
+    if (sig === ib.threadSig && $('#ibChat').dataset.key === key) { if (toBottom) toLatest(); return; }
     renderChat(toBottom);
+    ib.threadSig = sig;
   }
 
   async function loadEarlier(box) {
@@ -417,6 +422,8 @@
 
   function renderChat(toBottom = false) {
     const pane = $('#ibChat');
+    pane.dataset.key = ib.key || '';
+    ib.threadSig = null; // drawn now: the next load compares against this
     if (!ib.key) {
       pane.innerHTML = emptyPane();
       LA.hydrate(pane);
@@ -1466,7 +1473,8 @@
       // what was loaded last time shows at once (no skeleton, no jump); the fresh list replaces it only if it differs
       ib.fsig = null;
       renderList();
-      renderChat(true);
+      // the open chat is still drawn from before: leave it (no redraw, no jump) unless it's another chat
+      if ($('#ibChat').dataset.key !== (ib.key || '')) renderChat(true);
       await loadList().catch((e) => toast(e.message, 'error'));
       if (ib.key) { await loadThread().catch(() => {}); markRead(); }
       else { // just reloaded with a chat open: open it again (if it's still there)

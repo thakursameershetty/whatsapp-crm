@@ -11,7 +11,37 @@
 //   Sheet.create(rootEl, hooks) → grid API (see the bottom of create()).
 
 (function () {
-  const RH = 30; // row height in px; rows are fixed height so only visible ones are drawn
+  const RH = 30; // row height in px: one line. Rows with wrapped text are taller (see geom); only visible rows are drawn
+  const LH = 18, WRAP_MAX = 8; // a wrapped line's height, and the most lines a row grows to
+  // How many lines some text takes in a column of this width (word by word, as the browser wraps it). Cached.
+  let mctx = null;
+  const lineCache = new Map();
+  function linesFor(text, width) {
+    text = String(text ?? '');
+    if (!text) return 1;
+    const key = width + '|' + text;
+    const hit = lineCache.get(key);
+    if (hit) return hit;
+    mctx ||= document.createElement('canvas').getContext('2d');
+    mctx.font = '13px Inter, sans-serif';
+    const avail = Math.max(20, width - 18);
+    let n = 0;
+    for (const para of text.split('\n')) {
+      n++;
+      let line = 0;
+      for (const word of para.split(/(\s+)/)) {
+        if (!word) continue;
+        const w = mctx.measureText(word).width;
+        if (line + w <= avail) { line += w; continue; }
+        if (/^\s+$/.test(word)) continue; // a space where the line breaks
+        if (w > avail) { n += Math.ceil((line + w) / avail) - 1; line = (line + w) % avail; continue; } // a long word breaks too
+        n++; line = w;
+      }
+    }
+    if (lineCache.size > 50000) lineCache.clear();
+    lineCache.set(key, n);
+    return n;
+  }
   const OVERSCAN = 12;
   const MAX_UNDO = 200;
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
@@ -197,6 +227,8 @@
       const ops = [];
       run({ kind: 'cols', do: () => { for (let k = 0; k < n; k++) { const op = insertColOp(at + k); ops.push(op); op.do(); } }, undo: () => { for (const op of [...ops].reverse()) op.undo(); ops.length = 0; } });
     }
+    // Wrap flags per column (sh.wraps), kept the same length as the headers so they move with their columns.
+    const wraps = (sh) => { sh.wraps ||= []; while (sh.wraps.length < sh.headers.length) sh.wraps.push(false); return sh.wraps; };
     function insertColOp(at, name) {
       const sh = sheet();
       const nm = uniqueName(sh, name || `Column ${letter(sh.headers.length)}`);
@@ -204,6 +236,7 @@
       return ({
         kind: 'cols',
         do: () => {
+          wraps(sh).splice(at, 0, false);
           sh.headers.splice(at, 0, nm);
           sh.widths.splice(at, 0, 140);
           sh.rows.forEach((r) => r.cells.splice(at, 0, ''));
@@ -211,6 +244,7 @@
           hooks.colsMoved?.(sh, at, 1);
         },
         undo: () => {
+          wraps(sh).splice(at, 1);
           sh.headers.splice(at, 1);
           sh.widths.splice(at, 1);
           sh.rows.forEach((r) => r.cells.splice(at, 1));
@@ -238,13 +272,14 @@
     }
     function deleteColOp(at) {
       const sh = sheet();
-      const name = sh.headers[at], width = sh.widths[at], vals = sh.rows.map((r) => r.cells[at] ?? ''), filter = sh.filters[at];
+      const name = sh.headers[at], width = sh.widths[at], vals = sh.rows.map((r) => r.cells[at] ?? ''), filter = sh.filters[at], wrapped = Boolean(sh.wraps?.[at]);
       // Filters are keyed by column index: drop this column's, shift the ones after it.
       const remove = () => { const f = {}; for (const [c, v] of Object.entries(sh.filters)) if (+c !== at) f[+c > at ? +c - 1 : c] = v; sh.filters = f; };
       const restore = () => { const f = {}; for (const [c, v] of Object.entries(sh.filters)) f[+c >= at ? +c + 1 : c] = v; if (filter) f[at] = filter; sh.filters = f; };
       return ({
         kind: 'cols',
         do: () => {
+          wraps(sh).splice(at, 1);
           sh.headers.splice(at, 1);
           sh.widths.splice(at, 1);
           sh.rows.forEach((r) => r.cells.splice(at, 1));
@@ -252,6 +287,7 @@
           hooks.colsMoved?.(sh, at, -1, name);
         },
         undo: () => {
+          wraps(sh).splice(at, 0, wrapped);
           sh.headers.splice(at, 0, name);
           sh.widths.splice(at, 0, width);
           sh.rows.forEach((r, i) => r.cells.splice(at, 0, vals[i]));
@@ -309,10 +345,29 @@
     }
     const inCols = (c) => colOn(c);
     // The columns keep their widths; a filler column takes whatever space is left.
+    // The grid's room changes (the sidebar folds, the window resizes, the panel opens): fill it again.
+    new ResizeObserver(() => { if (sheet()) { sizeTable(); renderBody(); } }).observe(root);
     function sizeTable() {
       const sh = sheet();
       const w = (hooks.indexWidth || 64) + sh.widths.reduce((a, b) => a + b, 0);
       table.style.width = Math.max(w, root.clientWidth) + 'px';
+    }
+
+    // Where each row sits: every row one line high, unless a column wraps; then a row is as tall as its longest
+    // wrapped cell (up to WRAP_MAX lines), and rows are found by their running total.
+    function geom(sh) {
+      const v = sh.view, wc = (sh.wraps || []).map((w, c) => (w && c < sh.headers.length ? c : -1)).filter((c) => c >= 0);
+      if (!wc.length) return { wrap: false, h: () => RH, top: (r) => r * RH, total: v.length * RH, at: (y) => Math.floor(y / RH) };
+      const off = new Float64Array(v.length + 1);
+      for (let r = 0; r < v.length; r++) {
+        let L = 1;
+        for (const c of wc) L = Math.max(L, linesFor(v[r].cells[c], sh.widths[c]));
+        off[r + 1] = off[r] + (L > 1 ? Math.min(L, WRAP_MAX) * LH + 12 : RH);
+      }
+      return {
+        wrap: true, h: (r) => off[r + 1] - off[r], top: (r) => off[r], total: off[v.length],
+        at: (y) => { let lo = 0, hi = v.length; while (lo < hi) { const m = (lo + hi) >> 1; if (off[m + 1] <= y) lo = m + 1; else hi = m; } return lo; },
+      };
     }
 
     function renderBody() {
@@ -321,25 +376,28 @@
       const v = sh.view;
       const headH = thead.offsetHeight || 2 * RH;
       const top = Math.max(0, root.scrollTop - headH);
-      const first = Math.max(0, Math.floor(top / RH) - OVERSCAN);
-      const last = Math.min(v.length, Math.ceil((top + root.clientHeight) / RH) + OVERSCAN);
+      const G = geom(sh);
+      const first = Math.max(0, G.at(top) - OVERSCAN);
+      const last = Math.min(v.length, G.at(top + root.clientHeight) + 1 + OVERSCAN);
       const rg = range(), s = S();
-      let html = `<tr class="sg-spacer" style="height:${first * RH}px"><td colspan="${nCols() + 2}"></td></tr>`;
+      let html = `<tr class="sg-spacer" style="height:${G.top(first)}px"><td colspan="${nCols() + 2}"></td></tr>`;
       for (let r = first; r < last; r++) {
         const row = v[r];
         const rowSel = rowOn(r);
         const meta = hooks.rowInfo?.(sh, row) || {};
-        html += `<tr data-r="${r}" class="${meta.cls || ''}"><th class="sg-rh ${rowSel ? 'on' : ''}">${hooks.checkable ? `<input type="checkbox" class="cb sg-check" ${meta.checked ? 'checked' : ''} ${meta.disabled ? 'disabled' : ''} tabindex="-1" title="${escHtml(meta.checkTitle || '')}" />` : ''}<span>${(sh.index.get(row) ?? r) + 1}</span></th>`;
+        const tall = G.wrap && G.h(r) > RH;
+        html += `<tr data-r="${r}" class="${meta.cls || ''}${tall ? ' tall' : ''}"${G.wrap ? ` style="height:${G.h(r)}px"` : ''}><th class="sg-rh ${rowSel ? 'on' : ''}">${hooks.checkable ? `<input type="checkbox" class="cb sg-check" ${meta.checked ? 'checked' : ''} ${meta.disabled ? 'disabled' : ''} tabindex="-1" title="${escHtml(meta.checkTitle || '')}" />` : ''}<span>${(sh.index.get(row) ?? r) + 1}</span></th>`;
         for (let c = 0; c < sh.headers.length; c++) {
           const val = row.cells[c] ?? '';
           const sel = rowSel && inSel(r, c);
           const act = r === s.fr && c === s.fc;
           const cell = hooks.cellInfo?.(sh, row, c) || {};
-          html += `<td data-c="${c}" class="${sel ? 'sel' : ''}${act ? ' act' : ''}${cell.cls ? ' ' + cell.cls : ''}"${cell.title ? ` title="${escHtml(cell.title)}"` : ''}>${escHtml(val)}${cell.badge || ''}</td>`;
+          const wrapC = sh.wraps?.[c];
+          html += `<td data-c="${c}" class="${sel ? 'sel' : ''}${act ? ' act' : ''}${wrapC ? ' wrap' : ''}${cell.cls ? ' ' + cell.cls : ''}"${cell.title ? ` title="${escHtml(cell.title)}"` : ''}>${wrapC ? `<div class="sg-wt">${escHtml(val)}</div>` : escHtml(val)}${cell.badge || ''}</td>`;
         }
         html += '<td class="sg-fill"></td></tr>';
       }
-      html += `<tr class="sg-spacer" style="height:${(v.length - last) * RH}px"><td colspan="${nCols() + 2}"></td></tr>`;
+      html += `<tr class="sg-spacer" style="height:${G.total - G.top(last)}px"><td colspan="${nCols() + 2}"></td></tr>`;
       tbody.innerHTML = html;
       if (!v.length) tbody.insertAdjacentHTML('afterbegin', `<tr><td class="sg-none" colspan="${nCols() + 2}">${escHtml(hooks.emptyText?.(sh) || (Object.keys(sh.filters).length ? 'No rows match the filters.' : 'No rows yet. Paste or type data, or add a row.'))}</td></tr>`);
     }
@@ -352,10 +410,9 @@
 
     function scrollToCell(r, c) {
       const headH = thead.offsetHeight;
-      const y = headH + r * RH;
+      const sh = sheet(), G = geom(sh), y = headH + G.top(r), h = G.h(r);
       if (y < root.scrollTop + headH) root.scrollTop = y - headH;
-      else if (y + RH > root.scrollTop + root.clientHeight) root.scrollTop = y + RH - root.clientHeight;
-      const sh = sheet();
+      else if (y + h > root.scrollTop + root.clientHeight) root.scrollTop = y + h - root.clientHeight;
       const iw = hooks.indexWidth || 64;
       let x = iw;
       for (let k = 0; k < c; k++) x += sh.widths[k];
@@ -399,14 +456,26 @@
       if (!sh || hooks.readOnly) return;
       const td = r === -1 ? thead.querySelector(`th[data-name="${c}"]`) : tbody.querySelector(`tr[data-r="${r}"] td[data-c="${c}"]`);
       if (!td) { scrollToCell(r, c); renderBody(); return startEdit(initial, r, c); }
-      editing = { r, c };
+      // As in Google Sheets: typing on a cell replaces it, and the arrows then save and move on ("quick" entry);
+      // Enter, F2 or a double-click opens what's there, and the arrows move the caret inside it instead.
+      editing = { r, c, quick: initial != null };
       const rr = td.getBoundingClientRect(), base = root.getBoundingClientRect();
-      Object.assign(editor.style, { left: rr.left - base.left + root.scrollLeft + 'px', top: rr.top - base.top + root.scrollTop + 'px', width: Math.max(rr.width, 120) + 'px', height: rr.height + 'px' });
+      editing.minW = rr.width;
+      Object.assign(editor.style, { left: rr.left - base.left + root.scrollLeft + 'px', top: rr.top - base.top + root.scrollTop + 'px', width: rr.width + 'px', height: rr.height + 'px' });
       editor.classList.remove('hidden');
       editor.value = initial ?? (r === -1 ? sh.headers[c] : sh.view[r].cells[c] ?? '');
+      fitEditor();
       editor.focus({ preventScroll: true });
-      if (initial == null) editor.select();
+      // opened on what's there: the caret goes to the end (select-all only for a column name, to rename it)
+      if (initial == null) { if (r === -1) editor.select(); else editor.setSelectionRange(editor.value.length, editor.value.length); }
     }
+    // Longer text than the cell: the editor grows to the right to show it, as a spreadsheet's does.
+    function fitEditor() {
+      if (!editing) return;
+      editor.style.width = editing.minW + 'px';
+      editor.style.width = Math.max(editing.minW, Math.min(editor.scrollWidth + 4, root.clientWidth - parseFloat(editor.style.left) + root.scrollLeft - 8)) + 'px';
+    }
+    editor.addEventListener('input', fitEditor);
     function commitEdit(move = null) {
       if (!editing) return;
       const { r, c } = editing;
@@ -426,11 +495,74 @@
     }
     editor.addEventListener('keydown', (e) => {
       e.stopPropagation();
+      const arrows = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
       if (e.key === 'Enter') { e.preventDefault(); commitEdit(editing.r === -1 ? null : [e.shiftKey ? -1 : 1, 0]); }
       else if (e.key === 'Tab') { e.preventDefault(); commitEdit([0, e.shiftKey ? -1 : 1]); }
       else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+      // typed straight into a cell: an arrow saves it and moves to the next cell (not in a column name)
+      else if (arrows[e.key] && editing.quick && editing.r !== -1 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); commitEdit(arrows[e.key]); }
+      // F2 switches between the two, as in Sheets: arrows move the caret, or move between cells
+      else if (e.key === 'F2') { e.preventDefault(); editing.quick = !editing.quick; }
     });
     editor.addEventListener('blur', () => editing && commitEdit());
+
+    // --- Insert between: a small + on the line between two row numbers, or two column letters, under the pointer.
+    // A click puts an empty row (or column) right there; ⌘Z takes it back like any edit.
+    const ins = document.createElement('button');
+    ins.type = 'button';
+    ins.className = 'sg-ins hidden';
+    ins.tabIndex = -1;
+    ins.innerHTML = '<svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path d="M6 1.5v9M1.5 6h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+    root.append(ins);
+    const EDGE = 7; // px either side of the line
+    const hideIns = () => { ins.classList.add('hidden'); ins.removeAttribute('data-kind'); };
+    root.addEventListener('pointermove', (e) => {
+      if (hooks.readOnly || e.buttons || editing || !sheet()) return hideIns();
+      if (e.target === ins || ins.contains(e.target)) return;
+      const base = root.getBoundingClientRect();
+      const put = (kind, at, x, y, label) => {
+        Object.assign(ins.dataset, { kind, at });
+        ins.style.left = x - base.left + root.scrollLeft + 'px';
+        ins.style.top = y - base.top + root.scrollTop + 'px';
+        ins.title = label;
+        ins.setAttribute('aria-label', label);
+        ins.classList.remove('hidden');
+      };
+      const rh = e.target.closest('th.sg-rh');
+      if (rh) {
+        const r = rh.getBoundingClientRect(), vr = Number(rh.parentElement.dataset.r);
+        if (e.clientY - r.top < EDGE) return put('row', vr, r.left + r.width / 2, r.top, 'Insert a row here');
+        if (r.bottom - e.clientY < EDGE) return put('row', vr + 1, r.left + r.width / 2, r.bottom, 'Insert a row here');
+      }
+      const th = e.target.closest('tr.sg-letters th[data-c]');
+      if (th) {
+        const r = th.getBoundingClientRect(), c = Number(th.dataset.c);
+        // only on the letters row's upper half: the rest of the line, down through the names row, is the column's
+        // resize handle (drag) and fit (double-click)
+        const y = r.top + 10, near = e.clientY - r.top < r.height * 0.55; // fully inside the top row (the grid clips its edge)
+        if (near && e.clientX - r.left < EDGE && c > 0) return put('col', c, r.left, y, 'Insert a column here');
+        if (near && r.right - e.clientX < EDGE + 2) return put('col', c + 1, r.right, y, 'Insert a column here');
+      }
+      hideIns();
+    });
+    root.addEventListener('pointerleave', hideIns);
+    ins.addEventListener('pointerdown', (e) => e.stopPropagation()); // not the start of a selection drag
+    ins.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const sh = sheet(), at = Number(ins.dataset.at), kind = ins.dataset.kind;
+      hideIns();
+      if (!sh || !kind) return;
+      if (kind === 'row') {
+        const v = view();
+        const idx = at < v.length ? sh.rows.indexOf(v[at]) : v.length ? sh.rows.indexOf(v[v.length - 1]) + 1 : sh.rows.length;
+        insertRows(idx, 1);
+        select(Math.min(at, view().length - 1), S().fc);
+      } else {
+        insertCol(at);
+        select(S().fr, at);
+      }
+      root.focus({ preventScroll: true });
+    });
 
     function moveBy(dr, dc, extend) {
       const s = S();
@@ -560,10 +692,47 @@
         col.style.width = sh.widths[c] + 'px';
         sizeTable();
       };
-      const up = () => { h.removeEventListener('pointermove', move); };
+      // the new width is one step in the history: ⌘Z puts the old one back
+      const up = () => {
+        h.removeEventListener('pointermove', move);
+        const w1 = sh.widths[c];
+        if (w1 !== w0) run({ kind: 'layout', label: 'Resize', do: () => { sh.widths[c] = w1; }, undo: () => { sh.widths[c] = w0; } });
+      };
       h.addEventListener('pointermove', move);
       h.addEventListener('pointerup', up, { once: true });
     });
+    // Double-click a column's edge: fit it to its text (as in Sheets).
+    root.addEventListener('dblclick', (e) => {
+      const h = e.target.closest('.sg-rz');
+      if (!h) return;
+      e.preventDefault(); e.stopPropagation();
+      const c = Number(h.dataset.rz);
+      fitCols(colOn(c) ? selCols() : [c]);
+    }, true);
+
+    // The width a column needs for its name and its longest value (looking at up to 3,000 rows), within limits.
+    function fitWidth(sh, c) {
+      mctx ||= document.createElement('canvas').getContext('2d');
+      mctx.font = '600 13px Inter, sans-serif';
+      let w = mctx.measureText(String(sh.headers[c] ?? '')).width + 46; // the name, its icons and the menu
+      mctx.font = '13px Inter, sans-serif';
+      for (const row of sh.rows.slice(0, 3000)) {
+        const t = String(row.cells[c] ?? '');
+        if (t) w = Math.max(w, Math.max(...t.split('\n').map((p) => mctx.measureText(p).width)) + 20);
+      }
+      return Math.round(Math.min(480, Math.max(56, w)));
+    }
+    function fitCols(list) {
+      const sh = sheet(), before = list.map((k) => sh.widths[k]), next = list.map((k) => fitWidth(sh, k));
+      if (next.every((w, i) => w === before[i])) return;
+      run({ kind: 'layout', label: 'Fit', do: () => list.forEach((k, i) => { sh.widths[k] = next[i]; }), undo: () => list.forEach((k, i) => { sh.widths[k] = before[i]; }) });
+      root.focus({ preventScroll: true }); // back to the grid, so ⌘Z works straight away
+    }
+    function setWrap(list, on) {
+      const sh = sheet(), before = list.map((k) => Boolean(sh.wraps?.[k]));
+      run({ kind: 'layout', label: on ? 'Wrap' : 'Unwrap', do: () => list.forEach((k) => { wraps(sh)[k] = on; }), undo: () => list.forEach((k, i) => { wraps(sh)[k] = before[i]; }) });
+      root.focus({ preventScroll: true });
+    }
 
     root.addEventListener('contextmenu', (e) => {
       const hit = cellAt(e.target), rh = e.target.closest('th.sg-rh'), name = e.target.closest('th[data-name], th[data-c]');
@@ -614,6 +783,10 @@
         ...(sh.filters[c] ? [{ label: 'Clear filter', action: () => { delete sh.filters[c]; after('filter'); } }] : []),
         ...(hooks.readOnly ? [] : ['-',
         ...(many ? [] : [{ label: 'Rename', action: () => startEdit(null, -1, c) }]),
+        // size and wrap, for every chosen column (one step each in the history)
+        { label: n === 1 ? 'Fit to content' : `Fit ${n} columns to content`, action: () => fitCols(chosen) },
+        (() => { const all = chosen.every((k) => sh.wraps?.[k]); return { label: all ? (n === 1 ? 'Unwrap text' : `Unwrap text in ${n} columns`) : (n === 1 ? 'Wrap text' : `Wrap text in ${n} columns`), action: () => setWrap(chosen, !all) }; })(),
+        '-',
         { label: many ? `Clear ${n} columns` : 'Clear column', action: clearCols },
         ...(contiguous ? [
           { label: `Insert ${cols('left')}`, action: () => (many ? insertCols(c1, n) : insertCol(c)) },

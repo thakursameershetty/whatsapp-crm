@@ -1440,6 +1440,8 @@ function createCampaign(body) {
     skipped: [...(body.skipped || []), ...skipped],
     recipients,
     ...(body.source ? { source: body.source } : {}),
+    // a test send (to yourself or the team): tagged, and left out of the Overview's numbers unless asked for
+    ...(body.test ? { test: true } : {}),
   };
   recount(c);
   db.campaigns.unshift(c);
@@ -1466,6 +1468,15 @@ setInterval(() => {
     }
   });
 }, 5000);
+
+// Mark a campaign as a test, or not (from its ⋯ menu): only changes where it's counted, never what was sent.
+app.post('/api/campaigns/:id/test', wrap((req, res) => {
+  const c = db.campaigns.find((x) => x.id === req.params.id);
+  if (!c) throw fail('Not found', 404);
+  if (req.body.test) c.test = true; else delete c.test;
+  save();
+  res.json(summary(c));
+}));
 
 app.post('/api/campaigns/:id/cancel', wrap((req, res) => {
   const c = db.campaigns.find((x) => x.id === req.params.id);
@@ -2070,6 +2081,10 @@ function computeStats(query = {}) {
   const inScope = (id) => !scope || scope.has(id);
   const all = db.campaigns.filter((c) => Boolean(c.demo) === demo && c.senderIds.some(inScope));
   const camps = all.filter((c) => (!templateF || c.templateName === templateF) && (!senderF || c.senderIds.includes(senderF)));
+  // Test campaigns stay out of the numbers unless asked for (tests=1). They're still listed (recent, upcoming), and
+  // Number health always counts them: Meta's limits and quality see every message.
+  const withTests = query.tests === '1' || query.tests === true;
+  const counted = withTests ? camps : camps.filter((c) => !c.test);
 
   // Daily buckets for the range, plus the previous period of the same length for comparisons.
   const days = [];
@@ -2105,7 +2120,7 @@ function computeStats(query = {}) {
     }
   };
 
-  for (const c of camps) {
+  for (const c of counted) {
     for (const r of c.recipients) {
       if ((senderF && r.senderId !== senderF) || !inScope(r.senderId)) continue;
       // "Waiting to send" is only what will still go out: scheduled or sending campaigns. A stopped or cancelled one
@@ -2164,7 +2179,8 @@ function computeStats(query = {}) {
     demo,
     cap,
     range,
-    filters: { sender: senderF, template: templateF },
+    filters: { sender: senderF, template: templateF, tests: withTests },
+    tests: camps.filter((c) => c.test).length,
     options: { templates: [...new Set(all.map((c) => c.templateName))].sort() },
     days,
     totals,

@@ -1017,7 +1017,37 @@
   autosize();
   syncSend();
 
+  // From the Send page's Ask AI: its sheets (headers and rows as they are there) attached to a fresh chat, with a
+  // prompt drafted in the box to check and send.
+  async function attachTables(tables, prompt) {
+    if (AS.busy) return toast('The assistant is still answering. Try again in a moment.', 'error');
+    if (AS.chatId || AS.pending.length || $('#asThread').children.length) {
+      if (AS.openPlans.size && [...AS.openPlans.values()].some((p) => p.plan.status === 'pending')
+        && !(await confirmDialog({ title: 'Start a new chat?', message: 'The plan waiting for approval in this chat will be dropped. Nothing has been sent.', confirmText: 'New chat' }))) return;
+      reset();
+    }
+    const group = 'g' + newId();
+    for (const t of tables) {
+      if (!t.headers.length || !t.rows.length) continue;
+      // rows here are objects keyed by column name (as attach() makes them)
+      const rows = t.rows.map((r) => Object.fromEntries(t.headers.map((h, i) => [h, String(r[i] ?? '').trim()])));
+      const f = { localId: 'l' + newId(), group: tables.length > 1 ? 'g' + newId() : group, file: t.file, sheet: t.sheet, name: t.name, headers: t.headers, rows, phoneColumn: t.phone && t.headers.includes(t.phone) ? t.phone : guessPhone(t.headers, rows), fileId: null };
+      check(f);
+      const shifted = shiftedIn(f).reduce((n, g) => n + g.idx.length, 0);
+      if (shifted) { fixShifted(f); f.autoFixed = shifted; }
+      AS.files.set(f.localId, f);
+      AS.pending.push(f);
+    }
+    renderPending();
+    input.value = prompt;
+    autosize();
+    syncSend();
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+
   window.Assistant = {
+    attachTables,
     senders: renderSenderPick,
     show() {
       fit();
