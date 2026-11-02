@@ -79,10 +79,13 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
 // ---------------------------------------------------------------------------
 
 const maskToken = (t) => (t ? '••••' + t.slice(-4) : '');
+// Meta access tokens nearly all end in "ZDZD", so the last 4 can't tell two tokens apart: show the last 8,
+// which take in the characters before it that do differ (still nothing usable out of a ~200-character token).
+const maskWaToken = (t) => (t ? '••••' + t.slice(-8) : '');
 
 function publicSender(s) {
   const { accessToken, ...rest } = s;
-  return { ...rest, accessTokenMasked: maskToken(accessToken), hasToken: Boolean(accessToken) };
+  return { ...rest, accessTokenMasked: maskWaToken(accessToken), hasToken: Boolean(accessToken) };
 }
 
 // A number someone typed in a form: digits with optional +, spaces, dashes or brackets, and either
