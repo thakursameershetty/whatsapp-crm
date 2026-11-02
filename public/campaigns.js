@@ -521,14 +521,24 @@
   }
 
   // Failures grouped by reason, in plain words, with Retry where trying again can work.
+  // A campaign's failures grouped by reason, biggest first: { key, code, label, retry, n }. Used by the "Why it failed"
+  // list and the retry dialog, so the two always agree.
+  function failureGroups(c) {
+    const groups = new Map();
+    for (const r of c.recipients) {
+      if (r.status !== 'failed') continue;
+      const g = reasonOf(r.error), k = g.group || g.key;
+      (groups.get(k) || groups.set(k, { ...g, n: 0 }).get(k)).n++;
+    }
+    return [...groups.values()].sort((a, b) => b.n - a.n);
+  }
+
   function renderFailures(c) {
     const el = $('#cdFail');
     const failed = c.recipients.filter((r) => r.status === 'failed');
     el.classList.toggle('hidden', !failed.length);
     if (!failed.length) return;
-    const groups = new Map();
-    for (const r of failed) { const g = reasonOf(r.error); const k = g.group || g.key; (groups.get(k) || groups.set(k, { ...g, n: 0 }).get(k)).n++; }
-    const list = [...groups.values()].sort((a, b) => b.n - a.n);
+    const list = failureGroups(c);
     const running = live(c);
     el.innerHTML = `
       <div class="cd-label">Why ${failed.length.toLocaleString()} failed</div>
@@ -615,21 +625,65 @@
     }, b);
   });
 
+  // Follow up: each choice asks first. Sending again, messaging repliers and duplicating open the Send page with
+  // those people (nothing goes out until it's sent there); retrying asks which failures to send again.
   function followMenu(c, b) {
     const r = b.getBoundingClientRect();
     const unread = c.recipients.filter((x) => x.status === 'sent' || x.status === 'delivered');
     const replied = c.recipients.filter((x) => x.replied);
     // Only the failures a retry can fix (the same rule as the "Why it failed" list): not "not on WhatsApp" and the like.
-    const failed = c.recipients.filter((x) => x.status === 'failed' && reasonOf(x.error).retry);
-    const retryKeys = [...new Set(failed.map((x) => reasonOf(x.error).key))];
-    const go = (list, label) => SendPage.openRecipients(list, { label, templateId: c.templateId });
+    const retryable = c.recipients.filter((x) => x.status === 'failed' && reasonOf(x.error).retry);
+    const n = (x) => x.toLocaleString();
+    const people = (x) => `${n(x)} ${x === 1 ? 'person' : 'people'}`;
+    const go = async (list, label, ask) => { if (await confirmDialog({ confirmText: 'Continue', ...ask })) SendPage.openRecipients(list, { label, templateId: c.templateId }); };
+    const onSend = 'They open on the Send page, where you pick the message and check it before anything is sent.';
     Sheet.Menu.open(r.left, r.bottom + 4, [
-      { label: `Send again to people who didn’t read (${unread.length.toLocaleString()})`, disabled: !unread.length, action: () => go(unread, `${c.name} · didn’t read`) },
-      { label: `Message everyone who replied (${replied.length.toLocaleString()})`, disabled: !replied.length, action: () => go(replied, `${c.name} · replied`) },
-      ...(failed.length && !live(c) ? [{ label: `Retry failed messages (${failed.length.toLocaleString()})`, action: () => guard(async () => { await api(`/campaigns/${c.id}/resume`, { method: 'POST', body: { retryReasons: retryKeys } }); toast('Retrying…'); await open(c.id); }) }] : []),
+      { label: `Send again to people who didn’t read (${n(unread.length)})`, disabled: !unread.length,
+        action: () => go(unread, `${c.name} · didn’t read`, { title: `Send again to ${people(unread.length)}?`, message: `They got “${esc(c.name)}” but haven’t read it. ${onSend}` }) },
+      { label: `Message everyone who replied (${n(replied.length)})`, disabled: !replied.length,
+        action: () => go(replied, `${c.name} · replied`, { title: `Message ${people(replied.length)} who replied?`, message: `Everyone who replied to “${esc(c.name)}”. ${onSend}` }) },
+      ...(retryable.length && !live(c) ? [{ label: `Retry failed messages (${n(retryable.length)})`, action: () => guard(() => retryDialog(c)) }] : []),
       '-',
-      { label: `Duplicate the campaign (${c.recipients.length.toLocaleString()} people)`, action: () => go(c.recipients, `${c.name} (copy)`) },
+      { label: `Duplicate the campaign (${people(c.recipients.length)})`,
+        action: () => go(c.recipients, `${c.name} (copy)`, { title: 'Duplicate this campaign?', message: `A new campaign to the same ${people(c.recipients.length)} as “${esc(c.name)}”. ${onSend}` }) },
     ]);
+  }
+
+  // Retry: the failure reasons as in "Why it failed", each one a reason a retry can fix ticked to send again (all of them
+  // to start), and the ones a retry can't fix shown, greyed, for the full picture. The button counts what's ticked.
+  async function retryDialog(c) {
+    const groups = failureGroups(c), can = groups.filter((g) => g.retry), cant = groups.filter((g) => !g.retry);
+    const reason = (g) => `<span class="cd-reason-n">${g.n.toLocaleString()}</span><span class="cd-reason-t">${esc(g.label)}${g.code ? ` <code>${g.code}</code>` : ''}</span>`;
+    const total = can.reduce((s, g) => s + g.n, 0);
+    const answer = confirmDialog({
+      title: 'Retry failed messages',
+      message: `<p>Choose which to send again. They go out at the same safe pace, from the same numbers.</p>
+        <div class="rt-list">
+          ${can.length > 1 ? `<label class="rt-row rt-all"><input type="checkbox" id="rtAll" checked /><span class="rt-all-t">All that can be retried</span><span class="rt-all-n">${total.toLocaleString()}</span></label>` : ''}
+          ${can.map((g) => `<label class="rt-row"><input type="checkbox" class="rt-pick" value="${esc(g.key)}" data-n="${g.n}" checked />${reason(g)}</label>`).join('')}
+          ${cant.map((g) => `<div class="rt-row is-off"><span class="rt-gap"></span>${reason(g)}<span class="cd-noretry">Retrying won’t help</span></div>`).join('')}
+        </div>`,
+      confirmText: 'Retry',
+    });
+    const box = $('#confirm .confirm-box'), yes = $('#confirmYes'), all = $('#rtAll');
+    const picks = [...document.querySelectorAll('#confirmMsg .rt-pick')];
+    box.classList.add('wide');
+    const sync = () => {
+      const on = picks.filter((p) => p.checked), sum = on.reduce((s, p) => s + Number(p.dataset.n), 0);
+      yes.textContent = sum ? `Retry ${sum.toLocaleString()}` : 'Retry';
+      yes.disabled = !sum;
+      if (all) { all.checked = on.length === picks.length; all.indeterminate = on.length > 0 && on.length < picks.length; }
+    };
+    picks.forEach((p) => p.addEventListener('change', sync));
+    all?.addEventListener('change', () => { picks.forEach((p) => { p.checked = all.checked; }); sync(); });
+    sync();
+    const ok = await answer;
+    box.classList.remove('wide');
+    const keys = picks.filter((p) => p.checked).map((p) => p.value);
+    if (!ok || !keys.length) return;
+    await api(`/campaigns/${c.id}/resume`, { method: 'POST', body: { retryReasons: keys } });
+    toast('Retrying…');
+    await open(c.id);
   }
 
   function moreMenu(c, b) {

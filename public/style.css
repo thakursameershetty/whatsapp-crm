@@ -1905,6 +1905,21 @@ body.assistant-open main { padding-bottom: 0; }
 .cd-reason-n { min-width: 44px; font-size: 18px; font-weight: 700; color: var(--danger); font-variant-numeric: tabular-nums; }
 .cd-reason-t { flex: 1; font-size: 13.5px; }
 .cd-noretry { font-size: 12px; color: var(--faint); }
+/* The retry dialog (Follow up → Retry failed messages): the failure reasons as ticked rows, like "Why it failed". */
+.confirm-box.wide { max-width: 580px; }
+.rt-list { display: flex; flex-direction: column; margin-top: 14px; border-radius: 12px; background: var(--sunk); padding: 4px 14px; }
+.rt-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; box-shadow: 0 1px 0 var(--hair); color: var(--text); cursor: pointer; }
+.rt-row:last-child { box-shadow: none; }
+.rt-row input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--text); cursor: pointer; }
+.rt-row .cd-reason-n { min-width: 40px; font-size: 16px; }
+.rt-row .cd-reason-t { line-height: 1.45; }
+.rt-row.is-off { cursor: default; color: var(--faint); }
+.rt-row.is-off .cd-reason-n { color: var(--faint); }
+.rt-row.is-off .cd-noretry { flex: none; }
+.rt-gap { flex: none; width: 16px; }
+.rt-all { font-weight: 600; font-size: 13.5px; }
+.rt-all-t { flex: 1; }
+.rt-all-n { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 500; }
 .cd-recips { padding: 0; overflow: hidden; }
 .cd-recips-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 16px 18px 12px; }
 .cd-recips-head h2 { margin: 0; }
