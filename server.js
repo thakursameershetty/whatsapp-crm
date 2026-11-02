@@ -2108,7 +2108,9 @@ function computeStats(query = {}) {
   for (const c of camps) {
     for (const r of c.recipients) {
       if ((senderF && r.senderId !== senderF) || !inScope(r.senderId)) continue;
-      if (r.status === 'pending' || r.status === 'queued') { totals.pending++; continue; }
+      // "Waiting to send" is only what will still go out: scheduled or sending campaigns. A stopped or cancelled one
+      // keeps its unsent people as pending, but they won't be sent, so they don't count.
+      if (r.status === 'pending' || r.status === 'queued') { if (c.status === 'scheduled' || c.status === 'running') totals.pending++; continue; }
       const at = r.sentAt || r.failedAt;
       if (!at) continue;
       const key = dayKey(at);

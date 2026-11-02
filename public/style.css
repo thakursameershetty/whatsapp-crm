@@ -5308,3 +5308,4 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .chart-tip .tt-title svg { vertical-align: -2px; margin-right: 2px; }
 .chart-tip .tt-body { max-width: 260px; margin-top: 4px; font-size: 12px; color: var(--text); line-height: 1.45; }
 .chart-tip .tt-note { max-width: 260px; line-height: 1.45; }
+.tool.is-off { opacity: 0.35; }

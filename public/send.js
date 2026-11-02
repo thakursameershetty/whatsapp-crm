@@ -401,6 +401,8 @@
   $('#spExport').addEventListener('click', () => {
     const sh = current();
     if (!sh) return;
+    // nothing to download: say so, instead of saving a file with just the column names
+    if (!sh.rows.some((r) => r.st !== 'empty')) return toast('Nothing to export yet: this sheet has no rows. Paste or type some contacts first.', 'error');
     const q = (v) => (/[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v);
     const lines = [sh.headers.map(q).join(','), ...sh.rows.filter((r) => r.st !== 'empty').map((r) => r.cells.map((v) => q(String(v ?? ''))).join(','))];
     const a = document.createElement('a');
@@ -836,6 +838,11 @@
       const filtered = Object.keys(sh.filters).length;
       $('#spMeta').innerHTML = `${sh.file && sh.file !== sh.name ? `<span class="sp-file-dot" style="--tab-c:${colorOf(sh)}"></span>${esc(sh.file)} · ` : ''}${c.rows.toLocaleString()} rows · ${sh.headers.length} columns`;
       renderStrip(sh, filtered);
+      // Export looks off on an empty sheet (but still clickable, to say why)
+      const ex = $('#spExport'), none = !c.rows;
+      ex.classList.toggle('is-off', none);
+      ex.setAttribute('aria-disabled', String(none));
+      ex.title = none ? 'Nothing to export yet: this sheet has no rows' : 'Download this sheet, with your edits, as CSV';
       $('#spUndo').disabled = !grid.canUndo();
       $('#spRedo').disabled = !grid.canRedo();
     } else $('#spMeta').textContent = 'Open a contact list to start';
