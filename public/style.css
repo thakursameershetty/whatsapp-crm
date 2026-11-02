@@ -5365,3 +5365,10 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .sp-test-who button:disabled { opacity: 0.45; cursor: not-allowed; }
 .sp-test-real { color: var(--warn); font-weight: 500; }
 #testPhone[readonly] { color: var(--muted); }
+/* Moving rows / columns: a grab hand over a selected row number or column header, the dragged cells fade, and a blue
+   line shows where they'll go */
+.sg-root.can-move .sg-rh, .sg-root.can-move thead th:not(.sg-corner) { cursor: grab; }
+.sg-root.sg-moving, .sg-root.sg-moving * { cursor: grabbing !important; }
+.sg-root.sg-moving td.sel { opacity: 0.45; }
+.sg-drop { position: absolute; z-index: 7; background: var(--info); border-radius: 2px; pointer-events: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--info) 25%, transparent); }
+.sg-drop.hidden { display: none; }

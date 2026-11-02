@@ -254,6 +254,30 @@
       });
     }
 
+    // Move rows (as shown: a..b, filtered or not) to just before shown row t; and columns a..b to just before column t.
+    // Each is one step in the history.
+    function moveRows(a, b, t) {
+      const sh = sheet(), v = sh.view, block = v.slice(a, b + 1), inBlock = new Set(block);
+      const before = sh.rows.slice(), next = sh.rows.filter((r) => !inBlock.has(r));
+      const anchor = t < v.length ? v[t] : null;
+      next.splice(anchor ? next.indexOf(anchor) : next.indexOf(v[v.length - 1]) + 1, 0, ...block);
+      run({ kind: 'rows', label: 'Move rows', do: () => sh.rows.splice(0, sh.rows.length, ...next), undo: () => sh.rows.splice(0, sh.rows.length, ...before) });
+    }
+    function moveCols(a, b, t) {
+      const sh = sheet(), n = sh.headers.length, idx = [...Array(n).keys()];
+      const block = idx.slice(a, b + 1), perm = idx.filter((i) => i < a || i > b);
+      perm.splice(t > b ? t - block.length : t, 0, ...block); // new column k is old column perm[k]
+      const inv = []; perm.forEach((old, k) => { inv[old] = k; });
+      const apply = (p) => {
+        const ap = (arr) => p.map((i) => arr[i]);
+        wraps(sh);
+        sh.headers = ap(sh.headers); sh.widths = ap(sh.widths); sh.wraps = ap(sh.wraps);
+        sh.rows.forEach((r) => { const c = r.cells; while (c.length < n) c.push(''); r.cells = [...ap(c), ...c.slice(n)]; });
+        const f = {}; for (const [c, val] of Object.entries(sh.filters)) f[p.indexOf(+c)] = val; sh.filters = f;
+      };
+      run({ kind: 'cols', label: 'Move columns', do: () => apply(perm), undo: () => apply(inv) });
+    }
+
     function deleteCol(at) {
       if (sheet().headers.length <= 1) return hooks.notify?.("A sheet needs at least one column");
       run(deleteColOp(at));
@@ -519,6 +543,14 @@
     root.addEventListener('pointermove', (e) => {
       if (hooks.readOnly || e.buttons || editing || !sheet()) return hideIns();
       if (e.target === ins || ins.contains(e.target)) return;
+      // a grab hand over the header of a whole selected row / column: it can be dragged to move
+      {
+        const rg = range(), one = !(S().extra || []).length, rhh = e.target.closest('th.sg-rh'), thh = e.target.closest('th[data-name], th[data-c]');
+        let can = false;
+        if (one && rhh) { const r = Number(rhh.parentElement.dataset.r); can = rg.c1 === 0 && rg.c2 === nCols() - 1 && r >= rg.r1 && r <= rg.r2; }
+        else if (one && thh && !e.target.closest('.sg-rz, .sg-menu')) { const c = Number(thh.dataset.name ?? thh.dataset.c); can = rg.r1 === 0 && rg.r2 === Math.max(0, view().length - 1) && view().length > 0 && c >= rg.c1 && c <= rg.c2; }
+        root.classList.toggle('can-move', can);
+      }
       const base = root.getBoundingClientRect();
       const put = (kind, at, x, y, label) => {
         Object.assign(ins.dataset, { kind, at });
@@ -604,6 +636,17 @@
       const rh = e.target.closest('th.sg-rh');
       const name = e.target.closest('th[data-name], th[data-c]');
       const last = Math.max(0, view().length - 1);
+      // Pressing a row number / column header inside a whole-row or whole-column selection grabs it, to move it
+      // (Sheets-style); a plain click without moving still just selects (see mouseup).
+      const rgm = range(), one = !(S().extra || []).length, plain = !e.shiftKey && !e.metaKey && !e.ctrlKey && !hooks.readOnly;
+      if (plain && one && rh && view().length) {
+        const r = Number(rh.parentElement.dataset.r);
+        if (rgm.c1 === 0 && rgm.c2 === nCols() - 1 && r >= rgm.r1 && r <= rgm.r2) { e.preventDefault(); root.focus({ preventScroll: true }); moving = { kind: 'rows', a: rgm.r1, b: rgm.r2, x: e.clientX, y: e.clientY, at: r }; return; }
+      }
+      if (plain && one && name && view().length) {
+        const c = Number(name.dataset.name ?? name.dataset.c);
+        if (rgm.r1 === 0 && rgm.r2 === last && c >= rgm.c1 && c <= rgm.c2) { e.preventDefault(); root.focus({ preventScroll: true }); moving = { kind: 'cols', a: rgm.c1, b: rgm.c2, x: e.clientX, y: e.clientY, at: c }; return; }
+      }
       if (hit) {
         e.preventDefault();
         root.focus({ preventScroll: true });
@@ -625,6 +668,64 @@
         dragging = 'cols';
       }
     });
+    // --- Moving rows / columns: a line shows where they'll land; the grid scrolls when you drag to its edge.
+    let moving = null;
+    const dropLine = document.createElement('div');
+    dropLine.className = 'sg-drop hidden';
+    root.append(dropLine);
+    function moveTarget(e) {
+      const el = document.elementFromPoint(e.clientX, e.clientY), base = root.getBoundingClientRect();
+      if (moving.kind === 'rows') {
+        const tr = el?.closest?.('tr[data-r]');
+        if (!tr || !root.contains(tr)) return null;
+        const r = tr.getBoundingClientRect(), i = Number(tr.dataset.r), lower = e.clientY > r.top + r.height / 2;
+        return { t: lower ? i + 1 : i, pos: (lower ? r.bottom : r.top) - base.top + root.scrollTop };
+      }
+      const th = el?.closest?.('th[data-c], th[data-name], td[data-c]');
+      if (!th || !root.contains(th)) return null;
+      const r = th.getBoundingClientRect(), i = Number(th.dataset.c ?? th.dataset.name), right = e.clientX > r.left + r.width / 2;
+      return { t: right ? i + 1 : i, pos: (right ? r.right : r.left) - base.left + root.scrollLeft };
+    }
+    document.addEventListener('mousemove', (e) => {
+      if (!moving) return;
+      if (!moving.started) {
+        if (Math.hypot(e.clientX - moving.x, e.clientY - moving.y) < 5) return;
+        moving.started = true;
+        root.classList.add('sg-moving');
+        hideIns();
+      }
+      // near an edge: scroll that way
+      const b = root.getBoundingClientRect();
+      if (moving.kind === 'rows') { if (e.clientY > b.bottom - 24) root.scrollTop += 14; else if (e.clientY < b.top + thead.offsetHeight + 16) root.scrollTop -= 14; }
+      else { if (e.clientX > b.right - 24) root.scrollLeft += 14; else if (e.clientX < b.left + (hooks.indexWidth || 64) + 16) root.scrollLeft -= 14; }
+      const tg = moveTarget(e);
+      if (!tg) return;
+      moving.t = tg.t;
+      const inside = tg.t >= moving.a && tg.t <= moving.b + 1; // dropping where it already is: no line
+      dropLine.classList.toggle('hidden', inside);
+      dropLine.classList.toggle('col', moving.kind === 'cols');
+      Object.assign(dropLine.style, moving.kind === 'rows'
+        ? { top: tg.pos - 1 + 'px', left: root.scrollLeft + 'px', width: root.clientWidth + 'px', height: '3px' }
+        : { left: tg.pos - 1 + 'px', top: root.scrollTop + 'px', height: root.clientHeight + 'px', width: '3px' });
+    });
+    document.addEventListener('mouseup', () => {
+      if (!moving) return;
+      const m = moving;
+      moving = null;
+      root.classList.remove('sg-moving');
+      dropLine.classList.add('hidden');
+      const last = Math.max(0, view().length - 1);
+      if (!m.started) { // just a click: select that one row / column, as before
+        if (m.kind === 'rows') select(m.at, 0, m.at, nCols() - 1, { scroll: false });
+        else select(0, m.at, last, m.at, { scroll: false });
+        return;
+      }
+      if (m.t == null || (m.t >= m.a && m.t <= m.b + 1)) return;
+      const n = m.b - m.a + 1, start = m.t > m.b ? m.t - n : m.t;
+      if (m.kind === 'rows') { moveRows(m.a, m.b, m.t); select(start, 0, start + n - 1, nCols() - 1, { scroll: false }); }
+      else { moveCols(m.a, m.b, m.t); select(0, start, Math.max(0, view().length - 1), start + n - 1, { scroll: false }); }
+    });
+
     document.addEventListener('mousemove', (e) => {
       if (!dragging) return;
       const el = document.elementFromPoint(e.clientX, e.clientY);
