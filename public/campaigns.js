@@ -619,12 +619,14 @@
     const r = b.getBoundingClientRect();
     const unread = c.recipients.filter((x) => x.status === 'sent' || x.status === 'delivered');
     const replied = c.recipients.filter((x) => x.replied);
-    const failed = c.recipients.filter((x) => x.status === 'failed');
+    // Only the failures a retry can fix (the same rule as the "Why it failed" list): not "not on WhatsApp" and the like.
+    const failed = c.recipients.filter((x) => x.status === 'failed' && reasonOf(x.error).retry);
+    const retryKeys = [...new Set(failed.map((x) => reasonOf(x.error).key))];
     const go = (list, label) => SendPage.openRecipients(list, { label, templateId: c.templateId });
     Sheet.Menu.open(r.left, r.bottom + 4, [
       { label: `Send again to people who didn’t read (${unread.length.toLocaleString()})`, disabled: !unread.length, action: () => go(unread, `${c.name} · didn’t read`) },
       { label: `Message everyone who replied (${replied.length.toLocaleString()})`, disabled: !replied.length, action: () => go(replied, `${c.name} · replied`) },
-      ...(failed.length && !live(c) ? [{ label: `Retry every failed message (${failed.length.toLocaleString()})`, action: () => guard(async () => { await api(`/campaigns/${c.id}/resume`, { method: 'POST', body: { retryFailed: true } }); toast('Retrying…'); await open(c.id); }) }] : []),
+      ...(failed.length && !live(c) ? [{ label: `Retry failed messages (${failed.length.toLocaleString()})`, action: () => guard(async () => { await api(`/campaigns/${c.id}/resume`, { method: 'POST', body: { retryReasons: retryKeys } }); toast('Retrying…'); await open(c.id); }) }] : []),
       '-',
       { label: `Duplicate the campaign (${c.recipients.length.toLocaleString()} people)`, action: () => go(c.recipients, `${c.name} (copy)`) },
     ]);
