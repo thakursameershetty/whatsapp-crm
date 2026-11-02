@@ -299,13 +299,15 @@
   });
   // Date: the day (or days, or range) of a chat's latest message, and newest / oldest first.
   ib.date = null; ib.sort = 'new';
-  const dateBtn = () => {
-    const old = $('#ibDate');
-    old.outerHTML = DateFilter.button(ib.date, 'ibDate');
-    $('#ibDate').classList.toggle('sorted', ib.sort === 'old');
+  // It lives inside the search box, as the Contacts "Added by" filter does: just the calendar until a date (or oldest
+  // first) is picked, then that choice beside it.
+  const dateHtml = () => {
+    const on = DateFilter.active(ib.date), lbl = on ? DateFilter.label(ib.date) : ib.sort === 'old' ? 'Oldest first' : '';
+    return `<button type="button" class="num-filter df-in ${lbl ? 'on' : ''}" id="ibDate" aria-haspopup="dialog" title="Filter by date and order" aria-label="Filter by date${lbl ? ': ' + esc(lbl) : ''}">${icon('calendar-days', 15)}${lbl ? `<span class="num-filter-lbl">${esc(lbl)}</span>` : ''}${on ? `<i class="df-x" data-df-clear title="Clear the date" aria-label="Clear the date">${icon('x', 12)}</i>` : ''}</button>`;
   };
-  $('.ib-filters').insertAdjacentHTML('beforeend', DateFilter.button(null, 'ibDate'));
-  $('.ib-filters').addEventListener('click', (e) => {
+  const dateBtn = () => { $('#ibDate').outerHTML = dateHtml(); };
+  $('.ib-search').insertAdjacentHTML('beforeend', dateHtml());
+  $('.ib-search').addEventListener('click', (e) => {
     const b = e.target.closest('#ibDate');
     if (!b) return;
     if (e.target.closest('[data-df-clear]')) { e.stopPropagation(); ib.date = null; dateBtn(); ib.enter = true; return renderList(); }
@@ -314,7 +316,7 @@
     DateFilter.open(b, {
       value: ib.date, marks, sort: ib.sort,
       onChange: (v) => { ib.date = v; ib.enter = true; renderList(); dateBtn(); },
-      onSort: (s) => { ib.sort = s; ib.enter = true; renderList(); },
+      onSort: (s) => { ib.sort = s; ib.enter = true; renderList(); dateBtn(); },
     });
   });
   $('#ibSearch').addEventListener('input', (e) => { ib.q = e.target.value.trim(); ib.enter = true; renderList(); });

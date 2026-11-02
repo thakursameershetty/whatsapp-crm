@@ -2785,7 +2785,7 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   const base = pad.t + usable - down;
   y.range([base, pad.t]);
   const k = (base - pad.t) / top;
-  const cutUp = (b) => upOf(b) > top, cutDown = (b) => below && downOf(b) * k > down - 4;
+  const cutUp = (b) => Boolean(capUp) && upOf(b) > top, cutDown = (b) => below && Boolean(capDown) && downOf(b) > capDown;
   // days with only a handful of messages, faint in Share (1 of 2 failing isn't 50% of anything that matters)
   const busy = bs.map(tried).filter((v) => v > 0).sort((a, b) => a - b);
   const few = share ? Math.max(3, (busy[Math.floor(busy.length / 2)] || 0) * 0.1) : 0;

@@ -5275,8 +5275,6 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 @media (max-width: 760px) { .cp-cal-day { min-height: 64px; } .cp-cal-t { display: none; } .cp-cal-week span { text-align: center; padding: 0; } }
 /* the Inbox filter row wraps: the date button takes the next line rather than squeezing the others */
 .ib-filters { flex-wrap: wrap; row-gap: 8px; }
-.ib-filters .df-btn { flex: 1 0 100%; justify-content: flex-start; height: 34px; }
-.ib-filters .df-btn > span { flex: 1; text-align: left; }
 .df-hint kbd { display: inline-block; min-width: 18px; padding: 0 4px; border-radius: 4px; background: var(--sunk); box-shadow: inset 0 -1px 0 var(--hair); font: 600 11px Inter, sans-serif; text-align: center; color: var(--text); }
 .df-day:disabled { opacity: 0.3; }
 /* Overview table: the column names stay at the top while the days scroll, like the totals at the bottom */
@@ -5299,3 +5297,8 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .chart[data-kind=read] .fl-col rect[data-sw=read], .chart[data-kind=delivered] .fl-col rect[data-sw=delivered],
 .chart[data-kind=sent] .fl-col rect[data-sw=sent], .chart[data-kind=failed] .fl-col rect[data-sw=failed] { opacity: 1; }
 @media (max-width: 900px) { .o-grid { grid-template-columns: 1fr; } }
+/* Inbox: the date filter inside the search box */
+.ib-search:has(.num-filter.on) .search { padding-right: 168px; }
+.ib-search .num-filter-lbl { max-width: 112px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.num-filter .df-x { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: -3px; border-radius: 50%; color: var(--muted); }
+.num-filter .df-x:hover { background: var(--sunk); color: var(--text); }
