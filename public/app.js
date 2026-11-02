@@ -3142,11 +3142,15 @@ function renderRecent(st) {
       const s = c.stats || {};
       const sent = (s.sent || 0) + (s.delivered || 0) + (s.read || 0);
       const delivered = (s.delivered || 0) + (s.read || 0);
+      // delivered out of everyone it tried (sent + failed): failures count against it. (Out of "sent" alone, 5 of 7
+      // delivered with 2 failed read as 100%.) Not out of the full total, so one still sending isn't held down by the
+      // people it hasn't reached yet.
+      const tried = sent + (s.failed || 0);
       const color = window.folderColorAt && c.colorIndex != null ? folderColorAt(c.colorIndex) : 'oklch(var(--fl) var(--fc) 250)';
       return `<div class="mini-item rc-item" data-open-campaign="${c.id}" style="--c:${color}">
         <span class="cp-ficon" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span>
         <div class="mini-title" title="${esc(c.name)}">${esc(window.campaignDisplayName ? campaignDisplayName(c) : c.name)}</div>
-        <div class="mini-right"><b><span data-count="${pct(delivered, sent)}" data-k="rc-${c.id}">0</span>%</b>delivered</div>
+        <div class="mini-right" title="${delivered.toLocaleString()} of ${tried.toLocaleString()} delivered${s.failed ? ` · ${s.failed.toLocaleString()} failed` : ''}"><b><span data-count="${pct(delivered, tried)}" data-k="rc-${c.id}">0</span>%</b>delivered</div>
         <div class="mini-meta"><span class="pill ${c.status}" style="height:18px;font-size:10.5px">${c.status}</span> ${relTime(c.startedAt || c.createdAt)} · ${c.total.toLocaleString()} recipients</div>
         <div class="mini-progress"><span data-w="${pct(sent + (s.failed || 0), c.total)}" data-k="rp-${c.id}"></span></div>
       </div>`;

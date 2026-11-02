@@ -286,7 +286,7 @@
       ${folderBar(c)}
       <span class="cf-stats">
         <span><b>${c.total.toLocaleString()}</b>Recipient${c.total === 1 ? '' : 's'}</span>
-        <span><b>${sent ? pctOf(del, sent) + '%' : '—'}</b>Delivered</span>
+        <span title="${del.toLocaleString()} of ${(sent + (s.failed || 0)).toLocaleString()} delivered${s.failed ? ` · ${s.failed.toLocaleString()} failed` : ''}"><b>${sent + (s.failed || 0) ? pctOf(del, sent + (s.failed || 0)) + '%' : '—'}</b>Delivered</span>
         <span class="${c.replies ? 'has' : ''}"><b>${(c.replies || 0).toLocaleString()}</b>Repl${c.replies === 1 ? 'y' : 'ies'}</span>
       </span>
     </button>`;
@@ -303,11 +303,11 @@
 
   function rowHtml(c) {
     const s = c.stats || {};
-    const sent = sentOf(s), del = deliveredOf(s);
+    const sent = sentOf(s), del = deliveredOf(s), tried = sent + (s.failed || 0); // delivered out of everyone tried: failures count
     return `<tr data-open="${c.id}" style="--vt:cp-${c.id};--c:${colorOf(c)}">
       <td><div class="cp-who"><span class="cp-ficon" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span><div class="cp-name"><b title="${esc(c.name)}">${esc(displayName(c))}</b><span>${esc(c.templateName)}${c.demo ? ' · <span class="pill demo">demo</span>' : ''}${c.status !== 'completed' ? ` · <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>` : ''}</span></div></div></td>
       <td class="num">${c.total.toLocaleString()}</td>
-      <td><div class="cp-bar" title="${del.toLocaleString()} of ${sent.toLocaleString()} sent were delivered${s.failed ? ` · ${s.failed} failed` : ''}"><span><i style="width:${pctOf(del, sent)}%"></i></span><b>${sent ? pctOf(del, sent) + '%' : '—'}</b></div></td>
+      <td><div class="cp-bar" title="${del.toLocaleString()} of ${tried.toLocaleString()} delivered${s.failed ? ` · ${s.failed.toLocaleString()} failed` : ''}"><span><i style="width:${pctOf(del, tried)}%"></i></span><b>${tried ? pctOf(del, tried) + '%' : '—'}</b></div></td>
       <td class="num">${del ? pctOf(s.read || 0, del) + '%' : '—'}</td>
       <td class="num">${c.replies ? c.replies.toLocaleString() : '<span class="muted">0</span>'}</td>
       <td class="num">${c.leads ? `<b class="cp-leads">${c.leads}</b>` : '<span class="muted">0</span>'}</td>
