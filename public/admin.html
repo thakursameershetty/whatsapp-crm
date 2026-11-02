@@ -52,8 +52,8 @@
         </div>
       </div>
       <div class="card adm-table-card"><div class="table-wrap"><table class="data-table adm-table" id="tbl"><thead><tr>
-        <th>Workspace</th><th>People</th><th class="num">Numbers</th><th class="num">Contacts</th><th class="num">Sent today</th><th class="num">Sent 30d</th><th>Failed 30d</th><th>Daily limit <span class="adm-hint" tabindex="0" data-tip="Template messages a workspace can send in 24 hours. Leave it empty for no limit.">?</span></th><th>AI <span class="adm-hint" tabindex="0" data-tip="The AI assistant. Switched on, the workspace's owners can use it and choose which of their members can too. Always on for your own workspaces.">?</span></th><th>Last active</th><th></th>
-      </tr></thead><tbody><tr><td colspan="11" class="table-empty">Loading…</td></tr></tbody></table></div></div>
+        <th>Workspace</th><th>People</th><th class="num">Numbers</th><th class="num">Contacts</th><th class="num">Sent today</th><th class="num">Sent 30d</th><th>Failed 30d</th><th>Daily limit <span class="adm-hint" tabindex="0" data-tip="Template messages a workspace can send in 24 hours. Leave it empty for no limit.">?</span></th><th>Credits <span class="adm-hint" tabindex="0" data-tip="Credits plan or free. On the credits plan, template messages and SendON’s AI use credits; add a pack here once they’ve paid. Workspaces made before credits existed are free until you switch them.">?</span></th><th>AI <span class="adm-hint" tabindex="0" data-tip="The AI assistant. Switched on, the workspace's owners can use it and choose which of their members can too. Always on for your own workspaces.">?</span></th><th>Last active</th><th></th>
+      </tr></thead><tbody><tr><td colspan="12" class="table-empty">Loading…</td></tr></tbody></table></div></div>
     </section>
   </main>
   <div id="toasts"></div>
@@ -99,6 +99,7 @@ function render() {
   Motion.patch($('#wsFilter'), FILTERS.map(([k, l, fn]) => `<button data-f="${k}" class="${k === wsFilter ? 'active' : ''}" role="tab" aria-selected="${k === wsFilter}">${l} <span class="opt">${all.filter(fn).length}</span></button>`).join(''));
   Motion.segs(document);
   $('#wsCount').textContent = list.length === all.length ? all.length : `${list.length} of ${all.length}`;
+  pricingNote();
   renderKpis();
   $('#tbl tbody').innerHTML = list.map((w) => {
     const rate = w.sent30d ? Math.round((100 * w.failed30d) / w.sent30d) : null;
@@ -117,11 +118,12 @@ function render() {
       <td class="num">${w.sent30d ? w.sent30d.toLocaleString() : '<span class="muted">0</span>'}</td>
       <td>${rate == null ? '<span class="muted">—</span>' : `<div class="adm-fail ${rcls}"><span class="adm-bar"><i style="width:${Math.min(100, rate)}%"></i></span><b>${rate}%</b><span class="muted">${w.failed30d.toLocaleString()}</span></div>`}</td>
       <td><label class="adm-limit"><input data-limit="${w.id}" value="${w.dailyLimit ?? ''}" placeholder="No limit" inputmode="numeric" aria-label="Daily limit for ${esc(w.name)} (messages per day)" /></label></td>
+      <td><button type="button" class="btn sm ${w.billing === 'credits' ? (w.credits ? '' : 'danger-soft') : 'quiet'}" data-credits="${w.id}" title="Plan and credits">${w.billing === 'credits' ? `${w.credits.toLocaleString('en-IN')} credits` : 'Free plan'}</button></td>
       <td><label class="adm-ai" title="${w.aiBuiltIn ? 'Always on for your own workspaces' : w.ai ? 'AI assistant on: owners choose which members get it' : 'Switch on the AI assistant for this workspace'}"><span class="toggle sm"><input type="checkbox" data-ai="${w.id}" ${w.ai ? 'checked' : ''} ${w.aiBuiltIn ? 'disabled' : ''} aria-label="AI assistant for ${esc(w.name)}" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label></td>
       <td class="${isActive(w) ? '' : 'muted'}">${w.lastActivity ? ago(w.lastActivity) : '<span class="muted">Never</span>'}</td>
       <td class="adm-st">${w.suspended ? '<span class="tag bad">Suspended</span>' : ''}<button class="btn sm ${w.suspended ? '' : 'quiet danger'}" data-suspend="${w.id}" data-to="${!w.suspended}">${w.suspended ? 'Unsuspend' : 'Suspend'}</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="11" class="table-empty">No workspaces match.</td></tr>';
+  }).join('') || '<tr><td colspan="12" class="table-empty">No workspaces match.</td></tr>';
 }
 // People in a workspace, and deleting an account (admins: immediately, after typing the email).
 function dlg(html) {
@@ -165,6 +167,46 @@ async function deleteUserDlg(id) {
   };
 }
 $('#tbl').addEventListener('click', (e) => { const b = e.target.closest('[data-people]'); if (b) peopleDlg(b.dataset.people); });
+// Pricing (credits) is off until PRICING=on is set on the server: say so above the table.
+function pricingNote() {
+  const live = all[0]?.pricingLive;
+  let n = document.getElementById('admPricing');
+  if (live || !all.length) { n?.remove(); return; }
+  if (!n) { n = document.createElement('div'); n.id = 'admPricing'; n.className = 'adm-pricing-off'; $('.adm-table-card').before(n); }
+  n.innerHTML = '<b>Pricing is off.</b> Nothing is charged and there are no number limits. Plans and credits you set here are kept for when it’s switched on: add <code>PRICING=on</code> to the server’s variables (Railway → Variables) and redeploy.';
+}
+// A workspace's plan and credits: switch between free and the credits plan, add a pack once they've paid, and see where credits went.
+async function creditsDlg(wsId) {
+  const w = all.find((x) => x.id === wsId);
+  if (!w) return;
+  let c;
+  try { c = await api('/admin/workspaces/' + wsId + '/credits'); } catch (err) { return toast(err.message, true); }
+  const n = (x) => Number(x || 0).toLocaleString('en-IN');
+  const d = dlg(`<div class="adm-dlg-h"><b>${esc(w.name)}</b><span>Credits</span><button class="adm-x" data-close aria-label="Close">×</button></div>
+    ${c.live ? '' : '<p class="adm-pricing-off sm"><b>Pricing is off</b> (PRICING isn’t on), so nothing here applies yet.</p>'}
+    <div class="adm-cr-plan"><label><input type="radio" name="crPlan" value="free" ${c.on ? '' : 'checked'} /> Free plan</label><label><input type="radio" name="crPlan" value="credits" ${c.on ? 'checked' : ''} /> Credits plan</label></div>
+    <p class="sub">${c.on ? `<b>${n(c.balance)} credits</b> left.` : 'On the free plan nothing uses credits.'} Marketing message ${c.rates.marketing}, utility ${c.rates.utility}, SendON AI reply or Assistant answer ${c.rates.ai}. Failed messages are refunded; packs last ${c.months} months.</p>
+    <div class="adm-cr-add">${c.packOptions.map((p) => `<button class="btn sm" data-pack="${p.id}">Add ₹${n(p.price)} → ${n(p.credits)}</button>`).join('')}</div>
+    <div class="adm-cr-custom"><input id="crN" inputmode="numeric" placeholder="Credits" aria-label="Credits" /><input id="crPrice" inputmode="numeric" placeholder="₹ paid" aria-label="Amount paid in rupees" /><input id="crNote" placeholder="Note (invoice, UTR…)" aria-label="Note" /><button class="btn sm" id="crCustom">Add</button></div>
+    <div class="adm-cr-log">${c.ledger.slice(0, 10).map((l) => `<div><span>${esc(l.what)}</span><b>${l.kind === 'add' ? '+' + n(l.used) : '−' + n(l.used - l.refunded)}</b></div>`).join('') || '<p class="sub">No activity yet.</p>'}</div>`);
+  const add = async (body) => {
+    if (!confirm(`Add ${body.pack ? c.packOptions.find((p) => p.id === body.pack).credits.toLocaleString('en-IN') : Number(body.credits).toLocaleString('en-IN')} credits to ${w.name}? Only once they’ve paid.`)) return;
+    try { await api('/admin/workspaces/' + wsId + '/credits', { method: 'POST', body: { ...body, note: d.querySelector('#crNote').value } }); toast('Credits added'); await load(); creditsDlg(wsId); } catch (err) { toast(err.message, true); }
+  };
+  d.onchange = async (e) => {
+    const r = e.target.closest('[name=crPlan]');
+    if (!r) return;
+    if (r.value === 'credits' && !confirm(`Switch ${w.name} to the credits plan? From now on, template messages and SendON’s AI use credits, and sending stops when they run out.`)) { creditsDlg(wsId); return; }
+    try { await api('/admin/workspaces/' + wsId, { method: 'PATCH', body: { billing: r.value } }); toast(r.value === 'credits' ? 'On the credits plan' : 'On the free plan'); await load(); creditsDlg(wsId); } catch (err) { toast(err.message, true); }
+  };
+  d.onclick = (e) => {
+    if (e.target === d || e.target.closest('[data-close]')) return d.close();
+    const p = e.target.closest('[data-pack]');
+    if (p) return add({ pack: p.dataset.pack });
+    if (e.target.closest('#crCustom')) add({ credits: d.querySelector('#crN').value, price: d.querySelector('#crPrice').value });
+  };
+}
+$('#tbl').addEventListener('click', (e) => { const b = e.target.closest('[data-credits]'); if (b) creditsDlg(b.dataset.credits); });
 $('#wsFilter').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; wsFilter = b.dataset.f; render(); });
 
 function syncAttn() { $('#attn').classList.toggle('hidden', $('#repSec').classList.contains('hidden') && $('#delReqs').classList.contains('hidden')); }
@@ -256,7 +298,7 @@ async function load() {
   try { reps = await api('/admin/reports'); renderReps(); } catch (e) { /* the table below shows the error */ }
   try { dels = await api('/admin/deletion-requests'); renderDels(); } catch (e) { /* the table below shows the error */ }
   try { all = await api('/admin/workspaces'); render(); LA.hydrate(document); }
-  catch (e) { $('#tbl tbody').innerHTML = `<tr><td colspan="11" class="table-empty">${esc(e.message)}</td></tr>`; }
+  catch (e) { $('#tbl tbody').innerHTML = `<tr><td colspan="12" class="table-empty">${esc(e.message)}</td></tr>`; }
 }
 $('#q').addEventListener('input', render);
 // The "?" hints: a tooltip right away on hover or keyboard focus (the browser's own title tooltip is slow and easy

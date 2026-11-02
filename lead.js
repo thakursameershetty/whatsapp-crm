@@ -62,7 +62,7 @@ const TOOLS = [{
 }];
 
 module.exports = function mountLead(app, ctx) {
-  const { db, save, id, wrap, fail, aiConfig, aiAllowed, broadcast, contacts, notes, sendText } = ctx;
+  const { db, save, id, wrap, fail, aiConfig, aiAllowed, broadcast, contacts, notes, sendText, credits } = ctx;
   const timers = new Map();
 
   // Off in workspaces without an admin: the AI features are admin-only for now.
@@ -179,14 +179,18 @@ Draft the next reply to the customer's latest message(s).`;
       const blocker = !ai.draft ? 'off'
         : send ? (r.handover?.needed ? 'needs a person' : updated?.optOut ? 'opted out' : null)
         : !manual && settings().autoReply ? autoSendBlocker(key, { handover: r.handover?.needed, contact: updated, lastIn }) : 'off';
-      if (!blocker) {
+      // Sent by our AI: 1 credit (credits.js). Out of credits: the draft stays for a person to send.
+      const ch = !blocker && cfg.platform ? credits?.charge(credits.AI_RATE, credits.keys.aiReply()) : null;
+      if (ch === false) ai.error = 'Out of credits, so the AI didn’t send this reply. It’s ready below for you to send, or add credits in Settings → Credits.';
+      else if (!blocker) {
         const text = ai.draft.text;
         try {
-          await sendText(key, text, { auto: true });
+          await sendText(key, text, { auto: true, ...(ch ? { credit: ch } : {}) });
           (ai.autoAt ||= []).push(Date.now());
           ai.draft = null;
           notes?.aiAuto?.({ ...who, text });
         } catch (e) {
+          credits?.refund(ch);
           ai.error = `Auto-reply wasn't sent: ${e.message}`; // the draft stays for a person to send
         }
       } else if (blocker !== 'off') ai.autoHeld = blocker;

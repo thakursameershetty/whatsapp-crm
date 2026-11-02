@@ -16,6 +16,7 @@ const { AsyncLocalStorage } = require('async_hooks');
 
 const mail = require('./mail');
 const passwordRules = require('./public/password-rules');
+const { balanceOf, LIVE: PRICING_LIVE } = require('./credits');
 
 const SESSION_DAYS = 30;
 // New workspaces may send this many template messages a day until an admin raises it.
@@ -84,7 +85,7 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   if (renamed) { console.log(`Shortened ${renamed} over-long name(s) to fit the limits.`); saveAccounts(); }
 
   function createWorkspace(name) {
-    const meta = { id: id(), name: tidyName(name).slice(0, NAME_MAX.workspace) || 'My workspace', createdAt: now(), dailyLimit: NEW_WORKSPACE_DAILY_LIMIT };
+    const meta = { id: id(), name: tidyName(name).slice(0, NAME_MAX.workspace) || 'My workspace', createdAt: now(), dailyLimit: NEW_WORKSPACE_DAILY_LIMIT, billing: 'credits' };
     accounts.workspaces.push(meta);
     const ws = loadWorkspace(meta);
     ws.db.settings.webhookVerifyToken = crypto.randomBytes(12).toString('hex');
@@ -920,6 +921,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         const last = [...d.messages.filter((x) => !x.demo).map((x) => x.ts), ...d.campaigns.filter((c) => !c.demo).map((c) => c.startedAt || c.createdAt)].filter(Boolean).sort().at(-1) || null;
         return {
           id: m.id, name: m.name, createdAt: m.createdAt, suspended: Boolean(m.suspended), dailyLimit: m.dailyLimit ?? null, legacy: Boolean(m.legacy),
+          billing: m.billing === 'credits' ? 'credits' : 'free', credits: balanceOf(d), pricingLive: PRICING_LIVE,
           members: accounts.members.filter((x) => x.wsId === m.id).map((x) => { const u = accounts.users.find((y) => y.id === x.userId); return { id: u?.id, name: u?.name || '', email: u?.email, role: x.role, admin: isAdmin(u) }; }),
           ai: aiOn(ws), aiBuiltIn: ours(ws),
           demoMode: Boolean(d.settings.demoMode), numbers: d.senders.filter((s) => !s.seed).length, contacts: d.contacts.length,
@@ -939,6 +941,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         if (!req.body.ai && ours(ws)) throw fail('AI is always on for your own workspaces');
         if (req.body.ai) ws.meta.aiAllowed = true; else delete ws.meta.aiAllowed;
       }
+      // Credits plan (credits.js) or free. Workspaces made before credits existed are free until switched here.
+      if (req.body.billing === 'credits' || req.body.billing === 'free') ws.meta.billing = req.body.billing;
       if ('dailyLimit' in req.body) {
         const n = req.body.dailyLimit === null || req.body.dailyLimit === '' ? null : Math.max(0, Math.floor(Number(req.body.dailyLimit)));
         if (n !== null && !Number.isFinite(n)) throw fail('Enter a number, or leave it empty for no limit');

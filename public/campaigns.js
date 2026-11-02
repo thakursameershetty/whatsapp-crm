@@ -435,22 +435,27 @@
     requestAnimationFrame(() => $('#cdMsg .cd-msg-more')?.classList.toggle('hidden', !CP.msgOpen && ph.scrollHeight <= ph.clientHeight + 2));
   }
 
-  // Sent → delivered → read → replied → leads. Each bar is a share of what was sent.
+  // Sent → delivered → read → replied → leads, under the campaign's total. Each row has the mark people know from
+  // WhatsApp: one grey tick (sent), two grey ticks (delivered), two blue ticks (read), the reply arrow, the contacts icon.
+  // Each bar is a share of what was sent.
+  const TICK1 = '<svg class="cd-tick" viewBox="0 0 16 11" width="18" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 5.8 4.2 9 11 1.8"/></svg>';
+  const TICK2 = '<svg class="cd-tick" viewBox="0 0 16 11" width="18" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 5.8 4.2 9 11 1.8M7.6 8.4l.6.6L15 1.8"/></svg>';
   function renderFunnel(c) {
     const s = c.stats || {};
+    const total = c.recipients?.length ?? c.total ?? 0;
     const sent = sentOf(s), del = deliveredOf(s), read = s.read || 0;
     const steps = [
-      ['Sent', sent, null],
-      ['Delivered', del, sent],
-      ['Read', read, del],
-      ['Replied', c.replies || 0, read || del],
-      ['Leads', c.leads || 0, c.replies || 0],
+      ['Sent', sent, null, TICK1, 'sent'],
+      ['Delivered', del, sent, TICK2, 'delivered'],
+      ['Read', read, del, TICK2, 'read'],
+      ['Replied', c.replies || 0, read || del, icon('reply', 15), 'replied'],
+      ['Leads', c.leads || 0, c.replies || 0, icon('users', 15), 'leads'],
     ];
     $('#cdFunnel').innerHTML = `
-      <div class="cd-label">Results</div>
-      <div class="cd-steps">${steps.map(([label, n, of], i) => `
+      <div class="cd-label cd-label-row"><span>Results</span><span class="cd-total"><b>${total.toLocaleString()}</b> ${total === 1 ? 'message' : 'messages'} in this campaign</span></div>
+      <div class="cd-steps">${steps.map(([label, n, of, mark, cls], i) => `
         <div class="cd-step s${i}">
-          <div class="cd-step-top"><span>${label}</span><b>${n.toLocaleString()}</b>${of != null ? `<em>${of ? pctOf(n, of) + '%' : '—'}</em>` : ''}</div>
+          <div class="cd-step-top"><span class="cd-step-name"><i class="cd-mark ${cls}">${mark}</i>${label}</span><b>${n.toLocaleString()}</b>${of != null ? `<em>${of ? pctOf(n, of) + '%' : '—'}</em>` : total && n !== total ? `<em>of ${total.toLocaleString()}</em>` : ''}</div>
           <div class="cd-step-bar"><i style="width:${sent ? Math.max(n ? 1.5 : 0, (100 * n) / sent) : 0}%"></i></div>
         </div>`).join('')}</div>
       <p class="sub cd-foot">${[
@@ -545,11 +550,48 @@
       <div class="cd-reasons">${list.map((g) => `
         <div class="cd-reason">
           <span class="cd-reason-n">${g.n.toLocaleString()}</span>
-          <span class="cd-reason-t">${esc(g.label)}${g.code ? ` <code>${g.code}</code>` : ''}</span>
+          <span class="cd-reason-t">${esc(g.label)}${g.code ? ` <code class="cd-ecode" tabindex="0" data-ecode="${esc(g.code)}" aria-describedby="cdErrPop">${g.code}</code>` : ''}</span>
           ${g.retry && !running ? `<button class="btn sm" data-cd="retry" data-reason="${esc(g.key)}">${icon('refresh-cw', 13)}Retry ${g.n}</button>` : g.retry ? '' : '<span class="cd-noretry">Retrying won’t help</span>'}
         </div>`).join('')}</div>`;
     LA.hydrate(el);
   }
+
+  // Hovering (or focusing, or tapping) an error code in "Why it failed": the same dark card the Inbox shows for a
+  // failed message, from the Error codes list: what it means, what to do, and whether sending again helps.
+  const RETRY_TXT = { yes: 'Sending again can work', later: 'Wait a while, then send again', no: 'Sending again won’t help until the cause is fixed' };
+  let errPop = null, errHide = 0;
+  const closeErrPop = () => { clearTimeout(errHide); errPop?.el.remove(); errPop = null; };
+  function showErrPop(codeEl) {
+    if (errPop?.code === codeEl) return;
+    closeErrPop();
+    const code = codeEl.dataset.ecode, e = window.MetaErrors?.byCode[code];
+    const el = document.createElement('div');
+    el.className = 'ib-err-pop';
+    el.id = 'cdErrPop';
+    el.setAttribute('role', 'tooltip');
+    el.innerHTML = `<b>${esc(e ? e.title : 'Meta error ' + code)}</b>${e ? `<p>${esc(e.means)}</p><p>${esc(e.todo)}</p>` : `<p>This code isn’t in our list yet. Search “WhatsApp error ${esc(code)}” in Meta’s documentation.</p>`}
+      <div class="ib-err-src"><div class="ib-err-codeline"><span>Meta error <code>${esc(code)}</code>${e ? ' · ' + RETRY_TXT[e.retry] : ''}</span>${e ? `<a href="#" data-ecopen="${esc(code)}">All error codes</a>` : ''}</div></div>`;
+    document.body.appendChild(el);
+    const r = codeEl.getBoundingClientRect(), w = el.offsetWidth, ht = el.offsetHeight, gap = 10;
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8);
+    let top = r.top - ht - gap, below = false;
+    if (top < 8) { top = r.bottom + gap; below = true; }
+    Object.assign(el.style, { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` });
+    el.style.setProperty('--arrow-x', `${Math.round(r.left + r.width / 2 - left)}px`);
+    el.classList.toggle('below', below);
+    el.addEventListener('mouseenter', () => clearTimeout(errHide));
+    el.addEventListener('mouseleave', () => { errHide = setTimeout(closeErrPop, 200); });
+    el.addEventListener('click', (ev) => { const a = ev.target.closest('[data-ecopen]'); if (a) { ev.preventDefault(); closeErrPop(); window.MetaErrors?.open(a.dataset.ecopen); } });
+    errPop = { el, code: codeEl };
+  }
+  const codeAt = (t) => t.closest?.('#cdFail [data-ecode]');
+  document.addEventListener('mouseover', (ev) => { const c = codeAt(ev.target); if (c) { clearTimeout(errHide); showErrPop(c); } });
+  document.addEventListener('mouseout', (ev) => { if (codeAt(ev.target) && errPop) errHide = setTimeout(closeErrPop, 200); });
+  document.addEventListener('focusin', (ev) => { const c = codeAt(ev.target); if (c) showErrPop(c); });
+  document.addEventListener('focusout', (ev) => { if (codeAt(ev.target)) errHide = setTimeout(closeErrPop, 200); });
+  document.addEventListener('click', (ev) => { const c = codeAt(ev.target); if (c) showErrPop(c); else if (errPop && !errPop.el.contains(ev.target)) closeErrPop(); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeErrPop(); });
+  addEventListener('scroll', closeErrPop, { passive: true });
 
   // Recipients in a read-only sheet: sort, filter, copy, and a Show filter by outcome.
   const SHOW = {

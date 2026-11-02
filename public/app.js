@@ -128,6 +128,7 @@ function showTab(name) {
   requestAnimationFrame(setupSticky);
   document.body.classList.toggle('send-open', name === 'send');
   if (name === 'send') window.SendPage?.show();
+  if (name === 'settings' || name === 'send') window.Credits?.load(); // the balance may have changed
   if (name === 'contacts') window.Contacts?.show();
   if (name === 'notifications') window.Notifications?.show();
   if (name === 'campaigns') loadCampaigns();
@@ -3608,7 +3609,7 @@ $('#pwChange').addEventListener('click', () => {
     loadTeam().catch(() => {});
     state.settings = await api('/settings');
     renderSettings();
-    await Promise.all([loadSenders(), loadTemplates()]);
+    await Promise.all([loadSenders(), loadTemplates(), window.Credits?.load()]);
     await window.SendPage?.restoreDraft().catch(() => false); // the Send page's sheets and settings from last time
     showTab.replace = true; // the first page replaces the address (e.g. an old #send link becomes /send)
     showTab(tabFromUrl());

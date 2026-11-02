@@ -1871,6 +1871,14 @@ body.assistant-open main { padding-bottom: 0; }
 .cd-steps { display: flex; flex-direction: column; gap: 12px; }
 .cd-step-top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 5px; }
 .cd-step-top span { width: 90px; color: var(--muted); font-size: 13px; }
+/* Each step's WhatsApp mark: ticks for sent/delivered/read, the reply arrow, the contacts icon. */
+.cd-step-top .cd-step-name { display: inline-flex; align-items: center; gap: 8px; width: 118px; }
+.cd-mark { display: inline-grid; place-items: center; width: 20px; flex: none; color: var(--faint); font-style: normal; }
+.cd-mark.read { color: var(--tick-read); }
+.cd-mark.replied, .cd-mark.leads { color: var(--muted); }
+.cd-label-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.cd-total { font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.cd-total b { color: var(--text); font-weight: 600; }
 .cd-step-top b { font-size: 20px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .cd-step-top em { font-style: normal; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cd-step-bar { height: 10px; border-radius: 99px; background: var(--meter-track); overflow: hidden; }
@@ -4894,3 +4902,57 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .ib-filters { flex-wrap: wrap; }
 .ib-filters .ib-tpl-filter { flex: 1 1 120px; width: auto; min-width: 120px; }
 .ib-filters:has(#ibSenderWrap:not(.hidden)) .ib-tpl-filter { flex-basis: 100%; }
+
+/* Settings → Credits (billing.js): the balance, the rates, and where credits went. */
+.credits-card { margin-bottom: 18px; }
+.credits-card .card-head { margin-bottom: 14px; }
+.cr-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 18px; align-items: stretch; }
+.cr-bal { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 18px 20px; border-radius: 14px; background: var(--sunk); }
+.cr-bal b { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.cr-bal span { font-size: 13px; color: var(--muted); }
+.cr-bal.low b { color: var(--warn); }
+.cr-bal.out b { color: var(--danger); }
+.cr-bal .cr-demo { margin-top: 6px; color: var(--info); font-weight: 500; }
+.cr-rates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+.cr-rates div { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 10px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--hair); }
+.cr-rates dt { font-size: 12px; color: var(--muted); }
+.cr-rates dd { margin: 0; font-size: 15px; font-weight: 600; }
+.cr-rates .cr-nums { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; }
+.cr-pack .cr-pack-n { color: var(--text); font-weight: 500; }
+.cr-note { margin: 14px 0 16px; font-size: 12.5px; }
+.cr-log { display: flex; flex-direction: column; }
+.cr-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0; box-shadow: 0 1px 0 var(--hair); }
+.cr-row:last-child { box-shadow: none; }
+.cr-row span { display: flex; flex-direction: column; min-width: 0; }
+.cr-row b { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cr-row small { font-size: 12px; color: var(--muted); }
+.cr-row em { flex: none; font-style: normal; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cr-row.add em { color: var(--good-text); }
+.cr-row.expire em { color: var(--faint); }
+/* Buy credits: the packs side by side. */
+.cr-packs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.cr-pack { display: flex; flex-direction: column; gap: 2px; padding: 14px; border-radius: 14px; background: var(--sunk); text-align: center; }
+.cr-pack b { font-size: 20px; font-weight: 700; }
+.cr-pack span { font-size: 13px; color: var(--muted); }
+.cr-pack em { margin-top: 6px; font-style: normal; font-size: 12px; font-weight: 600; color: var(--good-text); }
+.cr-pack em.plain { visibility: hidden; }
+@media (max-width: 760px) { .cr-top { grid-template-columns: 1fr; } .cr-packs { grid-template-columns: 1fr; } }
+/* Admin → a workspace's credits (plan, add a pack, recent activity). */
+.adm-table .btn.danger-soft { color: var(--danger); background: var(--danger-soft); }
+.adm-cr-plan { display: flex; gap: 18px; margin: 4px 0 10px; font-size: 14px; }
+.adm-cr-plan label { display: flex; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap; }
+.adm-cr-plan input { flex: none; width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--text); }
+.adm-cr-add { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 10px; }
+.adm-cr-custom { display: grid; grid-template-columns: 1fr 1fr 1.6fr auto; gap: 8px; align-items: center; margin-bottom: 14px; }
+.adm-cr-custom input { min-width: 0; }
+.adm-cr-log { display: flex; flex-direction: column; max-height: 220px; overflow: auto; border-radius: 10px; background: var(--sunk); padding: 4px 12px; }
+.adm-cr-log div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; font-size: 13px; box-shadow: 0 1px 0 var(--hair); }
+.adm-cr-log div:last-child { box-shadow: none; }
+.adm-cr-log b { font-variant-numeric: tabular-nums; }
+.adm-pricing-off { margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; background: var(--warn-soft); color: var(--text); font-size: 13px; line-height: 1.5; }
+.adm-pricing-off code { font-size: 12px; padding: 1px 5px; border-radius: 5px; background: var(--surface); }
+.adm-pricing-off.sm { margin-bottom: 10px; }
+/* An error code in a campaign's "Why it failed": hover, focus or tap it for the explanation card. */
+.cd-ecode { cursor: help; text-decoration: underline dotted; text-decoration-color: var(--faint); text-underline-offset: 3px; }
+.cd-ecode:hover, .cd-ecode:focus-visible { text-decoration-color: currentColor; }
+.ib-err-codeline a { white-space: nowrap; }

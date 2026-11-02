@@ -965,7 +965,8 @@
       !nums ? 'Turn on at least one sender number' :
       emptyFixed ? `Fill in ${missLabel(emptyFixed.key)} in the Message panel` :
       badLink ? badLink :
-      !count ? `Every row is missing a value for ${missLabel(missing[0][0])}` : '';
+      !count ? `Every row is missing a value for ${missLabel(missing[0][0])}` :
+      window.Credits?.short(t, count) || ''; // not enough credits (billing.js)
 
     const notes = [
       sheets > 1 ? `from ${sheets} sheets` : '',
@@ -975,7 +976,7 @@
       skip.filtered ? `${skip.filtered.toLocaleString()} hidden by filters` : '',
       ...missing.map(([k, n]) => `${n.toLocaleString()} with no ${missLabel(k)}`),
     ].filter(Boolean).join(' · ');
-    const detail = [nums ? `${nums} number${nums === 1 ? '' : 's'} · ~${Math.ceil(count / Math.max(1, nums)).toLocaleString()} each` : '', t ? `template ${esc(t.name)}` : ''].filter(Boolean).join(' · ');
+    const detail = [nums ? `${nums} number${nums === 1 ? '' : 's'} · ~${Math.ceil(count / Math.max(1, nums)).toLocaleString()} each` : '', t ? `template ${esc(t.name)}` : '', window.Credits?.costText(t, count) || ''].filter(Boolean).join(' · ');
 
     $('#sendSummary').innerHTML = `<strong>${count.toLocaleString()} recipient${count === 1 ? '' : 's'}</strong>${notes ? ` <span class="sp-notes">${esc(notes)}</span>` : ''}
       <div>${why ? `<span class="why">${esc(why)}</span>` : detail}</div>`;
@@ -1060,7 +1061,7 @@
       const demo = state.settings.demoMode;
       const ok = await confirmDialog({
         title: scheduledAt ? `Schedule ${list.length.toLocaleString()} messages?` : `Send ${list.length.toLocaleString()} messages now?`,
-        message: `Template <strong>${esc(t.name)}</strong> from ${nums} number${nums === 1 ? '' : 's'}${sheets > 1 ? `, to rows from ${sheets} sheets` : ''}${scheduledAt ? `, on <strong>${esc(new Date(scheduledAt).toLocaleString())}</strong>` : ''}.<br><br>${demo ? 'Demo mode: sending is simulated.' : '<strong>Live:</strong> real WhatsApp messages will be sent.'}`,
+        message: `Template <strong>${esc(t.name)}</strong> from ${nums} number${nums === 1 ? '' : 's'}${sheets > 1 ? `, to rows from ${sheets} sheets` : ''}${scheduledAt ? `, on <strong>${esc(new Date(scheduledAt).toLocaleString())}</strong>` : ''}.<br><br>${demo ? 'Demo mode: sending is simulated.' : '<strong>Live:</strong> real WhatsApp messages will be sent.'}${window.Credits?.confirmText(t, list.length) || ''}`,
         confirmText: scheduledAt ? 'Schedule' : 'Send now',
         check: demo ? '' : 'These people agreed to get WhatsApp messages from my business, and can reply STOP to opt out.',
       });
@@ -1191,6 +1192,7 @@
 
   window.SendPage = {
     restoreDraft: () => Draft.restore(),
+    refresh: () => renderSummary(), // e.g. when the credit balance changes (billing.js)
     readWorkbook,
     toTable,
     openContacts,

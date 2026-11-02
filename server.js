@@ -296,6 +296,7 @@ const RETRYABLE = new Set([4, 80007, 130429, 131048, 131056]);
 
 const running = new Map(); // campaignId -> { stop: boolean }
 let notes = null; // notifications (notifications.js), mounted further down
+let credits = null; // what SendON charges (credits.js), mounted further down
 
 // Failures that say the list (or the number) is in trouble. Meta's marketing cap (131049) and rate
 // limits are Meta's choice about timing, not bad numbers, so they don't count towards auto-pausing.
@@ -303,7 +304,23 @@ const NOT_LIST_PROBLEMS = /^(131049|130429|131056|4|80007):/;
 const listFailures = (c) => c.recipients.filter((r) => r.status === 'failed' && !NOT_LIST_PROBLEMS.test(String(r.error || ''))).length;
 const attempted = (c) => c.recipients.filter((r) => ['sent', 'delivered', 'read', 'failed'].includes(r.status)).length;
 
+// "It needs N credits (…), and this workspace has M": the reason a send can't start.
+function creditsShort(count, template) {
+  const rate = credits.rateFor(template), need = count * rate, cat = String(template?.category || 'marketing').toLowerCase();
+  return `It needs ${need.toLocaleString('en-IN')} credits (${count.toLocaleString('en-IN')} message${count === 1 ? '' : 's'} × ${rate} for a ${cat} template), and this workspace has ${credits.balance().toLocaleString('en-IN')}.`;
+}
+
 async function runCampaign(campaign) {
+  // Not enough credits for everyone still to send: don't start (a scheduled campaign, or one resumed later).
+  const tpl = db.templates.find((t) => t.id === campaign.templateId);
+  const toSend = campaign.recipients.filter((r) => r.status === 'pending' || r.status === 'queued').length;
+  if (tpl && toSend && !credits.enough(toSend * credits.rateFor(tpl), campaign.demo)) {
+    campaign.status = 'stopped';
+    campaign.pausedReason = `Not sent: ${creditsShort(toSend, tpl)} Add credits in Settings → Credits, then resume it.`;
+    save();
+    notes?.add({ kind: 'credits_out', group: 'credits_out', title: `“${campaign.name}” didn’t start: not enough credits`, body: campaign.pausedReason, link: { tab: 'campaigns', id: campaign.id } });
+    return;
+  }
   const control = { stop: false };
   running.set(campaign.id, control);
   campaign.status = 'running';
@@ -331,6 +348,14 @@ async function runCampaign(campaign) {
     while (queue.length && !control.stop) {
       const i = queue.shift();
       const r = campaign.recipients[i];
+      // Credits for this message (credits.js). Run out part-way: stop here; the rest stay waiting for a resume.
+      const ch = template ? credits.charge(credits.rateFor(template), credits.keys.campaign(campaign)) : null;
+      if (ch === false) {
+        control.stop = true;
+        campaign.pausedReason = 'Paused: this workspace ran out of credits. Add credits in Settings → Credits, then resume to send the rest.';
+        break;
+      }
+      if (ch) r.credit = ch;
       for (let attempt = 0; ; attempt++) {
         try {
           r.messageId = await sendTemplate(sender, template, r.phone, r.values, campaign.demo);
@@ -348,6 +373,7 @@ async function runCampaign(campaign) {
           r.status = 'failed';
           r.error = e.message;
           r.failedAt = new Date().toISOString();
+          credits.refund(ch); // Meta didn't take it: no charge
           break;
         }
       }
@@ -468,6 +494,7 @@ function handleWebhookChange(change) {
           const was = im.status;
           applyStatus(im, st);
           broadcast({ kind: 'status', key: im.key });
+          if (im.status === 'failed' && was !== 'failed') credits?.refund(im.credit);
           if (im.status === 'failed' && was !== 'failed') notes?.replyFailed({ key: im.key, name: db.chats[im.key]?.name || '+' + im.wa, error: im.error, demo: im.demo });
           continue;
         }
@@ -478,6 +505,7 @@ function handleWebhookChange(change) {
         if (!r) continue;
         if (st.status === 'failed') {
           if (r.status !== 'failed') failedIn.add(c);
+          credits?.refund(r.credit); // failed messages cost nothing (once: a charge is refunded only once)
           r.status = 'failed';
           r.failedAt = new Date(Number(st.timestamp) * 1000).toISOString();
           r.error = st.errors?.map((e) => `${e.code}: ${e.title}${e.error_data?.details ? ' — ' + e.error_data.details : ''}`).join('; ');
@@ -584,13 +612,17 @@ tenants.mountAccountApi(app, { wrap, fail });
 // AI assistant: Claude (Anthropic) or Gemini (Google). Keys are write-only from the browser, like sender access tokens.
 const AI_PROVIDERS = ['gemini', 'claude'];
 const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+// Our keys (the server's environment) serve the original workspace, and any workspace on the credits plan that has AI
+// switched on: that one pays credits for it (credits.js). Everyone else brings their own key, and a workspace's own key
+// always wins (and then the AI costs no credits). platform = this answer comes from our key.
+const platformAi = () => tenants.isLegacy() || (require('./credits').LIVE && tenants.meta()?.billing === 'credits' && tenants.aiAllowed());
 function aiConfig() {
-  // Keys from the server's environment only serve the original workspace; every other business brings its own.
-  const env = tenants.isLegacy() ? process.env : {};
-  const keys = { claude: db.settings.anthropicApiKey || env.ANTHROPIC_API_KEY || '', gemini: db.settings.geminiApiKey || env.GEMINI_API_KEY || '' };
+  const env = platformAi() ? process.env : {};
+  const own = { claude: db.settings.anthropicApiKey || '', gemini: db.settings.geminiApiKey || '' };
+  const keys = { claude: own.claude || env.ANTHROPIC_API_KEY || '', gemini: own.gemini || env.GEMINI_API_KEY || '' };
   // Until one is picked, use whichever has a key (Gemini first: it has a free tier).
   const provider = AI_PROVIDERS.includes(db.settings.aiProvider) ? db.settings.aiProvider : keys.gemini || !keys.claude ? 'gemini' : 'claude';
-  return { provider, key: keys[provider], keys, geminiModel: db.settings.geminiModel || DEFAULT_GEMINI_MODEL };
+  return { provider, key: keys[provider], keys, geminiModel: db.settings.geminiModel || DEFAULT_GEMINI_MODEL, platform: !own[provider] && Boolean(keys[provider]) };
 }
 function publicSettings(req) {
   const { anthropicApiKey, geminiApiKey, leadAgent, aiProvider, geminiModel, ...rest } = db.settings;
@@ -606,10 +638,10 @@ function publicSettings(req) {
     geminiModel: ai.geminiModel,
     hasAiKey: Boolean(ai.key),
     aiKeyMasked: maskToken(anthropicApiKey),
-    aiKeyFromEnv: !anthropicApiKey && tenants.isLegacy() && Boolean(process.env.ANTHROPIC_API_KEY),
+    aiKeyFromEnv: !anthropicApiKey && platformAi() && Boolean(process.env.ANTHROPIC_API_KEY),
     hasGeminiKey: Boolean(ai.keys.gemini),
     geminiKeyMasked: maskToken(geminiApiKey),
-    geminiKeyFromEnv: !geminiApiKey && tenants.isLegacy() && Boolean(process.env.GEMINI_API_KEY),
+    geminiKeyFromEnv: !geminiApiKey && platformAi() && Boolean(process.env.GEMINI_API_KEY),
   };
 }
 
@@ -867,6 +899,7 @@ app.post('/api/senders/find-waba', wrap(async (req, res) => {
 }));
 
 app.post('/api/senders', wrap(async (req, res) => {
+  credits.checkNumberLimit(); // the plan's number limit (credits.js)
   const { label, phoneNumberId, wabaId, displayPhone } = req.body;
   if (!label || !phoneNumberId) throw fail('Label and Phone Number ID are required');
   const labelErr = senderLabelError(label) || senderIdsError(req.body);
@@ -1370,6 +1403,7 @@ function createCampaign(body) {
   const { recipients, skipped, vars } = resolveRecipients(body, template);
   if (!recipients.length) throw fail('No valid recipients');
   checkDailyLimit(recipients.length);
+  if (!credits.enough(recipients.length * credits.rateFor(template))) throw fail(`Not enough credits. ${creditsShort(recipients.length, template)} Add credits in Settings → Credits, or send to fewer people.`, 402);
   const missing = vars.find((v) => recipients.some((r) => !r.values[v.key]));
   const badRow = recipients.find((r) => valuesProblem(template, r.values));
   if (badRow) throw fail(`+${badRow.phone}: ${valuesProblem(template, badRow.values)}. Fix it on the Send page.`);
@@ -1494,7 +1528,11 @@ app.post('/api/campaigns/:id/resume', wrap((req, res) => {
   // Also retry failures when asked: all of them, or only those with certain error codes / messages.
   const codes = Array.isArray(req.body?.retryReasons) ? new Set(req.body.retryReasons.map(String)) : null;
   const reasonOf = (r) => String(r.error || '').match(/^(\d{2,6}):/)?.[1] || String(r.error || '');
-  if (req.body?.retryFailed || codes) c.recipients.forEach((r) => r.status === 'failed' && (!codes || codes.has(reasonOf(r))) && Object.assign(r, { status: 'pending', error: undefined }));
+  const retry = req.body?.retryFailed || codes ? c.recipients.filter((r) => r.status === 'failed' && (!codes || codes.has(reasonOf(r)))) : [];
+  const tpl = db.templates.find((t) => t.id === c.templateId);
+  const toSend = c.recipients.filter((r) => r.status === 'pending' || r.status === 'queued').length + retry.length;
+  if (tpl && !credits.enough(toSend * credits.rateFor(tpl), c.demo)) throw fail(`Not enough credits. ${creditsShort(toSend, tpl)} Add credits in Settings → Credits.`, 402);
+  retry.forEach((r) => Object.assign(r, { status: 'pending', error: undefined }));
   runCampaign(c);
   res.json(summary(c));
 }));
@@ -1742,8 +1780,13 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
   if (!demo && !sender.accessToken) throw fail(`"${sender.label}" has no access token`);
   const { text, replyTo, templateId, values = {} } = req.body;
 
-  if (templateId) res.json(await sendInboxTemplate(key, templateId, values));
-  else res.json(await sendInboxText(key, text, { replyTo }));
+  if (templateId) return res.json(await sendInboxTemplate(key, templateId, values));
+  // Sending the AI's suggested reply as it is (written by our AI): 1 credit. Typed or edited by a person: free.
+  const draft = db.chats[key]?.ai?.draft;
+  const aiWritten = draft && String(text || '').trim() === String(draft.text || '').trim() && aiConfig().platform;
+  const ch = aiWritten ? credits.charge(credits.AI_RATE, credits.keys.aiReply()) : null;
+  if (ch === false) throw fail('Out of credits: sending the AI’s suggested reply uses 1 credit. Add credits in Settings → Credits, or edit the reply and send it as your own.', 402);
+  try { res.json(await sendInboxText(key, text, { replyTo, ...(ch ? { credit: ch } : {}) })); } catch (e) { credits.refund(ch); throw e; }
 }));
 
 // A template message in a conversation (works any time, inside or outside the 24-hour window).
@@ -1759,8 +1802,11 @@ async function sendInboxTemplate(key, templateId, values = {}) {
   if (empty) throw fail(`Fill in ${empty.where} ${empty.name}`);
   const linkErr = valuesProblem(template, filled);
   if (linkErr) throw fail(linkErr);
-  const wamid = await sendTemplate(sender, template, wa, filled, db.settings.demoMode);
-  return recordOut(key, { type: 'template', templateId, templateName: template.name, values, wamid });
+  const ch = credits.charge(credits.rateFor(template), credits.keys.inboxTemplate());
+  if (ch === false) throw fail(`Out of credits: a ${String(template.category || 'marketing').toLowerCase()} template uses ${credits.rateFor(template)}. Add credits in Settings → Credits.`, 402);
+  let wamid;
+  try { wamid = await sendTemplate(sender, template, wa, filled, db.settings.demoMode); } catch (e) { credits.refund(ch); throw e; }
+  return recordOut(key, { type: 'template', templateId, templateName: template.name, values, wamid, ...(ch ? { credit: ch } : {}) });
 }
 
 // React to a customer's message with an emoji (or remove our reaction with an empty emoji). Like any free-form
@@ -1854,7 +1900,7 @@ app.post('/api/demo/inbound', wrap((req, res) => {
 
 // A free-form text reply in a conversation (only inside WhatsApp's 24-hour window). Used by the
 // Inbox and by the lead assistant's auto-reply (auto: true marks the message as sent by the AI).
-async function sendInboxText(key, text, { replyTo, auto = false } = {}) {
+async function sendInboxText(key, text, { replyTo, auto = false, credit } = {}) {
   const { senderId, wa } = splitKey(key);
   const sender = db.senders.find((s) => s.id === senderId);
   if (!sender) throw fail('This WhatsApp number is no longer connected');
@@ -1871,7 +1917,7 @@ async function sendInboxText(key, text, { replyTo, auto = false } = {}) {
     if (replyTo) payload.context = { message_id: replyTo };
     wamid = (await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify(payload) })).messages?.[0]?.id;
   }
-  return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : {}) });
+  return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : {}), ...(credit ? { credit } : {}) });
 }
 
 // Store an outgoing Inbox message and tell open dashboards.
@@ -2305,12 +2351,25 @@ function removeSeedData() {
 // --- Contacts and the Inbox lead assistant ------------------------------------
 
 notes = require('./notifications')(app, { db, save, id, wrap, broadcast });
+credits = require('./credits').mount(app, { db, save, id, wrap, fail, meta: tenants.meta, notes });
+// Admins: a workspace's credits, and adding a pack after the customer has paid.
+const adminWs = (req) => {
+  if (!req.admin) throw fail('Admins only', 403);
+  const ws = tenants.allWorkspaces().find((w) => w.meta.id === req.params.id);
+  if (!ws) throw fail('Workspace not found', 404);
+  return ws;
+};
+app.get('/api/admin/workspaces/:id/credits', wrap((req, res) => { const ws = adminWs(req); res.json(tenants.forWorkspace(ws, () => credits.summary())); }));
+app.post('/api/admin/workspaces/:id/credits', wrap((req, res) => {
+  const ws = adminWs(req);
+  res.json(tenants.forWorkspace(ws, () => { credits.addPack({ ...req.body, by: req.user.email }); return credits.summary(); }));
+}));
 const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast });
-const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, sendText: (key, text, opts) => sendInboxText(key, text, opts) });
+const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts) });
 
 // --- AI assistant -------------------------------------------------------------
 
-require('./ai')(app, { db, save, id, wsId: tenants.wsId, wrap, fail, aiConfig, contacts: contactsApi, normalizePhone, templateVariables, createCampaign, computeStats, summary, publicSender });
+require('./ai')(app, { db, save, id, wsId: tenants.wsId, wrap, fail, aiConfig, credits, contacts: contactsApi, normalizePhone, templateVariables, createCampaign, computeStats, summary, publicSender });
 
 // --- Meta Graph API version: kept current for every workspace ---------------------------------
 // Meta retires each version about two years after release, and then every request fails. Every workspace below

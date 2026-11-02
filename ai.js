@@ -1444,6 +1444,8 @@ module.exports = function mountAi(app, ctx) {
       if (session.busy) throw fail('Wait for the current reply to finish', 409);
       if (!String(req.body.text || '').trim() && req.body.answer == null) throw fail('Type a message');
       providerFor(session); // fail fast, before streaming, when no key is set or the provider changed
+      // An answer from our AI (not the workspace's own key) uses 1 credit (credits.js).
+      if (aiConfig().platform && !ctx.credits?.enough(ctx.credits.AI_RATE)) throw fail('Out of credits: each Assistant answer uses 1 credit. Add credits in Settings → Credits.', 402);
     } catch (e) {
       return res.status(e.httpStatus || 400).json({ error: e.message });
     }
@@ -1466,8 +1468,10 @@ module.exports = function mountAi(app, ctx) {
     };
     const emit = (ev) => { record(ev); res.write(JSON.stringify(ev) + '\n'); };
     emit({ type: 'session', sessionId: session.id });
+    let answered = false;
     try {
       await turn(session, req.body, emit);
+      answered = true;
     } catch (e) {
       console.error('AI turn failed:', e);
       emit({ type: 'error', error: explain(e) });
@@ -1476,6 +1480,7 @@ module.exports = function mountAi(app, ctx) {
       session.updatedAt = Date.now();
       chat.updatedAt = new Date().toISOString();
       storeHistory(chat, session);
+      if (answered && aiConfig().platform) ctx.credits?.charge(ctx.credits.AI_RATE, ctx.credits.keys.assistant());
       save();
       emit({ type: 'done' });
       res.end();
