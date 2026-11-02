@@ -1983,6 +1983,7 @@ function renderOverview(st) {
   renderKpis(st);
   renderCharts();
   renderFunnel(st);
+  if (!$('#outModal').classList.contains('hidden')) renderOutModal();
   renderHealth(st);
   renderUpcoming(st);
   renderRecent(st);
@@ -2325,7 +2326,7 @@ function drawChart(el, bs, m, { instant = false } = {}) {
   // stay this chart. Between the two kinds the outgoing one sinks to the line and fades while the other grows in.
   const flow = m === METRICS.sent ? 'sent' : m === METRICS.failed ? 'failed' : null;
   el.classList.toggle('is-flow', Boolean(flow));
-  if (flow) return drawFlow(el, bs, { instant, mode: flow });
+  if (flow) return drawFlow(el, bs, { instant, mode: flow, layout: 'stack' });
   if (el.__flow) hideFlow(el, { instant });
   const pad = { l: 42, r: 12, t: 26, b: 28 };
   const base = H - pad.b;
@@ -2647,6 +2648,60 @@ $('#xClose').addEventListener('click', closeChartModal);
 $('#chartModal').addEventListener('click', (e) => e.target.id === 'chartModal' && closeChartModal());
 document.addEventListener('keydown', (e) => e.key === 'Escape' && closeChartModal());
 
+// --- "Where they ended up", expanded: every day split into what got through (above the line) and what failed (below),
+// as shares of the day (default) or counts, beside the period's summary. Pointing at a kind in the summary lights it in
+// the chart. Grows out of the card and shrinks back into it, as the main chart's Expand does.
+function renderOutModal({ instant = false } = {}) {
+  const st = state.stats;
+  if (!st) return;
+  const share = state.ov.outScale !== 'count';
+  $('#oSub').textContent = `Each day, last ${st.range} days${st.filters.sender || st.filters.template ? ' · filtered' : ''}`;
+  $('#oNote').textContent = share
+    ? 'Each day as 100%: above the line got through, below it failed. Faint days had only a few messages.'
+    : 'Messages each day: above the line got through, below it failed.';
+  $$('#oScaleSeg button').forEach((b) => b.classList.toggle('active', (b.dataset.scale === 'share') === share));
+  Motion.segs($('#outModal'));
+  const chart = $('#oChart');
+  drawFlow(chart, makeBuckets(st.days, st.range), { instant, mode: 'sent', layout: 'diverge', share });
+  renderFunnel(st, $('#oFunnel'), (k) => (k ? chart.setAttribute('data-kind', k) : chart.removeAttribute('data-kind')));
+}
+function openOutModal() {
+  const modal = $('#outModal'), box = modal.querySelector('.chart-box');
+  modal.classList.remove('hidden');
+  renderOutModal();
+  if (!Motion.reduce()) {
+    box.animate(flipFrom(box, $('#funnelCard').getBoundingClientRect()), { duration: 460, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+    modal.animate([{ backgroundColor: 'rgba(12, 18, 24, 0)' }, { backgroundColor: getComputedStyle(modal).backgroundColor }], { duration: 300 });
+  }
+  $('#oClose').focus({ preventScroll: true });
+}
+function closeOutModal() {
+  const modal = $('#outModal');
+  if (modal.classList.contains('hidden') || modal.__closing) return;
+  hideTip();
+  const box = modal.querySelector('.chart-box');
+  const done = () => { modal.__closing = false; modal.classList.add('hidden'); };
+  if (Motion.reduce()) return done();
+  modal.__closing = true;
+  box.animate(flipFrom(box, $('#funnelCard').getBoundingClientRect()).reverse(), { duration: 320, easing: 'cubic-bezier(0.4, 0, 0.6, 1)', fill: 'forwards' }).finished.then(() => {
+    box.getAnimations().forEach((a) => a.cancel());
+    done();
+  });
+  modal.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 320, fill: 'forwards' }).finished.then((a) => a.cancel?.());
+}
+$('#outExpandBtn').addEventListener('click', openOutModal);
+$('#oClose').addEventListener('click', closeOutModal);
+$('#outModal').addEventListener('click', (e) => e.target.id === 'outModal' && closeOutModal());
+document.addEventListener('keydown', (e) => e.key === 'Escape' && closeOutModal());
+$('#oScaleSeg').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-scale]');
+  if (!b || state.ov.outScale === b.dataset.scale || (!state.ov.outScale && b.dataset.scale === 'share')) return;
+  state.ov.outScale = b.dataset.scale;
+  saveOv();
+  renderOutModal();
+});
+new ResizeObserver(() => { if (!$('#outModal').classList.contains('hidden') && state.stats) drawFlow($('#oChart'), makeBuckets(state.stats.days, state.stats.range), { instant: true, mode: 'sent', layout: 'diverge', share: state.ov.outScale !== 'count' }); }).observe($('#oChart'));
+
 // --- Funnel ---
 
 // "Messages sent", day by day, stacked: one column per day (or week), built from where that day's messages ended up.
@@ -2675,9 +2730,10 @@ function topReasons(bs) {
 }
 const reasonFill = (id, top) => (id === 'other' ? 'var(--faint)' : `color-mix(in srgb, var(--danger) ${REASON_SHADES[top.indexOf(id)] ?? 30}%, var(--surface))`);
 
-function drawFlow(host, bs, { instant = false, mode = 'sent' } = {}) {
+function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge', share = false } = {}) {
   host.__flow = bs;
   host.__flowMode = mode;
+  host.__flowShare = share;
   if (!window.d3 || !host.clientWidth) return;
   host.classList.add('fl-host');
   // the loading placeholder (data-skel) goes once there is something to draw, as the main chart does
@@ -2703,8 +2759,24 @@ function drawFlow(host, bs, { instant = false, mode = 'sent' } = {}) {
   host.querySelector('.fl-empty')?.remove();
   const R = mode === 'failed' ? topReasons(bs) : null;
   host.__flowReasons = R;
-  const upOf = (b) => (mode === 'failed' ? b.failed : b.sent);
-  const maxUp = Math.max(1, ...bs.map(upOf)), maxDown = mode === 'failed' ? 0 : Math.max(0, ...bs.map((b) => b.failed));
+  // Layouts: 'stack' puts failed on top, so a column is everything tried that day (the main chart); 'diverge' puts what
+  // got through above the line and what failed below it (the "Where they ended up" Expand). Share: each day as 100%.
+  const below = mode !== 'failed' && layout === 'diverge';
+  const tried = (b) => b.sent + b.failed;
+  const unit = (b) => (share ? (tried(b) ? 100 / tried(b) : 0) : 1); // a message's height in the scale's units
+  const upOf = (b) => (mode === 'failed' ? b.failed : below ? b.sent : tried(b)) * unit(b);
+  const downOf = (b) => (below ? b.failed * unit(b) : 0);
+  // A spike (one day far above the rest) would flatten every other day, so in counts the scale fits the usual days and
+  // a spike is cut: drawn to the edge with a break mark and its real total. Share never needs it.
+  const capOf = (vals) => {
+    const nz = vals.filter((v) => v > 0).sort((a, b) => a - b);
+    if (share || nz.length < 3) return 0;
+    const q = nz[Math.floor((nz.length - 1) * 0.75)], usual = nz.filter((v) => v <= q * 4).at(-1) || q;
+    return nz.at(-1) > Math.max(usual * 3, q * 4) ? usual : 0;
+  };
+  const capUp = capOf(bs.map(upOf)), capDown = capOf(bs.map(downOf));
+  const maxUp = share && mode !== 'failed' ? 100 : Math.max(1, capUp || Math.max(...bs.map(upOf)));
+  const maxDown = below ? capDown || Math.max(0, ...bs.map(downOf)) : 0;
   const y = d3.scaleLinear().domain([0, maxUp]).nice(4);
   // One scale for both sides, so a day's failures read true against what got through; below the line is just enough
   // room for the worst day's failures (at least a sliver).
@@ -2713,6 +2785,10 @@ function drawFlow(host, bs, { instant = false, mode = 'sent' } = {}) {
   const base = pad.t + usable - down;
   y.range([base, pad.t]);
   const k = (base - pad.t) / top;
+  const cutUp = (b) => upOf(b) > top, cutDown = (b) => below && downOf(b) * k > down - 4;
+  // days with only a handful of messages, faint in Share (1 of 2 failing isn't 50% of anything that matters)
+  const busy = bs.map(tried).filter((v) => v > 0).sort((a, b) => a - b);
+  const few = share ? Math.max(3, (busy[Math.floor(busy.length / 2)] || 0) * 0.1) : 0;
   const x = d3.scaleBand().domain(bs.map((b) => b.key)).range([pad.l, W - pad.r]).paddingInner(bs.length > 20 ? 0.3 : 0.38).paddingOuter(0.15);
   const bw = x.bandwidth(), GAP = 2, dur = instant || Motion.reduce() ? 0 : 750;
   let svg = d3.select(host).select('svg.fl-svg');
@@ -2722,6 +2798,7 @@ function drawFlow(host, bs, { instant = false, mode = 'sent' } = {}) {
     svg.append('g').attr('class', 'yticks');
     svg.append('line').attr('class', 'fl-base');
     svg.append('g').attr('class', 'fl-cols');
+    svg.append('g').attr('class', 'fl-cuts');
     svg.append('rect').attr('class', 'fl-ring').attr('opacity', 0);
     svg.append('g').attr('class', 'fl-x');
     bindFlowHover(host);
@@ -2729,19 +2806,23 @@ function drawFlow(host, bs, { instant = false, mode = 'sent' } = {}) {
   svg.attr('viewBox', `0 0 ${W} ${H}`).attr('width', W).attr('height', H).attr('aria-label', 'Messages per day: read, delivered, sent and failed');
   const ticks = y.ticks(4).filter(Number.isInteger);
   svg.select('.grid').selectAll('line').data(ticks).join('line').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (v) => y(v)).attr('y2', (v) => y(v));
-  svg.select('.yticks').selectAll('text').data(ticks).join('text').attr('class', 'tick').attr('x', pad.l - 10).attr('y', (v) => y(v) + 4).attr('text-anchor', 'end').text((v) => fmtNum(v));
+  svg.select('.yticks').selectAll('text').data(ticks).join('text').attr('class', 'tick').attr('x', pad.l - 10).attr('y', (v) => y(v) + 4).attr('text-anchor', 'end').text((v) => fmtNum(v) + (share ? '%' : ''));
   svg.select('.fl-base').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', base + 0.5).attr('y2', base + 0.5);
   const parts = mode === 'failed'
     ? [...R.top.map((code) => [code, (b) => b.reasons?.[code] || 0]), ...(R.hasOther ? [['other', (b) => b.failed - R.top.reduce((s, c) => s + (b.reasons?.[c] || 0), 0)]] : [])]
-    : FLOW;
+    : below ? FLOW : [...FLOW, ['failed', (b) => b.failed]];
   const pieces = (b, i) => {
     const out = [];
+    // a cut column fills to the top edge, its pieces in their true proportions
+    const ku = cutUp(b) ? (base - pad.t - (parts.length - 1) * GAP) / upOf(b) : k;
+    const kd = cutDown(b) ? (down - GAP - 2) / downOf(b) : k;
     let yy = base - GAP / 2;
-    for (const [id, f] of parts) { const v = f(b), hh = Math.max(2, v * k); if (v > 0) { out.push({ id, i, y: yy - hh, h: hh }); yy -= hh + GAP; } }
-    if (mode !== 'failed' && b.failed) out.push({ id: 'failed', i, y: base + GAP / 2 + 1, h: Math.max(2, b.failed * k) });
+    for (const [id, f] of parts) { const v = f(b) * unit(b), hh = Math.max(2, v * ku); if (v > 0) { out.push({ id, i, y: yy - hh, h: hh }); yy -= hh + GAP; } }
+    if (below && b.failed) out.push({ id: 'failed', i, y: base + GAP / 2 + 1, h: Math.max(2, downOf(b) * kd) });
     return out;
   };
-  const cols = svg.select('.fl-cols').selectAll('g.fl-col').data(bs, (b) => b.key).join((enter) => enter.append('g').attr('class', 'fl-col')).attr('data-i', (b, i) => i);
+  const cols = svg.select('.fl-cols').selectAll('g.fl-col').data(bs, (b) => b.key).join((enter) => enter.append('g').attr('class', 'fl-col')).attr('data-i', (b, i) => i)
+    .classed('fl-few', (b) => share && tried(b) > 0 && tried(b) < few);
   cols.each(function (b, i) {
     const r = d3.select(this).selectAll('rect').data(pieces(b, i), (p) => mode + ':' + p.id)
       .join(
@@ -2755,6 +2836,14 @@ function drawFlow(host, bs, { instant = false, mode = 'sent' } = {}) {
     // an instant redraw (a resize) stops an entrance still running, or it would carry on to the old size
     (dur ? r.transition().duration(dur).delay(i * Math.min(30, 400 / bs.length)).ease(d3.easeCubicOut) : r.interrupt()).attr('y', (p) => p.y).attr('height', (p) => p.h);
   });
+  // break marks across cut columns (a slanted band in the card's colour), and the real total above a cut top
+  const cuts = bs.flatMap((b) => [...(cutUp(b) ? [{ key: b.key + ':up', b, y: pad.t + 18, up: true }] : []), ...(cutDown(b) ? [{ key: b.key + ':down', b, y: base + down - 20 }] : [])]);
+  const cg = svg.select('.fl-cuts').selectAll('g.fl-cut').data(cuts, (c) => c.key)
+    .join((enter) => { const g = enter.append('g').attr('class', 'fl-cut').attr('opacity', 0); g.append('path'); g.append('text').attr('class', 'fl-cut-n'); return g; });
+  cg.select('path').attr('d', (c) => { const x0 = x(c.b.key) - 3, x1 = x0 + bw + 6; return `M${x0},${c.y + 5}L${x1},${c.y - 3}L${x1},${c.y + 1}L${x0},${c.y + 9}Z`; });
+  cg.select('text').attr('x', (c) => x(c.b.key) + bw / 2).attr('y', pad.t - 8).attr('text-anchor', 'middle')
+    .text((c) => (c.up ? fmtNum(mode === 'failed' ? c.b.failed : below ? c.b.sent : tried(c.b)) : ''));
+  (dur ? cg.transition().delay(dur * 0.8).duration(250) : cg.interrupt()).attr('opacity', 1);
   const every = Math.max(1, Math.ceil((bs.length * 64) / (W - pad.l - pad.r)));
   svg.select('.fl-x').selectAll('text').data(bs, (b) => b.key).join('text')
     .attr('x', (b) => x(b.key) + bw / 2).attr('y', H - 8).attr('text-anchor', 'middle').attr('class', 'tick')
@@ -2811,7 +2900,8 @@ function bindFlowHover(host) {
         codes.filter((c) => n(c)).map((c) => '<div class="tt-row cur"><span><i class="cx-sw" style="background:' + reasonFill(c, R.top) + '"></i>' + esc(reasonLabel(c)) + (c !== 'other' ? ' <code class="tt-code">' + c + '</code>' : '') + '</span><b>' + n(c).toLocaleString() + '</b></div>').join('') +
         (b.failed ? '' : '<div class="tt-note">Nothing failed this day.</div>'), e.clientX, e.clientY);
     }
-    const row = (sw, label, v) => '<div class="tt-row cur"><span><i class="cx-sw" data-sw="' + sw + '"></i>' + waMark(sw) + label + '</span><b>' + v.toLocaleString() + '</b></div>';
+    const all = b.sent + b.failed, pc = (v) => (host.__flowShare && all ? ' <small>' + fmt1((100 * v) / all) + '%</small>' : '');
+    const row = (sw, label, v) => '<div class="tt-row cur"><span><i class="cx-sw" data-sw="' + sw + '"></i>' + waMark(sw) + label + '</span><b>' + v.toLocaleString() + pc(v) + '</b></div>';
     showTip('<div class="tt-title">' + esc(b.long) + ' · ' + (b.sent + b.failed).toLocaleString() + ' tried</div>' +
       row('read', 'Read', b.read) + row('delivered', 'Delivered, not read', b.delivered - b.read) + row('sent', 'Sent, not delivered', b.sent - b.delivered) + row('failed', 'Failed', b.failed), e.clientX, e.clientY);
   });
@@ -2820,10 +2910,11 @@ function bindFlowHover(host) {
 
 // The period at a glance, beside the chart: the total, one bar split by where messages ended up, and a row per piece
 // with its mark, count and share. Pointing at a piece or a row lights it (the app's hover rule).
-function renderFunnel(st) {
+function renderFunnel(st, el = $('#funnel'), onLight = null) {
   const t = st.totals, total = t.sent + t.failed;
-  $('#funnelSub').textContent = `Where messages ended up · last ${st.range} days${st.filters.sender || st.filters.template ? ' · filtered' : ''}`;
-  const el = $('#funnel');
+  const sub = `Where messages ended up · last ${st.range} days${st.filters.sender || st.filters.template ? ' · filtered' : ''}`;
+  if (el.id === 'funnel') $('#funnelSub').textContent = sub;
+  $('#outExpandBtn')?.toggleAttribute('disabled', !total);
   if (!total) {
     const guide = [['read', 'Read', 'They opened it: two blue ticks'], ['delivered', 'Delivered', 'On their phone: two grey ticks'], ['sent', 'Sent', 'WhatsApp accepted it: one grey tick'], ['failed', 'Failed', 'It didn’t reach them, with Meta’s reason']];
     el.innerHTML = '<div class="fs fs-none"><div class="fl-figure"><b class="fl-num">0</b><span>messages tried</span></div><div class="fs-bar fs-bar-empty"></div>' +
@@ -2854,6 +2945,7 @@ function renderFunnel(st) {
     fs.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x.dataset.kind === k));
     rollNum(big, k ? byKind[k].n : total);
     of.innerHTML = k ? '<span class="cx-of-k">' + waMark(k) + esc(byKind[k].l) + '</span> · ' + pct(byKind[k].n) + ' of ' + total.toLocaleString() : 'messages tried';
+    onLight?.(k);
   };
   light(null);
   fs.addEventListener('pointermove', (e) => light(e.target.closest('[data-kind]')?.dataset.kind || null));

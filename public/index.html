@@ -159,9 +159,14 @@
           <div id="dayLegend" class="fl-legend hidden"></div>
           <div id="dayTable" class="table-wrap chart-table hidden"></div>
         </div>
-        <div class="card la-host funnel-card">
-          <h2 data-icon="map-pin">Where they ended up</h2>
-          <p class="sub" id="funnelSub" style="margin:-10px 0 18px">How far your messages got</p>
+        <div class="card la-host funnel-card" id="funnelCard">
+          <div class="card-head">
+            <div>
+              <h2 data-icon="map-pin">Where they ended up</h2>
+              <p class="sub" id="funnelSub">How far your messages got</p>
+            </div>
+            <button class="btn sm icon-only" id="outExpandBtn" data-icon="maximize-2" data-icon-size="14" title="Expand: each day" aria-label="Expand"></button>
+          </div>
           <div id="funnel" data-skel="bars:4"></div>
         </div>
       </div>
@@ -867,6 +872,30 @@
       </div>
       <div id="xChart" class="chart chart-lg"></div><div id="xLegend" class="fl-legend hidden"></div>
       <div id="xTable" class="table-wrap chart-table"></div>
+    </div>
+  </div>
+
+  <!-- Overview: "Where they ended up", expanded (day by day) -->
+  <div id="outModal" class="modal hidden">
+    <div class="modal-box chart-box out-box" role="dialog" aria-modal="true" aria-labelledby="oTitle">
+      <div class="modal-head">
+        <div>
+          <h2 id="oTitle">Where they ended up</h2>
+          <p class="sub" id="oSub"></p>
+        </div>
+        <button class="icon-btn la-host" id="oClose" aria-label="Close" data-icon="x" data-icon-size="18"></button>
+      </div>
+      <div class="x-controls">
+        <div class="seg" id="oScaleSeg" role="radiogroup" aria-label="Scale">
+          <button data-scale="share" class="active">Share</button>
+          <button data-scale="count">Count</button>
+        </div>
+        <p class="sub o-note" id="oNote"></p>
+      </div>
+      <div class="o-grid">
+        <div id="oChart" class="chart chart-lg"></div>
+        <div id="oFunnel"></div>
+      </div>
     </div>
   </div>
 

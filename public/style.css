@@ -5284,3 +5284,18 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 /* Overview: the top four numbers in the same weight as the big figures ("Where they ended up", campaign results) */
 .kpi-value { font-weight: 600; }
 .fl-of { font-size: 13.5px; color: var(--muted); }
+/* Overview charts: a cut spike (break band in the card's colour, total above), faint low-volume days in Share */
+.fl-cut path { fill: var(--surface); }
+.fl-cut-n { font: 600 11px Inter, sans-serif; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.fl-col.fl-few rect { opacity: 0.35; }
+.fl-host.hovering .fl-col.fl-few.on rect { opacity: 0.6; }
+.tt-row b small { font-weight: 500; color: var(--muted); margin-left: 4px; }
+/* "Where they ended up" card head and its Expand: the chart beside the period's summary */
+.funnel-card .card-head { margin-bottom: 14px; }
+.o-grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 32px; align-items: start; }
+.o-note { margin: 0; align-self: center; font-size: 12.5px; }
+#oFunnel .fs-row { padding: 9px 0; }
+.chart[data-kind] .fl-col rect { opacity: 0.18; transition: opacity 0.2s; }
+.chart[data-kind=read] .fl-col rect[data-sw=read], .chart[data-kind=delivered] .fl-col rect[data-sw=delivered],
+.chart[data-kind=sent] .fl-col rect[data-sw=sent], .chart[data-kind=failed] .fl-col rect[data-sw=failed] { opacity: 1; }
+@media (max-width: 900px) { .o-grid { grid-template-columns: 1fr; } }
