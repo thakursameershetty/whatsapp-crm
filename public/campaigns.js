@@ -139,22 +139,27 @@
     const recent = inWindow.filter((c) => !c.test), testsOut = inWindow.length - recent.length;
     const T = recent.reduce((a, c) => { const s = c.stats || {}; a.sent += sentOf(s); a.del += deliveredOf(s); a.read += s.read || 0; a.rep += c.replies || 0; a.leads += c.leads || 0; return a; }, { sent: 0, del: 0, read: 0, rep: 0, leads: 0 });
 
+    // (kept from the last draw, so a redraw doesn't flicker between one and two rows; fitHead corrects it right after)
+    const wasBelow = $('#campaignList > .section-head')?.classList.contains('tools-below');
+    const statusCount = (fn) => CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length;
     el.innerHTML = `
-      <div class="section-head"><div><h1>Campaigns</h1>
+      <div class="section-head has-tools${wasBelow ? ' tools-below' : ''}"><div><h1>Campaigns</h1>
         <p class="sub cp-summary" title="Last 30 days: ${T.sent.toLocaleString()} sent, ${pctOf(T.del, T.sent)}% delivered, ${pctOf(T.read, T.del)}% read, ${T.rep.toLocaleString()} replies, ${T.leads.toLocaleString()} leads${testsOut ? ` (${testsOut} test${testsOut === 1 ? '' : 's'} not counted)` : ''}">Last 30 days · <b>${T.sent.toLocaleString()}</b> sent · <b>${pctOf(T.del, T.sent)}%</b> delivered · <b>${pctOf(T.read, T.del)}%</b> read · <b>${T.rep.toLocaleString()}</b> repl${T.rep === 1 ? 'y' : 'ies'} · <b>${T.leads.toLocaleString()}</b> lead${T.leads === 1 ? '' : 's'}${testsOut ? ` <span class="cp-tests-out">· ${testsOut} test${testsOut === 1 ? '' : 's'} not counted</span>` : ''}</p></div>
-        <div class="row tight cp-head-actions">${CP.view === 'calendar' ? '' : `<select id="cpPer" aria-label="Campaigns per page" title="How many campaigns a page shows">${PER_PAGE.map((n) => `<option value="${n}" ${n === CP.per ? 'selected' : ''}>${n ? `${n} per page` : 'Show all'}</option>`).join('')}</select>`}${state.senders.length > 1 ? `<select id="cpSender" aria-label="Number"><option value="">All numbers</option>${state.senders.map((x) => `<option value="${x.id}" ${x.id === CP.sender ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>` : ''}<button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
-      ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
-      <div class="cp-tools">
-        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="cpSearch" placeholder="Search name or template" value="${esc(CP.q)}" aria-label="Search campaigns" /></div>
-        <div class="seg" id="cpFilter">${FILTERS.filter(([k, , fn]) => k !== 'tests' || k === filter[0] || CP.list.some((c) => !live(c) && c.status !== 'scheduled' && fn(c))).map(([k, label, fn]) => `<button data-f="${k}" class="${k === filter[0] ? 'active' : ''}">${label} <span class="opt">${CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length}</span></button>`).join('')}</div>
+        <div class="in-head cp-tools">
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="cpSearch" placeholder="Search campaigns" title="Search by campaign or template name" value="${esc(CP.q)}" aria-label="Search campaigns" /></div>
+        <select id="cpFilter" aria-label="Status" title="Status">${FILTERS.filter(([k, , fn]) => k !== 'tests' || k === filter[0] || statusCount(fn)).map(([k, label, fn]) => `<option value="${k}" ${k === filter[0] ? 'selected' : ''}>${k === 'all' ? 'All campaigns' : label} (${statusCount(fn)})</option>`).join('')}</select>
         ${DateFilter.button(CP.date, 'cpDate')}
-        <button type="button" class="ct-sortbtn" id="cpSortBtn" aria-haspopup="menu" title="Sorted by ${esc(SORTS[CP.sort][0])}. Click to change.">${icon('arrow-up-down', 14)}<span>${esc(SORTS[CP.sort][0])}</span>${icon('chevron-down', 14)}</button>
+        ${state.senders.length > 1 ? `<select id="cpSender" aria-label="Number" title="Sent from"><option value="">All numbers</option>${state.senders.map((x) => `<option value="${x.id}" ${x.id === CP.sender ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>` : ''}
+        <button type="button" class="ct-sortbtn cp-display-start" id="cpSortBtn" aria-haspopup="menu" title="Sorted by ${esc(SORTS[CP.sort][0])}. Click to change.">${icon('arrow-up-down', 14)}<span>${esc(SORTS[CP.sort][0])}</span>${icon('chevron-down', 14)}</button>
+        ${CP.view === 'calendar' ? '' : `<select id="cpPer" aria-label="Campaigns per page" title="How many campaigns a page shows">${PER_PAGE.map((n) => `<option value="${n}" ${n === CP.per ? 'selected' : ''}>${n ? `${n} / page` : 'Show all'}</option>`).join('')}</select>`}
         <div class="seg seg-icons cp-view" id="cpView" role="radiogroup" aria-label="View">
           <button data-view="cards" class="${CP.view === 'cards' ? 'active' : ''}" title="Cards" aria-label="Cards" aria-checked="${CP.view === 'cards'}" role="radio">${icon('layout-grid', 15)}</button>
           <button data-view="table" class="${CP.view === 'table' ? 'active' : ''}" title="Table" aria-label="Table" aria-checked="${CP.view === 'table'}" role="radio">${icon('list', 15)}</button>
           <button data-view="calendar" class="${CP.view === 'calendar' ? 'active' : ''}" title="Calendar" aria-label="Calendar" aria-checked="${CP.view === 'calendar'}" role="radio">${icon('calendar-days', 15)}</button>
         </div>
       </div>
+        <div class="row tight cp-head-actions"><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
+      ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
       ${CP.view === 'calendar' ? calendarHtml(calRows) : CP.view === 'cards'
         ? `<div class="cp-folders">${shown.map(folderHtml).join('')}</div>${!rows.length ? `<p class="sub cp-none">${q || CP.date || CP.sender || CP.filter !== 'all' ? 'No campaigns match.' : 'Nothing here yet.'}</p>` : ''}${pager}`
         : `<div class="card cp-card">
@@ -165,6 +170,8 @@
       </div>${pager}`}`;
     LA.hydrate(el);
     Motion.segs(el);
+    window.fitHead?.($('#campaignList > .section-head'));
+    $('#cpFilter').onchange = (e) => { CP.filter = e.target.value; renderList(); };
     const search = $('#cpSearch');
     search.oninput = () => { CP.q = search.value.trim(); const pos = search.selectionStart; renderList(); const s2 = $('#cpSearch'); s2.focus(); s2.setSelectionRange(pos, pos); };
     $('#cpSortBtn').onclick = (e) => {
@@ -363,8 +370,6 @@
   }
 
   $('#campaignList').addEventListener('click', (e) => {
-    const f = e.target.closest('#cpFilter [data-f]');
-    if (f) { CP.filter = f.dataset.f; return renderList(); }
     const pg = e.target.closest('[data-cp-page]');
     if (pg) {
       CP.page += Number(pg.dataset.cpPage);
@@ -372,7 +377,7 @@
       // back to the top of the list, under the pinned header and toolbar
       // (measured from the list itself: the toolbar is pinned, so its own position says nothing about where the list starts)
       const list = $('#campaignList .cp-folders, #campaignList .cp-card');
-      const pinned = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stick-top')) || 0) + ($('#campaignList > .section-head')?.offsetHeight || 0) + ($('#campaignList .cp-tools')?.offsetHeight || 0);
+      const pinned = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stick-top')) || 0) + ($('#campaignList > .section-head')?.offsetHeight || 0);
       if (list) scrollTo({ top: Math.max(0, list.getBoundingClientRect().top + scrollY - pinned - 12), behavior: Motion.reduce() ? 'auto' : 'smooth' });
       return;
     }
@@ -534,9 +539,8 @@
     // Why it stopped (auto-pause, or a server restart) and what to do, right under the title.
     const why = c.status === 'stopped' && c.pausedReason ? `<div class="cd-why">${icon('badge-alert', 16)}<div><b>Why it stopped</b><span>${esc(c.pausedReason)}</span></div></div>` : '';
     $('#cdHead').innerHTML = `
-      <button class="btn ghost sm cd-back" data-cd="back">${icon('arrow-left', 15)}Campaigns</button>
       <div class="cd-title">
-        <div class="cd-name">${miniFolder(c)}<div><h1>${esc(c.name)} <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${c.demo ? ' <span class="pill demo">demo</span>' : ''}${c.test ? ' ' + TEST_PILL : ''}</h1>
+        <div class="cd-name"><button type="button" class="icon-btn cd-back" data-cd="back" title="Back to campaigns" aria-label="Back to campaigns">${icon('arrow-left', 22)}</button>${miniFolder(c)}<div><h1>${esc(c.name)} <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${c.demo ? ' <span class="pill demo">demo</span>' : ''}${c.test ? ' ' + TEST_PILL : ''}</h1>
           <p class="sub">Template <code>${esc(c.templateName)}</code> · ${nums.length ? esc(nums.join(', ')) : `${c.senderIds.length} number(s)`} · ${esc(when)}</p></div></div>
         <div class="cd-actions">${primary}
           <button class="btn" data-cd="follow" ${sentOf(s) || s.failed ? '' : 'disabled'}>Follow up ${icon('chevron-down', 14)}</button>

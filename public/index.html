@@ -289,11 +289,21 @@
 
     <!-- CONTACTS ---------------------------------------------------------->
     <section id="tab-contacts" class="tab hidden">
-      <div class="section-head">
+      <div class="section-head has-tools">
         <div>
           <h1>Contacts</h1>
           <p class="sub" id="ctSub">Everyone you message, with tags.</p>
         </div>
+        <div class="in-head ct-bar">
+        <div class="search-wrap has-filter" data-icon="search" data-icon-size="15"><input class="search" id="ctSearch"
+            placeholder="Search contacts" title="Search by name, phone, email or company"
+            aria-label="Search contacts" /><button type="button" class="num-filter" id="ctSourceBtn" aria-haspopup="menu" title="Filter by who added them"></button></div>
+        <button type="button" class="ct-sortbtn ct-tagbtn" id="ctTagBtn" aria-haspopup="menu" title="Filter by tag"></button>
+        <button type="button" class="ct-sortbtn" id="ctSortBtn" aria-haspopup="menu"></button>
+        <button type="button" class="btn quiet ct-selall" id="ctSelAll"><input type="checkbox" class="cb" tabindex="-1"
+            aria-hidden="true" /><span>Select all</span></button>
+        <div class="seg seg-icons ct-view" id="ctView" role="radiogroup" aria-label="View"></div>
+      </div>
         <div class="row tight">
           <button class="btn quiet" id="ctExport" data-icon="download">Export</button>
           <button class="btn" id="ctImport" data-icon="upload">Import</button>
@@ -301,16 +311,6 @@
         </div>
       </div>
       <div class="ct-stats" id="ctStats" role="toolbar" aria-label="Filter by status" data-skel="stat:7"></div>
-      <div class="ct-bar">
-        <div class="search-wrap has-filter" data-icon="search" data-icon-size="15"><input class="search" id="ctSearch"
-            placeholder="Search contacts" title="Search by name, phone, email or company"
-            aria-label="Search contacts" /><button type="button" class="num-filter" id="ctSourceBtn" aria-haspopup="menu" title="Filter by who added them"></button></div>
-        <div class="ct-tags" id="ctTags" role="toolbar" aria-label="Filter by tag"></div>
-        <button type="button" class="ct-sortbtn" id="ctSortBtn" aria-haspopup="menu"></button>
-        <button type="button" class="btn quiet ct-selall" id="ctSelAll"><input type="checkbox" class="cb" tabindex="-1"
-            aria-hidden="true" /><span>Select all</span></button>
-        <div class="seg seg-icons ct-view" id="ctView" role="radiogroup" aria-label="View"></div>
-      </div>
       <div class="ct-sel hidden" id="ctSel"></div>
       <div class="ct-layout" id="ctLayout">
         <div class="card ct-card">
@@ -572,15 +572,15 @@
         <div class="in-head list-bar hidden" id="tplBar">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="tplSearch" type="search"
             placeholder="Search templates" autocomplete="off" /></div>
-        <div class="seg" id="tplCat" role="tablist" aria-label="Category"></div>
-        <select id="tplStatus" aria-label="Status">
+        <select id="tplCat" aria-label="Category" title="Category"></select>
+        <select id="tplStatus" aria-label="Status" title="Review status">
           <option value="">Any status</option><option value="APPROVED">Approved</option><option value="PENDING">In review</option>
           <option value="REJECTED">Rejected</option><option value="PAUSED">Paused</option><option value="DISABLED">Disabled</option>
         </select>
       </div>
         <div class="row tight">
           <select id="tplSender" class="hidden" aria-label="Number"></select>
-          <button class="btn" id="syncTemplates" data-icon="refresh-cw">Sync from Meta</button>
+          <button class="btn" id="syncTemplates" data-icon="refresh-cw" title="Sync from Meta: bring in the templates you made or edited there, with their latest review status">Sync</button>
           <button class="btn primary" id="addTemplate" data-icon="plus">New template</button>
         </div>
       </div>

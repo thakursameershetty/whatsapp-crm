@@ -1167,7 +1167,7 @@
         if (choice) b.setAttribute('aria-checked', String(Boolean(it.checked)));
         b.className = `${it.danger ? 'danger' : ''} ${it.checked ? 'on' : ''}`.trim();
         b.disabled = Boolean(it.disabled);
-        b.innerHTML = `${choice ? `<i class="mi-check">${it.checked ? TICK : ''}</i>` : ''}<span>${escHtml(it.label)}</span>${it.kbd ? `<kbd>${escHtml(it.kbd)}</kbd>` : ''}`;
+        b.innerHTML = `${choice ? `<i class="mi-check">${it.checked ? TICK : ''}</i>` : ''}${it.pre || ''}<span>${escHtml(it.label)}</span>${it.kbd ? `<kbd>${escHtml(it.kbd)}</kbd>` : ''}`;
         b.addEventListener('click', () => { close(); it.action?.(); });
         el.append(b);
       });

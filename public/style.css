@@ -5599,7 +5599,7 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 @media (max-width: 900px) { #ovFilters .filter-note { white-space: normal; } }
 #ovFilters label.inline select { width: 170px; min-width: 0; }
 #ovFilters { column-gap: 10px; }
-#ovFilters .ov-range { height: 34px; }
+#ovFilters .ov-range { height: 36px; }
 #ovFilters .ov-range > span { min-width: 92px; text-align: left; }
 
 /* ---- One-line page headers ----------------------------------------------------------------------------------------
@@ -5723,3 +5723,48 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 .tpl-card .tpl-reason { flex: none; }
 .tpl-card .var-chips { margin-top: auto; flex: none; max-height: 64px; overflow-y: auto; scrollbar-width: thin; }
 .tpl-card > .row.tight { flex: none; }
+
+/* Templates header: one line like the Overview's (search, category, status, then number, Sync, New template) */
+#tplBar.in-head { gap: 10px; }
+#tplBar #tplCat { width: 172px; min-width: 0; }
+#tplBar #tplStatus { width: 132px; min-width: 0; margin-left: 0; }
+#tplSender { width: 172px; min-width: 0; }
+.section-head.has-tools:not(.tools-below) > .in-head .search-wrap { flex-basis: 210px; }
+
+/* Contacts: the tag filter as a dropdown in the one-line header */
+.ct-dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--tag, var(--faint)); }
+.sg-menu-pop .ct-dot { margin-right: 8px; }
+.ct-tagbtn > span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-tagbtn.on { color: var(--text); }
+
+/* Campaigns: filters in the one-line header. The 30-day summary moves into the title's tooltip while the filters sit
+   beside the title, and shows again under it when they drop to their own row. */
+#campaignList > .section-head.has-tools:not(.tools-below) .cp-summary { display: none; }
+#campaignList > .section-head.has-tools:not(.tools-below) h1 { cursor: help; }
+#campaignList > .section-head.has-tools .cp-tools { gap: 10px; }
+#cpFilter { width: 178px; min-width: 0; }
+#cpPer { width: 112px; min-width: 0; }
+#cpSender { width: 160px; min-width: 0; }
+
+/* Header filters: one height (36px, like the buttons), one text size, no stray margins, and the same sunk field look
+   for every filter (dropdowns, date, sort, tags), so the row reads as one even strip. */
+.section-head > .in-head { align-items: center; }
+.section-head > .in-head :is(select, .df-btn, .ct-sortbtn, .search-wrap, .seg, .btn) { margin: 0 !important; }
+.section-head > .in-head :is(select, .df-btn, .ct-sortbtn, .search-wrap input.search) { height: 36px; font: 500 13.5px Inter, sans-serif; }
+.section-head > .in-head .search-wrap { height: 36px; }
+.section-head > .in-head .search-wrap input.search { padding-top: 0; padding-bottom: 0; }
+.section-head > .in-head .ct-sortbtn { background: var(--field); box-shadow: var(--sh-sunk); border-radius: var(--r-md); padding: 0 10px 0 12px; }
+.section-head > .in-head .ct-sortbtn:hover { background: var(--field); color: var(--text); }
+.section-head > .in-head .ct-sortbtn.on { background: var(--surface); box-shadow: var(--sh-raised); }
+.section-head > .in-head .ct-sortbtn span { font-weight: 500; }
+.section-head > .in-head .seg { height: 36px; align-items: center; }
+.section-head > .in-head label.inline { margin: 0; }
+
+/* An open campaign: a big back arrow beside the folder, on the title's line (no separate "← Campaigns" row) */
+#cdHead .cd-name { align-items: center; }
+#cdHead .cd-back { flex: none; width: 40px; height: 40px; margin: 0 2px 0 -10px; display: grid; place-items: center; border-radius: 12px; color: var(--muted); }
+#cdHead .cd-back:hover { background: var(--sunk); color: var(--text); }
+#cdHead .cd-back:hover svg { transform: translateX(-2px); }
+#cdHead .cd-back svg { transition: transform 0.2s var(--ease-out, ease); }
+/* Campaigns list: filters on the left; sort, page size and view on the right, beside New campaign */
+#campaignList > .section-head:not(.tools-below) .cp-tools .cp-display-start { margin-left: auto !important; }

@@ -137,11 +137,8 @@
     }).join(''));
 
     const untagged = CT.contacts.filter((c) => !c.tags.length).length;
-    Motion.patch($('#ctTags'), `
-      <button type="button" class="ct-tag ${!CT.tag ? 'active' : ''}" data-tag="">All tags</button>
-      ${CT.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)} ${CT.tag === t.id ? 'active' : ''}" data-tag="${t.id}" title="${esc(t.name)}"><i></i><span class="ct-tag-name">${esc(t.name)}</span> <span>${(CT.counts[t.id] || 0).toLocaleString()}</span><b class="ct-tag-edit" data-edit-tag="${t.id}" title="Rename, recolour or delete" role="button" aria-label="Edit ${esc(t.name)}">⋯</b></button>`).join('')}
-      ${untagged && CT.tags.length ? `<button type="button" class="ct-tag ${CT.tag === 'none' ? 'active' : ''}" data-tag="none">No tag <span>${untagged.toLocaleString()}</span></button>` : ''}
-      <button type="button" class="ct-tag ct-tag-new" id="ctNewTag">${icon('plus', 13)} New tag</button>`);
+    CT.untagged = untagged;
+    renderTagBtn();
 
     // Patched, not replaced, so the switcher's thumb slides between Cards and Table.
     Motion.patch($('#ctView'), [['cards', 'Cards', 'layout-grid'], ['table', 'Table', 'list']].map(([k, label, ic]) =>
@@ -314,12 +311,27 @@
     try { localStorage.setItem('ctView', b.dataset.view); } catch {}
     morph(() => { CT.view = b.dataset.view; render(); });
   });
-  $('#ctTags').addEventListener('click', (e) => {
-    const edit = e.target.closest('[data-edit-tag]');
-    if (edit) { e.stopPropagation(); return tagModal(tagById(edit.dataset.editTag)); }
-    if (e.target.closest('#ctNewTag')) return tagModal(null);
-    const b = e.target.closest('[data-tag]');
-    if (b && b.dataset.tag !== CT.tag) { CT.tag = b.dataset.tag; CT.page = 0; CT.enter = true; render(); }
+  // Tags: a dropdown (so the toolbar fits in the one-line header). Each tag with its colour and count, "No tag",
+  // then New tag, and Edit for the tag you're filtering by (rename, recolour or delete).
+  function renderTagBtn() {
+    const b = $('#ctTagBtn');
+    const t = CT.tag && CT.tag !== 'none' ? tagById(CT.tag) : null;
+    const label = t ? t.name : CT.tag === 'none' ? 'No tag' : 'All tags';
+    b.innerHTML = `${t ? `<i class="ct-dot tag-${esc(t.color)}"></i>` : icon('tag', 14)}<span>${esc(label)}</span>${icon('chevron-down', 14)}`;
+    b.classList.toggle('on', Boolean(CT.tag));
+  }
+  const pickTag = (k) => { if (k === CT.tag) return; CT.tag = k; CT.page = 0; CT.enter = true; render(); };
+  $('#ctTagBtn').addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const cur = CT.tag && CT.tag !== 'none' ? tagById(CT.tag) : null;
+    Sheet.Menu.open(r.left, r.bottom + 6, [
+      { label: 'All tags', checked: !CT.tag, kbd: CT.contacts.length.toLocaleString(), action: () => pickTag('') },
+      ...CT.tags.map((t) => ({ label: t.name, pre: `<i class="ct-dot tag-${esc(t.color)}"></i>`, checked: CT.tag === t.id, kbd: (CT.counts[t.id] || 0).toLocaleString(), action: () => pickTag(t.id) })),
+      CT.untagged && CT.tags.length ? { label: 'No tag', checked: CT.tag === 'none', kbd: CT.untagged.toLocaleString(), action: () => pickTag('none') } : null,
+      '-',
+      { label: 'New tag…', checked: false, action: () => tagModal(null) },
+      cur ? { label: `Edit “${cur.name}”…`, checked: false, action: () => tagModal(cur) } : null,
+    ]);
   });
   $('#ctFoot').addEventListener('click', (e) => {
     const b = e.target.closest('[data-page]');

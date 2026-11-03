@@ -1181,8 +1181,9 @@ function renderTemplates() {
   $('#tplBar').classList.toggle('hidden', state.templates.length < 2);
   const cats = [...new Set(byNumber.map((t) => catLabel(t.category)))].sort();
   if (!cats.includes(state.tplCat)) state.tplCat = ''; // also turns the first-load undefined into '' (All)
-  Motion.patch($('#tplCat'), ['', ...cats].map((c) => `<button data-cat="${esc(c)}" class="${state.tplCat === c ? 'active' : ''}" role="tab" aria-selected="${state.tplCat === c}">${esc(c || 'All')} <span class="opt">${byNumber.filter((t) => !c || catLabel(t.category) === c).length}</span></button>`).join(''));
-  Motion.segs($('#tplBar'));
+  // a dropdown rather than a row of pills, so the filters fit beside the title in the one-line header
+  $('#tplCat').innerHTML = ['', ...cats].map((c) => `<option value="${esc(c)}">${esc(c || 'All categories')} (${byNumber.filter((t) => !c || catLabel(t.category) === c).length})</option>`).join('');
+  $('#tplCat').value = state.tplCat;
   const q = (state.tplQ || '').trim().toLowerCase();
   const text = (t) => [t.name, t.language, t.category, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase();
   const shown = byNumber.filter((t) => (!state.tplCat || catLabel(t.category) === state.tplCat)
@@ -1262,7 +1263,7 @@ $('#senderList').addEventListener('click', (e) => {
 });
 $('#tplSearch').addEventListener('input', (e) => { state.tplQ = e.target.value; renderTemplates(); });
 $('#tplStatus').addEventListener('change', (e) => { state.tplStatus = e.target.value; renderTemplates(); });
-$('#tplCat').addEventListener('click', (e) => { const b = e.target.closest('[data-cat]'); if (!b) return; state.tplCat = b.dataset.cat; renderTemplates(); });
+$('#tplCat').addEventListener('change', (e) => { state.tplCat = e.target.value; renderTemplates(); });
 $('#templateList').addEventListener('click', (e) => {
   if (!e.target.closest('[data-clear-tpl]')) return;
   e.preventDefault();
@@ -1623,7 +1624,9 @@ headTip.setAttribute('role', 'tooltip');
 document.body.append(headTip);
 let headTipT = 0;
 const headDesc = (h) => {
-  const sub = h.closest('.section-head')?.querySelector(':scope > div:first-child > .sub:not(.cp-summary)');
+  const sub = h.closest('.section-head')?.querySelector(':scope > div:first-child > .sub');
+  // the campaigns summary only when it isn't showing beside the title already
+  if (sub?.classList.contains('cp-summary') && sub.offsetParent) return null;
   return sub && sub.textContent.trim() ? sub : null;
 };
 function hideHeadTip() { clearTimeout(headTipT); headTipT = 0; headTip.classList.add('hidden'); headTip.__for = null; }
@@ -1652,7 +1655,7 @@ document.addEventListener('pointerdown', (e) => !e.target.closest?.('#headTip') 
 
 // A header's filters sit beside the title while they fit on that line; when they don't (a narrow window, many filters)
 // the whole toolbar moves to its own row under the title, rather than wrapping into a cramped block.
-const SEARCH_W = 240;
+const SEARCH_W = 210;
 function fitHead(h) {
   const bar = h.querySelector(':scope > .in-head');
   if (!bar || !h.offsetParent) return;
@@ -1664,7 +1667,7 @@ function fitHead(h) {
   const avail = h.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - h.firstElementChild.scrollWidth - (acts ? acts.offsetWidth + gap : 0) - gap;
   h.classList.toggle('tools-below', need > avail);
 }
-const headRO = new ResizeObserver((ents) => { const seen = new Set(); for (const e of ents) { const h = e.target.closest('.section-head'); if (h && !seen.has(h)) { seen.add(h); fitHead(h); } } });
+const headRO = new ResizeObserver((ents) => { const seen = new Set(); for (const e of ents) { const h = e.target.closest('.section-head') || e.target.querySelector(':scope > .section-head.has-tools'); if (h && !seen.has(h)) { seen.add(h); fitHead(h); } } });
 document.querySelectorAll('.section-head.has-tools').forEach((h) => {
   headRO.observe(h);
   const bar = h.querySelector(':scope > .in-head');
@@ -1672,6 +1675,9 @@ document.querySelectorAll('.section-head.has-tools').forEach((h) => {
   [...bar.children, h.firstElementChild, h.lastElementChild].forEach((k) => headRO.observe(k));
   new MutationObserver(() => fitHead(h)).observe(bar, { attributes: true, attributeFilter: ['class'], subtree: true, childList: true });
 });
+// Campaigns draws its header itself (campaigns.js calls fitHead after each draw); its container is watched for size.
+window.fitHead = fitHead;
+headRO.observe($('#campaignList'));
 
 // The browser's saved logins and form history kept popping up over ordinary text boxes (search, names, messages).
 // Every box opts out unless it says otherwise (the account password fields keep their current-/new-password hints),
