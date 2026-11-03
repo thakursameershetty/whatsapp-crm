@@ -5535,3 +5535,32 @@ body.nav-instant, body.nav-instant .sidebar { transition: none !important; } /* 
 .chart-tip .tt-unit { font-weight: 500; color: var(--muted); }
 .chart-tip .tt-share { margin: 2px 0 0 0; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cx-of-pct { margin-left: 8px; padding: 1px 7px; border-radius: 99px; background: var(--sunk); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* "Where they ended up" as a pie: a ring with the number in its middle, then the same rows */
+.fs-pie { position: relative; width: 190px; height: 190px; margin: 0 auto 6px; }
+.fs-pie svg { width: 100%; height: 100%; overflow: visible; }
+.fs-arc { cursor: pointer; transition: opacity 0.2s; }
+.fs-arc[data-sw="read"] { fill: var(--cx-read); } .fs-arc[data-sw="delivered"] { fill: var(--cx-delivered); }
+.fs-arc[data-sw="sent"] { fill: var(--cx-sent); } .fs-arc[data-sw="failed"] { fill: var(--cx-failed); }
+.fs.hovering .fs-arc:not(.on) { opacity: 0.3; }
+.fs-pie-mid { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; }
+.fs-pie-mid .fl-num { font-size: 26px; }
+.fs-pie-mid .fl-of { display: flex; flex-direction: column; align-items: center; gap: 3px; max-width: 110px; font-size: 12px; color: var(--muted); }
+.fs-pie-mid .cx-of-pct { margin: 0; }
+.fs-is-pie .fs-rows { margin-top: 4px; }
+.fs-is-pie .fs-row { padding-top: 8px; padding-bottom: 8px; }
+.ib-lead-again { flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto; border: 0; padding: 0 2px; background: none; color: var(--info); font: 600 12px/19px Inter, sans-serif; cursor: pointer; }
+.ib-lead-again:hover span { text-decoration: underline; }
+.ib-lead-again.busy { opacity: 0.6; pointer-events: none; }
+.ib-lead-again.busy svg { animation: spin 0.9s linear infinite; }
+.pc-label .ib-lead-again { float: right; text-transform: none; letter-spacing: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* No notes yet: a small floating pill over the top of the chat, instead of a strip */
+.ib-chat { position: relative; }
+.ib-sum-fab { position: absolute; right: 18px; z-index: 6; /* top right: the date chips run down the middle */ display: inline-flex; align-items: center; gap: 6px; height: 30px; margin: 0; padding: 0 12px; border-radius: 99px;
+  background: var(--glass-sheen, none), var(--glass-strong, var(--surface)); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 6px 18px -8px rgba(16, 24, 32, 0.35), 0 0 0 1px var(--hair); color: var(--text); font: 600 12.5px Inter, sans-serif; animation: sum-fab-in 0.3s var(--ease-out, ease-out) both; }
+.ib-sum-fab svg { color: var(--info); }
+.ib-sum-fab:hover { box-shadow: 0 8px 22px -8px rgba(16, 24, 32, 0.4), 0 0 0 1px var(--hair); }
+.ib-sum-fab:hover span { text-decoration: none; }
+@keyframes sum-fab-in { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .ib-sum-fab { animation: none; } }

@@ -278,6 +278,35 @@ Draft the next reply to the customer's latest message(s).`;
     res.json(stateFor(req.params.key));
   }));
 
+  // "Summarise again": the lead assistant reads the whole chat and rewrites this chat's notes (summary, need, budget,
+  // timeline). Nothing is sent and no reply is drafted; works whatever the reply window, and leaves the stage alone
+  // (that stays the assistant's or a person's decision as usual). Our AI: 1 credit.
+  app.post('/api/inbox/:key/summarize', wrap(async (req, res) => {
+    const key = req.params.key;
+    const { wa } = splitKey(key);
+    if (!thread(key).some((m) => m.dir === 'in')) throw fail('They haven’t written anything to summarise yet');
+    const cfg = aiConfig();
+    if (!cfg.key) throw fail('Add an AI key in Settings → AI assistant first', 412);
+    if (cfg.platform && !credits?.enough(credits.AI_RATE)) throw fail('Out of credits: a summary uses 1 credit. Add credits in Settings → Credits.', 402);
+    const contact = contacts.byPhone(wa);
+    const model = cfg.provider === 'gemini' ? geminiProvider(cfg.key, cfg.geminiModel, id, { system: SYSTEM, tools: TOOLS }) : claudeProvider(cfg.key, { system: SYSTEM, tools: TOOLS });
+    const history = [];
+    model.addUser(history, { results: [], text: prompt(key, contact) + '\n\nDo NOT write a reply this time. Re-read the whole conversation and call respond with an empty reply and fresh lead notes: a one-line summary of who they are and what they want now, plus need, budget and timeline if known.' });
+    let out;
+    try { out = await model.step(history, {}); } catch (e) { throw fail(explain(e)); }
+    const r = out.calls.find((c) => c.name === 'respond')?.input || {};
+    const lead = r.lead || {};
+    if (!LEAD_KEYS.some((k) => String(lead[k] ?? '').trim())) throw fail('The AI didn’t return a summary. Try again.');
+    const ch = (db.chats[key] ||= {});
+    ch.lead = { ...Object.fromEntries(LEAD_KEYS.filter((k) => String(lead[k] ?? '').trim()).map((k) => [k, String(lead[k]).trim().slice(0, 600)])), updatedAt: new Date().toISOString() };
+    const { status, ...notesOnly } = lead; // notes only: the stage isn't changed by a summary
+    contacts.applyLead(contact?.phone || wa, notesOnly);
+    if (cfg.platform) credits?.charge(credits.AI_RATE, credits.keys.assistant());
+    save();
+    broadcast({ kind: 'draft', key });
+    res.json({ lead: chatLead(key, contacts.byPhone(wa)) });
+  }));
+
   app.delete('/api/inbox/:key/draft', wrap((req, res) => {
     const ai = aiOf(req.params.key);
     ai.draft = null;

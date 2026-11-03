@@ -2843,6 +2843,38 @@ function closeOutModal() {
   modal.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 320, fill: 'forwards' }).finished.then((a) => a.cancel?.());
 }
 $('#outExpandBtn').addEventListener('click', openOutModal);
+// Bar ↔ pie: the view going out fades, the card settles to the new height, and the one coming in grows in
+function syncOutView() {
+  const b = $('#outViewBtn'), pie = Boolean(state.ov.outPie), label = pie ? 'Show as a bar' : 'Show as a pie chart';
+  b.innerHTML = icon(pie ? 'chart-bar' : 'chart-pie', 14);
+  b.title = label;
+  b.setAttribute('aria-label', label);
+  b.setAttribute('aria-pressed', String(pie));
+}
+syncOutView();
+$('#outViewBtn').addEventListener('click', () => {
+  const host = $('#funnel'), card = $('#funnelCard'), st = state.stats;
+  if (!st || host.__switching) return;
+  const go = () => {
+    const h0 = card.getBoundingClientRect().height;
+    state.ov.outPie = !state.ov.outPie;
+    saveOv();
+    syncOutView();
+    renderFunnel(st);
+    if (Motion.reduce()) return;
+    const ease = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+    const h1 = card.getBoundingClientRect().height;
+    if (Math.abs(h1 - h0) > 1) { card.style.overflow = 'hidden'; card.animate([{ height: h0 + 'px' }, { height: h1 + 'px' }], { duration: 300, easing: ease }).finished.finally(() => { card.style.overflow = ''; }); }
+    const top = host.querySelector('.fs-pie, .fs-bar');
+    top?.animate(state.ov.outPie ? [{ opacity: 0, transform: 'scale(0.9)' }, { opacity: 1, transform: 'none' }] : [{ opacity: 0, transform: 'scaleX(0.6)', transformOrigin: 'left' }, { opacity: 1, transform: 'none', transformOrigin: 'left' }], { duration: 380, easing: ease });
+    host.querySelectorAll('.fs-row').forEach((r, i) => r.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 260, delay: 120 + i * 40, easing: ease, fill: 'backwards' }));
+  };
+  if (Motion.reduce()) return go();
+  host.__switching = true;
+  host.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 130, easing: 'ease-in', fill: 'forwards' }).finished
+    .then(() => { go(); host.getAnimations().forEach((a) => a.cancel()); })
+    .finally(() => { host.__switching = false; });
+});
 $('#oClose').addEventListener('click', closeOutModal);
 $('#outModal').addEventListener('click', (e) => e.target.id === 'outModal' && closeOutModal());
 document.addEventListener('keydown', (e) => e.key === 'Escape' && closeOutModal());
@@ -3197,13 +3229,29 @@ function renderFunnel(st, el = $('#funnel'), onLight = null) {
   ].filter(([, , n]) => n > 0);
   const pct = (n) => (100 * n / total).toFixed(n / total < 0.1 ? 1 : 0) + '%';
   const r = (i) => { const a = i === 0 ? 6 : 2, z = i === parts.length - 1 ? 6 : 2; return a + 'px ' + z + 'px ' + z + 'px ' + a + 'px'; };
-  el.innerHTML = '<div class="fs">' +
-    '<div class="fl-figure"><b class="fl-num cx-num"></b><span class="fl-of"></span></div>' +
-    '<div class="cx-bar fs-bar">' + parts.map(([k, , n], i) => '<i class="cx-seg" data-kind="' + k + '" data-sw="' + k + '" style="flex-grow:' + n + ';border-radius:' + r(i) + '"></i>').join('') + '</div>' +
+  // Bar or pie (the card's switch, on the Overview only): the pie is a ring with the number in its middle
+  const pie = el.id === 'funnel' && state.ov.outPie;
+  el.innerHTML = '<div class="fs' + (pie ? ' fs-is-pie' : '') + '">' +
+    (pie
+      ? '<div class="fs-pie"><svg viewBox="-90 -90 180 180" aria-hidden="true"></svg><div class="fs-pie-mid"><b class="fl-num cx-num"></b><span class="fl-of"></span></div></div>'
+      : '<div class="fl-figure"><b class="fl-num cx-num"></b><span class="fl-of"></span></div>' +
+        '<div class="cx-bar fs-bar">' + parts.map(([k, , n], i) => '<i class="cx-seg" data-kind="' + k + '" data-sw="' + k + '" style="flex-grow:' + n + ';border-radius:' + r(i) + '"></i>').join('') + '</div>') +
     '<div class="fs-rows">' + parts.map(([k, l, n, what]) => '<div class="fs-row" data-kind="' + k + '"><i class="cx-sw" data-sw="' + k + '"></i>' + waMark(k) + '<span class="fs-l"><b>' + l + '</b><small>' + what + '</small></span><span class="fs-n"><b>' + n.toLocaleString() + '</b><small>' + pct(n) + '</small></span></div>').join('') + '</div>' +
     (t.pending ? '<div class="fl-foot">Waiting to send <b>' + t.pending.toLocaleString() + '</b></div>' : '') + '</div>';
   const fs = el.querySelector('.fs'), big = fs.querySelector('.fl-num'), of = fs.querySelector('.fl-of');
   const byKind = Object.fromEntries(parts.map(([k, l, n]) => [k, { l, n }]));
+  if (pie && window.d3) {
+    // the ring: a slice per outcome in the bar's order (clockwise from the top), small gaps between, round ends;
+    // it sweeps round when drawn; a hovered slice stands out a little
+    const arc = d3.arc().innerRadius(58).outerRadius(84).cornerRadius(3).padAngle(parts.length > 1 ? 0.025 : 0);
+    const big2 = d3.arc().innerRadius(58).outerRadius(88).cornerRadius(3).padAngle(parts.length > 1 ? 0.025 : 0);
+    const slices = d3.pie().sort(null).value((p) => p[2])(parts);
+    const paths = d3.select(fs.querySelector('.fs-pie svg')).selectAll('path').data(slices).join('path')
+      .attr('class', 'fs-arc').attr('data-kind', (d) => d.data[0]).attr('data-sw', (d) => d.data[0]);
+    if (Motion.reduce()) paths.attr('d', arc);
+    else paths.transition().duration(700).delay((d, i) => i * 60).ease(d3.easeCubicOut).attrTween('d', (d) => { const i = d3.interpolate({ ...d, endAngle: d.startAngle }, d); return (t) => arc(i(t)); });
+    fs.__grow = (k) => paths.transition('hover').duration(180).attr('d', (d) => (d.data[0] === k ? big2(d) : arc(d)));
+  }
   // hovering a piece of the bar or a row rolls the big number to that kind's count, as on a campaign's results
   const light = (k) => {
     if (fs.dataset.hot === (k || '') && fs.dataset.lit) return;
@@ -3211,6 +3259,7 @@ function renderFunnel(st, el = $('#funnel'), onLight = null) {
     fs.classList.toggle('hovering', Boolean(k));
     fs.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x.dataset.kind === k));
     rollNum(big, k ? byKind[k].n : total);
+    fs.__grow?.(k);
     of.innerHTML = k ? '<span class="cx-of-k">' + waMark(k) + esc(byKind[k].l) + '</span><span class="cx-of-pct">' + pct(byKind[k].n) + ' of ' + total.toLocaleString() + '</span>' : 'messages tried';
     onLight?.(k);
   };

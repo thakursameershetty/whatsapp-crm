@@ -36,6 +36,13 @@
   const deliveredOf = (s = {}) => (s.delivered || 0) + (s.read || 0);
   const live = (c) => c.status === 'running' || c.status === 'queued';
   const pctOf = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+  // A share that's never shown as 0% when there's something there: one decimal under 10% (0.4%), "under 0.1%" below
+  // that, whole numbers above (43%). For the results card's headline and hover card.
+  const shareOf = (a, b) => {
+    if (!b || !a) return '0%';
+    const p = (100 * a) / b;
+    return p < 0.1 ? 'under 0.1%' : p < 10 ? p.toFixed(1).replace(/\.0$/, '') + '%' : Math.round(p) + '%';
+  };
 
   function shortDate(d) {
     if (!d) return '—';
@@ -584,7 +591,7 @@
     scope.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x.dataset.kind === id));
     const big = scope.querySelector('.cx-num'), of = scope.querySelector('.cx-of');
     if (big) roll(big, id ? n[id] : total);
-    if (of) of.innerHTML = id ? '<span class="cx-of-k">' + KIND[id].mark() + esc(KIND[id].name) + '</span><span class="cx-of-pct">' + pctOf(n[id], total) + '% of ' + num(total) + '</span>' : (total === 1 ? 'message in this campaign' : 'messages in this campaign');
+    if (of) of.innerHTML = id ? '<span class="cx-of-k">' + KIND[id].mark() + esc(KIND[id].name) + '</span><span class="cx-of-pct">' + shareOf(n[id], total) + ' of ' + num(total) + '</span>' : (total === 1 ? 'message in this campaign' : 'messages in this campaign');
   }
   // The shared chart tooltip, in its usual layout: a title, rows, a note.
   function tipFor(id, c) {
@@ -592,7 +599,7 @@
     return '<div class="tt-title">' + esc(c.name) + '</div>' +
       '<div class="tt-row cur"><span><i class="cx-sw" data-sw="' + id + '"></i><span class="cx-mk">' + k.mark() + '</span>' + esc(k.name) + '</span><b>' + num(n[id]) + ' <span class="tt-unit">' + (n[id] === 1 ? 'message' : 'messages') + '</span></b></div>' +
       // the share on its own line, in words, so "72 · 29%" never reads as one number
-      '<div class="tt-share">' + pctOf(n[id], total) + '% of all ' + num(total) + '</div>' +
+      '<div class="tt-share">' + shareOf(n[id], total) + ' of all ' + num(total) + '</div>' +
       '<div class="tt-note">' + esc(k.what) + '</div>';
   }
 
