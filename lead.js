@@ -291,7 +291,7 @@ Draft the next reply to the customer's latest message(s).`;
     const contact = contacts.byPhone(wa);
     const model = cfg.provider === 'gemini' ? geminiProvider(cfg.key, cfg.geminiModel, id, { system: SYSTEM, tools: TOOLS }) : claudeProvider(cfg.key, { system: SYSTEM, tools: TOOLS });
     const history = [];
-    model.addUser(history, { results: [], text: prompt(key, contact) + '\n\nDo NOT write a reply this time. Re-read the whole conversation and call respond with an empty reply and fresh lead notes: a one-line summary of who they are and what they want now, plus need, budget and timeline if known.' });
+    model.addUser(history, { results: [], text: prompt(key, contact) + '\n\nDo NOT write a reply this time. Re-read the whole conversation and call respond with an empty reply and fresh lead notes: a one-line summary of who they are and what they want now, plus need, budget and timeline. Use ONLY what the customer actually said in <conversation> above: not our own messages\' assumptions, not <known_about_this_person> (that may come from another chat), and not the business information. Leave need, budget and timeline empty unless the customer stated them. If they have said very little, say exactly that (for example: "Replied to the campaign with a greeting; no need stated yet").' });
     let out;
     try { out = await model.step(history, {}); } catch (e) { throw fail(explain(e)); }
     const r = out.calls.find((c) => c.name === 'respond')?.input || {};

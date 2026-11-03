@@ -422,7 +422,8 @@
 
   function renderChat(toBottom = false) {
     const pane = $('#ibChat');
-    pane.dataset.key = ib.key || '';
+    // (pane.dataset.key says which chat the header was drawn for; it's set below, only when the header is redrawn,
+    // so switching chats always redraws it: avatar, photo of the number, name)
     ib.threadSig = null; // drawn now: the next load compares against this
     if (!ib.key) {
       pane.innerHTML = emptyPane();
