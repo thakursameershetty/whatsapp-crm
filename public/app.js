@@ -317,6 +317,7 @@ function addPasswordEyes(root) {
   });
 }
 function openModal(title, html) {
+  modalBack = modalGuard = null;
   $('#modalTitle').textContent = title;
   $('#modal .modal-box').className = 'modal-box'; // a size class from the last popup (wide, ci-box) doesn't carry over
   $('#modalBody').innerHTML = html;
@@ -331,7 +332,19 @@ function hideOverlay(el) {
   el.classList.add('closing');
   setTimeout(() => el.classList.remove('closing') || el.classList.add('hidden'), Motion.reduce() ? 0 : 180);
 }
-const closeModal = () => hideOverlay($('#modal'));
+// A popup opened from another (a number's playbooks, from its settings) can go back to it when closed, and can ask
+// first (unsaved changes). Both are set right after openModal, and cleared by the next one.
+let modalBack = null, modalGuard = null;
+const setModalBack = (fn) => { modalBack = fn; };
+const setModalGuard = (fn) => { modalGuard = fn; };
+const closeModal = async () => {
+  if (modalGuard && !(await modalGuard())) return;
+  modalGuard = null;
+  const back = modalBack;
+  modalBack = null;
+  if (back) return back();
+  hideOverlay($('#modal'));
+};
 // While any popup is open the page behind it stays put: scrolling only moves the popup. The page's
 // scrollbar width is kept as padding so nothing shifts sideways when it's hidden.
 (() => {
@@ -701,7 +714,7 @@ const pbBlank = (first) => ({ id: '', name: '', when: '', business: '', qualifie
 
 // All playbooks: every one listed on the left (search, book icons, what each does), the selected one's full editor on
 // the right. Opens on a playbook (or 'new'). Moving away from unsaved changes asks first.
-function playbookManager(selectId, { numberId = null } = {}) {
+function playbookManager(selectId, { numberId = null, back = null } = {}) {
   let sel = selectId;
   let dirty = false;
   const num = numberId && state.senders.find((x) => x.id === numberId);
@@ -721,6 +734,8 @@ function playbookManager(selectId, { numberId = null } = {}) {
   const cfgNow = () => leadCfg();
   if (sel !== 'new' && !cfgNow().playbooks.some((p) => p.id === sel)) sel = (num ? cfgNow().playbooks.find((p) => pbUses(p, num.id)) : cfgNow().playbooks[0])?.id || 'new';
   const leave = async () => !dirty || confirmDialog({ title: 'Discard your changes?', message: 'This playbook has changes you haven’t saved.', confirmText: 'Discard', danger: true, safe: true });
+  setModalGuard(leave);   // closing with unsaved changes asks first
+  if (back) setModalBack(back); // and goes back to where it was opened from (a number's settings)
 
   function drawList() {
     const q = ($('#pbmQ', body).value || '').trim().toLowerCase();
@@ -3909,8 +3924,10 @@ function numberModal(s) {
   const changePb = (fn, note) => guard(async () => { const cfg = leadCfg(); await savePlaybooks(fn(cfg), note); drawPb(); });
   if (ai) {
     drawPb();
-    $('#nmPbNew', body).onclick = () => playbookManager('new', { numberId: s.id });
-    $('#nmPbAll', body).onclick = () => playbookManager(pbDefault(s.id)?.id || undefined, { numberId: s.id });
+    // the playbooks window opens over this one; closing it comes back here (re-drawn, so changes show)
+    const back = () => numberModal(state.senders.find((x) => x.id === s.id) || s);
+    $('#nmPbNew', body).onclick = () => playbookManager('new', { numberId: s.id, back });
+    $('#nmPbAll', body).onclick = () => playbookManager(pbDefault(s.id)?.id || undefined, { numberId: s.id, back });
     $('#nmPbAdd', body).onclick = (e) => {
       const r = e.currentTarget.getBoundingClientRect();
       Sheet.Menu.open(r.left, r.bottom + 6, leadCfg().playbooks.filter((p) => !pbUses(p, s.id)).map((p) => ({
@@ -3920,7 +3937,7 @@ function numberModal(s) {
     };
     $('#nmPb', body).addEventListener('click', (e) => {
       const open = e.target.closest('[data-pb-open]');
-      if (open) return playbookManager(open.dataset.pbOpen, { numberId: s.id });
+      if (open) return playbookManager(open.dataset.pbOpen, { numberId: s.id, back: () => numberModal(state.senders.find((x) => x.id === s.id) || s) });
       const drop = e.target.closest('[data-pb-drop]');
       if (drop) {
         const id = drop.dataset.pbDrop;
