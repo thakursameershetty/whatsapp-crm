@@ -619,7 +619,7 @@
     let cx = body.querySelector('.cx');
     if (!cx || cx.dataset.cid !== c.id) {
       body.innerHTML = '<div class="cx" data-cid="' + esc(c.id) + '">' +
-        '<div class="cx-head"><span class="cd-label">Results</span><button type="button" class="btn sm quiet" data-cx-expand>Expand</button></div>' +
+        '<div class="cx-head"><span class="cd-label">Results</span><button type="button" class="btn sm" data-cx-expand title="Expand: every message as a dot">' + icon('maximize-2', 14) + 'Expand</button></div>' +
         '<div class="cx-figure"><span class="cx-num"></span><span class="cx-of"></span></div>' +
         '<div class="cx-bar"></div><div class="cx-chipwrap"></div><div class="cx-foot"></div></div>';
       cx = body.querySelector('.cx');
@@ -720,6 +720,35 @@
 
   // Deliveries over time: how many had been sent, delivered and read by each moment. The three
   // lines nest (read ≤ delivered ≤ sent), so they're drawn as layered areas, labelled at the end.
+  // Over time: chart ↔ table as one movement. The view going out fades, the section's height glides to the new size,
+  // and the view coming in arrives: the table's rows rise in one after another; the chart's areas sweep in from left
+  // to right (as the time they show), its grid and axis fade in, the end labels last.
+  function switchChartTable(c) {
+    const el = $('#cdChart'), body = el.querySelector('.table-wrap, .cd-chart');
+    if (Motion.reduce() || !body) { CP.chartTable = !CP.chartTable; return renderChart(c); }
+    if (el.__switching) return;
+    el.__switching = true;
+    const ease = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+    body.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 130, easing: 'ease-in', fill: 'forwards' }).finished.then(() => {
+      const h0 = el.getBoundingClientRect().height;
+      CP.chartTable = !CP.chartTable;
+      renderChart(c);
+      const h1 = el.getBoundingClientRect().height;
+      if (Math.abs(h1 - h0) > 1) {
+        el.style.overflow = 'hidden';
+        el.animate([{ height: h0 + 'px' }, { height: h1 + 'px' }], { duration: 320, easing: ease }).finished.finally(() => { el.style.overflow = ''; });
+      }
+      if (CP.chartTable) {
+        $$('.cd-ctable tr', el).forEach((r, i) => r.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 280, delay: Math.min(i, 12) * 22, easing: ease, fill: 'backwards' }));
+      } else {
+        const svg = el.querySelector('.cd-chart svg');
+        svg?.querySelectorAll('.cd-grid-line, .cd-axis').forEach((n) => n.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: ease, fill: 'backwards' }));
+        svg?.querySelectorAll('path').forEach((p, i) => p.animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 650, delay: 60 + (i % 3) * 40, easing: ease, fill: 'backwards' }));
+        svg?.querySelectorAll('.cd-end').forEach((n) => n.animate([{ opacity: 0, transform: 'translateX(-6px)' }, { opacity: 1, transform: 'none' }], { duration: 260, delay: 560, easing: ease, fill: 'backwards' }));
+      }
+    }).finally(() => { el.__switching = false; });
+  }
+
   function renderChart(c) {
     const el = $('#cdChart');
     // Messages that failed (even after being sent) are left out, so the chart ends on the same numbers as the tiles above.
@@ -747,7 +776,7 @@
     el.innerHTML = `
       <div class="cd-chart-head"><div class="cd-label">Over time</div>
         <div class="cd-legend">${series.map(([n, , col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div>
-        <button class="btn sm quiet" data-cd="chart-table">${CP.chartTable ? 'Chart' : 'Table'}</button></div>
+        <button class="btn sm" data-cd="chart-table" title="${CP.chartTable ? 'Show as chart' : 'Show as table'}">${icon(CP.chartTable ? 'chart-column-increasing' : 'table', 14)}${CP.chartTable ? 'Chart' : 'Table'}</button></div>
       ${CP.chartTable ? `<div class="table-wrap"><table class="cd-ctable"><thead><tr><th>Time</th>${series.map(([n]) => `<th class="num">${n}</th>`).join('')}</tr></thead><tbody>${
         [0, 6, 12, 18, 24, 30, 36, 42, 48].map((i) => `<tr><td>${esc(fmtT(at(i)))}</td>${counts.map((cs) => `<td class="num">${cs[i].toLocaleString()}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
       : `<div class="cd-chart" id="cdPlot">
@@ -910,7 +939,7 @@
     if (act === 'back') return back();
     if (act === 'msgmore') { CP.msgOpen = !CP.msgOpen; return renderMessage(c); }
     if (act === 'prev' || act === 'next') { const n = c.recipients.filter((r) => r.values).slice(0, 20).length; CP.sample = (CP.sample + (act === 'next' ? 1 : -1) + n) % n; return renderMessage(c); }
-    if (act === 'chart-table') { CP.chartTable = !CP.chartTable; return renderChart(c); }
+    if (act === 'chart-table') return switchChartTable(c);
     if (act === 'follow') return followMenu(c, b);
     if (act === 'more') return moreMenu(c, b);
     await guard(async () => {
