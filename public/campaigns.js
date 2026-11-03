@@ -7,7 +7,11 @@
   const CP = {
     list: [], filter: 'all', sort: 'new', q: '', detail: null, show: 'all', sample: 0, chartTable: false, date: null, calMonth: null, calOpen: null,
     view: (() => { try { return localStorage.getItem('campView') || 'cards'; } catch { return 'cards'; } })(),
+    // how many campaigns a page shows (0 = all), chosen in the header; the page resets when the filters change
+    per: (() => { try { const n = localStorage.getItem('campPer'); return n == null ? 50 : Number(n) || 0; } catch { return 50; } })(),
+    page: 0, pageSig: '',
   };
+  const PER_PAGE = [25, 50, 100, 200, 0];
   // Auto-made names end in the date ("name_msg — 10/16/2026, 2:06:04 PM"); the date is shown anyway.
   const displayName = (c) => String(c.name).replace(/\s+—\s+\d{1,2}\/\d{1,2}\/\d{2,4},.*$/, '') || c.name;
   // Campaigns using the same template share a folder colour.
@@ -114,6 +118,17 @@
       .filter((c) => !CP.sender || (c.senderIds || []).includes(CP.sender))
       .filter((c) => DateFilter.match(CP.date, dayOf(c)))
       .sort(SORTS[CP.sort][1]);
+    // Pages (cards and table; the calendar shows the whole month)
+    const sig = [CP.filter, CP.q, CP.sender, JSON.stringify(CP.date), CP.sort, CP.per].join('|');
+    if (sig !== CP.pageSig) { CP.pageSig = sig; CP.page = 0; }
+    const pages = CP.per ? Math.max(1, Math.ceil(rows.length / CP.per)) : 1;
+    CP.page = Math.min(CP.page, pages - 1);
+    const from = CP.per ? CP.page * CP.per : 0;
+    const shown = CP.per ? rows.slice(from, from + CP.per) : rows;
+    const pager = pages > 1 ? `<div class="cp-pager">
+        <span>${(from + 1).toLocaleString()}–${(from + shown.length).toLocaleString()} of ${rows.length.toLocaleString()}</span>
+        <div class="seg"><button type="button" data-cp-page="-1" ${CP.page ? '' : 'disabled'} aria-label="Previous page">${icon('arrow-left', 14)}</button><span>Page ${CP.page + 1} of ${pages}</span><button type="button" data-cp-page="1" ${CP.page < pages - 1 ? '' : 'disabled'} aria-label="Next page">${icon('arrow-right', 14)}</button></div>
+      </div>` : '';
     // the calendar shows sending and scheduled campaigns too, on their days
     const calRows = [...pinned.filter((c) => (!q || [c.name, c.templateName].some((v) => String(v).toLowerCase().includes(q))) && (!CP.sender || (c.senderIds || []).includes(CP.sender)) && DateFilter.match(CP.date, dayOf(c))), ...rows];
 
@@ -126,8 +141,8 @@
 
     el.innerHTML = `
       <div class="section-head"><div><h1>Campaigns</h1>
-        <p class="sub cp-summary">Last 30 days · <b>${T.sent.toLocaleString()}</b> sent · <b>${pctOf(T.del, T.sent)}%</b> delivered · <b>${pctOf(T.read, T.del)}%</b> read · <b>${T.rep.toLocaleString()}</b> repl${T.rep === 1 ? 'y' : 'ies'} · <b>${T.leads.toLocaleString()}</b> lead${T.leads === 1 ? '' : 's'}${testsOut ? ` <span class="cp-tests-out">· ${testsOut} test${testsOut === 1 ? '' : 's'} not counted</span>` : ''}</p></div>
-        <div class="row tight cp-head-actions">${state.senders.length > 1 ? `<select id="cpSender" aria-label="Number"><option value="">All numbers</option>${state.senders.map((x) => `<option value="${x.id}" ${x.id === CP.sender ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>` : ''}<button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
+        <p class="sub cp-summary" title="Last 30 days: ${T.sent.toLocaleString()} sent, ${pctOf(T.del, T.sent)}% delivered, ${pctOf(T.read, T.del)}% read, ${T.rep.toLocaleString()} replies, ${T.leads.toLocaleString()} leads${testsOut ? ` (${testsOut} test${testsOut === 1 ? '' : 's'} not counted)` : ''}">Last 30 days · <b>${T.sent.toLocaleString()}</b> sent · <b>${pctOf(T.del, T.sent)}%</b> delivered · <b>${pctOf(T.read, T.del)}%</b> read · <b>${T.rep.toLocaleString()}</b> repl${T.rep === 1 ? 'y' : 'ies'} · <b>${T.leads.toLocaleString()}</b> lead${T.leads === 1 ? '' : 's'}${testsOut ? ` <span class="cp-tests-out">· ${testsOut} test${testsOut === 1 ? '' : 's'} not counted</span>` : ''}</p></div>
+        <div class="row tight cp-head-actions">${CP.view === 'calendar' ? '' : `<select id="cpPer" aria-label="Campaigns per page" title="How many campaigns a page shows">${PER_PAGE.map((n) => `<option value="${n}" ${n === CP.per ? 'selected' : ''}>${n ? `${n} per page` : 'Show all'}</option>`).join('')}</select>`}${state.senders.length > 1 ? `<select id="cpSender" aria-label="Number"><option value="">All numbers</option>${state.senders.map((x) => `<option value="${x.id}" ${x.id === CP.sender ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>` : ''}<button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
       ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
       <div class="cp-tools">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="cpSearch" placeholder="Search name or template" value="${esc(CP.q)}" aria-label="Search campaigns" /></div>
@@ -141,16 +156,13 @@
         </div>
       </div>
       ${CP.view === 'calendar' ? calendarHtml(calRows) : CP.view === 'cards'
-        ? `<div class="cp-folders">
-            <button type="button" class="cp-folder-new" data-goto="send"><b>New campaign</b><span>Pick contacts and a template</span><i>${icon('plus', 22)}</i></button>
-            ${rows.map(folderHtml).join('')}
-          </div>${!rows.length && q ? '<p class="sub">No campaigns match.</p>' : ''}`
+        ? `<div class="cp-folders">${shown.map(folderHtml).join('')}</div>${!rows.length ? `<p class="sub cp-none">${q || CP.date || CP.sender || CP.filter !== 'all' ? 'No campaigns match.' : 'Nothing here yet.'}</p>` : ''}${pager}`
         : `<div class="card cp-card">
         <table class="data-table cp-table">
           <thead><tr class="heads"><th>Campaign</th><th class="num">Recipients</th><th>Delivered</th><th class="num">Read</th><th class="num">Replies</th><th class="num">Leads</th><th>Date</th></tr></thead>
-          <tbody>${rows.length ? rows.map(rowHtml).join('') : `<tr><td colspan="7" class="table-empty">${q ? 'No campaigns match.' : 'Nothing here yet.'}</td></tr>`}</tbody>
+          <tbody>${rows.length ? shown.map(rowHtml).join('') : `<tr><td colspan="7" class="table-empty">${q ? 'No campaigns match.' : 'Nothing here yet.'}</td></tr>`}</tbody>
         </table>
-      </div>`}`;
+      </div>${pager}`}`;
     LA.hydrate(el);
     Motion.segs(el);
     const search = $('#cpSearch');
@@ -160,6 +172,7 @@
       const r = e.currentTarget.getBoundingClientRect();
       Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(SORTS).map(([k, [label]]) => ({ label, checked: k === CP.sort, action: () => { CP.sort = k; renderList(); } })));
     };
+    if ($('#cpPer')) $('#cpPer').onchange = (e) => { CP.per = Number(e.target.value) || 0; try { localStorage.setItem('campPer', String(CP.per)); } catch {} renderList(); };
     if ($('#cpSender')) $('#cpSender').onchange = (e) => { CP.sender = e.target.value; renderList(); };
     $('#cpDate').onclick = (e) => {
       if (e.target.closest('[data-df-clear]')) { CP.date = null; return renderList(); }
@@ -352,6 +365,17 @@
   $('#campaignList').addEventListener('click', (e) => {
     const f = e.target.closest('#cpFilter [data-f]');
     if (f) { CP.filter = f.dataset.f; return renderList(); }
+    const pg = e.target.closest('[data-cp-page]');
+    if (pg) {
+      CP.page += Number(pg.dataset.cpPage);
+      renderList();
+      // back to the top of the list, under the pinned header and toolbar
+      // (measured from the list itself: the toolbar is pinned, so its own position says nothing about where the list starts)
+      const list = $('#campaignList .cp-folders, #campaignList .cp-card');
+      const pinned = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stick-top')) || 0) + ($('#campaignList > .section-head')?.offsetHeight || 0) + ($('#campaignList .cp-tools')?.offsetHeight || 0);
+      if (list) scrollTo({ top: Math.max(0, list.getBoundingClientRect().top + scrollY - pinned - 12), behavior: Motion.reduce() ? 'auto' : 'smooth' });
+      return;
+    }
     const v = e.target.closest('#cpView [data-view]');
     if (v) {
       if (v.dataset.view === CP.view) return;

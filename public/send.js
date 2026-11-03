@@ -906,7 +906,6 @@
     if (!t) return;
     $('#spTplPreview').innerHTML = bubbleHtml(t, {}, true);
     $('#spTplMeta').textContent = `${t.category ? t.category.toLowerCase() + ' · ' : ''}${t.variables.length ? `${t.variables.length} variable${t.variables.length > 1 ? 's' : ''} to fill in` : 'no variables'}`;
-    $('#spNext').textContent = t.variables.length ? 'Next: Personalise →' : 'Preview →';
   }
 
   // Compose / Preview tabs in the message panel.
@@ -919,6 +918,7 @@
     // …and makes room by shrinking the sidebar to icons (Setup brings it back).
     if (state.sendWide !== (name === 'preview')) { state.sendWide = name === 'preview'; state.sendNavOpen = false; syncNav(); }
     if (name === 'preview') renderPreview();
+    renderSummary(); // the send bar's button: "Next" on Setup, "Send" on Personalise
   }
   $('#spPaneSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-pane]'); if (b) setPane(b.dataset.pane); });
   $('#spPanel').addEventListener('click', (e) => {
@@ -1145,6 +1145,17 @@
     $('#sendSummary').innerHTML = `<strong>${count.toLocaleString()} recipient${count === 1 ? '' : 's'}</strong>${notes ? ` <span class="sp-notes">${esc(notes)}</span>` : ''}
       <div>${why ? `<span class="why">${esc(why)}</span>` : detail}</div>`;
     const scheduled = state.sendMode === 'schedule';
+    // On Setup, with a template chosen, this button is the way on to Personalise (sending isn't possible before the
+    // variables are filled in anyway); on Personalise it sends.
+    const next = Boolean(t) && SP.pane !== 'preview';
+    $('#sendAll').classList.toggle('sp-go-next', next);
+    if (next) {
+      $('#sendAll').innerHTML = `${t.variables.length ? 'Next: Personalise' : 'Next: Preview'}${icon('arrow-right', 17)}`;
+      $('#sendAll').disabled = false;
+      $('#sendAll').title = t.variables.length ? 'Fill in the template’s variables and preview the message' : 'Preview the message';
+      return;
+    }
+    $('#sendAll').title = '';
     $('#sendAll').innerHTML = `${icon(scheduled ? 'clock' : 'send', 17)}${scheduled ? 'Schedule' : 'Send'}${count ? ' ' + count.toLocaleString() : ''} message${count === 1 ? '' : 's'}`;
     $('#sendAll').disabled = Boolean(why);
   }
@@ -1240,8 +1251,12 @@
     }, e.target)
   );
 
-  $('#sendAll').addEventListener('click', (e) =>
-    guard(async () => {
+  $('#sendAll').addEventListener('click', (e) => {
+    if (e.currentTarget.classList.contains('sp-go-next')) {
+      if (!SP.panel) { SP.panel = true; try { localStorage.setItem('sendPanel', '1'); } catch {} renderChrome(); }
+      return setPane('preview');
+    }
+    return guard(async () => {
       const t = currentTemplate();
       const { list, sheets } = recipients();
       const nums = state.selectedSenders.size;
@@ -1282,8 +1297,8 @@
       testTouched = false;
       showTab('campaigns');
       openCampaign(c.id);
-    }, e.target)
-  );
+    }, e.target);
+  });
 
   // --- Page size ----------------------------------------------------------------------------
 

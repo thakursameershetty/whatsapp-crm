@@ -2186,9 +2186,6 @@ function renderFilters(st) {
   ft.classList.toggle('hidden', !st.tests && !st.filters.tests);
   if (st.tests || st.filters.tests) ft.innerHTML = `Include tests <span class="opt">${st.tests}</span>${toggleHtml({ checked: st.filters.tests, attrs: 'id="fTestsOn" aria-label="Include test campaigns in these numbers"', size: 'sm' })}`;
   ft.title = st.filters.tests ? 'Test campaigns are counted in these numbers' : `${st.tests} test campaign${st.tests === 1 ? ' is' : 's are'} left out of these numbers`;
-  // short, so it fits at the end of the filter row; the full sentence on hover
-  $('#fNote').textContent = `vs previous ${st.range} day${st.range === 1 ? '' : 's'}${st.range >= 90 ? ' · by week' : ''}`;
-  $('#fNote').title = `The changes on the cards compare with the ${st.range} day${st.range === 1 ? '' : 's'} just before${st.range >= 90 ? '. The chart groups days into weeks.' : '.'}`;
   renderRangeBtn(st);
   syncControls();
 }
@@ -2215,6 +2212,8 @@ function renderRangeBtn(st) {
   const label = st?.custom ? periodText(st) : `Last ${state.ov.range} days`;
   b.innerHTML = `${icon('calendar-days', 15)}<span>${esc(label)}</span>${icon('chevron-down', 13)}`;
   b.classList.toggle('on', Boolean(state.ov.custom));
+  const n = st?.range || state.ov.range;
+  b.title = `The period shown. The changes on the cards compare with the ${n} day${n === 1 ? '' : 's'} just before.`;
 }
 $('#rangeBtn').addEventListener('click', (e) => {
   const b = e.currentTarget, r = b.getBoundingClientRect();

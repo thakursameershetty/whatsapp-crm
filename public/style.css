@@ -5678,3 +5678,48 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
   .it-grid { grid-template-columns: 1fr; }
   .it-prev { position: static; order: -1; }
 }
+
+/* Personalise, side by side: the preview and the variable fields scroll on their own, and "Send a test" stays pinned
+   at the bottom of the preview column (its card opens upwards from there). */
+@media (min-width: 1251px) and (min-height: 560px) {
+  #tab-send.pane-wide:not(.panel-off) .sp-panel { overflow: hidden; padding-bottom: 0; }
+  #tab-send.pane-wide .sp-pane[data-pane="preview"]:not(.hidden) { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+  #tab-send.pane-wide .sp-duo { flex: 1 1 0; min-height: 0; align-items: stretch; }
+  #tab-send.pane-wide .sp-duo-prev, #tab-send.pane-wide .sp-duo-fields {
+    position: static; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+    padding-top: 12px; padding-bottom: 0;
+  }
+  #tab-send.pane-wide .sp-duo-prev { display: flex; flex-direction: column; }
+  #tab-send.pane-wide .sp-duo-prev > * { flex-shrink: 0; } /* a long message makes the column scroll, not squeeze */
+  #tab-send.pane-wide .sp-duo-fields { padding-bottom: 16px; }
+  #tab-send.pane-wide .sp-duo-prev .sp-testwrap {
+    position: sticky; bottom: 0; z-index: 2; margin-top: auto; padding: 10px 0 12px; background: var(--surface);
+  }
+  /* a soft fade where the preview slides under the pinned button */
+  #tab-send.pane-wide .sp-duo-prev .sp-testwrap::before {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 16px; pointer-events: none;
+    background: linear-gradient(to top, var(--surface), transparent);
+  }
+  #tab-send.pane-wide .sp-duo-prev .sp-prev-test { margin-top: 0; }
+  #tab-send.pane-wide .sp-duo .sp-testwrap .sp-testpop { top: auto; bottom: calc(100% + 8px); transform-origin: bottom center; }
+}
+
+/* Campaigns: pages (how many per page is chosen in the header) */
+.cp-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 22px 0 8px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cp-pager .seg { align-items: center; }
+.cp-pager .seg > span { padding: 0 10px; color: var(--text); font-weight: 500; white-space: nowrap; }
+.cp-pager .seg button { display: grid; place-items: center; min-width: 34px; }
+.cp-pager .seg button:disabled { opacity: 0.4; cursor: default; }
+#cpPer { width: auto; min-width: 0; }
+.cp-none { margin-top: 12px; }
+/* one line: the summary gives way (… and the full text on hover) before the header's buttons wrap */
+@media (min-width: 901px) { #campaignList > .section-head { flex-wrap: nowrap; } #campaignList > .section-head > :last-child { flex: none; } }
+
+/* Templates page: every card is the same height. A long message scrolls inside its preview, and the variables and
+   buttons sit at the bottom of the card, so the rows line up. */
+#templateList .tpl-card, .tpl-group .tpl-card { height: 440px; min-height: 0; }
+#templateList.cards, .tpl-group .cards { align-items: stretch; }
+.tpl-card .tpl-chat { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.tpl-card .tpl-reason { flex: none; }
+.tpl-card .var-chips { margin-top: auto; flex: none; max-height: 64px; overflow-y: auto; scrollbar-width: thin; }
+.tpl-card > .row.tight { flex: none; }

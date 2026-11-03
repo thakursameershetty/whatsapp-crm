@@ -1405,13 +1405,26 @@
     let lastTpl = '';
     try { lastTpl = localStorage.getItem('ibTpl') || ''; } catch {}
     const pick = prev?.templateId || (usable.some((t) => t.id === lastTpl) ? lastTpl : '');
+    // Every template, grouped by the number(s) that can send it, like the Send page; this chat's number first, and
+    // what it can't send (another Business Account, or not approved) shows but can't be picked.
+    function tplOptions() {
+      const ok = new Set(usable.map((t) => t.id));
+      const opt = (t) => `<option value="${t.id}" data-tag="${esc(catLabel(t.category))}"${ok.has(t.id) ? '' : ' disabled'}${t.id === pick ? ' selected' : ''}>${esc(t.name)} · ${esc(t.language)}${t.status && t.status !== 'APPROVED' ? ` (${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status).toLowerCase()})` : ''}</option>`;
+      const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))];
+      if (accounts.length < 2) return state.templates.map(opt).join('');
+      const mine = sender?.wabaId;
+      accounts.sort((a, b) => (b === mine) - (a === mine));
+      const group = (label, ts) => (ts.length ? `<optgroup label="${esc(label)}">${ts.map(opt).join('')}</optgroup>` : '');
+      return accounts.map((w) => group(`${accountLabel(w)}${w === mine ? '' : ' · not from this number'}`, state.templates.filter((t) => t.wabaId === w))).join('')
+        + group('Other', state.templates.filter((t) => !accounts.includes(t.wabaId)));
+    }
     const to = `${c?.name ? `<b>${esc(c.name)}</b> · ` : ''}${esc(fmtPhone(c?.wa || key.split(':')[1]))}`;
     const body = openModal(
       'Send a template',
       `<div class="it-grid">
         <div class="it-fields">
           <p class="sub it-to">To ${to} · via ${esc(sender?.label || c?.senderLabel || '')}</p>
-          <label>Template<select id="itTpl" data-chips><option value="">— Choose a template —</option>${usable.map((t) => `<option value="${t.id}" data-tag="${esc(catLabel(t.category))}" ${t.id === pick ? 'selected' : ''}>${esc(t.name)} · ${esc(t.language)}</option>`).join('')}</select></label>
+          <label>Template<select id="itTpl" data-chips><option value="">— Choose a template —</option>${tplOptions()}</select></label>
           <div class="it-vars-wrap" id="itVarsWrap"><div class="field-label">Fill in the variables</div><div id="itVars"></div></div>
           <div class="it-review hidden" id="itReview"></div>
         </div>
