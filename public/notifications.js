@@ -4,7 +4,13 @@
 // New ones arrive live (over the Inbox's event stream) and pop a toast you can click or dismiss.
 
 (function () {
-  const NT = { list: [], unread: 0, filter: 'all', loaded: false, fresh: new Set() };
+  const NT = {
+    list: [], unread: 0, filter: 'all', loaded: false, fresh: new Set(),
+    // which days (the calendar: one day, several, or a range) and pages (how many per page is remembered)
+    date: null, page: 0, pageSig: '',
+    per: (() => { try { const n = localStorage.getItem('ntPer'); return n == null ? 50 : Number(n) || 0; } catch { return 50; } })(),
+  };
+  const PER_PAGE = [25, 50, 100, 200, 0];
 
   const KIND = {
     message: { icon: 'message-circle', tone: 'info' },
@@ -25,7 +31,7 @@
   const ERROR_KINDS = new Set(['reply_failed', 'delivery_failed', 'ai_error']);
 
   const visible = () => !$('#tab-notifications').classList.contains('hidden');
-  const shown = () => NT.list.filter((n) => (NT.filter === 'all' ? true : NT.filter === 'unread' ? !n.read : n.category === NT.filter));
+  const shown = () => NT.list.filter((n) => (NT.filter === 'all' ? true : NT.filter === 'unread' ? !n.read : n.category === NT.filter) && DateFilter.match(NT.date, n.ts));
 
   async function load() {
     const r = await api('/notifications');
@@ -71,18 +77,30 @@
   }
 
   function render() {
-    const list = shown();
+    const all = shown();
+    // pages: back to the first whenever what's shown changes
+    const sig = [NT.filter, JSON.stringify(NT.date), NT.per].join('|');
+    if (sig !== NT.pageSig) { NT.pageSig = sig; NT.page = 0; }
+    const pages = NT.per ? Math.max(1, Math.ceil(all.length / NT.per)) : 1;
+    NT.page = Math.min(NT.page, pages - 1);
+    const from = NT.per ? NT.page * NT.per : 0;
+    const list = NT.per ? all.slice(from, from + NT.per) : all;
+    $('#ntDateWrap').innerHTML = DateFilter.button(NT.date, 'ntDate');
+    $('#ntPer').innerHTML = PER_PAGE.map((n) => `<option value="${n}" ${n === NT.per ? 'selected' : ''}>${n ? `${n} / page` : 'Show all'}</option>`).join('');
+    $('#ntPer').value = String(NT.per);
     $('#ntSub').textContent = NT.list.length
       ? `Campaigns, deliveries, messages and the AI assistant, in one place. ${NT.unread ? `${NT.unread.toLocaleString()} unread` : 'All caught up'} · ${NT.list.length.toLocaleString()} in total.`
       : 'Campaigns, deliveries, messages and the AI assistant, in one place.';
     const count = (k) => (k === 'all' ? NT.list.length : k === 'unread' ? NT.unread : NT.list.filter((n) => n.category === k).length);
-    Motion.patch($('#ntFilter'), FILTERS.map(([k, label]) => `<button data-f="${k}" class="${NT.filter === k ? 'active' : ''}" role="tab" aria-selected="${NT.filter === k}">${label}${count(k) ? ` <span class="opt">${count(k).toLocaleString()}</span>` : ''}</button>`).join(''));
+    // a dropdown (with counts), so the date and page size fit beside the title in the one-line header
+    $('#ntFilter').innerHTML = FILTERS.map(([k, label]) => `<option value="${k}">${k === 'all' ? 'All notifications' : label} (${count(k).toLocaleString()})</option>`).join('');
+    $('#ntFilter').value = NT.filter;
     $('#ntReadAll').disabled = !NT.unread;
     $('#ntClear').disabled = !NT.list.length;
 
     if (!list.length) {
       $('#ntList').innerHTML = NT.list.length
-        ? emptyState({ icon: 'check-check', title: NT.filter === 'unread' ? 'All caught up' : 'Nothing here', text: NT.filter === 'unread' ? 'You’ve read every notification.' : 'No notifications of this kind yet.' })
+        ? emptyState({ icon: 'check-check', title: NT.filter === 'unread' && !NT.date ? 'All caught up' : 'Nothing here', text: NT.date ? 'No notifications on these days.' : NT.filter === 'unread' ? 'You’ve read every notification.' : 'No notifications of this kind yet.', actions: NT.date ? '<button class="btn" data-nt-anydate>Show any date</button>' : '' })
         : emptyState({ icon: 'bell', title: 'No notifications yet', text: 'When a campaign finishes, a delivery fails, someone messages you or the AI assistant needs you, it shows up here.' });
       LA.hydrate($('#ntList'));
       return;
@@ -90,7 +108,11 @@
     const groups = new Map();
     list.forEach((n) => { const d = dayLabel(n.ts); if (!groups.has(d)) groups.set(d, []); groups.get(d).push(n); });
     let i = 0;
-    $('#ntList').innerHTML = [...groups].map(([day, items]) => `<section class="nt-day"><h3>${esc(day)}</h3><div class="card nt-card">${items.map((n) => row(n, i++)).join('')}</div></section>`).join('');
+    $('#ntList').innerHTML = [...groups].map(([day, items]) => `<section class="nt-day"><h3>${esc(day)}</h3><div class="card nt-card">${items.map((n) => row(n, i++)).join('')}</div></section>`).join('')
+      + (pages > 1 ? `<div class="cp-pager nt-pager">
+          <span>${(from + 1).toLocaleString()}–${(from + list.length).toLocaleString()} of ${all.length.toLocaleString()}</span>
+          <div class="seg"><button type="button" data-nt-page="-1" ${NT.page ? '' : 'disabled'} aria-label="Previous page">${icon('arrow-left', 14)}</button><span>Page ${NT.page + 1} of ${pages}</span><button type="button" data-nt-page="1" ${NT.page < pages - 1 ? '' : 'disabled'} aria-label="Next page">${icon('arrow-right', 14)}</button></div>
+        </div>` : '');
     Orb.hydrate($('#ntList'));
     NT.fresh.clear();
   }
@@ -126,16 +148,41 @@
     }
   }
 
-  $('#ntFilter').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-f]');
-    if (!b || b.dataset.f === NT.filter) return;
-    NT.filter = b.dataset.f;
+  $('#ntFilter').addEventListener('change', (e) => {
+    if (e.target.value === NT.filter) return;
+    NT.filter = e.target.value;
     render();
     $('#ntList').classList.remove('nt-enter');
     void $('#ntList').offsetWidth;
     $('#ntList').classList.add('nt-enter');
   });
 
+  // Days: the same calendar as Campaigns and the Inbox (one day, several, or a range); dots show how many each day has.
+  $('#ntDateWrap').addEventListener('click', (e) => {
+    const b = e.target.closest('#ntDate');
+    if (!b) return;
+    if (e.target.closest('[data-df-clear]')) { NT.date = null; return render(); }
+    const marks = new Map();
+    for (const n of NT.list) { const k = DateFilter.keyOf(new Date(n.ts)); marks.set(k, (marks.get(k) || 0) + 1); }
+    DateFilter.open(b, { value: NT.date, marks, onChange: (v) => { NT.date = v; render(); } });
+  });
+  $('#ntPer').addEventListener('change', (e) => {
+    NT.per = Number(e.target.value) || 0;
+    try { localStorage.setItem('ntPer', String(NT.per)); } catch {}
+    render();
+  });
+  $('#ntList').addEventListener('click', (e) => {
+    if (e.target.closest('[data-nt-anydate]')) { NT.date = null; return render(); }
+    const pg = e.target.closest('[data-nt-page]');
+    if (pg) {
+      NT.page += Number(pg.dataset.ntPage);
+      render();
+      // back to the top of the list, under the pinned header
+      const top = $('#ntList').getBoundingClientRect().top + scrollY - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stick-top')) || 0) - ($('#tab-notifications > .section-head')?.offsetHeight || 0) - 12;
+      scrollTo({ top: Math.max(0, top), behavior: Motion.reduce() ? 'auto' : 'smooth' });
+      return;
+    }
+  });
   $('#ntList').addEventListener('click', (e) => {
     const item = e.target.closest('.nt-item');
     if (!item) return;

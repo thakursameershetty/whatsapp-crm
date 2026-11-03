@@ -37,6 +37,11 @@ How tasks work here:
 - After you call propose_campaign or ask_user, stop and wait for the person.
 - For other tasks (editing templates, adding numbers, changing settings, deleting or stopping campaigns, replying in the inbox), explain the exact steps for them to do it in the app.
 
+Lead-assistant playbooks: the Inbox lead assistant answers people who write in using a playbook: one setup (name, when to use it, facts about the business or offer, what makes a qualified lead, the next step to offer, tone, whether it drafts and whether it replies on its own) used by chosen numbers. When the person asks you to create one ("make a playbook for Sales line 1 about our Diwali offer"):
+- Call list_senders (and list_playbooks to avoid duplicates). If they didn't say which number(s) it's for, ask with ask_user, offering the real number labels and "All numbers". Use the real sender IDs.
+- Write the playbook from what they told you: a short name, a one-line "when to use it", and the business facts in their words. Never invent prices, offers, links or promises; leave a field empty or ask if they matter. Draft automatically: on unless they say otherwise. Reply on its own: off unless they ask for it.
+- Then call propose_playbook. It shows a card with an Add button; nothing is saved until they click it. After calling it, stop and wait.
+
 Never guess:
 - Every template, sender number, file column and value you use must come from a tool result in this conversation. Do not invent IDs, names, columns or numbers.
 - Before proposing a campaign, call inspect_file on the file, list_templates and list_senders.
@@ -269,6 +274,33 @@ const TOOLS = [
     },
   },
   {
+    name: 'list_playbooks',
+    description: "List the Inbox lead assistant's playbooks: name, when to use it, which numbers use it, whether it drafts and replies on its own, plus the workspace's two switches.",
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'propose_playbook',
+    description: 'Show the person a new lead-assistant playbook as a card with an Add button. Nothing is saved until they click Add. Only call it once you know which number(s) it is for (from list_senders) and have the facts from the person.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Short name, e.g. "Diwali offer"' },
+        when: { type: 'string', description: 'One line: which chats it is for, so the AI can pick it when a number has several' },
+        business: { type: 'string', description: 'The facts it may use (offer, prices, timings, links), in the person\'s words. Nothing invented.' },
+        qualified: { type: 'string', description: 'What makes a qualified lead (optional)' },
+        next_step: { type: 'string', description: 'What to offer once they qualify, e.g. a call or booking link (optional)' },
+        tone: { type: 'string', description: 'Optional tone, e.g. "friendly and short"' },
+        draft: { type: 'boolean', description: 'Draft a reply automatically when someone writes. Default true.' },
+        auto: { type: 'boolean', description: 'Reply on its own without approval. Only if the person asked. Default false.' },
+        all_numbers: { type: 'boolean', description: 'Every number uses it' },
+        sender_ids: { type: 'array', items: { type: 'string' }, description: 'Sender IDs from list_senders that use it (when not all numbers)' },
+        default_for: { type: 'array', items: { type: 'string' }, description: 'Sender IDs whose default playbook it should become (optional)' },
+        template_ids: { type: 'array', items: { type: 'string' }, description: 'Template IDs (from list_templates) whose campaign replies should use it (optional)' },
+      },
+      required: ['name', 'business'],
+    },
+  },
+  {
     name: 'propose_campaign',
     description: "Build a campaign plan from an attached file and show it to the person for approval. Nothing is sent until they approve. The server checks everything (template usable, numbers valid, every variable mapped, columns exist) and returns problems to fix if any. Only call this once you have inspected the file and listed templates and senders.",
     input_schema: {
@@ -333,7 +365,7 @@ const TOOLS = [
   },
 ];
 
-const PAUSING = new Set(['ask_user', 'propose_campaign']);
+const PAUSING = new Set(['ask_user', 'propose_campaign', 'propose_playbook']);
 
 const STEP_LABELS = {
   list_templates: ['searching', 'Checking your templates'],
@@ -346,6 +378,8 @@ const STEP_LABELS = {
   peek_rows: ['searching', 'Reading more rows'],
   build_sheet: ['weaving', 'Building the clean sheet'], // strands plaited into one
   propose_campaign: ['shaping', 'Checking the plan'],   // an outline taking its form
+  list_playbooks: ['searching', 'Checking your playbooks'],
+  propose_playbook: ['composing', 'Writing the playbook'],
 };
 
 // --- Model providers -------------------------------------------------------
@@ -1079,6 +1113,15 @@ module.exports = function mountAi(app, ctx) {
     switch (name) {
       case 'list_templates':
         return { templates: db.templates.map(templateInfo) };
+      case 'list_playbooks': {
+        const { normalizeLead } = require('./lead'); // (loaded here: lead.js loads this file)
+        const cfg = normalizeLead(db.settings.leadAgent || {});
+        const label = (sid) => db.senders.find((x) => x.id === sid)?.label || sid;
+        return {
+          draft_replies_automatically: cfg.on, send_replies_automatically: cfg.on && cfg.autoOn,
+          playbooks: cfg.playbooks.map((p) => ({ id: p.id, name: p.name, when: p.when, drafts: p.draft, replies_on_its_own: p.auto, numbers: p.allNumbers ? 'all numbers' : (p.numbers || []).map(label), default_for: Object.entries(cfg.defaults).filter(([, v]) => v === p.id).map(([k]) => label(k)), templates: (p.templates || []).map((t) => db.templates.find((x) => x.id === t)?.name).filter(Boolean) })),
+        };
+      }
       case 'list_senders': {
         const today = sentTodayBySender();
         return { mode: db.settings.demoMode ? 'demo (sends are simulated)' : 'live', senders: db.senders.map((s) => senderInfo(s, today)) };
@@ -1216,6 +1259,13 @@ module.exports = function mountAi(app, ctx) {
       const answer = String(body.answer ?? body.text ?? '').trim();
       content = answer ? `The person answered: ${answer}` : 'The person did not answer and moved on; see their message.';
       consumedText = body.answer == null && Boolean(answer);
+    } else if (p.kind === 'playbook') {
+      const pb = pbProps.get(p.propId);
+      if (pb?.status === 'added' || pb?.status === 'declined') content = pb.resultNote;
+      else {
+        if (pb) { pb.status = 'superseded'; syncPb(pb); }
+        content = 'The person did not add this playbook and replied instead (see their message). Nothing was saved.';
+      }
     } else {
       const plan = plans.get(p.planId);
       if (plan?.status === 'approved') content = plan.resultNote;
@@ -1327,6 +1377,20 @@ module.exports = function mountAi(app, ctx) {
         const stepId = 'tool-' + u.id;
         const fileName = u.name === 'inspect_file' ? session.files.get(input.file_id)?.name : null;
         emit({ type: 'step', id: stepId, state, label: fileName ? `Reading ${fileName}` : label, status: 'running' });
+        if (u.name === 'propose_playbook') {
+          const { problems, playbook } = buildPlaybook(input);
+          if (problems) {
+            emit({ type: 'step', id: stepId, status: 'done', detail: 'needs more' });
+            result(u, JSON.stringify({ problems }), true);
+            continue;
+          }
+          Object.assign(playbook, { id: id(), sessionId: session.id, status: 'pending', createdAt: new Date().toISOString() });
+          pbProps.set(playbook.id, playbook);
+          emit({ type: 'step', id: stepId, status: 'done', detail: playbook.name });
+          pause = { kind: 'playbook', toolUseId: u.id, toolName: u.name, propId: playbook.id };
+          emit({ type: 'playbook', playbook: publicPb(playbook) });
+          continue;
+        }
         if (u.name === 'propose_campaign') {
           const { problems, plan } = buildPlan(session, input);
           if (problems) {
@@ -1436,6 +1500,69 @@ module.exports = function mountAi(app, ctx) {
     }
     return c;
   }
+  // --- Playbooks proposed by the assistant (added from their card) ---
+  const pbProps = new Map();
+  function buildPlaybook(input) {
+    const problems = [];
+    const str = (v, n) => String(v ?? '').trim().slice(0, n);
+    const name = str(input.name, 60), business = str(input.business, 20000);
+    if (!name) problems.push('Give the playbook a short name.');
+    if (!business) problems.push('Write what it may say about the business or offer, from what the person told you. Ask them if you don\'t know.');
+    const all = Boolean(input.all_numbers);
+    const senderIds = [...new Set((input.sender_ids || []).map(String))];
+    const unknown = senderIds.filter((x) => !db.senders.some((s) => s.id === x));
+    if (unknown.length) problems.push(`Unknown sender IDs: ${unknown.join(', ')}. Use IDs from list_senders.`);
+    if (!all && !senderIds.length) problems.push('Say which number(s) use it: ask the person (offer the number labels from list_senders and "All numbers"), then pass sender_ids or all_numbers.');
+    const templateIds = [...new Set((input.template_ids || []).map(String))].filter((x) => db.templates.some((t) => t.id === x));
+    const defaultFor = [...new Set((input.default_for || []).map(String))].filter((x) => all || senderIds.includes(x));
+    if (problems.length) return { problems };
+    const draft = input.draft !== false;
+    return { playbook: { name, when: str(input.when, 300), business, qualified: str(input.qualified, 4000), nextStep: str(input.next_step, 1000), tone: str(input.tone, 300), draft, auto: draft && Boolean(input.auto), allNumbers: all, numbers: all ? [] : senderIds, templates: templateIds, defaultFor } };
+  }
+  const publicPb = (p) => ({
+    id: p.id, status: p.status, name: p.name, when: p.when, business: p.business, qualified: p.qualified, nextStep: p.nextStep, tone: p.tone, draft: p.draft, auto: p.auto,
+    allNumbers: p.allNumbers, numbers: p.numbers.map((x) => ({ id: x, label: db.senders.find((s) => s.id === x)?.label || x })),
+    templates: p.templates.map((x) => db.templates.find((t) => t.id === x)?.name).filter(Boolean),
+    defaultFor: p.defaultFor.map((x) => db.senders.find((s) => s.id === x)?.label || x), savedId: p.savedId || null,
+  });
+  function syncPb(p) {
+    const c = chatById(p.sessionId);
+    const item = c?.messages.flatMap((m) => m.items || []).find((it) => it.type === 'playbook' && it.playbook.id === p.id);
+    if (item) { item.playbook = publicPb(p); save(); }
+  }
+  const findPb = (pid) => {
+    const p = pbProps.get(pid);
+    if (!p || sessions.get(p.sessionId)?.ws !== wsId()) throw fail('This suggestion has expired. Ask the assistant again.', 410);
+    return p;
+  };
+  // Add: saved like one made in Settings (same checks), after the others; it becomes the default where asked.
+  app.post('/api/ai/playbooks/:id/add', wrap((req, res) => {
+    if (!(req.admin || (req.ai && req.role === 'owner'))) throw fail('Only the workspace owner can add playbooks', 403);
+    const p = findPb(req.params.id);
+    if (p.status !== 'pending') throw fail(`This playbook was already ${p.status}`);
+    const { normalizeLead, sanitizeLead } = require('./lead');
+    const cfg = normalizeLead(db.settings.leadAgent || {});
+    const newId = id();
+    const playbooks = [...cfg.playbooks, { id: newId, name: p.name, when: p.when, business: p.business, qualified: p.qualified, nextStep: p.nextStep, tone: p.tone, draft: p.draft, auto: p.auto, allNumbers: p.allNumbers, numbers: p.numbers, templates: p.templates }];
+    const defaults = { ...cfg.defaults };
+    for (const sid of p.defaultFor) defaults[sid] = newId;
+    db.settings.leadAgent = sanitizeLead({ ...cfg, playbooks, defaults }, { senderIds: db.senders.map((x) => x.id), templateIds: db.templates.map((t) => t.id), newId: id });
+    p.status = 'added';
+    p.savedId = newId;
+    p.resultNote = `The person added the playbook "${p.name}". It is saved and in use${cfg.on ? '' : ', but automatic drafts are switched off for the workspace (Settings → Lead assistant)'}.`;
+    syncPb(p);
+    save();
+    res.json({ playbook: publicPb(p) });
+  }));
+  app.post('/api/ai/playbooks/:id/decline', wrap((req, res) => {
+    const p = findPb(req.params.id);
+    if (p.status !== 'pending') throw fail(`This playbook was already ${p.status}`);
+    p.status = 'declined';
+    p.resultNote = 'The person chose not to add this playbook. Nothing was saved.';
+    syncPb(p);
+    res.json({ playbook: publicPb(p) });
+  }));
+
   // Keep a saved plan card in step with the live plan (approved, declined, edited…).
   function syncPlan(p) {
     const c = chatById(p.sessionId);
@@ -1464,7 +1591,8 @@ module.exports = function mountAi(app, ctx) {
     const c = chatById(req.params.id);
     if (!c) throw fail('Chat not found', 404);
     // Plans still waiting for approval can only be approved while they're in memory.
-    const messages = c.messages.map((m) => (m.items ? { ...m, items: m.items.map((it) => (it.type === 'plan' && it.plan.status === 'pending' && !plans.has(it.plan.id) ? { ...it, plan: { ...it.plan, status: 'expired' } } : it)) } : m));
+    const messages = c.messages.map((m) => (m.items ? { ...m, items: m.items.map((it) => (it.type === 'plan' && it.plan.status === 'pending' && !plans.has(it.plan.id) ? { ...it, plan: { ...it.plan, status: 'expired' } }
+      : it.type === 'playbook' && it.playbook.status === 'pending' && !pbProps.has(it.playbook.id) ? { ...it, playbook: { ...it.playbook, status: 'expired' } } : it)) } : m));
     res.json({ id: c.id, title: c.title, messages, continuable: c.continuable !== false, provider: c.provider });
   }));
 
@@ -1587,6 +1715,7 @@ module.exports = function mountAi(app, ctx) {
       if (ev.type === 'text' || ev.type === 'error') reply.items.push({ type: ev.type, text: ev.text ?? ev.error });
       else if (ev.type === 'question') reply.items.push({ type: 'question', id: ev.id, question: ev.question, options: ev.options });
       else if (ev.type === 'plan') reply.items.push({ type: 'plan', plan: ev.plan });
+      else if (ev.type === 'playbook') reply.items.push({ type: 'playbook', playbook: ev.playbook });
       else if (ev.type === 'stats') reply.items.push({ type: 'stats', stats: ev.stats });
       else if (ev.type === 'sheet') reply.items.push({ type: 'sheet', sheet: ev.sheet });
     };

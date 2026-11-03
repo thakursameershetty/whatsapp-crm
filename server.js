@@ -7,6 +7,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { normalizeLead, sanitizeLead } = require('./lead'); // the lead assistant's playbooks (lead.js)
 
 const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
@@ -625,7 +626,11 @@ function aiConfig() {
   return { provider, key: keys[provider], keys, geminiModel: db.settings.geminiModel || DEFAULT_GEMINI_MODEL, platform: !own[provider] && Boolean(keys[provider]) };
 }
 function publicSettings(req) {
-  const { anthropicApiKey, geminiApiKey, leadAgent, aiProvider, geminiModel, ...rest } = db.settings;
+  const { anthropicApiKey, geminiApiKey, leadAgent: rawLead, aiProvider, geminiModel, ...rest } = db.settings;
+  // always as playbooks (a workspace from before them shows its one setup as "Default")
+  const leadAgent = { ...(rawLead || {}), ...normalizeLead(rawLead || {}) };
+  leadAgent.enabled = leadAgent.on && leadAgent.playbooks.some((p) => p.draft);
+  leadAgent.autoReply = leadAgent.on && leadAgent.autoOn && leadAgent.playbooks.some((p) => p.auto);
   if (!req.ai) return { ...rest, demoAllowed: tenants.demoAllowed() }; // no AI for this person
   const ai = aiConfig();
   // Members with AI use it, but don't see the keys.
@@ -633,6 +638,7 @@ function publicSettings(req) {
   return {
     ...rest,
     leadAgent,
+    aiManage: true,
     demoAllowed: tenants.demoAllowed(),
     aiProvider: ai.provider,
     geminiModel: ai.geminiModel,
@@ -713,14 +719,9 @@ function saveAiSettings(body) {
   if (body.removeAnthropicApiKey) delete db.settings.anthropicApiKey;
   if (typeof body.geminiApiKey === 'string' && body.geminiApiKey.trim()) db.settings.geminiApiKey = body.geminiApiKey.trim();
   if (body.removeGeminiApiKey) delete db.settings.geminiApiKey;
-  if (body.leadAgent && typeof body.leadAgent === 'object') {
-    const l = body.leadAgent;
-    db.settings.leadAgent = {
-      enabled: Boolean(l.enabled),
-      autoReply: Boolean(l.enabled && l.autoReply),
-      business: String(l.business ?? db.settings.leadAgent?.business ?? '').slice(0, 20000),
-      qualified: String(l.qualified ?? db.settings.leadAgent?.qualified ?? '').slice(0, 4000),
-    };
+  // The lead assistant's playbooks (lead.js): which numbers use each one, each number's default, linked templates.
+  if (body.leadAgent && typeof body.leadAgent === 'object' && Array.isArray(body.leadAgent.playbooks)) {
+    db.settings.leadAgent = sanitizeLead(body.leadAgent, { senderIds: db.senders.map((x) => x.id), templateIds: db.templates.map((t) => t.id), newId: id });
   }
   if (AI_PROVIDERS.includes(body.aiProvider)) db.settings.aiProvider = body.aiProvider;
   if (typeof body.geminiModel === 'string') {

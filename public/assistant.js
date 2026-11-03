@@ -721,6 +721,13 @@
         follow(el, stick); // again, now that the card has its full height
         break;
       }
+      case 'playbook': {
+        const stick = nearBottom();
+        const el = turn.add('<div class="pbc"></div>');
+        renderPb(el, ev.playbook);
+        follow(el, stick);
+        break;
+      }
       case 'stats': turn.add(statsHtml(ev.stats)); Motion.values(turn.el); break;
       case 'sheet': supersede(ev.sheet.replaces); turn.add(sheetHtml(ev.sheet)); break;
       case 'error': turn.add(`<div class="ai-note warn">${icon('badge-alert', 16)}<div>${esc(ev.error)}</div></div>`); break;
@@ -896,6 +903,47 @@
 
   const tplById = (tid) => state.templates.find((t) => t.id === tid);
   const fileByServerId = (fid) => [...AS.files.values()].find((f) => f.fileId === fid);
+
+  // --- Playbook card (propose_playbook): the playbook as it will be saved, in its own book colour; Add saves it ---
+  const PB_STATUS = { added: 'Added to your playbooks', declined: 'Not added', superseded: 'Not added (you replied instead)', expired: 'Expired: ask the assistant again' };
+  function renderPb(el, p) {
+    el._pb = p;
+    const book = window.pbBook ? pbBook({ id: p.savedId || '__ai_' + p.id }) : '';
+    const nums = p.allNumbers ? 'All numbers' : p.numbers.map((n) => n.label).join(', ');
+    const [mode, cls] = !p.draft ? ['Drafts when asked', 'muted'] : p.auto ? ['Replies on its own', 'good'] : ['Drafts replies', 'info'];
+    const row = (k, v, cls2 = '') => (v ? `<dt>${k}</dt><dd class="${cls2}">${esc(v)}</dd>` : '');
+    const canAdd = Boolean(state.settings.aiManage);
+    el.innerHTML = `
+      <div class="pbc-head">${book}<div class="pbc-title"><span class="pbc-kicker">New playbook</span><b>${esc(p.name)}</b>${p.when ? `<span>${esc(p.when)}</span>` : ''}</div><span class="pb-mode ${cls}">${mode}</span></div>
+      <dl class="pbc-kv">
+        ${row('Numbers', nums + (p.defaultFor.length ? ` · default for ${p.defaultFor.join(', ')}` : ''))}
+        ${row('Answers', p.templates.length ? `Replies to ${p.templates.join(', ')}` : '')}
+        ${row('About', p.business, 'pbc-biz')}
+        ${row('Qualified lead', p.qualified)}
+        ${row('Next step', p.nextStep)}
+        ${row('Tone', p.tone)}
+      </dl>
+      <div class="pbc-acts">${p.status === 'pending'
+        ? (canAdd ? `<button type="button" class="btn quiet" data-pbc="decline">Not now</button><button type="button" class="btn primary" data-pbc="add">${icon('plus', 15)}Add playbook</button>` : '<span class="pbc-status">Ask the workspace owner to add it.</span>')
+        : `<span class="pbc-status ${esc(p.status)}">${p.status === 'added' ? icon('circle-check', 15) : ''}${esc(PB_STATUS[p.status] || p.status)}</span>${p.status === 'added' && window.playbookManager ? '<button type="button" class="btn sm" data-pbc="open">Open in playbooks</button>' : ''}`}</div>`;
+    LA.hydrate(el);
+  }
+  $('#tab-assistant').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pbc]');
+    const card = b?.closest('.pbc');
+    if (!card?._pb) return;
+    const p = card._pb;
+    if (b.dataset.pbc === 'open') return playbookManager(p.savedId);
+    guard(async () => {
+      const r = await api(`/ai/playbooks/${p.id}/${b.dataset.pbc === 'add' ? 'add' : 'decline'}`, { method: 'POST' });
+      renderPb(card, r.playbook);
+      if (b.dataset.pbc === 'add') {
+        state.settings = await api('/settings'); // it shows in Settings, on its numbers and in the Inbox straight away
+        window.renderSettings?.();
+        toast(`“${r.playbook.name}” added to your playbooks`);
+      }
+    }, b);
+  });
 
   function renderPlan(el, p) {
     for (const o of el._orbs || []) o.destroy();
@@ -1432,6 +1480,7 @@
         else if (it.type === 'stats') { add(statsHtml(it.stats)); Motion.values(el); }
         else if (it.type === 'sheet') { supersede(it.sheet.replaces); add(sheetHtml(it.sheet)); }
         else if (it.type === 'plan') { const pel = add('<div class="plan-card"></div>'); AS.openPlans.set(it.plan.id, { el: pel, plan: it.plan }); renderPlan(pel, it.plan); }
+        else if (it.type === 'playbook') renderPb(add('<div class="pbc"></div>'), it.playbook);
         else if (it.type === 'question') {
           const qel = add(questionHtml(it));
           const next = msgs[i + 1];

@@ -583,7 +583,8 @@
     hx.innerHTML = t ? `
       ${ct?.optOut ? '<span class="pill failed">Opted out</span>' : leadPill(ct)}
       ${ct ? ct.tags.map(tagOf).filter(Boolean).slice(0, 3).map((x) => `<span class="tag-chip tag-${esc(x.color)}" title="${esc(x.name)}">${esc(x.name)}</span>`).join('') : ''}
-      ${ai ? `<label class="ib-ai-switch ${ai.on ? 'on' : ''}" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Switch off to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Switch off to stop for this chat.' : ai.off ? 'AI is off for this chat. Switch on to let it help.' : 'Turn on the lead assistant in Settings to draft replies automatically.'}"><span class="ibx-l">${state.settings.leadAgent?.autoReply ? 'AI auto-reply' : 'AI drafts'}</span>${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm', knob: '<svg class="orb-icon" data-orb-icon="14"></svg>' })}</label>` : ''}` : '';
+      ${ai?.playbook ? pbChip(ai) : ''}
+      ${ai ? `<label class="ib-ai-switch ${ai.on ? 'on' : ''}" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Switch off to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Switch off to stop for this chat.' : ai.off ? 'AI is off for this chat. Switch on to let it help.' : ai.master === false ? 'The lead assistant is off for the whole workspace (Settings → Lead assistant).' : 'This chat’s playbook only drafts when you ask. Turn on “Draft automatically” for it in Settings → Lead assistant.'}"><span class="ibx-l">${ai.playbook?.auto ? 'AI auto-reply' : 'AI drafts'}</span>${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm', knob: '<svg class="orb-icon" data-orb-icon="14"></svg>' })}</label>` : ''}` : '';
     Orb.hydrate(hx);
     // This chat's own notes (the server keeps them per chat: the same person may talk to several of our numbers).
     const lead = t?.chatLead || {};
@@ -646,7 +647,7 @@
       </div>` : ''}
       ${ai ? `<label class="ibs-ai">
         <svg class="orb-icon" data-orb-icon="18"></svg>
-        <span><b>${state.settings.leadAgent?.autoReply ? 'AI auto-reply' : 'AI drafts'}</b><small>${ai.auto ? 'Replies on its own when they write, within the guardrails.' : ai.on ? 'Drafts a reply when they write, for you to send.' : 'Off for this chat.'}</small></span>
+        <span><b>${ai.playbook?.auto ? 'AI auto-reply' : 'AI drafts'}</b><small>${ai.auto ? 'Replies on its own when they write, within the guardrails.' : ai.on ? 'Drafts a reply when they write, for you to send.' : ai.off ? 'Off for this chat.' : 'Drafts only when you ask (this playbook doesn’t draft on its own).'}</small></span>
         ${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm' })}
       </label>` : ''}
       <button class="btn ibs-contact" data-profile>${icon('user', 15)}Profile and other chats</button>
@@ -855,12 +856,41 @@
       if (act === 'dismiss') setAi(await api(`/inbox/${enc(key)}/draft`, { method: 'DELETE' }));
       if (act === 'clear-handover') setAi(await api(`/inbox/${enc(key)}/ai`, { method: 'POST', body: { clearHandover: true } }));
       if (act === 'toggle') {
-        if (!state.settings.leadAgent?.enabled) { showTab('settings'); return toast('Turn on the lead assistant under Settings → Lead assistant'); }
+        if (!ib.thread.ai.on && ib.thread.ai.master === false) { showTab('settings'); return toast('The lead assistant is off for the whole workspace. Turn it on under Settings → Lead assistant'); }
+        if (!ib.thread.ai.on && !ib.thread.ai.playbook?.draft) { showTab('settings'); return toast(ib.thread.ai.playbook ? `Turn on “Draft automatically” for the “${ib.thread.ai.playbook.name}” playbook under Settings → Lead assistant` : 'Give this number a playbook under Settings → Lead assistant'); }
         setAi(await api(`/inbox/${enc(key)}/ai`, { method: 'POST', body: { off: ib.thread.ai.on } }));
       }
       loadList().catch(() => {});
     }, b).catch(() => {});
     if ((act === 'regen' || act === 'reply') && ib.thread?.ai?.busy) { ib.thread.ai.busy = false; renderAi(); }
+  });
+
+  // The playbook answering this chat: a chip in the header; click to pick another for this chat, or let it choose.
+  const PB_WHY = {
+    manual: () => 'You chose it for this chat',
+    campaign: (w) => `They replied to the campaign${w ? ` “${w}”` : ''}`,
+    ai: (w) => `The AI chose it${w ? `: ${w}` : ''}`,
+    default: () => 'This number’s default playbook',
+    only: () => 'The only playbook this number uses',
+    pending: () => 'The AI picks one when they write; until then, the number’s default',
+  };
+  function pbChip(ai) {
+    const p = ai.playbook;
+    const why = (PB_WHY[p.by] || PB_WHY.default)(p.why);
+    return `<button type="button" class="ib-pb" data-pb aria-haspopup="menu" title="Playbook: ${esc(p.name)}. ${esc(why)}.${ai.playbooks?.length > 1 ? ' Click to change.' : ''}">${window.pbBook ? pbBook(p, 'sm') : icon('layers', 13)}<span>${esc(p.name)}</span>${ai.playbooks?.length > 1 ? icon('chevron-down', 12) : ''}</button>`;
+  }
+  $('#ibChat').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pb]');
+    const ai = ib.thread?.ai;
+    if (!b || !ai?.playbooks || ai.playbooks.length < 2) return;
+    const key = ib.key, r = b.getBoundingClientRect();
+    const set = (id) => guard(async () => { const x = await api(`/inbox/${enc(key)}/playbook`, { method: 'POST', body: { id } }); if (ib.key === key && ib.thread) { ib.thread.ai = x; renderAi(); renderLead(); } toast(id ? `This chat now uses “${ai.playbooks.find((p) => p.id === id)?.name}”` : 'The playbook is chosen automatically again'); }, b).catch(() => {});
+    const manual = ai.playbook?.by === 'manual';
+    Sheet.Menu.open(r.left, r.bottom + 6, [
+      ...ai.playbooks.map((p) => ({ label: p.name, checked: ai.playbook?.id === p.id, kbd: manual && ai.playbook?.id === p.id ? 'chosen' : '', action: () => set(p.id) })),
+      '-',
+      { label: 'Choose automatically', checked: false, disabled: !manual, action: () => set(null) },
+    ]);
   });
 
   function emptyPane() {
@@ -1015,10 +1045,12 @@
   $('#ibChat').addEventListener('change', async (e) => {
     const cb = e.target.closest('[data-ai-switch]');
     if (!cb) return;
-    if (!state.settings.leadAgent?.enabled) {
+    const pbx = ib.thread?.ai?.playbook;
+    if (cb.checked && ib.thread?.ai?.master === false) { cb.checked = false; showTab('settings'); return toast('The lead assistant is off for the whole workspace. Turn it on under Settings → Lead assistant'); }
+    if (cb.checked && !pbx?.draft) {
       cb.checked = false;
       showTab('settings');
-      return toast('Turn on the lead assistant under Settings → Lead assistant');
+      return toast(pbx ? `Turn on “Draft automatically” for the “${pbx.name}” playbook under Settings → Lead assistant` : 'Give this number a playbook under Settings → Lead assistant');
     }
     const key = ib.key;
     cb.disabled = true;

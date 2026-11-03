@@ -329,7 +329,9 @@
           <p class="sub" id="ntSub">Campaigns, deliveries, messages and the AI assistant, in one place.</p>
         </div>
         <div class="in-head nt-bar">
-        <div class="seg" id="ntFilter" role="tablist" aria-label="Show"></div>
+        <select id="ntFilter" aria-label="Show" title="Which notifications"></select>
+        <span id="ntDateWrap"></span>
+        <select id="ntPer" aria-label="Notifications per page" title="How many notifications a page shows"></select>
       </div>
         <div class="row tight">
           <button class="btn quiet" id="ntReadAll" data-icon="check-check">Mark all as read</button>
@@ -774,45 +776,18 @@
         </div>
 
         <div class="card span-2 la-host lead-settings">
-          <h2><svg class="orb-icon" data-orb-icon="16" aria-hidden="true"></svg>Lead assistant (Inbox)</h2>
-          <div class="ai-set-grid">
-            <div>
-              <p class="sub">When someone writes to you, the AI drafts a reply that helps them and moves them toward
-                becoming a
-                lead. It saves what it learns (need, budget, timeline, status) to their contact, and flags the chat
-                when a person should take over. <strong>Every reply is a draft</strong>: you send or edit it in the
-                Inbox.
-                It uses the AI provider chosen above.</p>
-              <div class="setting-row lead-toggle">
-                <div>
-                  <div class="setting-title">Draft replies automatically</div>
-                  <div class="sub">When off, you can still ask for a draft in any chat.</div>
-                </div>
-                <label class="toggle"><input type="checkbox" id="laEnabled" /><span class="track"><span
-                      class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></label>
-              </div>
-              <div class="setting-row" id="laAutoRow">
-                <div>
-                  <div class="setting-title">Send replies automatically <span class="pill scheduled">Beta</span></div>
-                  <div class="sub">The AI answers on its own, with no one approving. It still waits for you when a person is needed,
-                    when someone on your team replied in the last 30 minutes, after an opt-out, and after 5 auto-replies in an hour.
-                    Only inside WhatsApp's 24-hour window.</div>
-                </div>
-                <label class="toggle"><input type="checkbox" id="laAuto" /><span class="track"><span
-                      class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></label>
-              </div>
-            </div>
-            <div>
-              <label>About your business <span class="opt">the only facts it will use</span>
-                <textarea id="laBusiness" rows="9"
-                  placeholder="What you offer, prices, timings, FAQs, links (e.g. a booking link), and the tone to use.&#10;&#10;Example:&#10;Spotmies builds websites and apps for small businesses.&#10;Websites from ₹25,000 (2–3 weeks). Apps from ₹1.5 lakh.&#10;Free 20-minute call: https://cal.com/your-link&#10;Mon–Sat, 10am–7pm IST. Friendly, short replies."></textarea></label>
-              <label>What makes a qualified lead
-                <textarea id="laQualified" rows="3"
-                  placeholder="e.g. Needs a website or app, and has a budget over ₹20,000 or wants it within 2 months."></textarea></label>
-              <div class="card-actions"><button class="btn primary" id="laSave" data-icon="circle-check">Save</button>
-              </div>
-            </div>
+          <div class="la-head">
+            <h2><svg class="orb-icon" data-orb-icon="16" aria-hidden="true"></svg>Lead assistant (Inbox)</h2>
+            <div class="la-head-acts"><button type="button" class="btn sm" id="pbAllBtn" title="See and customise every playbook in one place" onclick="playbookManager()">All playbooks</button></div>
           </div>
+          <p class="sub la-intro" id="laIntro">Drafts replies in the Inbox that help people and move them toward becoming a lead, saves what it learns, and flags chats a person should take over.
+            Each <strong>playbook</strong> is one setup for it; numbers use the playbooks you give them.
+            <span class="la-how" tabindex="0" title="When a number has several playbooks, a chat uses the one you picked in that chat, else the one linked to the campaign they replied to, else the one the AI finds fits best, else the number’s default.">How a chat gets its playbook</span></p>
+          <div class="la-switches">
+            <label class="la-sw"><span><b>Draft replies automatically</b><small>When someone writes, a draft is ready, using their chat’s playbook. Off: nothing drafts on its own for any number; you can still ask for a draft in a chat.</small></span><span class="toggle"><input type="checkbox" id="laMaster" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label>
+            <label class="la-sw" id="laAutoRow"><span><b>Send replies automatically <span class="pill scheduled">Beta</span></b><small>Playbooks set to reply on their own send without anyone approving, within the guardrails: they wait when a person is needed, after an opt-out, when your team is active, and after 5 an hour. Off: they only draft.</small></span><span class="toggle"><input type="checkbox" id="laAutoAll" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label>
+          </div>
+          <div class="pb-list" id="pbList"></div>
         </div>
 
         <div class="card span-2 la-host">

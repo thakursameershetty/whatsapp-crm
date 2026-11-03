@@ -485,13 +485,7 @@ function renderSettings() {
   $('#webhookUrl').value = location.origin + '/webhook';
   renderWebhookStatus();
   renderAiSettings();
-  const la = s.leadAgent || {};
-  $('#laEnabled').checked = Boolean(la.enabled);
-  $('#laAuto').checked = Boolean(la.autoReply);
-  $('#laAuto').disabled = !la.enabled;
-  $('#laAutoRow').classList.toggle('dim', !la.enabled);
-  if (document.activeElement !== $('#laBusiness')) $('#laBusiness').value = la.business || '';
-  if (document.activeElement !== $('#laQualified')) $('#laQualified').value = la.qualified || '';
+  renderPlaybooks();
   renderMode();
 }
 
@@ -606,26 +600,225 @@ $('#setDemo').addEventListener('change', () =>
   })
 );
 
-// Inbox lead assistant: on/off, what it knows about the business, what counts as qualified.
-async function saveLeadAgent(note) {
-  state.settings = await api('/settings', { method: 'PUT', body: { leadAgent: { enabled: $('#laEnabled').checked, autoReply: $('#laAuto').checked, business: $('#laBusiness').value, qualified: $('#laQualified').value } } });
+// --- Lead assistant playbooks ------------------------------------------------------------------------------------
+// Each playbook is one setup for the Inbox lead assistant (lead.js): what it may say, what makes a qualified lead, the
+// next step, the tone, whether it drafts and/or sends on its own, which numbers use it and which campaign templates it
+// answers. Edited in Settings; each number's list and default are also set from its card on the Numbers page.
+const leadCfg = () => ({ playbooks: [], defaults: {}, ...(state.settings.leadAgent || {}) });
+const pbUses = (p, sid) => p.allNumbers || (p.numbers || []).includes(sid);
+// The playbook a number falls back to: its chosen default, else the first one it uses.
+const pbDefault = (sid, cfg = leadCfg()) => { const list = cfg.playbooks.filter((p) => pbUses(p, sid)); return list.find((p) => p.id === cfg.defaults[sid]) || list[0] || null; };
+async function savePlaybooks(next, note) {
+  const cur = leadCfg();
+  state.settings = await api('/settings', { method: 'PUT', body: { leadAgent: { on: next.on ?? cur.on !== false, autoOn: next.autoOn ?? cur.autoOn !== false, playbooks: next.playbooks, defaults: next.defaults } } });
   renderSettings();
+  if (!$('#tab-numbers').classList.contains('hidden')) renderSenders();
   if (note) toast(note);
 }
-$('#laSave').addEventListener('click', (e) => guard(() => saveLeadAgent('Lead assistant saved'), e.target));
-$('#laAuto').addEventListener('change', async (e) => {
-  if (e.target.checked && !state.settings.demoMode) {
-    const ok = await confirmDialog({ title: 'Let the AI reply on its own?', message: 'Live mode: the AI will send real WhatsApp messages to your customers without anyone approving them. It holds back when a person is needed, after an opt-out, when your team is active in the chat, and after 5 auto-replies in an hour. Make sure “About your business” is filled in.', confirmText: 'Turn on auto-reply' });
-    if (!ok) { e.target.checked = false; return; }
-  }
-  guard(() => saveLeadAgent(e.target.checked ? 'Auto-reply on' : 'Auto-reply off: the AI only drafts'));
+// A playbook's book icon, drawn like the campaigns' folders: each one its own pastel, stepping round the colour wheel in
+// list order (as the folders do), so neighbours never look alike.
+const pbColor = (p) => { const list = leadCfg().playbooks, i = list.findIndex((x) => x.id === p.id); return window.folderColorAt?.((i < 0 ? list.length : i) + 3) || 'var(--muted)'; }; // a new one gets the next colour
+const pbBook = window.pbBook = (p, cls = '') => `<span class="pb-book ${cls}" style="--c:${pbColor(p)}" aria-hidden="true"><svg viewBox="0 0 36 40"><rect class="b-pages" x="8" y="4" width="25" height="33" rx="3"/><rect class="b-cover" x="4" y="3" width="25" height="33" rx="3"/><rect class="b-spine" x="4" y="3" width="6" height="33" rx="2.5"/><rect class="b-label" x="14" y="10" width="11" height="4" rx="2"/><rect class="b-label" x="14" y="17" width="7" height="2.5" rx="1.25"/></svg></span>`;
+function renderPlaybooks() {
+  const el = $('#pbList');
+  if (!el) return;
+  const cfg = leadCfg();
+  const on = cfg.on !== false, autoAll = on && cfg.autoOn !== false;
+  $('#laMaster').checked = on;
+  $('#laAutoAll').checked = autoAll;
+  $('#laAutoAll').disabled = !on;
+  $('#laAutoRow').classList.toggle('dim', !on);
+  el.classList.toggle('off', !on);
+  const label = (id) => state.senders.find((x) => x.id === id)?.label;
+  el.innerHTML = (on ? '' : `<p class="pb-offnote">${icon('bell-off', 15)}<span><b>Automatic drafts are off.</b> Nothing drafts or replies on its own for any number. You can still ask for a draft in any chat.</span></p>`)
+    + `<div class="pb-grid">${cfg.playbooks.map((p) => {
+      const nums = p.allNumbers ? 'All numbers' : (p.numbers || []).map(label).filter(Boolean).join(', ') || 'No numbers yet';
+      const tpls = (p.templates || []).length;
+      const [mode, cls] = pbMode(p, cfg);
+      return `<button type="button" class="pb-tile" data-pb-edit="${esc(p.id)}">
+        <span class="pb-tile-top">${pbBook(p)}<span class="pb-mode ${cls}">${mode}</span></span>
+        <b>${esc(p.name)}</b>
+        <span class="pb-when">${esc(p.when || (p.business ? p.business.slice(0, 160) : 'No description yet'))}</span>
+        <span class="pb-tile-meta"><span title="${esc(nums)}">${icon('phone', 13)}<i>${esc(nums)}</i></span>${tpls ? `<span title="Answers replies to ${tpls} campaign template${tpls === 1 ? '' : 's'}">${icon('file-text', 13)}<i>${tpls}</i></span>` : ''}</span>
+      </button>`;
+    }).join('')}<button type="button" class="pb-tile pb-tile-new" data-pb-new><span class="pb-new-ic">${icon('plus', 20)}</span><b>New playbook</b><span class="pb-when">For another number, offer or kind of question</span></button></div>`;
+}
+// What a playbook does now, given the workspace's two switches.
+function pbMode(p, cfg = leadCfg()) {
+  if (cfg.on === false || !p.draft) return ['Drafts when asked', 'muted'];
+  if (p.auto && cfg.autoOn === false) return ['Drafts replies · auto-send off', 'info'];
+  return p.auto ? ['Replies on its own', 'good'] : ['Drafts replies', 'info'];
+}
+$('#laAutoAll').addEventListener('change', async (e) => {
+  const on = e.target.checked;
+  if (on && !state.settings.demoMode && !(await confirmDialog({ title: 'Let the AI reply on its own?', message: AUTO_WARN, confirmText: 'Turn on auto-reply' }))) { e.target.checked = false; return; }
+  await guard(() => savePlaybooks({ ...leadCfg(), autoOn: on }, on ? 'Playbooks set to reply on their own will send' : 'Auto-send off: every playbook only drafts')).catch(() => { e.target.checked = !on; });
 });
-$('#laEnabled').addEventListener('change', () =>
-  guard(async () => {
-    if ($('#laEnabled').checked && !$('#laBusiness').value.trim()) toast('Tip: write about your business first, so drafts can answer questions', 'error');
-    await saveLeadAgent($('#laEnabled').checked ? 'The AI will draft replies to new messages. You send each one.' : 'Automatic drafts off');
-  })
-);
+// The switch for the whole workspace.
+$('#laMaster').addEventListener('change', async (e) => {
+  const on = e.target.checked;
+  await guard(() => savePlaybooks({ ...leadCfg(), on }, on ? 'Drafts on: replies are drafted as people write' : 'Automatic drafts off: nothing drafts or replies on its own')).catch(() => { e.target.checked = !on; });
+});
+$('#pbList').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-pb-edit], [data-pb-new]');
+  if (b) playbookManager(b.dataset.pbEdit || 'new');
+});
+
+const AUTO_WARN = 'Live mode: the AI will send real WhatsApp messages to your customers without anyone approving them. It holds back when a person is needed, after an opt-out, when your team is active in the chat, and after 5 auto-replies in an hour. Make sure “About the business” is filled in.';
+// The editing form for one playbook (used inside the All playbooks window).
+function pbFormHtml(p, isNew) {
+  const tpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
+  return `<div class="pbm-form-head">${pbBook(p)}<div><h3>${isNew ? 'New playbook' : esc(p.name)}</h3><p class="sub">${isNew ? 'A setup for another number, offer or kind of question.' : 'Changes apply to the next reply in every chat using it.'}</p></div></div>
+    <div class="pb-ed">
+      <div class="pb-ed-main">
+        <label>Name<input id="pbName" maxlength="60" placeholder="e.g. Website & app sales" /></label>
+        <label>When to use it <span class="opt">helps the AI pick it when a number has several</span><input id="pbWhen" maxlength="300" placeholder="e.g. People asking about building a website or an app" /></label>
+        <label>About the business or this offer <span class="opt">the only facts it will use</span><textarea id="pbBusiness" rows="9" placeholder="What you offer, prices, timings, FAQs, links.&#10;&#10;Example:&#10;Spotmies builds websites and apps for small businesses.&#10;Websites from ₹25,000 (2–3 weeks). Apps from ₹1.5 lakh.&#10;Mon–Sat, 10am–7pm IST."></textarea></label>
+        <label>What makes a qualified lead<textarea id="pbQualified" rows="3" placeholder="e.g. Needs a website or app, and has a budget over ₹20,000 or wants it within 2 months."></textarea></label>
+        <label>Next step to offer <span class="opt">when they qualify</span><input id="pbNext" maxlength="1000" placeholder="e.g. A free 20-minute call: https://cal.com/your-link" /></label>
+        <label>Tone <span class="opt">optional</span><input id="pbTone" maxlength="300" placeholder="e.g. Friendly and short. Hinglish is fine." /></label>
+      </div>
+      <div class="pb-ed-side">
+        <div class="pb-sec">
+          <label class="pb-row"><span><b>Draft automatically</b><small>A draft is ready when they write. Off: only when you ask.</small></span>${toggleHtml({ checked: p.draft, attrs: 'id="pbDraft"', size: 'sm' })}</label>
+          <label class="pb-row"><span><b>Send automatically <span class="pill scheduled">Beta</span></b><small>Replies on its own, within the guardrails (waits when a person is needed, after an opt-out, when your team is active, after 5 an hour).</small></span>${toggleHtml({ checked: p.auto, attrs: 'id="pbAuto"', size: 'sm' })}</label>
+        </div>
+        <div class="pb-sec">
+          <div class="field-label">Numbers</div>
+          <label class="pb-row"><span><b>All numbers</b><small>Every number uses it, including ones you add later.</small></span>${toggleHtml({ checked: p.allNumbers, attrs: 'id="pbAll"', size: 'sm' })}</label>
+          <div class="pb-checks" id="pbNums">${state.senders.map((x) => `<label><input type="checkbox" class="cb" value="${esc(x.id)}" ${p.numbers.includes(x.id) ? 'checked' : ''} /><span>${esc(x.label)}<small>${esc(x.displayPhone || '')}</small></span></label>`).join('') || '<p class="sub">No numbers yet.</p>'}</div>
+        </div>
+        <div class="pb-sec">
+          <div class="field-label">Campaign templates <span class="opt">replies to these use it</span></div>
+          ${tpls.length > 8 ? `<div class="search-wrap" data-icon="search" data-icon-size="14"><input class="search" id="pbTplQ" placeholder="Search templates" /></div>` : ''}
+          <div class="pb-checks pb-tpls" id="pbTpls">${tpls.map((t) => `<label data-name="${esc(t.name.toLowerCase())}"><input type="checkbox" class="cb" value="${esc(t.id)}" ${p.templates.includes(t.id) ? 'checked' : ''} /><span>${esc(t.name)}<small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}</small></span></label>`).join('') || '<p class="sub">No templates yet.</p>'}</div>
+        </div>
+      </div>
+    </div>
+    <div class="pbm-actions">${isNew ? '' : `<button class="btn quiet danger" id="pbDel">${icon('delete', 15)}Delete</button>`}<span class="pbm-dirty" id="pbDirty"></span>${isNew ? '' : '<button class="btn quiet" id="pbReset">Undo changes</button>'}<button class="btn primary" id="pbSave">${isNew ? 'Create playbook' : 'Save'}</button></div>`;
+}
+const pbBlank = (first) => ({ id: '', name: '', when: '', business: '', qualified: '', nextStep: '', tone: '', draft: true, auto: false, allNumbers: first, numbers: [], templates: [] });
+
+// All playbooks: every one listed on the left (search, book icons, what each does), the selected one's full editor on
+// the right. Opens on a playbook (or 'new'). Moving away from unsaved changes asks first.
+function playbookManager(selectId, { numberId = null } = {}) {
+  let sel = selectId;
+  let dirty = false;
+  const num = numberId && state.senders.find((x) => x.id === numberId);
+  // which number's playbooks the list shows ('' = all); opened from a number, that number
+  let numF = num ? num.id : '';
+  const body = openModal('Playbooks', `<div class="pbm">
+    <aside class="pbm-side">
+      <div class="search-wrap has-filter pbm-search" data-icon="search" data-icon-size="14"><input class="search" id="pbmQ" placeholder="Search playbooks" />${state.senders.length > 1 ? '<button type="button" class="num-filter" id="pbmNum" aria-haspopup="menu"></button>' : ''}</div>
+      <div class="pbm-list" id="pbmList"></div>
+      <button type="button" class="btn pbm-new" id="pbmNew">${icon('plus', 15)}New playbook</button>
+    </aside>
+    <section class="pbm-main" id="pbmMain"></section>
+  </div>`);
+  $('#modal .modal-box').classList.add('wide', 'pbm-box');
+  LA.hydrate(body);
+  Motion.segs?.(body);
+  const cfgNow = () => leadCfg();
+  if (sel !== 'new' && !cfgNow().playbooks.some((p) => p.id === sel)) sel = (num ? cfgNow().playbooks.find((p) => pbUses(p, num.id)) : cfgNow().playbooks[0])?.id || 'new';
+  const leave = async () => !dirty || confirmDialog({ title: 'Discard your changes?', message: 'This playbook has changes you haven’t saved.', confirmText: 'Discard', danger: true, safe: true });
+
+  function drawList() {
+    const q = ($('#pbmQ', body).value || '').trim().toLowerCase();
+    const list = cfgNow().playbooks.filter((p) => (!q || `${p.name} ${p.when}`.toLowerCase().includes(q)) && (!numF || pbUses(p, numF)));
+    const fb = $('#pbmNum', body);
+    if (fb) {
+      const n = state.senders.find((x) => x.id === numF);
+      fb.classList.toggle('on', Boolean(n));
+      fb.innerHTML = `${icon('phone', 14)}${n ? `<span class="num-filter-lbl">${esc(n.label)}</span>` : ''}`;
+      fb.title = n ? `Showing the playbooks ${n.label} uses. Click to change.` : 'Show one number’s playbooks';
+    }
+    $('#pbmList', body).innerHTML = (list.map((p) => {
+      const [mode] = pbMode(p);
+      return `<button type="button" class="pbm-item ${p.id === sel ? 'on' : ''}" data-id="${esc(p.id)}">${pbBook(p, 'md')}<span><b>${esc(p.name)}</b><small>${esc(mode)} · ${esc(p.allNumbers ? 'all numbers' : `${(p.numbers || []).length} number${(p.numbers || []).length === 1 ? '' : 's'}`)}</small></span></button>`;
+    }).join('') || `<p class="sub pbm-none">${q ? 'No playbook matches.' : 'No playbooks yet.'}</p>`)
+      + (sel === 'new' ? `<button type="button" class="pbm-item on pbm-item-new">${pbBook({ id: '__new' }, 'md')}<span><b>New playbook</b><small>Not saved yet</small></span></button>` : '');
+  }
+  function drawForm() {
+    const cfg = cfgNow();
+    const cur = cfg.playbooks.find((p) => p.id === sel);
+    const p = cur ? { ...cur } : num ? { ...pbBlank(false), numbers: [num.id] } : pbBlank(!cfg.playbooks.length);
+    const main = $('#pbmMain', body);
+    main.innerHTML = pbFormHtml(p, !cur);
+    LA.hydrate(main);
+    main.scrollTop = 0;
+    dirty = false;
+    const markDirty = () => { dirty = true; $('#pbDirty', main).textContent = 'Unsaved changes'; };
+    main.addEventListener('input', markDirty);
+    main.addEventListener('change', markDirty);
+    $('#pbName', main).value = p.name; $('#pbWhen', main).value = p.when; $('#pbBusiness', main).value = p.business;
+    $('#pbQualified', main).value = p.qualified; $('#pbNext', main).value = p.nextStep; $('#pbTone', main).value = p.tone;
+    const syncNums = () => { $('#pbNums', main).classList.toggle('dim', $('#pbAll', main).checked); $$('#pbNums input', main).forEach((c) => { c.disabled = $('#pbAll', main).checked; }); };
+    const syncAuto = () => { const on = $('#pbDraft', main).checked; $('#pbAuto', main).disabled = !on; if (!on) $('#pbAuto', main).checked = false; $('#pbAuto', main).closest('.pb-row').classList.toggle('dim', !on); };
+    syncNums(); syncAuto();
+    $('#pbAll', main).onchange = syncNums;
+    $('#pbDraft', main).onchange = syncAuto;
+    $('#pbAuto', main).onchange = async (e) => {
+      if (!e.target.checked || state.settings.demoMode) return;
+      if (!(await confirmDialog({ title: 'Let the AI reply on its own?', message: AUTO_WARN, confirmText: 'Turn on auto-reply' }))) e.target.checked = false;
+    };
+    if ($('#pbTplQ', main)) $('#pbTplQ', main).oninput = (e) => { const q = e.target.value.trim().toLowerCase(); $$('#pbTpls label', main).forEach((l) => l.classList.toggle('hidden', Boolean(q) && !l.dataset.name.includes(q))); };
+    if ($('#pbReset', main)) $('#pbReset', main).onclick = () => drawForm();
+    if (cur) $('#pbDel', main).onclick = (e) => guard(async () => {
+      if (!(await confirmDialog({ title: `Delete “${esc(cur.name)}”?`, message: 'Chats using it switch to their number’s default playbook. Numbers with no playbook left only draft when you ask.', confirmText: 'Delete', danger: true }))) return;
+      const defaults = Object.fromEntries(Object.entries(cfg.defaults).filter(([, v]) => v !== cur.id));
+      await savePlaybooks({ playbooks: cfg.playbooks.filter((x) => x.id !== cur.id), defaults }, 'Playbook deleted');
+      sel = cfgNow().playbooks[0]?.id || 'new';
+      drawList(); drawForm();
+    }, e.currentTarget);
+    $('#pbSave', main).onclick = (e) => guard(async () => {
+      const name = $('#pbName', main).value.trim();
+      if (!name) { $('#pbName', main).focus(); throw new Error('Give the playbook a name'); }
+      const all = $('#pbAll', main).checked;
+      const numbers = $$('#pbNums input:checked', main).map((c) => c.value);
+      if (!all && !numbers.length && !(await confirmDialog({ title: 'No numbers use it yet', message: 'It won’t answer any chat until a number uses it. Save anyway?', confirmText: 'Save' }))) return;
+      if ($('#pbDraft', main).checked && !$('#pbBusiness', main).value.trim()) toast('Tip: write about the business, so its drafts can answer questions', 'error');
+      const next = { ...p, name, when: $('#pbWhen', main).value.trim(), business: $('#pbBusiness', main).value, qualified: $('#pbQualified', main).value, nextStep: $('#pbNext', main).value.trim(), tone: $('#pbTone', main).value.trim(),
+        draft: $('#pbDraft', main).checked, auto: $('#pbDraft', main).checked && $('#pbAuto', main).checked, allNumbers: all, numbers: all ? [] : numbers, templates: $$('#pbTpls input:checked', main).map((c) => c.value) };
+      const before = new Set(cfg.playbooks.map((x) => x.id));
+      const playbooks = cur ? cfg.playbooks.map((x) => (x.id === cur.id ? next : x)) : [...cfg.playbooks, next];
+      await savePlaybooks({ playbooks, defaults: cfg.defaults }, cur ? 'Playbook saved' : `“${name}” created`);
+      // a new one gets its id from the server: select it
+      sel = cur ? cur.id : cfgNow().playbooks.find((x) => !before.has(x.id))?.id || cfgNow().playbooks.at(-1)?.id;
+      drawList(); drawForm();
+    }, e.currentTarget);
+    if (!cur) $('#pbName', main).focus();
+  }
+  drawList();
+  drawForm();
+  $('#pbmQ', body).oninput = drawList;
+  if ($('#pbmNum', body)) $('#pbmNum', body).onclick = (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const count = (sid) => cfgNow().playbooks.filter((p) => pbUses(p, sid)).length;
+    Sheet.Menu.open(r.left, r.bottom + 6, [
+      { label: 'All numbers', checked: !numF, kbd: String(cfgNow().playbooks.length), action: () => { numF = ''; drawList(); } },
+      '-',
+      ...state.senders.map((x) => ({ label: x.label, checked: numF === x.id, kbd: String(count(x.id)), action: () => { numF = x.id; drawList(); } })),
+    ]);
+  };
+  $('#pbmList', body).onclick = async (e) => {
+    const b = e.target.closest('.pbm-item[data-id]');
+    if (!b || b.dataset.id === sel || !(await leave())) return;
+    sel = b.dataset.id;
+    drawList(); drawForm();
+  };
+  $('#pbmNew', body).onclick = async () => { if (sel === 'new' || !(await leave())) return; sel = 'new'; drawList(); drawForm(); };
+}
+window.playbookManager = playbookManager;
+
+// What a number's card says about its playbooks.
+function numberPlaybooksHtml(sid) {
+  if (!state.settings.leadAgent) return '';
+  const cfg = leadCfg();
+  const list = cfg.playbooks.filter((p) => pbUses(p, sid));
+  const def = pbDefault(sid, cfg);
+  return `<dt>Lead assistant</dt><dd class="dd-pb">${cfg.on === false ? '<span class="muted">Off for the workspace</span>' : ''}${list.length ? list.map((p) => `<span class="pb-chip${list.length > 1 && p === def ? ' def' : ''}" title="${esc(p.when || p.name)}${list.length > 1 && p === def ? ' (default)' : ''}">${esc(p.name)}</span>`).join('') : '<span class="muted">No playbook: drafts only when asked</span>'}</dd>`;
+}
 
 // AI assistant: provider, keys and model, saved on their own so a half-typed key never rides along with other settings.
 state.aiTab = null; // provider shown in the card; starts as the active one
@@ -784,6 +977,7 @@ function renderSenders() {
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
         ${s.qualityRating ? `<dt>Quality</dt><dd class="dd-pop">${qualityTag(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
+        ${numberPlaybooksHtml(s.id)}
         ${s.lastCheckedAt ? `<dt>Connection</dt><dd class="dd-conn" title="Last checked ${esc(new Date(s.lastCheckedAt).toLocaleString())}"><span class="tag good">Connected</span><span class="tag-note">${esc(shortAgo(s.lastCheckedAt))}</span></dd>` : ''}
       </dl>
       <div class="row tight">
@@ -1167,6 +1361,7 @@ const accountLabel = (wabaId) => state.senders.filter((s) => s.wabaId === wabaId
 window.accountLabel = accountLabel;
 state.tplSender = '';
 function renderTemplates() {
+  renderPlaybooks(); // its cards count the templates each playbook answers
   const list = $('#templateList');
   // With several numbers: a "which number" filter, showing the templates each one can send.
   const nums = state.senders.filter((s) => s.wabaId);
@@ -3657,33 +3852,94 @@ const initials2 = (n) => String(n || '?').trim().split(/\s+/).map((w) => w[0]).s
 const canUseNumber = (m, id) => m.role === 'owner' || !Array.isArray(m.senders) || m.senders.includes(id);
 function numberAccessHtml(s) {
   const t = state.team;
-  const del = `<button class="btn quiet danger sm" data-del="${s.id}" style="margin-left:auto">${icon('delete', 15)}Delete</button>`;
-  if (!t || t.role !== 'owner') return del;
-  const members = t.members.filter((m) => m.role !== 'owner');
-  if (!members.length) return del;
+  // Every number has the same settings button: its lead-assistant playbooks, who can use it, deleting it.
+  const gear = `<button type="button" class="na-gear" data-num-gear="${s.id}" title="Number settings: lead assistant, ${t?.role === 'owner' ? 'who can use it, ' : ''}delete" aria-label="Number settings">${icon('settings', 16)}</button>`;
+  const members = t?.role === 'owner' ? t.members.filter((m) => m.role !== 'owner') : [];
+  if (!members.length) return `<div class="na" style="margin-left:auto">${gear}</div>`;
   const who = t.members.filter((m) => canUseNumber(m, s.id));
   // Up to 3 faces; anyone beyond that is counted in a "+N" circle.
   const faces = who.slice(0, 3).map((m, i) => `<span class="na-face" style="z-index:${9 - i}">${tmAvatar({ ...m, kind: 'member' })}</span>`).join('');
   const more = who.length > 3 ? `<span class="na-face na-more">+${who.length - 3}</span>` : '';
   return `<div class="na" style="margin-left:auto">
       <button type="button" class="na-group" data-num-team="1" title="${esc(who.map((m) => m.name || m.email).join(', '))} can use this number. Open the team.">${faces}${more}</button>
-      <button type="button" class="na-gear" data-num-gear="${s.id}" title="Number settings: who can use it, delete" aria-label="Number settings">${icon('settings', 16)}</button>
+      ${gear}
     </div>`;
 }
 // Number settings: who on the team can use it (owners always), and deleting it.
 function numberModal(s) {
   if (!s) return;
+  const team = state.team?.role === 'owner' && state.team.members.some((m) => m.role !== 'owner');
+  const ai = Boolean(state.settings.aiManage);
   const body = openModal(`${s.label}`, `
     <div class="nm-head">${senderPhotoHtml(s)}<div><b>${esc(s.verifiedName || s.label)}</b><span>${esc(s.displayPhone || '')}</span></div></div>
-    <div class="nm-sec-l">Who can use this number</div>
+    ${ai ? `<div class="nm-sec-l nm-sec-row"><span>Lead assistant</span><button type="button" class="nm-link" id="nmPbAll">All playbooks ${icon('arrow-right', 13)}</button></div>
+    <p class="tmm-hint">The playbooks chats on this number use. With several: the one linked to the campaign they replied to, else the AI’s pick, else the default.</p>
+    <div class="nm-pb" id="nmPb"></div>
+    <div class="nm-pb-acts"><button type="button" class="btn sm primary" id="nmPbNew">${icon('plus', 14)}New playbook for this number</button><button type="button" class="btn sm" id="nmPbAdd" aria-haspopup="menu">Add an existing one${icon('chevron-down', 13)}</button></div>` : ''}
+    ${team ? `<div class="nm-sec-l">Who can use this number</div>
     <p class="tmm-hint">They see its chats, campaigns and stats, and can send from it. Owners always can.</p>
-    <div class="nm-list" id="nmList"></div>
+    <div class="nm-list" id="nmList"></div>` : ''}
     <div class="nm-danger">
       <div><b>Delete this number</b><span>Removes it and its saved token from this app. Nothing changes in your Meta account.</span></div>
       <button class="btn sm danger-solid" id="nmDel">${icon('delete', 14)}Delete</button>
     </div>`);
   $('#modal .modal-box').classList.add('tmm-box');
+  // --- its playbooks ---
+  const drawPb = () => {
+    const el = $('#nmPb', body);
+    if (!el) return;
+    const cfg = leadCfg();
+    const list = cfg.playbooks.filter((p) => pbUses(p, s.id));
+    const def = pbDefault(s.id, cfg)?.id;
+    el.innerHTML = (cfg.on === false ? `<p class="nm-pb-off">${icon('bell-off', 14)}The lead assistant is off for the whole workspace (Settings).</p>` : '')
+      + (list.length ? list.map((p) => {
+        const [mode] = pbMode(p);
+        return `<div class="nm-pb-row" data-id="${esc(p.id)}">
+          ${pbBook(p, 'md')}
+          <span class="nm-pb-who"><b>${esc(p.name)}</b><small>${esc(mode)}${p.when ? ' · ' + esc(p.when) : ''}</small></span>
+          ${list.length > 1 ? `<label class="pb-num-def" title="Used when nothing else decides"><input type="radio" name="nmDef" value="${esc(p.id)}" ${p.id === def ? 'checked' : ''} /><span>Default</span></label>` : ''}
+          <button type="button" class="icon-btn" data-pb-open="${esc(p.id)}" title="Edit this playbook" aria-label="Edit ${esc(p.name)}">${icon('square-pen', 15)}</button>
+          <button type="button" class="icon-btn" data-pb-drop="${esc(p.id)}" ${p.allNumbers ? 'disabled' : ''} title="${p.allNumbers ? 'Used by all numbers: change that in the playbook' : 'Stop using it on this number'}" aria-label="Remove from this number">${icon('x', 15)}</button>
+        </div>`;
+      }).join('') : `<p class="nm-pb-none">No playbook yet: on this number the AI drafts only when someone asks, without facts about the business.</p>`);
+    const others = cfg.playbooks.filter((p) => !pbUses(p, s.id));
+    $('#nmPbAdd', body).disabled = !others.length;
+    $('#nmPbAdd', body).title = others.length ? '' : 'Every playbook is already used by this number';
+  };
+  const changePb = (fn, note) => guard(async () => { const cfg = leadCfg(); await savePlaybooks(fn(cfg), note); drawPb(); });
+  if (ai) {
+    drawPb();
+    $('#nmPbNew', body).onclick = () => playbookManager('new', { numberId: s.id });
+    $('#nmPbAll', body).onclick = () => playbookManager(pbDefault(s.id)?.id || undefined, { numberId: s.id });
+    $('#nmPbAdd', body).onclick = (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      Sheet.Menu.open(r.left, r.bottom + 6, leadCfg().playbooks.filter((p) => !pbUses(p, s.id)).map((p) => ({
+        label: p.name, pre: pbBook(p, 'sm'),
+        action: () => changePb((cfg) => ({ ...cfg, playbooks: cfg.playbooks.map((x) => (x.id === p.id ? { ...x, numbers: [...new Set([...(x.numbers || []), s.id])] } : x)) }), `${s.label} now uses “${p.name}”`),
+      })));
+    };
+    $('#nmPb', body).addEventListener('click', (e) => {
+      const open = e.target.closest('[data-pb-open]');
+      if (open) return playbookManager(open.dataset.pbOpen, { numberId: s.id });
+      const drop = e.target.closest('[data-pb-drop]');
+      if (drop) {
+        const id = drop.dataset.pbDrop;
+        changePb((cfg) => {
+          const defaults = { ...cfg.defaults };
+          if (defaults[s.id] === id) delete defaults[s.id];
+          return { ...cfg, defaults, playbooks: cfg.playbooks.map((x) => (x.id === id ? { ...x, numbers: (x.numbers || []).filter((n) => n !== s.id) } : x)) };
+        }, `${s.label} no longer uses it`);
+      }
+    });
+    $('#nmPb', body).addEventListener('change', (e) => {
+      if (e.target.name !== 'nmDef') return;
+      const id = e.target.value;
+      changePb((cfg) => ({ ...cfg, defaults: { ...cfg.defaults, [s.id]: id } }), 'Default playbook set');
+    });
+  }
+  // --- who can use it ---
   const draw = () => {
+    if (!$('#nmList', body)) return;
     $('#nmList', body).innerHTML = state.team.members.map((m) => {
       const owner = m.role === 'owner', on = canUseNumber(m, s.id);
       return `<div class="tmm-row">
@@ -3694,7 +3950,7 @@ function numberModal(s) {
     }).join('');
   };
   draw();
-  $('#nmList', body).addEventListener('change', (e) => {
+  $('#nmList', body)?.addEventListener('change', (e) => {
     const cb = e.target.closest('[data-nm]');
     if (!cb) return;
     const m = state.team.members.find((x) => x.id === cb.dataset.nm);
