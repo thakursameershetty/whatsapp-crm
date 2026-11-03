@@ -1386,6 +1386,7 @@ function notApprovedError(t) {
 
 function createCampaign(body) {
   const { name, templateId, senderIds = [] } = body;
+  const hold = Math.min(10, Math.max(0, Math.round(Number(body.hold) || 0)));
   if (tenants.meta()?.suspended) throw fail('This workspace is suspended', 403);
   const template = db.templates.find((t) => t.id === templateId);
   if (!template) throw fail('Pick a template');
@@ -1436,7 +1437,9 @@ function createCampaign(body) {
     demo: db.settings.demoMode,
     createdAt: new Date().toISOString(),
     scheduledAt,
-    status: scheduledAt ? 'scheduled' : 'queued',
+    // "Send now" waits a few seconds first (hold), so an accidental send can be undone (POST …/undo) before anything goes
+    status: scheduledAt ? 'scheduled' : hold ? 'holding' : 'queued',
+    ...(hold && !scheduledAt ? { holdUntil: new Date(Date.now() + hold * 1000).toISOString() } : {}),
     skipped: [...(body.skipped || []), ...skipped],
     recipients,
     ...(body.source ? { source: body.source } : {}),
@@ -1446,8 +1449,17 @@ function createCampaign(body) {
   recount(c);
   db.campaigns.unshift(c);
   save();
-  if (!scheduledAt) runCampaign(c);
+  if (c.status === 'holding') setTimeout(() => releaseHold(c), hold * 1000);
+  else if (!scheduledAt) runCampaign(c);
   return c;
+}
+// The undo window has passed: send it (unless it was undone; then it's gone from the list and nothing happens).
+function releaseHold(c) {
+  if (c.status !== 'holding' || !db.campaigns.includes(c)) return;
+  c.status = 'queued';
+  delete c.holdUntil;
+  save();
+  runCampaign(c);
 }
 
 app.post('/api/campaigns', wrap((req, res) => {
@@ -1465,6 +1477,8 @@ setInterval(() => {
     if (ws.meta.suspended) return;
     for (const c of db.campaigns) {
       if (c.status === 'scheduled' && new Date(c.scheduledAt) <= now && !running.has(c.id)) runCampaign(c);
+      // held for undo while the server restarted: its few seconds are up
+      if (c.status === 'holding' && new Date(c.holdUntil) <= now) releaseHold(c);
     }
   });
 }, 5000);
@@ -1476,6 +1490,16 @@ app.post('/api/campaigns/:id/test', wrap((req, res) => {
   if (req.body.test) c.test = true; else delete c.test;
   save();
   res.json(summary(c));
+}));
+
+// Undo a "Send now" within its few seconds: the campaign is removed as if it was never sent.
+app.post('/api/campaigns/:id/undo', wrap((req, res) => {
+  const c = db.campaigns.find((x) => x.id === req.params.id);
+  if (!c) throw fail('Not found', 404);
+  if (c.status !== 'holding') throw fail('Too late to undo: the campaign has started sending', 409);
+  db.campaigns = db.campaigns.filter((x) => x !== c);
+  save();
+  res.json({ ok: true });
 }));
 
 app.post('/api/campaigns/:id/cancel', wrap((req, res) => {
@@ -1516,7 +1540,7 @@ function outcome(c, idx) {
 
 app.get('/api/campaigns', (req, res) => {
   const idx = inboundIndex();
-  res.json(db.campaigns.map((c) => { const o = outcome(c, idx); return { ...summary(c), replies: o.replies, leads: o.leads }; }));
+  res.json(db.campaigns.filter((c) => c.status !== 'holding').map((c) => { const o = outcome(c, idx); return { ...summary(c), replies: o.replies, leads: o.leads }; }));
 });
 
 app.get('/api/campaigns/:id', wrap((req, res) => {
@@ -2074,7 +2098,16 @@ const dayKey = (d) => new Date(d).toLocaleDateString('en-CA'); // YYYY-MM-DD in 
 function computeStats(query = {}) {
   // Only count campaigns from the current mode, so demo runs never inflate live numbers.
   const demo = db.settings.demoMode;
-  const range = [7, 14, 30, 90].includes(Number(query.range)) ? Number(query.range) : 14;
+  // A custom period (from–to, any days up to a year, in order) or the last 7 / 14 / 30 / 90 days
+  const KEY = /^\d{4}-\d{2}-\d{2}$/;
+  let custom = null;
+  if (KEY.test(query.from || '') && KEY.test(query.to || '')) {
+    const [a, b] = [query.from, query.to].sort();
+    const span = Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000) + 1;
+    if (span >= 1 && span <= 366) custom = { from: a, to: b };
+  }
+  const range = custom ? Math.round((new Date(custom.to + 'T12:00:00') - new Date(custom.from + 'T12:00:00')) / 86400000) + 1
+    : [7, 14, 30, 90].includes(Number(query.range)) ? Number(query.range) : 14;
   const senderF = query.sender || '';
   const templateF = query.template || '';
   const scope = query.scope || null; // numbers a limited member may see
@@ -2089,7 +2122,7 @@ function computeStats(query = {}) {
   // Daily buckets for the range, plus the previous period of the same length for comparisons.
   const days = [];
   for (let i = range - 1; i >= 0; i--) {
-    const d = new Date();
+    const d = custom ? new Date(custom.to + 'T12:00:00') : new Date();
     d.setHours(12, 0, 0, 0);
     d.setDate(d.getDate() - i);
     days.push({ date: dayKey(d), sent: 0, delivered: 0, read: 0, failed: 0, reasons: {} });
@@ -2180,6 +2213,7 @@ function computeStats(query = {}) {
     cap,
     range,
     filters: { sender: senderF, template: templateF, tests: withTests },
+    custom,
     tests: camps.filter((c) => c.test).length,
     options: { templates: [...new Set(all.map((c) => c.templateName))].sort() },
     days,

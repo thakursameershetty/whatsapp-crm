@@ -1390,52 +1390,166 @@
 
   // ---------- Templates & new chats ----------
 
-  function templateModal() {
-    const usable = state.templates.filter((t) => !['REJECTED', 'PAUSED', 'DISABLED'].includes(t.status));
-    if (!usable.length) return toast('Add or sync a template first (Templates page)', 'error');
-    const c = current();
-    const key = ib.key;
+  // Send a template to this person: pick it (with the category chips, like the Send page), fill in its variables (a
+  // header file can be uploaded), and watch the message take shape beside the fields. Then a review step, and once
+  // sent there are 5 seconds to undo before it goes. Undo brings this window back as it was.
+  function templateModal(prev = null) {
+    const key = ib.key, c = current();
+    const senderId = key.split(':')[0];
+    const sender = state.senders.find((s) => s.id === senderId);
+    const usable = state.templates.filter((t) => !tplSendBlock(t) && (!sender || templateSenders(t, [sender]).length));
+    if (!usable.length) return toast('No approved template can be sent from this number yet (Templates page)', 'error');
+    const F = window.TplFill || {};
     const firstName = (c?.name || '').split(/\s+/)[0];
-    const values = {};
+    const values = prev?.values || {};
+    let lastTpl = '';
+    try { lastTpl = localStorage.getItem('ibTpl') || ''; } catch {}
+    const pick = prev?.templateId || (usable.some((t) => t.id === lastTpl) ? lastTpl : '');
+    const to = `${c?.name ? `<b>${esc(c.name)}</b> · ` : ''}${esc(fmtPhone(c?.wa || key.split(':')[1]))}`;
     const body = openModal(
       'Send a template',
-      `<p class="sub ib-modal-sub">To ${esc(displayName(c))} · via ${esc(c?.senderLabel || '')}</p>
-      <label>Template<select id="itTpl">${usable.map((t) => `<option value="${t.id}">${esc(t.name)} · ${esc(t.language)}</option>`).join('')}</select></label>
-      <div id="itVars"></div>
-      <div class="tpl-chat"><div class="bubble" id="itPrev"></div></div>
-      <div class="modal-actions"><button class="btn quiet" id="itCancel">Cancel</button><button class="btn primary" id="itSend" data-icon="send">Send template</button></div>`
+      `<div class="it-grid">
+        <div class="it-fields">
+          <p class="sub it-to">To ${to} · via ${esc(sender?.label || c?.senderLabel || '')}</p>
+          <label>Template<select id="itTpl" data-chips><option value="">— Choose a template —</option>${usable.map((t) => `<option value="${t.id}" data-tag="${esc(catLabel(t.category))}" ${t.id === pick ? 'selected' : ''}>${esc(t.name)} · ${esc(t.language)}</option>`).join('')}</select></label>
+          <div class="it-vars-wrap" id="itVarsWrap"><div class="field-label">Fill in the variables</div><div id="itVars"></div></div>
+          <div class="it-review hidden" id="itReview"></div>
+        </div>
+        <div class="it-prev">
+          <div class="field-label">Preview</div>
+          <div class="phone sp-phone-big"><div class="bubble" id="itPrev"></div></div>
+        </div>
+      </div>
+      <div class="modal-actions"><button class="btn quiet" id="itBack">Cancel</button><button class="btn primary" id="itNext">Review</button></div>`
     );
+    $('#modal .modal-box').classList.add('wide', 'it-box');
     const tpl = () => usable.find((t) => t.id === $('#itTpl', body).value);
+    let step = 'fill';
+    const defaultFor = (t, v) => t.linkDefaults?.[/^button(\d+)$/.exec(v.where)?.[1]] || (v.key === 'body.1' || /name/i.test(v.name) ? firstName : '');
+    const preview = () => {
+      const t = tpl();
+      $('#itPrev', body).innerHTML = t ? bubbleHtml(t, values) : '<span class="muted">Pick a template to see the message here.</span>';
+    };
+    const row = (t, v) => {
+      const val = values[v.key] ?? '';
+      const where = v.media ? 'header' : v.where.startsWith('button') ? 'button link' : v.where;
+      const link = v.media || /^button/.test(v.where);
+      const ph = v.media ? F.MEDIA_EXAMPLE?.[v.media] || 'https://…' : link ? 'https://… (any full link)' : 'Type the text';
+      return `<div class="sp-map" data-key="${esc(v.key)}">
+        <div class="var-key">${esc(v.media ? v.media + ' URL' : `{{${v.name}}}`)}<small>${esc(where)}</small></div>
+        <input class="m-val" value="${esc(val)}" placeholder="${esc(ph)}" aria-label="${esc(varLabel(v))}" />
+        ${v.media ? `<div class="m-upload-row"><label class="btn sm m-upload" title="Upload a ${esc(v.media)} from this computer">${icon('upload', 14)}${F.uploadedName?.(val) ? 'Replace' : 'Upload'} ${esc(v.media)}<input type="file" hidden accept="${esc(F.UPLOAD_ACCEPT?.[v.media] || '')}" /></label>${val ? `<button type="button" class="btn sm quiet m-unupload">${icon('delete', 14)}Remove</button>` : ''}</div>` : ''}
+      </div>${v.media === 'document' ? `<div class="sp-map" data-key="header.filename">
+        <div class="var-key">file name<small>header</small></div>
+        <input class="m-val" value="${esc(values['header.filename'] || '')}" placeholder="e.g. Brochure.pdf" maxlength="100" aria-label="File name they see" />
+        <small class="m-hint">What they see on the PDF. Leave empty to use the uploaded file's name.</small>
+      </div>` : ''}`;
+    };
     const draw = () => {
       const t = tpl();
-      $('#itVars', body).innerHTML = t.variables
-        .map((v) => {
-          const savedLink = t.linkDefaults?.[/^button(\d+)$/.exec(v.where)?.[1]]; // a website button's own link
-          if (values[v.key] == null) values[v.key] = savedLink || (v.key === 'body.1' || /name/i.test(v.name) ? firstName : '');
-          return `<label>${esc(v.where === 'body' ? 'Body' : v.where === 'header' ? 'Header' : 'Button')} {{${esc(v.name)}}}<input data-k="${esc(v.key)}" value="${esc(values[v.key])}" placeholder="${v.media ? 'https://…' : ''}" /></label>`;
-        })
-        .join('');
-      $('#itPrev', body).innerHTML = bubbleHtml(t, values);
+      for (const v of t?.variables || []) if (values[v.key] == null) values[v.key] = defaultFor(t, v);
+      $('#itVarsWrap', body).classList.toggle('hidden', !t);
+      $('#itVars', body).innerHTML = !t ? '' : t.variables.length ? t.variables.map((v) => row(t, v)).join('') : '<p class="sub">This template has no variables: it goes exactly as shown.</p>';
+      preview();
+    };
+    // A field with a problem gets a red note under it; returns the first problem.
+    const check = () => {
+      const t = tpl();
+      if (!t) return 'Choose a template first';
+      let first = '';
+      for (const v of t.variables) {
+        const inp = $(`.sp-map[data-key="${CSS.escape(v.key)}"] .m-val`, body);
+        const val = String(values[v.key] || '').trim();
+        const bad = !val ? (v.media ? `Add the header ${v.media}: upload it or paste its link` : `Fill in ${varLabel(v)}`) : linkProblem(val, Boolean(v.media) || /^button/.test(v.where)) ? `This ${linkProblem(val, true)}. Write the full link, e.g. https://example.com` : '';
+        if (!inp) continue;
+        inp.classList.toggle('bad', Boolean(bad));
+        let note = inp.parentElement.querySelector('.m-err');
+        if (bad && !note) { note = document.createElement('small'); note.className = 'm-err'; inp.after(note); }
+        if (note) { if (bad) note.textContent = bad; else note.remove(); }
+        if (bad && !first) { first = bad; inp.focus(); }
+      }
+      return first;
+    };
+    const setStep = (next) => {
+      step = next;
+      const t = tpl(), review = next === 'review';
+      $('#itTpl', body).closest('label').classList.toggle('hidden', review);
+      $('#itVarsWrap', body).classList.toggle('hidden', review || !t);
+      $('#itReview', body).classList.toggle('hidden', !review);
+      if (review) {
+        const demo = state.settings.demoMode;
+        $('#itReview', body).innerHTML = `<div class="it-rev-card">
+          <div class="it-rev-row"><span>Template</span><b>${esc(t.name)} · ${esc(t.language)}</b></div>
+          <div class="it-rev-row"><span>To</span><b>${c?.name ? esc(c.name) + ' · ' : ''}${esc(fmtPhone(c?.wa || key.split(':')[1]))}</b></div>
+          <div class="it-rev-row"><span>From</span><b>${esc(sender?.label || '')}${sender?.displayPhone ? ' · ' + esc(sender.displayPhone) : ''}</b></div>
+          ${(() => { const ct = (window.Credits?.confirmText(t, 1) || '').replace(/^(<br>)+/, ''); return ct ? `<div class="it-rev-credit">${ct}</div>` : ''; })()}
+        </div>
+        <p class="it-rev-note">${icon(demo ? 'eye' : 'send', 14)}<span>${demo ? 'Demo mode: sending is simulated.' : '<b>Live:</b> a real WhatsApp message goes to them.'} You'll have 5 seconds to undo.</span></p>`;
+        LA.hydrate($('#itReview', body));
+      }
+      $('#itBack', body).textContent = review ? 'Back' : 'Cancel';
+      $('#itNext', body).innerHTML = review ? `${icon('send', 15)}Send now` : 'Review';
     };
     draw();
-    $('#itTpl', body).onchange = draw;
+    $('#itTpl', body).onchange = () => { try { localStorage.setItem('ibTpl', $('#itTpl', body).value); } catch {} draw(); };
     $('#itVars', body).addEventListener('input', (e) => {
-      const k = e.target.dataset.k;
-      if (!k) return;
-      values[k] = e.target.value;
-      $('#itPrev', body).innerHTML = bubbleHtml(tpl(), values);
+      const r = e.target.closest('.sp-map');
+      if (!r || !e.target.matches('.m-val')) return;
+      values[r.dataset.key] = e.target.value;
+      if (e.target.classList.contains('bad')) { e.target.classList.remove('bad'); r.querySelector('.m-err')?.remove(); }
+      preview();
     });
-    $('#itCancel', body).onclick = closeModal;
-    $('#itSend', body).onclick = (e) =>
-      guard(async () => {
-        const t = tpl();
-        const picked = Object.fromEntries(t.variables.map((v) => [v.key, values[v.key] || '']));
-        await api(`/inbox/${enc(key)}/send`, { method: 'POST', body: { templateId: t.id, values: picked } });
-        closeModal();
-        toast('Template sent');
+    // Header file from the computer: the server keeps it and gives back a link, used like a pasted one.
+    $('#itVars', body).addEventListener('change', async (e) => {
+      if (!e.target.matches('.m-upload input[type=file]')) return;
+      const file = e.target.files[0], r = e.target.closest('.sp-map'), btn = e.target.closest('.m-upload');
+      e.target.value = '';
+      if (!file || !r) return;
+      btn.classList.add('busy');
+      try {
+        const res = await fetch('/api/uploads', { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) }, body: file });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || (res.status === 413 ? 'That file is too big for WhatsApp' : `Upload failed (${res.status})`));
+        values[r.dataset.key] = json.url;
+        if (json.fileName && file.type === 'application/pdf') values['header.filename'] = json.fileName;
+        draw();
+        toast(`Uploaded ${file.name}`);
+      } catch (err) { toast(err.message, 'error'); btn.classList.remove('busy'); }
+    });
+    $('#itVars', body).addEventListener('click', (e) => {
+      const b = e.target.closest('.m-unupload');
+      if (!b) return;
+      const k = b.closest('.sp-map').dataset.key, file = F.uploadedName?.(values[k]);
+      values[k] = '';
+      if (values['header.filename'] != null) values['header.filename'] = '';
+      draw();
+      if (file) api('/uploads/' + file, { method: 'DELETE' }).catch(() => {});
+    });
+    $('#itBack', body).onclick = () => (step === 'review' ? setStep('fill') : closeModal());
+    $('#itNext', body).onclick = async () => {
+      if (step === 'fill') {
+        const err = check();
+        if (err) return toast(err, 'error');
+        return setStep('review');
+      }
+      const t = tpl();
+      const picked = Object.fromEntries(t.variables.map((v) => [v.key, values[v.key] || '']));
+      if (values['header.filename']) picked['header.filename'] = values['header.filename'];
+      closeModal();
+      const who = c?.name || fmtPhone(c?.wa || '');
+      if (!(await undoToast({ title: `Sending ${t.name}`, msg: `to ${who}` }))) {
+        toast('Nothing was sent', '', { title: 'Undone', icon: 'undo-2' });
+        if (ib.key === key) templateModal({ templateId: t.id, values });
+        return;
+      }
+      try {
+        // keepalive: still goes if the page was closed during the countdown
+        await api(`/inbox/${enc(key)}/send`, { method: 'POST', body: { templateId: t.id, values: picked }, keepalive: true });
+        toast(`Template sent to ${who}`);
         await loadList();
         if (ib.key === key) await loadThread(true);
-      }, e.currentTarget);
+      } catch (err) { toast(err.message, 'error'); }
+    };
   }
 
   function newChatModal() {

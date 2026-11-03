@@ -129,7 +129,7 @@
     const slice = list.slice(CT.page * PAGE, CT.page * PAGE + PAGE);
     CT.slice = slice;
     const opted = CT.contacts.filter((c) => c.optOut).length;
-    $('#ctSub').textContent = `${CT.contacts.length.toLocaleString()} contact${CT.contacts.length === 1 ? '' : 's'}${opted ? ` · ${opted} opted out` : ''}`;
+    $('#ctSub').textContent = `Everyone you message, with tags. ${CT.contacts.length.toLocaleString()} contact${CT.contacts.length === 1 ? '' : 's'}${opted ? ` · ${opted} opted out` : ''}`;
 
     Motion.patch($('#ctStats'), STATS.map(([k, label, fn]) => {
       const n = CT.contacts.filter(fn).length;

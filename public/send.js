@@ -724,6 +724,8 @@
   const MEDIA_EXAMPLE = { image: 'https://…/photo.jpg (JPG or PNG)', video: 'https://…/video.mp4', document: 'https://…/brochure.pdf' };
   // What the header upload button lets you pick, per header type.
   const UPLOAD_ACCEPT = { image: 'image/jpeg,image/png', video: 'video/mp4,video/3gpp', document: 'application/pdf' };
+  // the Inbox's "Send a template" fills a template the same way
+  window.TplFill = { uploadedName, UPLOAD_ACCEPT, MEDIA_EXAMPLE, goButton };
 
   function renderMapping() {
     const t = currentTemplate();
@@ -1256,12 +1258,25 @@
         message: `Template <strong>${esc(t.name)}</strong> from ${nums} number${nums === 1 ? '' : 's'}${sheets > 1 ? `, to rows from ${sheets} sheets` : ''}${scheduledAt ? `, on <strong>${esc(new Date(scheduledAt).toLocaleString())}</strong>` : ''}.<br><br>${demo ? 'Demo mode: sending is simulated.' : '<strong>Live:</strong> real WhatsApp messages will be sent.'}${window.Credits?.confirmText(t, list.length) || ''}`,
         confirmText: scheduledAt ? 'Schedule' : 'Send now',
         check: demo ? '' : 'These people agreed to get WhatsApp messages from my business, and can reply STOP to opt out.',
+        safe: true,
       });
       if (!ok) return;
       const c = await api('/campaigns', {
         method: 'POST',
-        body: { name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, test: $('#spTest').checked },
+        // "Send now" waits 5 seconds on the server, so it can be undone (it still goes if this page is closed)
+        body: { name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, test: $('#spTest').checked, ...(scheduledAt ? {} : { hold: 5 }) },
       });
+      if (!scheduledAt && !(await undoToast({ title: `Sending ${c.total.toLocaleString()} message${c.total === 1 ? '' : 's'}`, msg: t.name }))) {
+        try {
+          await api(`/campaigns/${c.id}/undo`, { method: 'POST' });
+          return toast('Nothing was sent', '', { title: 'Undone', icon: 'undo-2' });
+        } catch (err) { toast(err.message, 'error'); } // too late: it's sending, so show it
+      }
+      if (state.tab !== 'send') { // moved on during the countdown: don't pull them back
+        $('#campaignName').value = '';
+        testTouched = false;
+        return toast(scheduledAt ? 'Campaign scheduled' : `Campaign started — ${c.total} messages`, '', { onClick: () => { showTab('campaigns'); openCampaign(c.id); } });
+      }
       toast(scheduledAt ? `Scheduled ${c.total} messages for ${new Date(scheduledAt).toLocaleString()}` : `Campaign started — ${c.total} messages queued`);
       $('#campaignName').value = '';
       testTouched = false;

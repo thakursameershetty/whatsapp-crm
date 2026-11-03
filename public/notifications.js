@@ -73,7 +73,7 @@
   function render() {
     const list = shown();
     $('#ntSub').textContent = NT.list.length
-      ? `${NT.unread ? `${NT.unread.toLocaleString()} unread` : 'All caught up'} · ${NT.list.length.toLocaleString()} in total`
+      ? `Campaigns, deliveries, messages and the AI assistant, in one place. ${NT.unread ? `${NT.unread.toLocaleString()} unread` : 'All caught up'} · ${NT.list.length.toLocaleString()} in total.`
       : 'Campaigns, deliveries, messages and the AI assistant, in one place.';
     const count = (k) => (k === 'all' ? NT.list.length : k === 'unread' ? NT.unread : NT.list.filter((n) => n.category === k).length);
     Motion.patch($('#ntFilter'), FILTERS.map(([k, label]) => `<button data-f="${k}" class="${NT.filter === k ? 'active' : ''}" role="tab" aria-selected="${NT.filter === k}">${label}${count(k) ? ` <span class="opt">${count(k).toLocaleString()}</span>` : ''}</button>`).join(''));

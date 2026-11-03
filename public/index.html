@@ -104,11 +104,24 @@
   <main>
     <!-- OVERVIEW ---------------------------------------------------------->
     <section id="tab-overview" class="tab">
-      <div class="section-head">
+      <div class="section-head has-tools">
         <div>
-          <h1 id="ovTitle">Overview</h1>
+          <h1 id="ovTitle">Overview</h1><span class="ov-live" id="ovLive"></span>
           <p class="sub" id="ovSub">Your messaging at a glance.</p>
         </div>
+        <div class="in-head filter-bar" id="ovFilters">
+        <span class="filter-label" data-icon="sliders-horizontal" data-icon-size="15">Showing</span>
+        <button type="button" class="df-btn ov-range" id="rangeBtn" aria-haspopup="menu" title="The period shown"></button>
+        <label class="inline"><span class="fl-txt">Number</span> <select id="fSender" title="Which number">
+            <option value="">All numbers</option>
+          </select></label>
+        <label class="inline"><span class="fl-txt">Template</span> <select id="fTemplate" title="Which template">
+            <option value="">All templates</option>
+          </select></label>
+        <label class="inline f-tests hidden" id="fTests"></label>
+        <button class="btn quiet sm hidden" id="fReset">Reset filters</button>
+        <span class="filter-note" id="fNote"></span>
+      </div>
         <div class="row tight">
           <button class="btn quiet hidden" id="seedBtn" data-icon="layout-grid">Load demo workspace</button>
           <button class="btn quiet danger hidden" id="unseedBtn" data-icon="delete">Remove demo data</button>
@@ -120,24 +133,6 @@
 
       <div id="setupCard"></div>
 
-      <div class="filter-bar" id="ovFilters">
-        <span class="filter-label" data-icon="sliders-horizontal" data-icon-size="15">Showing</span>
-        <div class="seg" id="rangeSeg">
-          <button data-range="7">7 days</button>
-          <button data-range="14" class="active">14 days</button>
-          <button data-range="30">30 days</button>
-          <button data-range="90">90 days</button>
-        </div>
-        <label class="inline">Number <select id="fSender">
-            <option value="">All numbers</option>
-          </select></label>
-        <label class="inline">Template <select id="fTemplate">
-            <option value="">All templates</option>
-          </select></label>
-        <label class="inline f-tests hidden" id="fTests"></label>
-        <button class="btn quiet sm hidden" id="fReset">Reset filters</button>
-        <span class="filter-note" id="fNote"></span>
-      </div>
 
       <div class="kpis" id="kpis" data-skel="kpi:4"></div>
 
@@ -329,40 +324,40 @@
 
     <!-- NOTIFICATIONS ---------------------------------------------------->
     <section id="tab-notifications" class="tab hidden">
-      <div class="section-head">
+      <div class="section-head has-tools">
         <div>
           <h1>Notifications</h1>
           <p class="sub" id="ntSub">Campaigns, deliveries, messages and the AI assistant, in one place.</p>
         </div>
+        <div class="in-head nt-bar">
+        <div class="seg" id="ntFilter" role="tablist" aria-label="Show"></div>
+      </div>
         <div class="row tight">
           <button class="btn quiet" id="ntReadAll" data-icon="check-check">Mark all as read</button>
           <button class="btn quiet" id="ntClear" data-icon="delete">Clear</button>
         </div>
-      </div>
-      <div class="nt-bar">
-        <div class="seg" id="ntFilter" role="tablist" aria-label="Show"></div>
       </div>
       <div id="ntList" class="nt-list" data-skel="notif:6"></div>
     </section>
 
     <!-- REPORT AN ISSUE ----------------------------------------------------->
     <section id="tab-report" class="tab hidden">
-      <div class="section-head">
+      <div class="section-head has-tools">
         <div>
           <h1>Report an issue</h1>
           <p class="sub">Look up an error code first: many have a quick fix. These codes come from Meta (WhatsApp), not
             from this app. <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes"
               target="_blank" rel="noopener">Meta's full list ↗</a></p>
         </div>
+        <div class="in-head ec-bar">
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="ecSearch" type="search"
+            placeholder="Search a code or a word, e.g. 131031 or template" autocomplete="off" /></div>
+        <div class="seg" id="ecFilter" role="tablist" aria-label="Category"></div>
+      </div>
         <div class="row tight">
           <button class="btn" id="rpMineBtn" data-icon="history">Your reports<span class="btn-count hidden" id="rpMineCount"></span></button>
           <button class="btn primary" id="rpNewBtn" data-icon="square-pen">Report an issue</button>
         </div>
-      </div>
-      <div class="ec-bar">
-        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="ecSearch" type="search"
-            placeholder="Search a code or a word, e.g. 131031 or template" autocomplete="off" /></div>
-        <div class="seg" id="ecFilter" role="tablist" aria-label="Category"></div>
       </div>
       <div id="ecList" class="ec-list"></div>
     </section>
@@ -370,17 +365,17 @@
     <!-- YOUR REPORTS (under Report an issue) ------------------------------------>
     <section id="tab-reports" class="tab hidden">
       <a href="/report" class="back-link" data-goto="report" data-icon="arrow-left" data-icon-size="15">Report an issue</a>
-      <div class="section-head">
+      <div class="section-head has-tools">
         <div>
           <h1>Your reports</h1>
           <p class="sub">Issues reported from this workspace, and whether the team has resolved them. Open one to see everything that was sent.</p>
         </div>
-        <button class="btn primary" id="rsNewBtn" data-icon="square-pen">Report an issue</button>
-      </div>
-      <div class="list-bar">
+        <div class="in-head list-bar">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="rsSearch" type="search"
             placeholder="Search reports" autocomplete="off" /></div>
         <div class="seg" id="rsFilter" role="tablist" aria-label="Status"></div>
+      </div>
+        <button class="btn primary" id="rsNewBtn" data-icon="square-pen">Report an issue</button>
       </div>
       <div id="rsList" class="rs-list"></div>
     </section>
@@ -572,18 +567,12 @@
 
     <!-- TEMPLATES --------------------------------------------------------->
     <section id="tab-templates" class="tab hidden">
-      <div class="section-head">
+      <div class="section-head has-tools">
         <div>
           <h1>Templates</h1>
           <p class="sub">Create templates here and Meta reviews them, or sync the ones you made in Meta. Only approved templates can be sent.</p>
         </div>
-        <div class="row tight">
-          <select id="tplSender" class="hidden" aria-label="Number"></select>
-          <button class="btn" id="syncTemplates" data-icon="refresh-cw">Sync from Meta</button>
-          <button class="btn primary" id="addTemplate" data-icon="plus">New template</button>
-        </div>
-      </div>
-      <div class="list-bar hidden" id="tplBar">
+        <div class="in-head list-bar hidden" id="tplBar">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="tplSearch" type="search"
             placeholder="Search templates" autocomplete="off" /></div>
         <div class="seg" id="tplCat" role="tablist" aria-label="Category"></div>
@@ -591,6 +580,12 @@
           <option value="">Any status</option><option value="APPROVED">Approved</option><option value="PENDING">In review</option>
           <option value="REJECTED">Rejected</option><option value="PAUSED">Paused</option><option value="DISABLED">Disabled</option>
         </select>
+      </div>
+        <div class="row tight">
+          <select id="tplSender" class="hidden" aria-label="Number"></select>
+          <button class="btn" id="syncTemplates" data-icon="refresh-cw">Sync from Meta</button>
+          <button class="btn primary" id="addTemplate" data-icon="plus">New template</button>
+        </div>
       </div>
       <div id="templateList" class="cards" data-skel="card:3"></div>
     </section>
@@ -650,6 +645,17 @@
               <span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span
                   class="knob"></span></span>
             </label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-title">Animations</div>
+              <div class="sub" id="motionHelp">Auto keeps them smooth, and turns them down on slower computers.</div>
+            </div>
+            <div class="seg" id="setMotion" role="radiogroup" aria-label="Animations">
+              <button type="button" data-motion="auto" role="radio">Auto</button>
+              <button type="button" data-motion="full" role="radio">Full</button>
+              <button type="button" data-motion="lite" role="radio">Reduced</button>
+            </div>
           </div>
           <div class="setting-row rr-row">
             <div>

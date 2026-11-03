@@ -5579,3 +5579,102 @@ body.nav-instant, body.nav-instant .sidebar { transition: none !important; } /* 
 .ai-steps:has(.think-list:empty) .think-pill { display: none; }
 .msg-ai.done .ai-steps { margin-bottom: 4px; }
 .think-list:empty { display: none; }
+/* Lite motion (slow computers, or Settings → Animations → Reduced): no blurred glass (the costliest thing to draw),
+   no long transitions or keyframe animations, no view-transition morphs. Looks the same, moves less. */
+html.lite *, html.lite *::before, html.lite *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+html.lite .modal { background: rgba(12, 18, 24, 0.45); }
+html.lite .chart-tip, html.lite .toast, html.lite .ib-sum-fab, html.lite .sg-menu-pop { background: var(--surface) !important; }
+html.lite *, html.lite *::before, html.lite *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 0.08s !important; transition-delay: 0ms !important; scroll-behavior: auto !important; }
+html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.lite ::view-transition-new(*) { animation: none !important; }
+/* Overview header, compact: the title and its status on one line, the buttons beside them, the comparison note at
+   the end of the filter row (not a line of its own), and less space around. It stays pinned while scrolling, so every
+   pixel here is a pixel less for the page. */
+#tab-overview .section-head { align-items: center; margin-bottom: 14px; }
+#tab-overview .section-head > div:first-child { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+#tab-overview .section-head h1 { margin: 0; }
+#tab-overview .section-head #ovSub { margin: 0; }
+#tab-overview .section-head #ovSub::before { content: '·'; margin-right: 10px; color: var(--faint); }
+#ovFilters { margin-bottom: 14px; gap: 10px 14px; }
+#ovFilters .filter-note { white-space: nowrap; cursor: help; }
+@media (max-width: 900px) { #ovFilters .filter-note { white-space: normal; } }
+#ovFilters label.inline select { width: 170px; min-width: 0; }
+#ovFilters { column-gap: 10px; }
+#ovFilters .ov-range { height: 34px; }
+#ovFilters .ov-range > span { min-width: 92px; text-align: left; }
+
+/* ---- One-line page headers ----------------------------------------------------------------------------------------
+   Title, the page's own filters (when they're small) and its actions share one pinned strip. The description under the
+   title moved into a tooltip on the title (app.js, #headTip); the campaigns summary is data, so it stays beside it. */
+:is(.tab, #campaignList) > .section-head { align-items: center; padding-bottom: 12px; margin-bottom: 12px; }
+:is(.tab, #campaignList) > .section-head > div:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; }
+:is(.tab, #campaignList) > .section-head > div:first-child > h1 { margin: 0; white-space: nowrap; overflow-wrap: normal; }
+:is(.tab, #campaignList) > .section-head > div:first-child > .sub:not(.cp-summary) { display: none; }
+:is(.tab, #campaignList) > .section-head > div:first-child:has(> .sub:not(.cp-summary):not(:empty)) > h1 { cursor: help; }
+:is(.tab, #campaignList) > .section-head .cp-summary { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#tab-overview > .section-head { margin-bottom: 12px; }
+.section-head.has-tools { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 22px; row-gap: 10px; }
+.section-head.has-tools > :last-child:not(:first-child) { margin-left: 0; }
+.section-head.has-tools > :last-child:not(.in-head) { grid-column: -2; grid-row: 1; justify-self: end; }
+.section-head > .in-head {
+  position: static !important; top: auto; z-index: auto; margin: 0 !important; padding: 0 !important;
+  background: none !important; box-shadow: none !important; min-width: 0;
+}
+.section-head > .in-head::before { display: none !important; }
+.section-head > .in-head.hidden { display: none !important; }
+/* the period button's calendar already says what the row is */
+#ovFilters.in-head .filter-label { display: none; }
+#ovFilters.in-head { gap: 8px 12px; }
+#ovFilters.in-head .filter-note { margin-left: auto; }
+.ov-live { display: inline-flex; align-items: center; gap: 6px; }
+.ov-live:empty { display: none; }
+.section-head.has-tools > .in-head { flex-wrap: nowrap; }
+.section-head.has-tools > .in-head > * { flex-shrink: 0; }
+.section-head.has-tools > .in-head .search-wrap { flex: 0 0 240px; min-width: 0; }
+.section-head.has-tools > .in-head .filter-note { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* doesn't fit beside the title: the toolbar gets its own row (app.js fitHead) */
+.section-head.has-tools.tools-below { grid-template-columns: minmax(0, 1fr) auto; }
+.section-head.has-tools.tools-below > .in-head { grid-column: 1 / -1; grid-row: 2; flex-wrap: wrap; }
+.section-head.has-tools.tools-below > .in-head .search-wrap { flex: 1 1 200px; max-width: 360px; min-width: 0; }
+/* the dropdowns already read "All numbers" / "All templates": the words before them only cost room in the header */
+#ovFilters.in-head .fl-txt { display: none; }
+.head-tip { pointer-events: auto; max-width: 340px; min-width: 0; color: var(--text); line-height: 1.45; z-index: 90; }
+.head-tip a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* "Sending… Undo": a send waits a few seconds (undoToast in app.js); the bar runs out as the time does */
+.undo-toast { position: relative; overflow: hidden; min-width: 300px; }
+.undo-toast .toast-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.undo-toast .toast-text span { opacity: 0.75; font-weight: 400; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.undo-btn {
+  flex: none; height: 30px; padding: 0 14px; border-radius: 8px; border: 0; cursor: pointer;
+  background: var(--surface); color: var(--text); font: inherit; font-weight: 600; font-size: 13px;
+}
+.undo-btn:hover { filter: brightness(0.94); }
+.undo-btn:focus-visible { outline: 2px solid var(--surface); outline-offset: 2px; }
+.undo-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: currentColor; opacity: 0.5; transform-origin: left; animation: undo-run linear forwards; }
+@keyframes undo-run { to { transform: scaleX(0); } }
+
+/* Inbox → Send a template: fields beside a live preview (like the Send page's Personalise), then a review step */
+.modal-box.it-box { width: min(880px, calc(100vw - 32px)); max-width: none; }
+.it-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 22px; align-items: start; }
+.it-fields { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.it-fields > label { margin: 0; }
+.it-to { margin: -4px 0 0; }
+.it-to b { color: var(--text); font-weight: 600; }
+.it-vars-wrap .field-label { margin-bottom: 4px; }
+#itVars { max-height: min(52vh, 460px); overflow: auto; margin: 0 -6px; padding: 0 6px; }
+.it-prev { position: sticky; top: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.it-prev .phone { max-height: min(60vh, 520px); overflow: auto; }
+.it-rev-card { border-radius: 12px; background: var(--surface-2, var(--bg)); box-shadow: var(--sh-sunk); padding: 6px 14px; }
+.it-rev-row { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; font-size: 13.5px; }
+.it-rev-row + .it-rev-row { border-top: 1px solid var(--hair); }
+.it-rev-row span { color: var(--muted); flex: none; }
+.it-rev-row b { font-weight: 600; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.it-rev-credit { border-top: 1px solid var(--hair); padding: 9px 0; font-size: 12.5px; color: var(--muted); }
+.it-rev-note { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.it-rev-note svg { flex: none; margin-top: 2px; }
+.it-rev-note b { color: var(--text); }
+#itNext { display: inline-flex; align-items: center; gap: 7px; }
+@media (max-width: 760px) {
+  .it-grid { grid-template-columns: 1fr; }
+  .it-prev { position: static; order: -1; }
+}

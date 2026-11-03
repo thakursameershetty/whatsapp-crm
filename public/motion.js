@@ -7,7 +7,39 @@
 //  - Respects prefers-reduced-motion.
 
 (function () {
-  const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Less motion: the system's "reduce motion", or lite mode (a slow machine, or chosen in Settings → General →
+  // Animations). Every animation in the app asks this; in lite mode morphs become quick fades and staggers, chart
+  // entrances and blurred glass go (html.lite in style.css).
+  const pref = () => { try { return localStorage.getItem('motion') || 'auto'; } catch { return 'auto'; } };
+  let slow = (() => { try { return sessionStorage.getItem('motionSlow') === '1'; } catch { return false; } })();
+  const lite = () => (pref() === 'lite' ? true : pref() === 'full' ? false : slow);
+  const reduce = () => lite() || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const applyLite = () => document.documentElement.classList.toggle('lite', lite());
+  applyLite();
+  // Auto: a quick look at how this machine copes. Few cores or little memory, or frames that come late while the page
+  // is idle for a second, and it's a slow machine (remembered for this tab's session).
+  if (!slow && pref() === 'auto') {
+    const hint = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2) || (navigator.deviceMemory && navigator.deviceMemory <= 2);
+    if (hint) { slow = true; applyLite(); }
+    else {
+      const gaps = [];
+      let last = 0;
+      const probe = (t) => {
+        if (last) gaps.push(t - last);
+        last = t;
+        if (gaps.length < 90 && !document.hidden) return requestAnimationFrame(probe);
+        gaps.sort((a, b) => a - b);
+        const median = gaps[Math.floor(gaps.length / 2)] || 16, late = gaps.filter((g) => g > 40).length;
+        if (gaps.length >= 60 && (median > 24 || late > gaps.length * 0.2)) {
+          slow = true;
+          try { sessionStorage.setItem('motionSlow', '1'); } catch {}
+          applyLite();
+        }
+      };
+      setTimeout(() => requestAnimationFrame(probe), 2500); // after the first load's work has settled
+    }
+  }
+  const setMotion = (v) => { try { localStorage.setItem('motion', v); } catch {} if (v !== 'auto') { slow = false; try { sessionStorage.removeItem('motionSlow'); } catch {} } applyLite(); };
   const prev = new Map();
   const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
   const FORMATS = {
@@ -173,5 +205,5 @@
     return vt.updateCallbackDone.catch(() => {});
   }
 
-  window.Motion = { values, segs, enter, themeFade, reduce, patch, morph };
+  window.Motion = { values, segs, enter, themeFade, reduce, patch, morph, lite, setMotion, pref };
 })();

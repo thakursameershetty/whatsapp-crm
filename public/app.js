@@ -63,6 +63,45 @@ function toast(msg, type = '', opts = {}) {
 }
 
 // With more than one toast showing, a "Clear all" button sits on top of the stack.
+// "Sending to … · Undo" for a few seconds before a send goes out, so a slip can be taken back. Resolves true when the
+// time is up (send it), false when Undo was clicked. It doesn't pause on hover, and closing the page counts as "time's
+// up" (the caller sends with keepalive), so what you meant to send still goes.
+function undoToast({ title, msg = '', seconds = 5, icon: ic = 'send' }) {
+  return new Promise((resolve) => {
+    const el = document.createElement('div');
+    el.className = 'toast undo-toast';
+    el.setAttribute('role', 'status');
+    el.innerHTML = `${icon(ic, 16)}<div class="toast-text"><b></b><span></span></div><button type="button" class="undo-btn">Undo</button><i class="undo-bar" aria-hidden="true"></i>`;
+    el.querySelector('b').textContent = title;
+    const line = el.querySelector('.toast-text span');
+    let left = seconds;
+    const tick = () => { line.textContent = `${msg ? msg + ' · ' : ''}sends in ${left}s`; };
+    tick();
+    el.querySelector('.undo-bar').style.animationDuration = seconds + 's';
+    el.__dismiss = () => {}; // "Clear all" mustn't decide for you
+    $('#toasts').append(el);
+    syncToastClear();
+    const iv = setInterval(() => { if (--left > 0) tick(); }, 1000);
+    let settled = false;
+    const finish = (send) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(iv);
+      clearTimeout(t);
+      removeEventListener('pagehide', onHide);
+      el.classList.add('out');
+      setTimeout(() => { el.remove(); syncToastClear(); }, 280);
+      resolve(send);
+    };
+    const t = setTimeout(() => finish(true), seconds * 1000);
+    const onHide = () => finish(true);
+    addEventListener('pagehide', onHide);
+    const btn = el.querySelector('.undo-btn');
+    btn.onclick = () => finish(false);
+    btn.focus({ preventScroll: true });
+  });
+}
+
 function syncToastClear() {
   const box = $('#toasts');
   const live = [...box.querySelectorAll('.toast:not(.out)')];
@@ -311,7 +350,8 @@ $('#modal').addEventListener('click', (e) => e.target.id === 'modal' && closeMod
 
 // Styled replacement for window.confirm(). Resolves true/false.
 // check: a label the person must tick before confirming (e.g. consent).
-function confirmDialog({ title, message = '', confirmText = 'OK', danger = false, check = '' }) {
+// safe: focus starts on Cancel, so an Enter meant for something else doesn't confirm (sending, deleting)
+function confirmDialog({ title, message = '', confirmText = 'OK', danger = false, check = '', safe = false }) {
   return new Promise((resolve) => {
     $('#confirmTitle').textContent = title;
     $('#confirmMsg').innerHTML = message + (check ? `<label class="confirm-check"><input type="checkbox" id="confirmCheck" /> <span>${check}</span></label>` : '');
@@ -321,7 +361,7 @@ function confirmDialog({ title, message = '', confirmText = 'OK', danger = false
     yes.disabled = Boolean(check);
     if (check) $('#confirmCheck').onchange = (e) => { yes.disabled = !e.target.checked; };
     $('#confirm').classList.remove('hidden');
-    yes.focus();
+    (safe ? $('#confirmNo') : yes).focus();
     const done = (v) => {
       hideOverlay($('#confirm'));
       yes.onclick = $('#confirmNo').onclick = $('#confirm').onclick = null;
@@ -1006,8 +1046,8 @@ function senderForm(s = null) {
       ${s?.hasToken
         ? `<div class="field-label">Access token ${sfHelp('accessToken')}</div>
            <div class="sf-token" id="sfSaved"><span>${icon('lock', 14)}Saved token ending in <b>${esc((s.accessTokenMasked || '').replace(/^•+/, ''))}</b></span><button type="button" class="btn sm" id="sfReplace">Replace token</button></div>
-           <label class="hidden" id="sfTokenWrap">New access token<input name="accessToken" type="password" autocomplete="new-password" placeholder="Paste the new token" /></label>`
-        : `<label>Access token ${sfHelp('accessToken')}${live ? '' : '<span class="opt">optional in demo mode</span>'}<input name="accessToken" type="password" autocomplete="new-password" placeholder="Permanent system-user token" /></label>`}
+           <label class="hidden" id="sfTokenWrap">New access token<input name="accessToken" type="password" autocomplete="off" placeholder="Paste the new token" /></label>`
+        : `<label>Access token ${sfHelp('accessToken')}${live ? '' : '<span class="opt">optional in demo mode</span>'}<input name="accessToken" type="password" autocomplete="off" placeholder="Permanent system-user token" /></label>`}
       <label>WhatsApp Business Account ID ${sfHelp('wabaId')}<span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span>${live ? '<span class="sf-find">' : ''}<input name="wabaId" autocomplete="off" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Click Find, or paste the ID or Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" />${live ? `<button type="button" class="btn sm tip-end" id="sfFind" data-tip="I can find it for you with your phone number ID and access token">${icon('search', 14)}Find</button></span>` : ''}</label>
       <label>Display phone ${sfHelp('displayPhone')}<span class="opt">${live ? 'filled in from Meta when the number is checked' : 'optional, for your reference'}</span>${live ? '<span class="sf-find">' : ''}<input name="displayPhone" autocomplete="off" inputmode="tel" maxlength="22" placeholder="${live ? 'Click Find, or type it with the country code' : '+91 98765 43210'}" value="${esc(s?.displayPhone)}" />${live ? `<button type="button" class="btn sm tip-end" id="sfFindPhone" data-tip="I can read it from Meta with your phone number ID and access token">${icon('search', 14)}Find</button></span>` : ''}</label>
       <div class="sf-status hidden" id="sfStatus" role="status" aria-live="polite"></div>
@@ -1559,7 +1599,7 @@ function setupSticky() {
     if (head && !head.classList.contains('sticky-head')) { head.classList.add('sticky-head'); stickyRO.observe(head); }
     const cd = tab.querySelector('#cdHead.sticky-head'); // an open campaign's own header (campaigns.js)
     if (cd && !cd.__sticky) { cd.__sticky = true; stickyRO.observe(cd); }
-    tab.querySelectorAll(STICKY_BARS).forEach((b) => { if (!b.classList.contains('sticky-bar')) { b.classList.add('sticky-bar'); stickyRO.observe(b); } });
+    tab.querySelectorAll(STICKY_BARS).forEach((b) => { if (!b.closest('.section-head') && !b.classList.contains('sticky-bar')) { b.classList.add('sticky-bar'); stickyRO.observe(b); } });
   }
   markStuck();
 }
@@ -1575,6 +1615,82 @@ function markStuck() {
   tab.querySelectorAll('.sticky-bar').forEach((b) => { b.classList.toggle('stuck', b === bar && barStuck); b.classList.toggle('pinned', b === bar && barStuck); });
 }
 addEventListener('scroll', markStuck, { passive: true });
+
+// Page titles: the header is one line, so each page's description shows on hover over its title instead. The tip stays
+// open while the pointer is on it (some descriptions have a link).
+const headTip = Object.assign(document.createElement('div'), { id: 'headTip', className: 'chart-tip head-tip hidden' });
+headTip.setAttribute('role', 'tooltip');
+document.body.append(headTip);
+let headTipT = 0;
+const headDesc = (h) => {
+  const sub = h.closest('.section-head')?.querySelector(':scope > div:first-child > .sub:not(.cp-summary)');
+  return sub && sub.textContent.trim() ? sub : null;
+};
+function hideHeadTip() { clearTimeout(headTipT); headTipT = 0; headTip.classList.add('hidden'); headTip.__for = null; }
+function showHeadTip(h) {
+  const sub = headDesc(h);
+  if (!sub) return;
+  headTip.innerHTML = sub.innerHTML;
+  headTip.__for = h;
+  headTip.classList.remove('hidden');
+  const r = h.getBoundingClientRect(), w = headTip.offsetWidth;
+  headTip.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+  headTip.style.top = r.bottom + 8 + 'px';
+}
+document.addEventListener('pointerover', (e) => {
+  const h = e.target.closest?.(':is(.tab, #campaignList) > .section-head h1');
+  if (h && headDesc(h)) {
+    clearTimeout(headTipT);
+    if (headTip.__for !== h) headTipT = setTimeout(() => showHeadTip(h), headTip.__for ? 0 : 250);
+    return;
+  }
+  if (e.target.closest?.('#headTip')) { clearTimeout(headTipT); return; }
+  if (headTip.__for || headTipT) { clearTimeout(headTipT); headTipT = setTimeout(hideHeadTip, 160); }
+});
+addEventListener('scroll', () => headTip.__for && hideHeadTip(), { passive: true });
+document.addEventListener('pointerdown', (e) => !e.target.closest?.('#headTip') && headTip.__for && hideHeadTip());
+
+// A header's filters sit beside the title while they fit on that line; when they don't (a narrow window, many filters)
+// the whole toolbar moves to its own row under the title, rather than wrapping into a cramped block.
+const SEARCH_W = 240;
+function fitHead(h) {
+  const bar = h.querySelector(':scope > .in-head');
+  if (!bar || !h.offsetParent) return;
+  const kids = [...bar.children].filter((k) => k.getClientRects().length);
+  if (!kids.length) return h.classList.remove('tools-below');
+  const cs = getComputedStyle(h), gap = parseFloat(cs.columnGap) || 0, bgap = parseFloat(getComputedStyle(bar).columnGap) || 0;
+  const need = kids.reduce((a, k) => a + (k.classList.contains('search-wrap') ? SEARCH_W : k.classList.contains('filter-note') ? 0 : k.scrollWidth), 0) + bgap * (kids.length - 1);
+  const acts = h.lastElementChild !== bar ? h.lastElementChild : null;
+  const avail = h.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - h.firstElementChild.scrollWidth - (acts ? acts.offsetWidth + gap : 0) - gap;
+  h.classList.toggle('tools-below', need > avail);
+}
+const headRO = new ResizeObserver((ents) => { const seen = new Set(); for (const e of ents) { const h = e.target.closest('.section-head'); if (h && !seen.has(h)) { seen.add(h); fitHead(h); } } });
+document.querySelectorAll('.section-head.has-tools').forEach((h) => {
+  headRO.observe(h);
+  const bar = h.querySelector(':scope > .in-head');
+  if (!bar) return;
+  [...bar.children, h.firstElementChild, h.lastElementChild].forEach((k) => headRO.observe(k));
+  new MutationObserver(() => fitHead(h)).observe(bar, { attributes: true, attributeFilter: ['class'], subtree: true, childList: true });
+});
+
+// The browser's saved logins and form history kept popping up over ordinary text boxes (search, names, messages).
+// Every box opts out unless it says otherwise (the account password fields keep their current-/new-password hints),
+// password managers too.
+function noAutofill(root) {
+  root.querySelectorAll?.('input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]), textarea').forEach((el) => {
+    if (el.__noAf) return;
+    el.__noAf = true;
+    if (!el.hasAttribute('autocomplete')) el.setAttribute('autocomplete', 'off');
+    if (/password/.test(el.getAttribute('autocomplete'))) return;
+    el.setAttribute('data-1p-ignore', '');
+    el.setAttribute('data-lpignore', 'true');
+    el.setAttribute('data-bwignore', '');
+    el.setAttribute('data-form-type', 'other');
+  });
+}
+noAutofill(document);
+new MutationObserver((recs) => { for (const r of recs) for (const n of r.addedNodes) if (n.nodeType === 1) noAutofill(n.matches?.('input, textarea') ? n.parentNode || n : n); })
+  .observe(document.body, { childList: true, subtree: true });
 addEventListener('resize', setupSticky);
 // The Inbox scrolls inside its own panes: shadow the list's tools / the chat header once something is underneath.
 document.addEventListener('scroll', (e) => {
@@ -2003,7 +2119,7 @@ let ovTimer = null;
 const stopOverviewPolling = () => { clearTimeout(ovTimer); ovTimer = null; };
 
 async function refreshStats() {
-  const q = new URLSearchParams({ range: state.ov.range, sender: state.ov.sender, template: state.ov.template, tests: state.ov.tests ? '1' : '' });
+  const q = statsQuery();
   let st = await api('/stats?' + q);
   // A remembered filter can point at a number or template that no longer exists (e.g. after
   // reloading the demo workspace). The dropdown would show "All", yet still filter everything out.
@@ -2013,7 +2129,7 @@ async function refreshStats() {
     if (staleSender) state.ov.sender = '';
     if (staleTemplate) state.ov.template = '';
     saveOv();
-    st = await api('/stats?' + new URLSearchParams({ range: state.ov.range, sender: state.ov.sender, template: state.ov.template, tests: state.ov.tests ? '1' : '' }));
+    st = await api('/stats?' + statsQuery());
   }
   state.stats = st;
   return state.stats;
@@ -2035,7 +2151,9 @@ async function loadOverview() {
 
 function renderOverview(st) {
   const live = !st.demo;
-  $('#ovSub').innerHTML = `${live ? 'Live sending' : 'Demo data — nothing here was really sent'}${st.running ? ` · <span class="pill running">${st.running} sending now</span>` : ''}`;
+  // the description shows on hover over the title (one-line header); only what's happening now stays beside it
+  $('#ovSub').textContent = live ? 'Your messaging at a glance: real messages sent from your WhatsApp numbers.' : 'Your messaging at a glance. Demo data: nothing here was really sent.';
+  $('#ovLive').innerHTML = `${live ? '' : '<span class="pill">Demo data</span>'}${st.running ? `<span class="pill running">${st.running} sending now</span>` : ''}`;
   $('#seedBtn').classList.toggle('hidden', live || st.hasSeed || !state.settings?.demoAllowed);
   $('#unseedBtn').classList.toggle('hidden', !st.hasSeed);
   renderFilters(st);
@@ -2068,7 +2186,10 @@ function renderFilters(st) {
   ft.classList.toggle('hidden', !st.tests && !st.filters.tests);
   if (st.tests || st.filters.tests) ft.innerHTML = `Include tests <span class="opt">${st.tests}</span>${toggleHtml({ checked: st.filters.tests, attrs: 'id="fTestsOn" aria-label="Include test campaigns in these numbers"', size: 'sm' })}`;
   ft.title = st.filters.tests ? 'Test campaigns are counted in these numbers' : `${st.tests} test campaign${st.tests === 1 ? ' is' : 's are'} left out of these numbers`;
-  $('#fNote').textContent = `Changes compare with the previous ${st.range} days${st.range === 90 ? ' · grouped by week' : ''}`;
+  // short, so it fits at the end of the filter row; the full sentence on hover
+  $('#fNote').textContent = `vs previous ${st.range} day${st.range === 1 ? '' : 's'}${st.range >= 90 ? ' · by week' : ''}`;
+  $('#fNote').title = `The changes on the cards compare with the ${st.range} day${st.range === 1 ? '' : 's'} just before${st.range >= 90 ? '. The chart groups days into weeks.' : '.'}`;
+  renderRangeBtn(st);
   syncControls();
 }
 
@@ -2082,8 +2203,48 @@ function syncControls() {
   });
 }
 
+// what the Overview asks for: the period (preset or custom), number, template, tests
+function statsQuery() {
+  const c = state.ov.custom;
+  return new URLSearchParams({ range: state.ov.range, ...(c ? { from: c.from, to: c.to } : {}), sender: state.ov.sender, template: state.ov.template, tests: state.ov.tests ? '1' : '' });
+}
+// The period dropdown: Last 7 / 14 / 30 / 90 days, or a custom range from the calendar
+function renderRangeBtn(st) {
+  const b = $('#rangeBtn');
+  if (!b) return;
+  const label = st?.custom ? periodText(st) : `Last ${state.ov.range} days`;
+  b.innerHTML = `${icon('calendar-days', 15)}<span>${esc(label)}</span>${icon('chevron-down', 13)}`;
+  b.classList.toggle('on', Boolean(state.ov.custom));
+}
+$('#rangeBtn').addEventListener('click', (e) => {
+  const b = e.currentTarget, r = b.getBoundingClientRect();
+  const custom = state.ov.custom;
+  const el = Sheet.Menu.open(r.left, r.bottom + 6, [
+    ...[7, 14, 30, 90].map((n) => ({ label: `Last ${n} days`, checked: !custom && state.ov.range === n, action: () => { state.ov.custom = null; state.ov.range = -1; setRange(n); } })),
+    '-',
+    { label: custom ? `Custom: ${periodText({ custom })}` : 'Custom range…', checked: Boolean(custom), action: () => openCustomRange(b) },
+  ]);
+  return el;
+});
+function openCustomRange(b) {
+  const was = state.ov.custom;
+  DateFilter.open(b, {
+    value: was ? { from: was.from, to: was.to } : null,
+    onChange: (v) => {
+      // a range (or picked days: from the first to the last); cleared → back to the last few days
+      const days = v?.days?.slice().sort();
+      const next = v?.from ? { from: v.from, to: v.to } : days?.length ? { from: days[0], to: days.at(-1) } : null;
+      if (JSON.stringify(next) === JSON.stringify(state.ov.custom)) return;
+      state.ov.custom = next;
+      saveOv();
+      loadOverview().catch((err) => toast(err.message, 'error'));
+    },
+  });
+}
+
 function setRange(n) {
-  if (state.ov.range === n) return;
+  if (state.ov.range === n && !state.ov.custom) return;
+  state.ov.custom = null;
   state.ov.range = n;
   saveOv();
   syncControls();
@@ -2179,19 +2340,22 @@ const metricValue = (m, b) => (m.kind === 'count' ? m.of(b) : rateOf(b, m));
 const fmt1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
 
 const dayLabel = (iso, opts = { month: 'short', day: 'numeric' }) => new Date(iso + 'T12:00:00').toLocaleDateString(undefined, opts);
+// The period the Overview shows, in words: "last 14 days", or a custom "Oct 1 – Oct 20"
+const periodText = (st) => (st.custom ? (st.custom.from === st.custom.to ? dayLabel(st.custom.from) : `${dayLabel(st.custom.from)} – ${dayLabel(st.custom.to)}`) : `last ${st.range} days`);
+const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 // Daily buckets, or weekly ones (ending today) for the 90-day range.
 function makeBuckets(days, range) {
   const lastIdx = days.length - 1;
   if (range < 90) {
-    return days.map((d, i) => ({ ...d, key: d.date, label: i === lastIdx ? 'Today' : dayLabel(d.date), long: dayLabel(d.date, { weekday: 'short', month: 'short', day: 'numeric' }) }));
+    return days.map((d, i) => ({ ...d, key: d.date, label: i === lastIdx && d.date === todayKey() ? 'Today' : dayLabel(d.date), long: dayLabel(d.date, { weekday: 'short', month: 'short', day: 'numeric' }) }));
   }
   const out = [];
   for (let end = days.length; end > 0; end -= 7) {
     const chunk = days.slice(Math.max(0, end - 7), end);
     const b = { key: chunk[0].date, sent: 0, delivered: 0, read: 0, failed: 0, reasons: {} };
     chunk.forEach((d) => { b.sent += d.sent; b.delivered += d.delivered; b.read += d.read; b.failed += d.failed; for (const [k, n] of Object.entries(d.reasons || {})) b.reasons[k] = (b.reasons[k] || 0) + n; });
-    b.label = end === days.length ? 'This week' : dayLabel(chunk[0].date);
+    b.label = end === days.length && days[days.length - 1].date === todayKey() ? 'This week' : dayLabel(chunk[0].date);
     b.long = `${dayLabel(chunk[0].date)} – ${dayLabel(chunk[chunk.length - 1].date)}`;
     out.unshift(b);
   }
@@ -2369,14 +2533,14 @@ function renderCharts({ instant = false } = {}) {
   if (!st) return;
   const bs = makeBuckets(st.days, st.range);
   const m = METRICS[state.ov.metric];
-  const per = st.range === 90 ? 'Per week' : 'Per day';
+  const per = st.range >= 90 ? 'Per week' : 'Per day';
   const title = m.kind === 'rate' ? m.label : `${m.label}`;
-  const sub = `${per}, last ${st.range} days${st.filters.sender || st.filters.template ? ' · filtered' : ''}${m.kind === 'rate' ? (m.den === 'sent' ? ' · delivered ÷ sent' : ' · read ÷ delivered') : ''}`;
+  const sub = `${per}, ${periodText(st)}${st.filters.sender || st.filters.template ? ' · filtered' : ''}${m.kind === 'rate' ? (m.den === 'sent' ? ' · delivered ÷ sent' : ' · read ÷ delivered') : ''}`;
   // Table view shows every number as a column, so the Sent / rate / Failed tabs have nothing to change there: they
   // step aside, and the header says what the table is.
   const tableView = state.ov.table;
   $('#chartTitle').lastChild.textContent = tableView ? 'Day by day' : title;
-  $('#chartSub').textContent = tableView ? `${per}, last ${st.range} days · every number${st.filters.sender || st.filters.template ? ' · filtered' : ''}` : sub;
+  $('#chartSub').textContent = tableView ? `${per}, ${periodText(st)} · every number${st.filters.sender || st.filters.template ? ' · filtered' : ''}` : sub;
   $('#chartTitle').firstElementChild?.replaceWith(document.createRange().createContextualFragment(icon(tableView ? 'table' : m.kind === 'rate' ? 'chart-spline' : 'chart-column-increasing', 18)));
   $('#metricSeg').classList.toggle('hidden', tableView);
   // Table / Chart: an icon button beside Zoom and Expand, showing what a click switches to
@@ -2808,7 +2972,7 @@ function renderOutModal({ instant = false } = {}) {
   const st = state.stats;
   if (!st) return;
   const share = state.ov.outScale !== 'count';
-  $('#oSub').textContent = `Each day, last ${st.range} days${st.filters.sender || st.filters.template ? ' · filtered' : ''}`;
+  $('#oSub').textContent = `Each day, ${periodText(st)}${st.filters.sender || st.filters.template ? ' · filtered' : ''}`;
   $('#oNote').textContent = share
     ? 'Each day as 100%: above the line got through, below it failed. Faint days had only a few messages.'
     : 'Messages each day: above the line got through, below it failed.';
@@ -3211,7 +3375,7 @@ function bindFlowHover(host) {
 // with its mark, count and share. Pointing at a piece or a row lights it (the app's hover rule).
 function renderFunnel(st, el = $('#funnel'), onLight = null) {
   const t = st.totals, total = t.sent + t.failed;
-  const sub = `Where messages ended up · last ${st.range} days${st.filters.sender || st.filters.template ? ' · filtered' : ''}`;
+  const sub = `Where messages ended up · ${periodText(st)}${st.filters.sender || st.filters.template ? ' · filtered' : ''}`;
   if (el.id === 'funnel') $('#funnelSub').textContent = sub;
   $('#outExpandBtn')?.toggleAttribute('disabled', !total);
   if (!total) {
@@ -4263,3 +4427,20 @@ $('#pwChange').addEventListener('click', () => {
     toast('Could not reach the server: ' + e.message, 'error');
   }
 })();
+
+// Settings → General → Animations: Auto / Full / Reduced (this browser). Auto says when it has turned them down.
+function syncMotionSetting() {
+  const cur = Motion.pref();
+  $$('#setMotion [data-motion]').forEach((b) => { const on = b.dataset.motion === cur; b.classList.toggle('active', on); b.setAttribute('aria-checked', String(on)); });
+  $('#motionHelp').textContent = cur === 'auto'
+    ? (Motion.lite() ? 'Turned down: this computer looked slow to draw them. Choose Full to have them anyway.' : 'Auto keeps them smooth, and turns them down on slower computers.')
+    : cur === 'lite' ? 'Fewer and quicker animations, and no blurred glass. Easiest on older computers.' : 'Every animation, on any computer.';
+  Motion.segs($('#setMotion').parentElement);
+}
+$('#setMotion').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-motion]');
+  if (!b) return;
+  Motion.setMotion(b.dataset.motion);
+  syncMotionSetting();
+});
+syncMotionSetting();
