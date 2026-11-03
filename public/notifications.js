@@ -168,7 +168,7 @@
   });
   $('#ntPer').addEventListener('change', (e) => {
     NT.per = Number(e.target.value) || 0;
-    try { localStorage.setItem('ntPer', String(NT.per)); } catch {}
+    try { localStorage.setItem('ntPer', String(NT.per)); } catch { }
     render();
   });
   $('#ntList').addEventListener('click', (e) => {
