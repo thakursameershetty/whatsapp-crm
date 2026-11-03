@@ -29,6 +29,9 @@
 </head>
 
 <body>
+  <!-- The sidebar as it was left (folded to icons, or the Inbox's), before the first paint: the page's width is final
+       from the start, so nothing (the Overview chart, say) is drawn for one width and then resized. -->
+  <script>try { var p = location.pathname.replace(/^\/+|\/+$/g, ''); document.body.classList.add('nav-instant'); if (p === 'inbox' || (p !== 'inbox' && localStorage.getItem('navCollapsed') === '1')) document.body.classList.add('nav-mini'); } catch (e) {}</script>
   <aside class="sidebar" id="sidebar">
     <div class="brand"><img class="logo" src="/brand/logo-small.svg" alt="" /><span class="brand-name">SendON</span>
       <button class="icon-btn nav-toggle la-host" id="navToggle" data-icon="panel-left" data-icon-size="17"

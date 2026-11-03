@@ -5314,7 +5314,8 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .chart-tip .tt-note { max-width: 260px; line-height: 1.45; }
 .tool.is-off { opacity: 0.35; }
 /* between the stacked chart and the rate line, the rate chart fades rather than snapping */
-.chart svg.d3chart { transition: opacity 0.35s ease; }
+.chart svg.d3chart { transition: opacity 0.3s ease 0.12s; } /* coming in: just after the stacked chart's axis has gone */
+.chart.is-flow > svg.d3chart { transition: opacity 0.12s ease; } /* going: at once, so the two axes never overlap */
 @media (prefers-reduced-motion: reduce) { .chart svg.d3chart { transition: none; } }
 /* Test campaigns: a quiet grey tag, a slightly faded folder, and the note in the Campaigns summary */
 .pill.test { background: var(--sunk); color: var(--muted); box-shadow: inset 0 0 0 1px var(--hair); }
@@ -5499,3 +5500,34 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .cp-mpick .dt-nav:hover { background: var(--sunk); color: var(--text); }
 .cp-mpick [data-y="-1"] svg { transform: rotate(90deg); }
 .cp-mpick [data-y="1"] svg { transform: rotate(-90deg); }
+/* Overview chart: the same layout on every tab, so the axes never move. The key under the chart always keeps the room
+   of two lines (the Failed reasons can wrap), shown or not; and the zoom button keeps its place beside the tabs, just
+   invisible when there's nothing to zoom. (Otherwise the chart changed height between tabs mid-animation and the tabs
+   slid sideways, and the axes snapped back once the resize redraw came.) */
+.fl-legend { min-height: 20px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.fl-legend::-webkit-scrollbar { display: none; }
+.fl-legend > span { flex: none; white-space: nowrap; }
+/* a key longer than the card (several failure reasons) scrolls sideways under a soft fade instead of wrapping onto
+   a second line: one line always, so the chart is the same size on every tab and no empty line is kept for it */
+.fl-legend.more { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); }
+.fl-legend.more.end { -webkit-mask-image: linear-gradient(to right, transparent, #000 48px); mask-image: linear-gradient(to right, transparent, #000 48px); }
+/* table view: the table fills the card (more days before it scrolls; the total stays pinned at the bottom) */
+#tab-overview .chart-card #dayTable { flex: 1 1 0; min-height: 220px; max-height: none; }
+.fl-legend.hidden { display: flex !important; visibility: hidden; }
+.fl-legend.gone { display: none !important; }
+.fl-zoom-btn.hidden { display: inline-flex !important; visibility: hidden; pointer-events: none; }
+body.nav-instant, body.nav-instant .sidebar { transition: none !important; } /* set before the first paint: no slide */
+.fl-legend .rk-line path { fill: none; stroke: var(--chart); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.fl-legend .rk-line circle, .fl-legend .rk-dot circle { fill: var(--chart); }
+.fl-legend .rk-dot.few circle { fill: var(--surface); stroke: var(--chart); stroke-width: 1.6; }
+.fl-legend svg { flex: none; }
+/* The period's totals: a band of their own, pinned at the foot of the table, so they never read as one more day.
+   A soft tint with rounded ends, a firmer line above it, and a shadow cast up onto the days scrolling under it. */
+.chart-table tfoot td {
+  background: color-mix(in srgb, var(--text) 5%, var(--surface)) !important; border-top: 0 !important;
+  box-shadow: inset 0 1.5px 0 color-mix(in srgb, var(--text) 18%, transparent), 0 -10px 14px -12px rgba(16, 24, 32, 0.35);
+  padding-top: 13px; padding-bottom: 13px; font-weight: 650; color: var(--text);
+}
+.chart-table tfoot td:first-child { border-radius: 10px 0 0 10px; }
+.chart-table tfoot td:last-child { border-radius: 0 10px 10px 0; }
+.chart-table tfoot td:first-child { color: var(--muted); font-weight: 600; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }

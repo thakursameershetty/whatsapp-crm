@@ -177,6 +177,8 @@ function syncNav() {
   btn.setAttribute('aria-expanded', String(!mini));
   // Thumbs, the Send split and the inbox measure their space: let them re-fit once the sidebar has moved.
   if (was !== mini) setTimeout(() => dispatchEvent(new Event('resize')), Motion.reduce() ? 0 : 300);
+  // (the first time: the sidebar was already set before the first paint, without sliding; from now on it slides)
+  if (document.body.classList.contains('nav-instant')) requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('nav-instant')));
 }
 $('#navToggle').addEventListener('click', () => {
   if (state.tab === 'inbox') state.inboxNavOpen = !state.inboxNavOpen;
@@ -2039,12 +2041,14 @@ function renderOverview(st) {
   renderFilters(st);
   renderSetup(st);
   renderKpis(st);
-  renderCharts();
   renderFunnel(st);
   if (!$('#outModal').classList.contains('hidden')) renderOutModal();
   renderHealth(st);
   renderUpcoming(st);
   renderRecent(st);
+  // the chart last: its card shares a row with "Where they ended up", so it's only at its final size once that's in.
+  // Drawn earlier, its entrance ran at the old size and then snapped to the new one (a stutter as it settled).
+  renderCharts();
   Motion.values($('#tab-overview'));
 }
 
@@ -2368,9 +2372,13 @@ function renderCharts({ instant = false } = {}) {
   const per = st.range === 90 ? 'Per week' : 'Per day';
   const title = m.kind === 'rate' ? m.label : `${m.label}`;
   const sub = `${per}, last ${st.range} days${st.filters.sender || st.filters.template ? ' · filtered' : ''}${m.kind === 'rate' ? (m.den === 'sent' ? ' · delivered ÷ sent' : ' · read ÷ delivered') : ''}`;
-  $('#chartTitle').lastChild.textContent = title;
-  $('#chartSub').textContent = sub;
-  $('#chartTitle').firstElementChild?.replaceWith(document.createRange().createContextualFragment(icon(m.kind === 'rate' ? 'chart-spline' : 'chart-column-increasing', 18)));
+  // Table view shows every number as a column, so the Sent / rate / Failed tabs have nothing to change there: they
+  // step aside, and the header says what the table is.
+  const tableView = state.ov.table;
+  $('#chartTitle').lastChild.textContent = tableView ? 'Day by day' : title;
+  $('#chartSub').textContent = tableView ? `${per}, last ${st.range} days · every number${st.filters.sender || st.filters.template ? ' · filtered' : ''}` : sub;
+  $('#chartTitle').firstElementChild?.replaceWith(document.createRange().createContextualFragment(icon(tableView ? 'table' : m.kind === 'rate' ? 'chart-spline' : 'chart-column-increasing', 18)));
+  $('#metricSeg').classList.toggle('hidden', tableView);
   // Table / Chart: an icon button beside Zoom and Expand, showing what a click switches to
   const tb = $('#chartTableBtn'), tl = state.ov.table ? 'Show as chart' : 'Show as table';
   tb.innerHTML = icon(state.ov.table ? 'chart-column-increasing' : 'table', 14);
@@ -2379,9 +2387,26 @@ function renderCharts({ instant = false } = {}) {
   $('#dayChart').classList.toggle('hidden', state.ov.table);
   $('#dayTable').classList.toggle('hidden', !state.ov.table);
   // the table has its own marks in the header: no legend above it
-  if (state.ov.table) { $('#dayLegend').classList.add('hidden'); $('#chartZoomBtn').classList.add('hidden'); }
+  // table view: no chart, so no room kept for its key either
+  $('#dayLegend').classList.toggle('gone', state.ov.table);
+  if (state.ov.table) $('#chartZoomBtn').classList.add('hidden');
   if (state.ov.table) renderChartTable($('#dayTable'), bs);
-  else drawChart($('#dayChart'), bs, m, { instant });
+  else {
+    drawChart($('#dayChart'), bs, m, { instant });
+    // a rate's key, in the line the stacked charts use for theirs: the period's overall rate, and what the dot sizes
+    // and hollow dots mean
+    if (m.kind === 'rate') {
+      const num = bs.reduce((t, b) => t + (b[m.num] || 0), 0), den = bs.reduce((t, b) => t + (b[m.den] || 0), 0);
+      const leg = $('#dayLegend');
+      leg.innerHTML = `<span><svg class="rk-line" viewBox="0 0 22 10" width="22" height="10" aria-hidden="true"><path d="M1 7 8 3l6 3 7-5"/><circle cx="8" cy="3" r="2.6"/></svg>${esc(m.label)} <b>${den ? fmt1((100 * num) / den) + '%' : '—'}</b>&nbsp;overall</span>`
+        + `<span title="Each dot's size shows how many messages that day's rate is from"><svg class="rk-dot" viewBox="0 0 16 10" width="16" height="10" aria-hidden="true"><circle cx="4" cy="5" r="2.4"/><circle cx="11.5" cy="5" r="4"/></svg>bigger = more messages</span>`
+        + `<span title="A day with under ${FEW} messages: one message moves its rate a lot"><svg class="rk-dot few" viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="3.4"/></svg>hollow = under ${FEW} messages</span>`;
+      leg.classList.remove('hidden');
+      const more = leg.scrollWidth > leg.clientWidth + 1;
+      leg.classList.toggle('more', more);
+      leg.classList.toggle('end', false);
+    }
+  }
 
   if (!$('#chartModal').classList.contains('hidden')) {
     $('#xTitle').textContent = title;
@@ -2392,7 +2417,10 @@ function renderCharts({ instant = false } = {}) {
   syncControls();
 }
 
-function drawChart(el, bs, m, { instant = false } = {}) {
+function drawChart(el, bs, m, { instant = false, resize = false } = {}) {
+  // any new drawing replaces the pending "finish it" redraw below: that one was for the tab shown before, and firing
+  // later it would put that chart back over this one (switching Read rate → Failed quickly showed the rate line)
+  clearTimeout(el.__finalT);
   if (!el.offsetParent || !window.d3) return;
   const W = el.clientWidth, H = el.clientHeight;
   if (!W || !H) return;
@@ -2400,7 +2428,7 @@ function drawChart(el, bs, m, { instant = false } = {}) {
   // stay this chart. Between the two kinds the outgoing one sinks to the line and fades while the other grows in.
   const flow = m === METRICS.sent ? 'sent' : m === METRICS.failed ? 'failed' : null;
   el.classList.toggle('is-flow', Boolean(flow));
-  if (flow) return drawFlow(el, bs, { instant, mode: flow, layout: 'stack' });
+  if (flow) return drawFlow(el, bs, { instant, resize, mode: flow, layout: 'stack' });
   if (el.__flow) hideFlow(el, { instant });
   const pad = { l: 42, r: 12, t: 26, b: 28 };
   const base = H - pad.b;
@@ -2426,7 +2454,7 @@ function drawChart(el, bs, m, { instant = false } = {}) {
     svg.append('g').attr('class', 'hits');
     bindChartHover(el);
     // made fresh (e.g. the first switch from the stacked chart to a rate): fade in, as later switches do (style.css)
-    if (!instant && !Motion.reduce()) svg.style('opacity', 0).transition().duration(350).style('opacity', 1).on('end', () => svg.style('opacity', null));
+    if (!instant && !Motion.reduce()) svg.style('opacity', 0).transition().delay(120).duration(300).style('opacity', 1).on('end', () => svg.style('opacity', null));
   }
   svg.attr('viewBox', `0 0 ${W} ${H}`).attr('aria-label', `${m.label}, ${bs.length} ${bs.length > 20 ? 'periods' : 'days'}`);
 
@@ -2450,13 +2478,17 @@ function drawChart(el, bs, m, { instant = false } = {}) {
   const band = x.bandwidth();
   const bw = Math.min(24, Math.max(3, band * 0.62));
   const cx = (b) => x(b.key) + band / 2;
-  const dur = instant || Motion.reduce() ? 0 : 750;
+  const dur = instant || Motion.reduce() ? 0 : resize ? 380 : 750; // a resize: a quick glide to the new size
 
   // If an earlier animation never got to run (e.g. the tab was in the background),
   // finish it now rather than leaving the chart half-drawn.
   clearTimeout(el.__finalT);
   if (!dur) svg.selectAll('*').interrupt();
-  else el.__finalT = setTimeout(() => document.visibilityState === 'visible' && drawChart(el, bs, m, { instant: true }), dur + bs.length * 35 + 400);
+  else el.__finalT = setTimeout(() => {
+    // still on this chart's tab? then finish it (with what's selected now, in case that changed)
+    if (document.visibilityState !== 'visible' || METRICS[state.ov.metric] !== m) return;
+    drawChart(el, bs, m, { instant: true });
+  }, dur + bs.length * 35 + 400);
 
   const T = (sel, delay = 0) => (dur ? sel.transition().duration(dur).delay(delay).ease(d3.easeCubicOut) : sel);
 
@@ -2464,17 +2496,20 @@ function drawChart(el, bs, m, { instant = false } = {}) {
   const y0 = svg.node().__y || y;
   svg.node().__y = y.copy();
   const clampY = (v) => Math.max(pad.t - 12, Math.min(base, v));
+  // (moving and fading run apart: old labels are gone early, new ones arrive late, so two sets never pile up)
+  const fadeOut = (s) => s.transition('fade').duration(dur * 0.2).attr('opacity', 0);
+  const fadeIn = (s) => (dur ? s.transition('fade').delay(dur * 0.22).duration(dur * 0.35).attr('opacity', 1) : s.interrupt('fade').attr('opacity', 1));
   svg.select('g.grid').selectAll('line').data(ticks, (d) => `${isRate}${d}`).join(
     (enter) => enter.append('line').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (d) => clampY(y0(d))).attr('y2', (d) => clampY(y0(d))).attr('opacity', 0)
-      .call((e) => T(e).attr('opacity', 1).attr('y1', (d) => y(d)).attr('y2', (d) => y(d))),
-    (update) => update.call((u) => T(u).attr('opacity', 1).attr('x2', W - pad.r).attr('y1', (d) => y(d)).attr('y2', (d) => y(d))),
-    (exit) => exit.call((ex) => (dur ? T(ex).attr('opacity', 0).attr('y1', (d) => clampY(y(d))).attr('y2', (d) => clampY(y(d))).remove() : ex.remove()))
+      .call(fadeIn).call((e) => T(e).attr('y1', (d) => y(d)).attr('y2', (d) => y(d))),
+    (update) => update.call(fadeIn).call((u) => T(u).attr('x2', W - pad.r).attr('y1', (d) => y(d)).attr('y2', (d) => y(d))),
+    (exit) => exit.call((ex) => (dur ? (fadeOut(ex), T(ex).attr('y1', (d) => clampY(y(d))).attr('y2', (d) => clampY(y(d))).remove()) : ex.remove()))
   );
   svg.select('g.yticks').selectAll('text').data(ticks, (d) => `${isRate}${d}`).join(
     (enter) => enter.append('text').attr('class', 'tick').attr('text-anchor', 'end').attr('x', pad.l - 10).attr('y', (d) => clampY(y0(d)) + 4).text(tickFmt).attr('opacity', 0)
-      .call((e) => T(e).attr('opacity', 1).attr('y', (d) => y(d) + 4)),
-    (update) => update.call((u) => T(u).attr('opacity', 1).attr('y', (d) => y(d) + 4)),
-    (exit) => exit.call((ex) => (dur ? T(ex).attr('opacity', 0).attr('y', (d) => clampY(y(d)) + 4).remove() : ex.remove()))
+      .call(fadeIn).call((e) => T(e).attr('y', (d) => y(d) + 4)),
+    (update) => update.call(fadeIn).call((u) => T(u).attr('y', (d) => y(d) + 4)),
+    (exit) => exit.call((ex) => (dur ? (fadeOut(ex), T(ex).attr('y', (d) => clampY(y(d)) + 4).remove()) : ex.remove()))
   );
 
   // Columns (counts). Each bar remembers its drawn geometry, so any change —
@@ -2659,20 +2694,62 @@ function renderChartTable(el, bs) {
     .slice()
     .reverse()
     .map((b) => row(esc(b.long), b))
-    .join('')}</tbody><tfoot>${row('Total for the period', sum, 'tt-total')}</tfoot></table>`;
+    .join('')}</tbody><tfoot>${row(`Total · ${state.stats?.range || bs.length} days`, sum, 'tt-total')}</tfoot></table>`;
 }
 
+// Chart ↔ table: the view going out fades away, the card's height glides to the new size, and the view coming in
+// arrives: the table's rows rise in one after another; the chart's columns grow up from the line again (a rate line
+// fades in), with the tabs and the key.
+let tableSwitching = false; // (not in state.ov: that's saved, and a reload mid-switch would keep the button stuck)
 $('#chartTableBtn').addEventListener('click', () => {
-  state.ov.table = !state.ov.table;
-  saveOv();
-  renderCharts();
+  if (tableSwitching) return; // one switch at a time (a double click mid-fade would run it twice)
+  const card = $('#chartCard'), toTable = !state.ov.table, reduce = Motion.reduce();
+  const ease = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+  const swap = () => {
+    const h0 = card.getBoundingClientRect().height;
+    state.ov.table = toTable;
+    saveOv();
+    const host = $('#dayChart');
+    if (!toTable && host.__flow) hideFlow(host, { instant: true }); // drawn afresh, so its columns grow in
+    renderCharts();
+    if (reduce) return;
+    const h1 = card.getBoundingClientRect().height;
+    if (Math.abs(h1 - h0) > 1) {
+      card.style.overflow = 'hidden';
+      card.animate([{ height: h0 + 'px' }, { height: h1 + 'px' }], { duration: 300, easing: ease }).finished.finally(() => { card.style.overflow = ''; });
+    }
+    const head = $('#chartTitle').parentElement;
+    head.animate([{ opacity: 0.2 }, { opacity: 1 }], { duration: 260, easing: ease });
+    if (toTable) {
+      $$('#dayTable thead tr, #dayTable tbody tr, #dayTable tfoot tr').forEach((r, i) => r.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 280, delay: Math.min(i, 16) * 18, easing: ease, fill: 'backwards' }));
+    } else {
+      $('#metricSeg').animate([{ opacity: 0, transform: 'scale(0.96)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: ease });
+      if (!host.classList.contains('is-flow')) host.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 320, delay: 80, easing: ease, fill: 'backwards' });
+      $('#dayLegend').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 250, easing: ease, fill: 'backwards' });
+    }
+  };
+  if (reduce) return swap();
+  // out first, quickly
+  tableSwitching = true;
+  const out = toTable ? [$('#dayChart'), $('#dayLegend'), $('#metricSeg')] : [$('#dayTable')];
+  Promise.all(out.map((el) => el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: 'ease-in', fill: 'forwards' }).finished))
+    .then(() => { swap(); out.forEach((el) => el.getAnimations().forEach((a) => a.cancel())); })
+    .finally(() => { tableSwitching = false; });
 });
 // Redraw at the new size only when the size really changed: a redraw is instant, and would cut short a chart that is
 // still animating (e.g. switching Sent → Failed), which a same-size notification would otherwise do.
 { let lastW = 0, lastH = 0;
   new ResizeObserver(([e]) => { const { width: w, height: hh } = e.contentRect; if (Math.round(w) === lastW && Math.round(hh) === lastH) return; const first = !lastW; lastW = Math.round(w); lastH = Math.round(hh); if (first) return;
-    // after any animation in flight has finished, so a resize never cuts it short
-    clearTimeout(window.__rsT); window.__rsT = setTimeout(drawChartsInstant, 900); }).observe($('#dayChart')); }
+    // its room is changing (the sidebar folding, the window resizing): follow it as it goes, a glide at the first
+    // change and then every ~90 ms, each going on from where the columns are, and once more when it stops
+    const now = performance.now();
+    if (!(now - (window.__rsAt || 0) < 90)) { window.__rsAt = now; drawChartsResize(); }
+    clearTimeout(window.__rsT); window.__rsT = setTimeout(() => { window.__rsAt = performance.now(); drawChartsResize(); }, 120); }).observe($('#dayChart')); }
+function drawChartsResize() {
+  if (!state.stats) return;
+  const bs = makeBuckets(state.stats.days, state.stats.range), m = METRICS[state.ov.metric];
+  drawChart($('#dayChart'), bs, m, { resize: true });
+}
 new ResizeObserver(() => drawChartsInstant()).observe($('#xChart'));
 function drawChartsInstant() {
   if (!state.stats) return;
@@ -2806,7 +2883,7 @@ function topReasons(bs) {
 }
 const reasonFill = (id, top) => (id === 'other' ? 'var(--faint)' : `color-mix(in srgb, var(--cx-failed) ${REASON_SHADES[top.indexOf(id)] ?? 30}%, var(--surface))`);
 
-function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge', share = false } = {}) {
+function drawFlow(host, bs, { instant = false, resize = false, mode = 'sent', layout = 'diverge', share = false } = {}) {
   host.__redraw = () => drawFlow(host, bs, { mode, layout, share });
   host.__flow = bs;
   host.__flowMode = mode;
@@ -2872,8 +2949,13 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   const busy = bs.map(tried).filter((v) => v > 0).sort((a, b) => a - b);
   const few = share ? Math.max(3, (busy[Math.floor(busy.length / 2)] || 0) * 0.1) : 0;
   const x = d3.scaleBand().domain(bs.map((b) => b.key)).range([pad.l, W - pad.r]).paddingInner(bs.length > 20 ? 0.3 : 0.38).paddingOuter(0.15);
-  const bw = x.bandwidth(), GAP = 2, dur = instant || Motion.reduce() ? 0 : 750;
+  const bw = x.bandwidth(), GAP = 2, dur = instant || Motion.reduce() ? 0 : resize ? 380 : 750; // resize: a quick glide
   let svg = d3.select(host).select('svg.fl-svg');
+  // back before it had finished leaving (a quick switch away and back): call off its exit and bring it back in full
+  if (!svg.empty() && svg.classed('leaving')) {
+    svg.interrupt().classed('leaving', false).style('opacity', 1);
+    svg.selectAll('.yticks, .grid, .fl-x, .fl-cuts').interrupt().style('opacity', null);
+  }
   if (svg.empty()) {
     svg = d3.select(host).append('svg').attr('class', 'fl-svg').attr('role', 'img');
     svg.append('g').attr('class', 'grid');
@@ -2892,6 +2974,7 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
     svg.append('rect').attr('class', 'fl-ring').attr('opacity', 0);
     svg.append('g').attr('class', 'fl-x');
     bindFlowHover(host);
+    if (dur) svg.style('opacity', 0).transition().delay(120).duration(260).style('opacity', 1);
   }
   svg.attr('viewBox', `0 0 ${W} ${H}`).attr('width', W).attr('height', H).attr('aria-label', 'Messages per day: read, delivered, sent and failed');
   const ticks = y.ticks(4).filter(Number.isInteger);
@@ -2902,16 +2985,20 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   host.__flY = y.copy();
   const clampY = (v) => Math.max(pad.t - 12, Math.min(base, v));
   const tkey = (v) => (share ? '%' : '') + v;
+  // fading runs apart from moving (named transitions): an old label is gone in the first third, a new one appears
+  // in the last half, so two sets of numbers never pile up mid-way
+  const fadeOut = (s) => s.transition('fade').duration(dur * 0.2).attr('opacity', 0);
+  const fadeIn = (s) => (dur ? s.transition('fade').delay(dur * 0.22).duration(dur * 0.35).attr('opacity', 1) : s.interrupt('fade').attr('opacity', 1));
   svg.select('.grid').selectAll('line').data(ticks, tkey).join(
-    (enter) => enter.append('line').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (v) => clampY(y0(v))).attr('y2', (v) => clampY(y0(v))).attr('opacity', 0),
-    (update) => update,
-    (exit) => (dur ? exit.transition().duration(dur).ease(d3.easeCubicOut).attr('opacity', 0).attr('y1', (v) => clampY(y(v))).attr('y2', (v) => clampY(y(v))).remove() : exit.remove()),
-  ).call((s) => TA(s).attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (v) => y(v)).attr('y2', (v) => y(v)).attr('opacity', 1));
+    (enter) => enter.append('line').attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (v) => clampY(y0(v))).attr('y2', (v) => clampY(y0(v))).attr('opacity', 0).call(fadeIn),
+    (update) => update.call(fadeIn),
+    (exit) => (dur ? exit.call(fadeOut).transition().duration(dur).ease(d3.easeCubicOut).attr('y1', (v) => clampY(y(v))).attr('y2', (v) => clampY(y(v))).remove() : exit.remove()),
+  ).call((s) => TA(s).attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', (v) => y(v)).attr('y2', (v) => y(v)));
   svg.select('.yticks').selectAll('text').data(ticks, tkey).join(
-    (enter) => enter.append('text').attr('class', 'tick').attr('x', pad.l - 10).attr('text-anchor', 'end').attr('y', (v) => clampY(y0(v)) + 4).attr('opacity', 0),
-    (update) => update,
-    (exit) => (dur ? exit.transition().duration(dur).ease(d3.easeCubicOut).attr('opacity', 0).attr('y', (v) => clampY(y(v)) + 4).remove() : exit.remove()),
-  ).text((v) => fmtNum(v) + (share ? '%' : '')).call((s) => TA(s).attr('x', pad.l - 10).attr('y', (v) => y(v) + 4).attr('opacity', 1));
+    (enter) => enter.append('text').attr('class', 'tick').attr('x', pad.l - 10).attr('text-anchor', 'end').attr('y', (v) => clampY(y0(v)) + 4).attr('opacity', 0).call(fadeIn),
+    (update) => update.call(fadeIn),
+    (exit) => (dur ? exit.call(fadeOut).transition().duration(dur).ease(d3.easeCubicOut).attr('y', (v) => clampY(y(v)) + 4).remove() : exit.remove()),
+  ).text((v) => fmtNum(v) + (share ? '%' : '')).call((s) => TA(s).attr('x', pad.l - 10).attr('y', (v) => y(v) + 4));
   const bl = svg.select('.fl-base');
   if (bl.attr('y1') == null) bl.attr('y1', base + 0.5).attr('y2', base + 0.5);
   TA(bl).attr('x1', pad.l).attr('x2', W - pad.r).attr('y1', base + 0.5).attr('y2', base + 0.5);
@@ -2934,15 +3021,17 @@ function drawFlow(host, bs, { instant = false, mode = 'sent', layout = 'diverge'
   cols.each(function (b, i) {
     const r = d3.select(this).selectAll('rect').data(pieces(b, i), (p) => mode + ':' + p.id)
       .join(
-        (enter) => enter.append('rect').attr('rx', 3).attr('y', base).attr('height', 0),
+        // a new piece starts on the line in its place; one already drawn slides there with the rest (the chart's
+        // room changing: the columns move sideways as one with the axis, no snap)
+        (enter) => enter.append('rect').attr('rx', 3).attr('y', base).attr('height', 0).attr('x', x(b.key)).attr('width', bw),
         (update) => update,
         // pieces of the other mode, or a reason that's gone: back down to the line, then out
         (exit) => (dur ? exit.transition().duration(dur / 2).ease(d3.easeCubicIn).attr('y', base).attr('height', 0).remove() : exit.remove()),
       )
-      .attr('data-sw', (p) => (mode === 'failed' ? null : p.id)).style('fill', (p) => (mode === 'failed' ? reasonFill(p.id, R.top) : null))
-      .attr('x', x(b.key)).attr('width', bw);
-    // an instant redraw (a resize) stops an entrance still running, or it would carry on to the old size
-    (dur ? r.transition().duration(dur).delay(i * Math.min(30, 400 / bs.length)).ease(d3.easeCubicOut) : r.interrupt()).attr('y', (p) => p.y).attr('height', (p) => p.h);
+      .attr('data-sw', (p) => (mode === 'failed' ? null : p.id)).style('fill', (p) => (mode === 'failed' ? reasonFill(p.id, R.top) : null));
+    // (an instant redraw stops an entrance still running, or it would carry on to the old size)
+    (dur ? r.transition().duration(dur).delay(resize ? 0 : i * Math.min(30, 400 / bs.length)).ease(d3.easeCubicOut) : r.interrupt())
+      .attr('x', x(b.key)).attr('width', bw).attr('y', (p) => p.y).attr('height', (p) => p.h);
   });
   // zoomed in: the real total above a column that runs off the top
   const cuts = bs.filter(cutUp).map((b) => ({ key: b.key, b }));
@@ -3030,6 +3119,10 @@ function flowLegend(host, mode, bs, R) {
     : [['read', 'Read', (b) => b.read], ['delivered', 'Delivered', (b) => b.delivered - b.read], ['sent', 'Sent', (b) => b.sent - b.delivered], ['failed', 'Failed', (b) => b.failed]]
       .map(([sw, l, f]) => [sw, l, sum(f)]).filter(([, , n]) => n).map(([sw, l, n]) => item(sw, '', waMark(sw), l, n)).join('');
   leg.classList.remove('hidden');
+  // longer than the card: a fade on the side there's more on (it scrolls sideways)
+  const edges = () => { const more = leg.scrollWidth > leg.clientWidth + 1; leg.classList.toggle('more', more); leg.classList.toggle('end', more && leg.scrollLeft + leg.clientWidth >= leg.scrollWidth - 2); };
+  edges();
+  if (!leg.__edges) { leg.__edges = true; leg.addEventListener('scroll', edges, { passive: true }); }
 }
 function hideFlow(host, { instant = false } = {}) {
   host.querySelector('.fl-empty')?.remove();
@@ -3044,8 +3137,10 @@ function hideFlow(host, { instant = false } = {}) {
   if (svg.empty()) return;
   if (instant || Motion.reduce()) return svg.remove();
   const base = Number(svg.select('.fl-base').attr('y1')) || 0;
-  svg.classed('leaving', true).selectAll('.fl-col rect').interrupt().transition().duration(320).ease(d3.easeCubicIn).attr('y', base).attr('height', 0);
-  svg.transition().duration(360).style('opacity', 0).remove();
+  // its axis goes at once (the incoming chart brings its own), its columns sink to the line, then it's gone
+  svg.selectAll('.yticks, .grid, .fl-x, .fl-cuts').interrupt().transition().duration(120).style('opacity', 0);
+  svg.classed('leaving', true).selectAll('.fl-col rect').interrupt().transition().duration(240).ease(d3.easeCubicIn).attr('y', base).attr('height', 0);
+  svg.transition().duration(280).style('opacity', 0).remove();
 }
 
 function bindFlowHover(host) {
