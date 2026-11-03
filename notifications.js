@@ -83,7 +83,7 @@ module.exports = function mountNotifications(app, ctx) {
     add({
       kind: 'campaign_done',
       title: stopped ? `“${c.name}” was stopped` : `“${c.name}” finished`,
-      body: `${plural(sent, 'message')} sent${failed ? `, ${plural(failed, 'failed')}` : ''}${stopped ? `, ${plural(c.recipients.length - sent - failed, 'not sent')}` : ''}.`,
+      body: `${plural(sent, 'message')} sent${failed ? `, ${failed.toLocaleString()} failed` : ''}${stopped ? `, ${(c.recipients.length - sent - failed).toLocaleString()} not sent` : ''}.`,
       link: { tab: 'campaigns', id: c.id },
       demo: c.demo,
     });

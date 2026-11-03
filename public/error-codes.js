@@ -110,9 +110,10 @@
     const q = ui.q.trim().toLowerCase();
     const hits = ME.list.filter((e) => (!ui.cat || e.cat === ui.cat) && (!q || e.code.includes(q) || `${e.title} ${e.means} ${e.todo}`.toLowerCase().includes(q)));
     const counts = Object.fromEntries(Object.keys(ME.cats).map((k) => [k, ME.list.filter((e) => e.cat === k).length]));
-    Motion.patch($('#ecFilter'), [['', 'All', ME.list.length], ...Object.entries(ME.cats).map(([k, v]) => [k, v, counts[k]])]
-      .map(([k, label, n]) => `<button data-cat="${k}" class="${ui.cat === k ? 'active' : ''}" role="tab" aria-selected="${ui.cat === k}">${esc(label)} <span class="opt">${n}</span></button>`).join(''));
-    Motion.segs($('.ec-bar'));
+    // a dropdown, so the search and the categories fit beside the title in the one-line header
+    $('#ecFilter').innerHTML = [['', 'All categories', ME.list.length], ...Object.entries(ME.cats).map(([k, v]) => [k, v, counts[k]])]
+      .map(([k, label, n]) => `<option value="${k}">${esc(label)} (${n})</option>`).join('');
+    $('#ecFilter').value = ui.cat;
     if (!hits.length) {
       const looksLikeCode = /^\d+$/.test(q);
       $('#ecList').innerHTML = `<div class="card ec-empty"><b>${looksLikeCode ? `Code ${esc(q)} isn't in this list` : 'Nothing matches'}</b><p>${looksLikeCode ? `It may be rare or new. <a href="${google(q)}" target="_blank" rel="noopener">Search for it ↗</a> or check <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes" target="_blank" rel="noopener">Meta's full list ↗</a>.` : 'Try a code number or another word.'}</p></div>`;
@@ -158,7 +159,8 @@
   function drawReportsPage() {
     const all = rp.reports;
     const n = (st) => all.filter((r) => !st || (st === 'open' ? r.status !== 'resolved' : r.status === 'resolved')).length;
-    Motion.patch($('#rsFilter'), [['', 'All'], ['open', 'Open'], ['resolved', 'Resolved']].map(([k, l]) => `<button data-st="${k}" class="${rs.status === k ? 'active' : ''}" role="tab" aria-selected="${rs.status === k}">${l} <span class="opt">${n(k)}</span></button>`).join(''));
+    $('#rsFilter').innerHTML = [['', 'All reports'], ['open', 'Open'], ['resolved', 'Resolved']].map(([k, l]) => `<option value="${k}">${l} (${n(k)})</option>`).join('');
+    $('#rsFilter').value = rs.status;
     Motion.segs($('#tab-reports'));
     const q = rs.q.trim().toLowerCase();
     const shown = all.filter((r) => (!rs.status || (rs.status === 'open' ? r.status !== 'resolved' : r.status === 'resolved'))
@@ -197,7 +199,7 @@
   };
   async function showReports() { showTab('reports'); }
   $('#rsSearch').addEventListener('input', (e) => { rs.q = e.target.value; drawReportsPage(); });
-  $('#rsFilter').addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (!b) return; rs.status = b.dataset.st; drawReportsPage(); });
+  $('#rsFilter').addEventListener('change', (e) => { rs.status = e.target.value; drawReportsPage(); });
   $('#rsNewBtn').addEventListener('click', () => { rp.from = ''; showForm(); });
   $('#rsList').addEventListener('click', (e) => {
     if (e.target.closest('[data-rs-new]')) { e.preventDefault(); rp.from = ''; showForm(); return; }
@@ -256,10 +258,5 @@
   $('#rpMineBtn').addEventListener('click', showReports);
 
   $('#ecSearch').addEventListener('input', (e) => { ui.q = e.target.value; draw(); });
-  $('#ecFilter').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-cat]');
-    if (!b) return;
-    ui.cat = b.dataset.cat;
-    draw();
-  });
+  $('#ecFilter').addEventListener('change', (e) => { ui.cat = e.target.value; draw(); });
 })();

@@ -350,8 +350,8 @@
         </div>
         <div class="in-head ec-bar">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="ecSearch" type="search"
-            placeholder="Search a code or a word, e.g. 131031 or template" autocomplete="off" /></div>
-        <div class="seg" id="ecFilter" role="tablist" aria-label="Category"></div>
+            placeholder="Search codes or words" title="A code like 131031, or a word like template" autocomplete="off" /></div>
+        <select id="ecFilter" aria-label="Category" title="Category"></select>
       </div>
         <div class="row tight">
           <button class="btn" id="rpMineBtn" data-icon="history">Your reports<span class="btn-count hidden" id="rpMineCount"></span></button>
@@ -363,16 +363,16 @@
 
     <!-- YOUR REPORTS (under Report an issue) ------------------------------------>
     <section id="tab-reports" class="tab hidden">
-      <a href="/report" class="back-link" data-goto="report" data-icon="arrow-left" data-icon-size="15">Report an issue</a>
       <div class="section-head has-tools">
         <div>
+          <a href="/report" class="icon-btn head-back" data-goto="report" title="Back to Report an issue" aria-label="Back to Report an issue" data-icon="arrow-left" data-icon-size="22"></a>
           <h1>Your reports</h1>
           <p class="sub">Issues reported from this workspace, and whether the team has resolved them. Open one to see everything that was sent.</p>
         </div>
         <div class="in-head list-bar">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="rsSearch" type="search"
             placeholder="Search reports" autocomplete="off" /></div>
-        <div class="seg" id="rsFilter" role="tablist" aria-label="Status"></div>
+        <select id="rsFilter" aria-label="Status" title="Status"></select>
       </div>
         <button class="btn primary" id="rsNewBtn" data-icon="square-pen">Report an issue</button>
       </div>

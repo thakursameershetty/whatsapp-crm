@@ -2235,8 +2235,7 @@ svg.la-bell.on .a-clap { animation: la-clap 0.9s var(--ease-out); }
 /* ---- Notifications page ---- */
 .nt-bar { margin-bottom: 18px; }
 .nt-list { max-width: none; }
-/* Notifications read as one centred column (header, filters and list together) instead of rows stretched across a wide screen */
-#tab-notifications { max-width: 920px; margin-inline: auto; }
+/* Notifications use the page's full width, like the other pages */
 .nt-day { margin-bottom: 22px; }
 .nt-day h3 { margin: 0 0 8px 4px; font-size: 13px; font-weight: 650; color: var(--muted); }
 .nt-card { padding: 4px; }
@@ -5768,3 +5767,12 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 #cdHead .cd-back svg { transition: transform 0.2s var(--ease-out, ease); }
 /* Campaigns list: filters on the left; sort, page size and view on the right, beside New campaign */
 #campaignList > .section-head:not(.tools-below) .cp-tools .cp-display-start { margin-left: auto !important; }
+
+/* Report an issue / Your reports: category and status as dropdowns in the one-line header */
+#ecFilter { width: 200px; min-width: 0; }
+#rsFilter { width: 160px; min-width: 0; }
+/* A page reached from another (Your reports ← Report an issue): a big back arrow just before the title */
+.head-back { flex: none; width: 40px; height: 40px; margin-left: -10px; display: grid; place-items: center; border-radius: 12px; color: var(--muted); }
+.head-back:hover { background: var(--sunk); color: var(--text); }
+.head-back svg { transition: transform 0.2s var(--ease-out, ease); }
+.head-back:hover svg { transform: translateX(-2px); }
