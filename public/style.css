@@ -6151,3 +6151,6 @@ html.lite .cd-day-art svg, html.lite .cd-day-art .a5 { animation: none; }
 html.vt-day::view-transition-group(cp-day) { animation-duration: 0.42s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
 html.vt-day::view-transition-old(cp-day), html.vt-day::view-transition-new(cp-day) { height: 100%; width: 100%; object-fit: cover; object-position: left top; }
 html.vt-day::view-transition-old(root), html.vt-day::view-transition-new(root) { animation-duration: 0.3s; }
+/* day view: the campaign pills without the coloured left edge */
+.cd-ev { box-shadow: none; }
+.cd-ev.scheduled { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c) 45%, transparent); }
