@@ -393,9 +393,9 @@
           <button class="tool" id="spRedo" title="Redo (⇧⌘Z)" aria-label="Redo" data-icon="redo-2"
             data-icon-size="16"></button>
           <span class="sp-sep"></span>
-          <button class="tool" id="spAddRow" title="Insert a row below the selection" data-icon="plus"
+          <button class="tool" id="spAddRow" title="Insert rows above or below the selection" aria-haspopup="menu" data-icon="plus"
             data-icon-size="15">Row</button>
-          <button class="tool" id="spAddCol" title="Insert a column right of the selection" data-icon="plus"
+          <button class="tool" id="spAddCol" title="Insert columns left or right of the selection" aria-haspopup="menu" data-icon="plus"
             data-icon-size="15">Column</button>
           <button class="tool" id="spDelRows" title="Clear or delete what's selected, or remove this sheet" data-icon="delete"
             data-icon-size="15">Delete</button>
@@ -411,6 +411,7 @@
             data-icon-size="15">Save contacts</button>
           <button class="tool sp-ask-ai" id="spAskAi" title="Ask the AI to tidy this sheet: it asks you what counts as valid, then builds a clean one"><svg class="orb-icon" data-orb-icon="15" aria-hidden="true"></svg>Ask AI</button>
           <span class="sp-sep"></span>
+          <label class="sp-testtop" id="spTestWrap" title="A test send is tagged “Test” and left out of the Overview’s numbers, so trying a template on yourself or your team doesn’t skew your stats. It still really sends."><span>Test</span><span class="toggle sm"><input type="checkbox" id="spTest" aria-label="This is a test send" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label>
           <button class="tool sp-panel-btn" id="spPanelBtn" title="Show or hide the message panel" aria-pressed="true"
             data-icon="panel-right-open" data-icon-size="16">Message</button>
         </div>
@@ -461,19 +462,15 @@
           </div>
           <div class="sp-pane" data-pane="compose">
             <div class="sp-sec">
-              <label>Template
-                <select id="templateSelect" data-chips></select>
-              </label>
               <label>Campaign name <span class="opt">optional</span>
                 <input id="campaignName" placeholder="e.g. Diwali offer — Oct 2026" />
               </label>
-              <label class="sp-test" title="A test send is tagged, and left out of the Overview’s numbers">
-                <span class="sp-test-t"><b>This is a test</b><small id="spTestHint">Left out of the Overview’s numbers</small></span>
-                <span class="toggle sm"><input type="checkbox" id="spTest" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span>
-              </label>
+              <div class="field-label">Template</div>
+              <button type="button" class="tp-btn" id="tplPickBtn" aria-haspopup="dialog"></button>
+              <select id="templateSelect" hidden aria-hidden="true" tabindex="-1"></select>
             </div>
             <div class="sp-sec">
-              <div class="field-label">Send from <span class="opt" id="sendFromHint">split evenly across the numbers you turn on</span>
+              <div class="field-label">Send from <span class="opt" id="sendFromHint">split evenly across the numbers you pick</span>
               </div>
               <div id="senderChecks" class="toggle-list"></div>
             </div>

@@ -31,10 +31,16 @@
   const ERROR_KINDS = new Set(['reply_failed', 'delivery_failed', 'ai_error']);
 
   const visible = () => !$('#tab-notifications').classList.contains('hidden');
-  const shown = () => NT.list.filter((n) => (NT.filter === 'all' ? true : NT.filter === 'unread' ? !n.read : n.category === NT.filter) && DateFilter.match(NT.date, n.ts));
-
+  // One page from the server (GET /api/notifications?page=…): the kind and days are applied there, with the counts.
+  let loadSeq = 0;
   async function load() {
-    const r = await api('/notifications');
+    const seq = ++loadSeq;
+    const p = new URLSearchParams({ page: String(NT.page), per: String(NT.per), filter: NT.filter, tz: String(new Date().getTimezoneOffset()) });
+    if (NT.date) p.set('dates', JSON.stringify(NT.date));
+    const r = await api('/notifications?' + p);
+    if (seq !== loadSeq) return;
+    NT.res = r;
+    NT.page = r.page;
     NT.list = r.notifications;
     NT.unread = r.unread;
     NT.loaded = true;
@@ -77,29 +83,26 @@
   }
 
   function render() {
-    const all = shown();
-    // pages: back to the first whenever what's shown changes
-    const sig = [NT.filter, JSON.stringify(NT.date), NT.per].join('|');
-    if (sig !== NT.pageSig) { NT.pageSig = sig; NT.page = 0; }
-    const pages = NT.per ? Math.max(1, Math.ceil(all.length / NT.per)) : 1;
-    NT.page = Math.min(NT.page, pages - 1);
-    const from = NT.per ? NT.page * NT.per : 0;
-    const list = NT.per ? all.slice(from, from + NT.per) : all;
+    const R = NT.res || { counts: { all: 0, unread: 0, read: 0 }, total: 0, pages: 1, per: NT.per };
+    const list = NT.list; // this page
+    const pages = R.pages || 1;
+    const from = R.per ? NT.page * R.per : 0;
+    const totalAll = R.counts.all;
     $('#ntDateWrap').innerHTML = DateFilter.button(NT.date, 'ntDate');
     $('#ntPer').innerHTML = PER_PAGE.map((n) => `<option value="${n}" ${n === NT.per ? 'selected' : ''}>${n ? `${n} / page` : 'Show all'}</option>`).join('');
     $('#ntPer').value = String(NT.per);
-    $('#ntSub').textContent = NT.list.length
-      ? `Campaigns, deliveries, messages and the AI assistant, in one place. ${NT.unread ? `${NT.unread.toLocaleString()} unread` : 'All caught up'} · ${NT.list.length.toLocaleString()} in total.`
+    $('#ntSub').textContent = totalAll
+      ? `Campaigns, deliveries, messages and the AI assistant, in one place. ${NT.unread ? `${NT.unread.toLocaleString()} unread` : 'All caught up'} · ${totalAll.toLocaleString()} in total.`
       : 'Campaigns, deliveries, messages and the AI assistant, in one place.';
-    const count = (k) => (k === 'all' ? NT.list.length : k === 'unread' ? NT.unread : NT.list.filter((n) => n.category === k).length);
+    const count = (k) => (k === 'unread' ? NT.unread : R.counts[k] || 0);
     // a dropdown (with counts), so the date and page size fit beside the title in the one-line header
     $('#ntFilter').innerHTML = FILTERS.map(([k, label]) => `<option value="${k}">${k === 'all' ? 'All notifications' : label} (${count(k).toLocaleString()})</option>`).join('');
     $('#ntFilter').value = NT.filter;
     $('#ntReadAll').disabled = !NT.unread;
-    $('#ntClear').disabled = !NT.list.length;
+    $('#ntClear').disabled = !totalAll;
 
     if (!list.length) {
-      $('#ntList').innerHTML = NT.list.length
+      $('#ntList').innerHTML = totalAll
         ? emptyState({ icon: 'check-check', title: NT.filter === 'unread' && !NT.date ? 'All caught up' : 'Nothing here', text: NT.date ? 'No notifications on these days.' : NT.filter === 'unread' ? 'You’ve read every notification.' : 'No notifications of this kind yet.', actions: NT.date ? '<button class="btn" data-nt-anydate>Show any date</button>' : '' })
         : emptyState({ icon: 'bell', title: 'No notifications yet', text: 'When a campaign finishes, a delivery fails, someone messages you or the AI assistant needs you, it shows up here.' });
       LA.hydrate($('#ntList'));
@@ -110,7 +113,7 @@
     let i = 0;
     $('#ntList').innerHTML = [...groups].map(([day, items]) => `<section class="nt-day"><h3>${esc(day)}</h3><div class="card nt-card">${items.map((n) => row(n, i++)).join('')}</div></section>`).join('')
       + (pages > 1 ? `<div class="cp-pager nt-pager">
-          <span>${(from + 1).toLocaleString()}–${(from + list.length).toLocaleString()} of ${all.length.toLocaleString()}</span>
+          <span>${(from + 1).toLocaleString()}–${(from + list.length).toLocaleString()} of ${R.total.toLocaleString()}</span>
           <div class="seg"><button type="button" data-nt-page="-1" ${NT.page ? '' : 'disabled'} aria-label="Previous page">${icon('arrow-left', 14)}</button><span>Page ${NT.page + 1} of ${pages}</span><button type="button" data-nt-page="1" ${NT.page < pages - 1 ? '' : 'disabled'} aria-label="Next page">${icon('arrow-right', 14)}</button></div>
         </div>` : '');
     Orb.hydrate($('#ntList'));
@@ -125,13 +128,22 @@
     else if (l.tab) showTab(l.tab);
   }
 
+  // Ask the server again for the page you're on (after anything changes what's on it).
+  const reload = () => load().then(() => visible() && render()).catch((e) => toast(e.message, 'error'));
+  // A filter or the days changed: from the first page.
+  const refilter = () => { NT.page = 0; return reload(); };
+
   async function setRead(ids, read = true) {
-    for (const n of NT.list) if (ids.includes(n.id)) n.read = read;
-    NT.unread = NT.list.filter((n) => !n.read).length;
+    // (shown at once on this page; the server's count follows)
+    let delta = 0;
+    for (const n of NT.list) if (ids.includes(n.id) && n.read !== read) { n.read = read; delta += read ? -1 : 1; }
+    NT.unread = Math.max(0, NT.unread + delta);
+    if (NT.res) NT.res.counts.unread = NT.unread;
     badge();
     if (visible()) render();
     const r = await api('/notifications/read', { method: 'POST', body: { ids, read } }).catch(() => null);
     if (r) { NT.unread = r.unread; badge(); }
+    if (visible() && NT.filter === 'unread') reload(); // read ones leave the Unread list
   }
 
   // Slide a row out, then drop it.
@@ -142,16 +154,15 @@
     setTimeout(finish, 320);
     function finish() {
       NT.list = NT.list.filter((n) => !ids.includes(n.id));
-      NT.unread = NT.list.filter((n) => !n.read).length;
-      badge();
       render();
+      setTimeout(reload, 400); // the server's page and counts (the next ones move up)
     }
   }
 
   $('#ntFilter').addEventListener('change', (e) => {
     if (e.target.value === NT.filter) return;
     NT.filter = e.target.value;
-    render();
+    refilter();
     $('#ntList').classList.remove('nt-enter');
     void $('#ntList').offsetWidth;
     $('#ntList').classList.add('nt-enter');
@@ -161,22 +172,21 @@
   $('#ntDateWrap').addEventListener('click', (e) => {
     const b = e.target.closest('#ntDate');
     if (!b) return;
-    if (e.target.closest('[data-df-clear]')) { NT.date = null; return render(); }
-    const marks = new Map();
-    for (const n of NT.list) { const k = DateFilter.keyOf(new Date(n.ts)); marks.set(k, (marks.get(k) || 0) + 1); }
-    DateFilter.open(b, { value: NT.date, marks, onChange: (v) => { NT.date = v; render(); } });
+    if (e.target.closest('[data-df-clear]')) { NT.date = null; return refilter(); }
+    const marks = new Map(Object.entries(NT.res?.days || {}));
+    DateFilter.open(b, { value: NT.date, marks, onChange: (v) => { NT.date = v; refilter(); } });
   });
   $('#ntPer').addEventListener('change', (e) => {
     NT.per = Number(e.target.value) || 0;
     try { localStorage.setItem('ntPer', String(NT.per)); } catch { }
-    render();
+    refilter();
   });
-  $('#ntList').addEventListener('click', (e) => {
-    if (e.target.closest('[data-nt-anydate]')) { NT.date = null; return render(); }
+  $('#ntList').addEventListener('click', async (e) => {
+    if (e.target.closest('[data-nt-anydate]')) { NT.date = null; return refilter(); }
     const pg = e.target.closest('[data-nt-page]');
     if (pg) {
       NT.page += Number(pg.dataset.ntPage);
-      render();
+      await reload(); // that page, from the server
       // back to the top of the list, under the pinned header
       const top = $('#ntList').getBoundingClientRect().top + scrollY - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stick-top')) || 0) - ($('#tab-notifications > .section-head')?.offsetHeight || 0) - 12;
       scrollTo({ top: Math.max(0, top), behavior: Motion.reduce() ? 'auto' : 'smooth' });
@@ -208,15 +218,16 @@
     badge();
     render();
     await api('/notifications/read', { method: 'POST', body: { all: true } });
+    await reload();
   }));
 
   $('#ntClear').addEventListener('click', (e) => {
     const r = e.currentTarget.getBoundingClientRect();
-    const readCount = NT.list.filter((n) => n.read).length;
+    const readCount = NT.res?.counts.read || 0, allCount = NT.res?.counts.all || 0;
     const items = [];
     if (readCount) items.push({ label: `Clear read (${readCount})`, action: () => clear({ read: true }, NT.list.filter((n) => n.read).map((n) => n.id)) });
     items.push({
-      label: `Clear all (${NT.list.length})`, action: async () => {
+      label: `Clear all (${allCount})`, action: async () => {
         if (!(await confirmDialog({ title: 'Clear all notifications?', message: 'This removes them from the list. Campaigns, chats and contacts aren’t affected.', confirmText: 'Clear all', danger: true }))) return;
         clear({ all: true }, NT.list.map((n) => n.id));
       }
@@ -231,19 +242,17 @@
 
   // --- Live --------------------------------------------------------------------
 
+  let liveT = 0;
   document.addEventListener('live', (e) => {
     const ev = e.detail;
     if (ev.kind === 'reconnect') return load().then(() => visible() && render()).catch(() => { });
     if (ev.kind !== 'notification') return;
     if (typeof ev.unread === 'number') NT.unread = ev.unread;
     const n = ev.notification;
-    if (n) {
-      NT.list = [n, ...NT.list.filter((x) => x.id !== n.id)];
-      NT.fresh.add(n.id);
-      popToast(n);
-    }
+    if (n) { NT.fresh.add(n.id); popToast(n); }
     badge();
-    if (visible()) render();
+    // the page you're looking at asks again (newest first, so a new one lands on page 1); not open: only the badge
+    if (visible()) { clearTimeout(liveT); liveT = setTimeout(reload, 300); }
   });
 
   function popToast(n) {

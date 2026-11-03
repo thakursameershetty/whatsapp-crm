@@ -361,7 +361,7 @@
         <tr class="sg-names">${sh.headers.map((h, c) => {
           const tag = hooks.headerTag?.(sh, c) || '';
           const filtered = sh.filters[c] ? '<span class="sg-filtered" title="Filtered">⚲</span>' : '';
-          return `<th data-name="${c}" class="${inCols(c) ? 'on' : ''}" title="${escHtml(h)} · double-click to rename">${tag}<span class="sg-hname">${escHtml(h)}</span>${filtered}</th>`;
+          return `<th data-name="${c}" class="${inCols(c) ? 'on' : ''}" title="${escHtml(h)} · click to select (copy, paste or type to rename), double-click to edit">${tag}<span class="sg-hname">${escHtml(h)}</span>${filtered}</th>`;
         }).join('')}</tr>`;
       const corner = thead.querySelector('.sg-all');
       if (corner) corner.indeterminate = all === null;
@@ -445,8 +445,21 @@
       else if (x + w > root.scrollLeft + root.clientWidth) root.scrollLeft = x + w - root.clientWidth;
     }
 
+    // The column names row can be selected like cells (s.hdr = { a, f }: anchor and focus columns), to copy names,
+    // paste over them (renames) or type a new one. Any cell selection leaves it.
+    const hdr = () => S().hdr || null;
+    const hdrRange = () => { const h = hdr(); return h ? { c1: Math.min(h.a, h.f), c2: Math.max(h.a, h.f) } : null; };
+    function selectHeader(a, f = a) {
+      const s = S(), n = nCols() - 1;
+      s.hdr = { a: Math.max(0, Math.min(a, n)), f: Math.max(0, Math.min(f, n)) };
+      s.fc = s.hdr.f; s.ac = s.hdr.a; s.extra = [];
+      scrollToCell(0, s.hdr.f);
+      renderSelection();
+      hooks.selected?.();
+    }
     function select(ar, ac, fr = ar, fc = ac, { scroll = true, keep = false, add = false } = {}) {
       const s = S();
+      s.hdr = null;
       if (add) s.extra = [...(s.extra || []), { ar: s.ar, ac: s.ac, fr: s.fr, fc: s.fc }];
       else if (!keep) s.extra = [];
       Object.assign(s, { ar, ac, fr, fc });
@@ -470,7 +483,14 @@
           td.classList.toggle('act', r === s.fr && c === s.fc);
         }
       }
-      thead.querySelectorAll('th[data-c], th[data-name]').forEach((th) => th.classList.toggle('on', inCols(Number(th.dataset.c ?? th.dataset.name))));
+      const hr = hdrRange();
+      thead.querySelectorAll('th[data-c], th[data-name]').forEach((th) => th.classList.toggle('on', !hr && inCols(Number(th.dataset.c ?? th.dataset.name))));
+      thead.querySelectorAll('th[data-name]').forEach((th) => {
+        const c = Number(th.dataset.name);
+        th.classList.toggle('hsel', Boolean(hr) && c >= hr.c1 && c <= hr.c2);
+        th.classList.toggle('hact', Boolean(hr) && c === s.hdr.f);
+      });
+      if (hr) for (const td of tbody.querySelectorAll('td.sel, td.act')) td.classList.remove('sel', 'act');
     }
 
     // --- Editing ----------------------------------------------------------------
@@ -643,8 +663,8 @@
         const r = Number(rh.parentElement.dataset.r);
         if (rgm.c1 === 0 && rgm.c2 === nCols() - 1 && r >= rgm.r1 && r <= rgm.r2) { e.preventDefault(); root.focus({ preventScroll: true }); moving = { kind: 'rows', a: rgm.r1, b: rgm.r2, x: e.clientX, y: e.clientY, at: r }; return; }
       }
-      if (plain && one && name && view().length) {
-        const c = Number(name.dataset.name ?? name.dataset.c);
+      if (plain && one && name && name.dataset.c != null && view().length) {
+        const c = Number(name.dataset.c);
         if (rgm.r1 === 0 && rgm.r2 === last && c >= rgm.c1 && c <= rgm.c2) { e.preventDefault(); root.focus({ preventScroll: true }); moving = { kind: 'cols', a: rgm.c1, b: rgm.c2, x: e.clientX, y: e.clientY, at: c }; return; }
       }
       if (hit) {
@@ -660,10 +680,17 @@
         const r = Number(rh.parentElement.dataset.r);
         select(e.shiftKey ? S().ar : r, 0, r, nCols() - 1, { scroll: false, keep: e.shiftKey, add: !e.shiftKey && (e.metaKey || e.ctrlKey) });
         dragging = 'rows';
+      } else if (name && name.dataset.name != null) {
+        // a column name: select it (shift-click: from the selected name to this one)
+        e.preventDefault();
+        root.focus({ preventScroll: true });
+        const c = Number(name.dataset.name);
+        selectHeader(e.shiftKey && hdr() ? hdr().a : c, c);
+        dragging = 'names';
       } else if (name) {
         e.preventDefault();
         root.focus({ preventScroll: true });
-        const c = Number(name.dataset.name ?? name.dataset.c);
+        const c = Number(name.dataset.c);
         select(0, e.shiftKey ? S().ac : c, last, c, { scroll: false, keep: e.shiftKey, add: !e.shiftKey && (e.metaKey || e.ctrlKey) });
         dragging = 'cols';
       }
@@ -947,6 +974,25 @@
       if (meta && k.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
       if (meta && k.toLowerCase() === 'a') { e.preventDefault(); select(0, 0, view().length - 1, nCols() - 1, { scroll: false }); return; }
       if (meta && k.toLowerCase() === 'f') { e.preventDefault(); hooks.find?.(); return; }
+      // In the names row: arrows move along it (shift to extend), down goes into the cells; typing, Enter or F2 renames.
+      if (hdr()) {
+        const h = hdr();
+        if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'Tab') {
+          e.preventDefault();
+          const d = (k === 'ArrowLeft' || (k === 'Tab' && e.shiftKey)) ? -1 : 1;
+          const f = meta ? (d < 0 ? 0 : nCols() - 1) : h.f + d;
+          return e.shiftKey && k !== 'Tab' ? selectHeader(h.a, f) : selectHeader(f);
+        }
+        if (k === 'ArrowDown') { e.preventDefault(); if (view().length) select(0, h.f); return; }
+        if (k === 'ArrowUp' || k === 'Escape') { e.preventDefault(); if (k === 'Escape') selectHeader(h.f); return; }
+        if (k === 'Enter' || k === 'F2') { e.preventDefault(); if (!hooks.readOnly) startEdit(null, -1, h.f); return; }
+        if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); hooks.notify?.('A column needs a name: type a new one to rename it'); return; }
+        if (k.length === 1 && !meta && !e.altKey && !hooks.readOnly) { e.preventDefault(); startEdit(k, -1, h.f); return; }
+        if (meta && k.toLowerCase() === 'a') { e.preventDefault(); selectHeader(0, nCols() - 1); return; }
+        return;
+      }
+      // up from the first row: into the column names
+      if (k === 'ArrowUp' && !e.shiftKey && !meta && s.fr === 0 && nCols()) { e.preventDefault(); selectHeader(s.fc); return; }
       const arrows = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
       if (arrows[k]) {
         e.preventDefault();
@@ -976,6 +1022,13 @@
     document.addEventListener('copy', (e) => {
       if (!active()) return;
       const sh = sheet(), rg = range();
+      const hr = hdrRange();
+      if (hr) { // the column names, tab-separated (one row)
+        e.clipboardData.setData('text/plain', sh.headers.slice(hr.c1, hr.c2 + 1).map((h) => tsvCell(String(h))).join('\t'));
+        e.preventDefault();
+        hooks.notify?.(`Copied ${hr.c2 > hr.c1 ? `${hr.c2 - hr.c1 + 1} column names` : 'column name'}`);
+        return;
+      }
       const lines = [];
       for (let r = rg.r1; r <= rg.r2; r++) {
         const row = sh.view[r];
@@ -990,6 +1043,7 @@
     });
     document.addEventListener('cut', (e) => {
       if (!active() || hooks.readOnly) return;
+      if (hdr()) return; // names can't be emptied (copy works, then type or paste over them)
       const sh = sheet(), rg = range(), lines = [];
       for (let r = rg.r1; r <= rg.r2; r++) {
         const row = sh.view[r];
@@ -1007,8 +1061,51 @@
       const text = e.clipboardData.getData('text/plain');
       if (!text) return;
       e.preventDefault();
-      paste(parseTsv(text));
+      if (hdr()) pasteNames(parseTsv(text));
+      else paste(parseTsv(text));
     });
+
+    // Paste over the column names: the first line renames from the selected name on (new columns if it runs past
+    // the last); any more lines fill the cells below, from the first row. One undo step.
+    function pasteNames(block) {
+      const sh = sheet(), c0 = hdrRange().c1;
+      if (!block.length || !block[0].length) return;
+      const names = block[0], rest = block.slice(1);
+      const width = Math.max(...block.map((b) => b.length));
+      const needCols = c0 + width - sh.headers.length;
+      const beforeHeaders = sh.headers.slice(), beforeWidths = sh.widths.slice(), beforeRows = sh.rows.slice(), beforeCells = sh.rows.map((r) => r.cells.slice());
+      const renames = [];
+      run({
+        kind: 'paste',
+        do: () => {
+          renames.length = 0;
+          for (let k = 0; k < needCols; k++) { sh.headers.push(uniqueName(sh, `Column ${letter(sh.headers.length)}`)); sh.widths.push(140); sh.rows.forEach((r) => r.cells.push('')); }
+          names.forEach((v, j) => {
+            const c = c0 + j, old = sh.headers[c], nm = String(v).trim() ? uniqueName(sh, String(v).trim(), c) : old;
+            if (nm !== old) { sh.headers[c] = nm; renames.push([old, nm]); hooks.renamed?.(sh, old, nm); }
+          });
+          if (rest.length) {
+            const viewRows = sh.view.slice(0);
+            const needRows = rest.length - viewRows.length;
+            if (needRows > 0) {
+              const made = Array.from({ length: needRows }, () => ({ cells: Array.from({ length: sh.headers.length }, () => ''), on: true }));
+              sh.rows.push(...made);
+              viewRows.push(...made);
+            }
+            rest.forEach((line, i) => line.forEach((v, j) => { viewRows[i].cells[c0 + j] = v; }));
+          }
+        },
+        undo: () => {
+          for (const [old, nm] of [...renames].reverse()) hooks.renamed?.(sh, nm, old);
+          sh.headers = beforeHeaders.slice();
+          sh.widths = beforeWidths.slice();
+          sh.rows = beforeRows.slice();
+          sh.rows.forEach((r, i) => { r.cells = beforeCells[i].slice(); });
+        },
+      });
+      selectHeader(c0, c0 + names.length - 1);
+      hooks.notify?.(rest.length ? `Pasted ${names.length} name${names.length === 1 ? '' : 's'} and ${rest.length} row${rest.length === 1 ? '' : 's'}` : `Renamed ${names.length} column${names.length === 1 ? '' : 's'}`);
+    }
 
     // Paste a block at the active cell, adding rows and columns if it runs past the edge.
     // Pasting a whole table into an empty sheet takes its first row as the column names.
@@ -1124,6 +1221,15 @@
       addRowAtEnd() { const sh = sheet(); insertRows(sh.rows.length, 1); computeView(); select(sh.view.length - 1, 0); },
       deleteSelectedRows() { deleteRows(this.selectedRows()); },
       insertColumn: (at) => insertCol(at ?? range().c2 + 1),
+      // left / right of the selection, as many columns as are selected (like the column menu)
+      insertColumnAt(where) {
+        const rg = range(), n = rg.c2 - rg.c1 + 1;
+        const at = where === 'left' ? rg.c1 : rg.c2 + 1;
+        if (n > 1) insertCols(at, n); else insertCol(at);
+        select(S().fr, at);
+      },
+      // how many rows and columns are selected (for the toolbar's Insert menus)
+      selectionSize() { const rg = range(); return { rows: rg.r2 - rg.r1 + 1, cols: rg.c2 - rg.c1 + 1, hasRows: sheet().view.length > 0 }; },
       deleteColumn: (c) => deleteCol(c ?? S().fc),
       sortBy,
       clearFilters() { sheet().filters = {}; after('filter'); },

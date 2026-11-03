@@ -1539,16 +1539,89 @@ function outcome(c, idx) {
   return { replies, leads, per };
 }
 
+// The Campaigns page asks a page at a time (?page=…, or ?view=calendar&month=YYYY-MM): search, status, number, dates
+// and sort are applied here and only what's shown is worked out (replies and leads read the inbox, the costly part)
+// and sent, with the counts the page shows. Without them it's the whole list, as other callers expect.
+const CP_FILTERS = {
+  all: () => true,
+  completed: (c) => c.status === 'completed',
+  stopped: (c) => c.status === 'stopped' || c.status === 'cancelled',
+  tests: (c) => Boolean(c.test),
+};
+const cpLive = (c) => c.status === 'running' || c.status === 'queued';
+const cpDay = (c) => c.startedAt || c.scheduledAt || c.createdAt;
 app.get('/api/campaigns', (req, res) => {
+  const all = db.campaigns.filter((c) => c.status !== 'holding');
+  const paged = req.query.page != null || req.query.view === 'calendar';
+  if (!paged) {
+    const idx = inboundIndex();
+    return res.json(all.map((c) => { const o = outcome(c, idx); return { ...summary(c), replies: o.replies, leads: o.leads }; }));
+  }
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const sender = String(req.query.sender || '');
+  const filter = CP_FILTERS[req.query.filter] ? req.query.filter : 'all';
+  const sort = String(req.query.sort || 'new');
+  const per = Math.min(500, Math.max(0, Math.round(Number(req.query.per ?? 50)) || 0)); // 0 = all
+  const tz = Number(req.query.tz) || 0; // the browser's getTimezoneOffset(), so "a day" is the person's day
+  const dayKey = (iso) => new Date(new Date(iso).getTime() - tz * 60000).toISOString().slice(0, 10);
+  let dates = null;
+  try { dates = req.query.dates ? JSON.parse(String(req.query.dates)) : null; } catch {}
+  const dayOk = (c) => {
+    if (!dates) return true;
+    const k = dayKey(cpDay(c));
+    if (Array.isArray(dates.days) && dates.days.length) return dates.days.includes(k);
+    if (dates.from && dates.to) return k >= dates.from && k <= dates.to;
+    return true;
+  };
+  const textOk = (c) => !q || [c.name, c.templateName].some((v) => String(v || '').toLowerCase().includes(q));
+  const senderOk = (c) => !sender || (c.senderIds || []).includes(sender);
+  const settled = all.filter((c) => !cpLive(c) && c.status !== 'scheduled');
+  const counts = Object.fromEntries(Object.entries(CP_FILTERS).map(([k, fn]) => [k, settled.filter(fn).length]));
+  const rows = settled.filter(CP_FILTERS[filter]).filter((c) => textOk(c) && senderOk(c) && dayOk(c));
+  const pinned = all.filter((c) => (cpLive(c) || c.status === 'scheduled') && textOk(c) && senderOk(c) && dayOk(c))
+    .sort((a, b) => (cpLive(b) - cpLive(a)) || String(a.scheduledAt).localeCompare(String(b.scheduledAt)));
   const idx = inboundIndex();
-  res.json(db.campaigns.filter((c) => c.status !== 'holding').map((c) => { const o = outcome(c, idx); return { ...summary(c), replies: o.replies, leads: o.leads }; }));
+  const outs = new Map();
+  const out = (c) => outs.get(c.id) || outs.set(c.id, outcome(c, idx)).get(c.id);
+  const del = (c) => (c.stats?.delivered || 0) + (c.stats?.read || 0);
+  const readPct = (c) => (del(c) ? (c.stats?.read || 0) / del(c) : 0);
+  const SORT = {
+    new: (a, b) => String(b.startedAt || b.createdAt).localeCompare(String(a.startedAt || a.createdAt)),
+    old: (a, b) => String(a.startedAt || a.createdAt).localeCompare(String(b.startedAt || b.createdAt)),
+    size: (a, b) => b.recipients.length - a.recipients.length,
+    read: (a, b) => readPct(b) - readPct(a),
+    replies: (a, b) => out(b).replies - out(a).replies, // (only this sort reads every campaign's replies)
+  };
+  rows.sort(SORT[sort] || SORT.new);
+  // colour: place by creation date (as everywhere)
+  const order = new Map([...db.campaigns].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).map((c, i) => [c.id, i]));
+  const show = (c) => { const o = out(c); return { ...summary(c), replies: o.replies, leads: o.leads, colorIndex: order.get(c.id) }; };
+  // the last 30 days, in the current mode, tests left out (the header's summary)
+  const since = Date.now() - 30 * 86400000;
+  const inWindow = all.filter((c) => new Date(c.startedAt || c.createdAt).getTime() >= since && Boolean(c.demo) === Boolean(db.settings.demoMode));
+  const recent = inWindow.filter((c) => !c.test);
+  const summary30 = recent.reduce((a, c) => { const st = c.stats || {}; a.sent += (st.sent || 0) + (st.delivered || 0) + (st.read || 0); a.del += del(c); a.read += st.read || 0; const o = out(c); a.rep += o.replies; a.leads += o.leads; return a; }, { sent: 0, del: 0, read: 0, rep: 0, leads: 0, testsOut: inWindow.length - recent.length });
+  // dots for the date picker, and the months that have campaigns
+  const days = {};
+  for (const c of all) { const k = dayKey(cpDay(c)); days[k] = (days[k] || 0) + 1; }
+  const base = { counts, total: rows.length, pinned: pinned.map(show), summary: summary30, days, any: all.length, live: all.some(cpLive), scheduled: all.some((c) => c.status === 'scheduled') };
+  if (req.query.view === 'calendar') {
+    const both = [...pinned, ...rows];
+    const newest = both.map(cpDay).sort().at(-1);
+    const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? String(req.query.month) : (newest ? dayKey(newest) : dayKey(new Date().toISOString())).slice(0, 7);
+    return res.json({ ...base, month, items: both.filter((c) => dayKey(cpDay(c)).startsWith(month)).map(show) });
+  }
+  const pages = per ? Math.max(1, Math.ceil(rows.length / per)) : 1;
+  const page = Math.min(Math.max(0, Math.round(Number(req.query.page)) || 0), pages - 1);
+  res.json({ ...base, page, pages, per, items: (per ? rows.slice(page * per, page * per + per) : rows).map(show) });
 });
 
 app.get('/api/campaigns/:id', wrap((req, res) => {
   const c = db.campaigns.find((x) => x.id === req.params.id);
   if (!c) throw fail('Not found', 404);
   const o = outcome(c, inboundIndex());
-  res.json({ ...c, replies: o.replies, leads: o.leads, recipients: c.recipients.map((r, i) => (o.per[i] ? { ...r, replied: o.per[i].replied, chatKey: o.per[i].key, contactStatus: o.per[i].contactStatus } : r)) });
+  const colorIndex = [...db.campaigns].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).findIndex((x) => x.id === c.id);
+  res.json({ ...c, colorIndex, replies: o.replies, leads: o.leads, recipients: c.recipients.map((r, i) => (o.per[i] ? { ...r, replied: o.per[i].replied, chatKey: o.per[i].key, contactStatus: o.per[i].contactStatus } : r)) });
 }));
 
 app.post('/api/campaigns/:id/stop', wrap((req, res) => {
@@ -1706,6 +1779,11 @@ function recipientNames() {
 // msgs: this chat's messages, oldest first. ctx (from the list): lookups built once for every chat, so building the list
 // stays one pass over the messages however many chats there are.
 function conversationInfo(key, msgs, names, ctx = null) {
+  const base = conversationBase(key, msgs, names, ctx);
+  return { ...base, ...conversationExtras(key, base.wa, base._lastIn, ctx), _lastIn: undefined };
+}
+// The cheap part, for every chat: what the list filters, sorts and counts by. (_lastIn is for the extras.)
+function conversationBase(key, msgs, names, ctx = null) {
   const { senderId, wa } = splitKey(key);
   const chat = db.chats[key] || {};
   const sender = ctx ? ctx.senders.get(senderId) : db.senders.find((s) => s.id === senderId);
@@ -1725,7 +1803,7 @@ function conversationInfo(key, msgs, names, ctx = null) {
     lastAt: last?.ts || null,
     unread,
     windowEndsAt: lastIn ? new Date(new Date(lastIn.ts).getTime() + WINDOW_MS).toISOString() : null,
-    ...conversationExtras(key, wa, lastIn, ctx),
+    _lastIn: lastIn,
   };
 }
 
@@ -1763,9 +1841,51 @@ app.get('/api/inbox', (req, res) => {
   }
   for (const m of inboxMessages()) if (m.type === 'template') addTpl(m.key, m.templateName);
   const ctx = { senders: new Map(db.senders.map((s) => [s.id, s])), contacts: new Map(db.contacts.map((c) => [c.phone, c])) };
-  const conversations = [...byKey].map(([key, msgs]) => ({ ...conversationInfo(key, sorted(msgs), names, ctx), templates: [...(tpls.get(key) || [])] }));
-  conversations.sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
-  sendJson(req, res, { conversations, unread: conversations.reduce((n, c) => n + c.unread, 0) });
+  if (req.query.offset == null) { // everything (older callers)
+    const conversations = [...byKey].map(([key, msgs]) => ({ ...conversationInfo(key, sorted(msgs), names, ctx), templates: [...(tpls.get(key) || [])] }));
+    conversations.sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
+    return sendJson(req, res, { conversations, unread: conversations.reduce((n, c) => n + c.unread, 0) });
+  }
+  // The Inbox list, a slice at a time (?offset=0&limit=30, then 25 more as you scroll): search, filters, days and order
+  // apply here over every chat's cheap details; only the slice gets the rest (AI state, contact) and is sent.
+  const all = [...byKey].map(([key, msgs]) => ({ ...conversationBase(key, sorted(msgs), names, ctx), templates: [...(tpls.get(key) || [])] }));
+  const now = Date.now();
+  const tz = Number(req.query.tz) || 0;
+  const dayKey = (iso) => new Date(new Date(iso).getTime() - tz * 60000).toISOString().slice(0, 10);
+  let dates = null;
+  try { dates = req.query.dates ? JSON.parse(String(req.query.dates)) : null; } catch {}
+  const q = String(req.query.q || '').trim().toLowerCase(), qDigits = q.replace(/\D/g, '');
+  const f = String(req.query.filter || 'all'), sender = String(req.query.sender || ''), template = String(req.query.template || '');
+  const open = (c) => c.windowEndsAt && new Date(c.windowEndsAt) > now;
+  const ok = (c) => {
+    if (f === 'unread' && !c.unread) return false;
+    if (f === 'open' && !open(c)) return false;
+    if (sender && c.senderId !== sender) return false;
+    if (template && !c.templates.includes(template)) return false;
+    if (q && ![c.name, c.wa, c.last?.text].some((v) => String(v || '').toLowerCase().includes(q)) && !(qDigits.length >= 3 && c.wa.includes(qDigits))) return false;
+    if (dates && c.lastAt) {
+      const k = dayKey(c.lastAt);
+      if (Array.isArray(dates.days) && dates.days.length ? !dates.days.includes(k) : dates.from && dates.to && (k < dates.from || k > dates.to)) return false;
+    }
+    return true;
+  };
+  const rows = all.filter(ok).sort(req.query.sort === 'old' ? (a, b) => String(a.lastAt || '').localeCompare(String(b.lastAt || '')) : (a, b) => String(b.lastAt || '').localeCompare(String(a.lastAt || '')));
+  const offset = Math.max(0, Math.round(Number(req.query.offset)) || 0);
+  const limit = Math.min(200, Math.max(1, Math.round(Number(req.query.limit)) || 30));
+  const slice = rows.slice(offset, offset + limit).map(({ _lastIn, ...c }) => ({ ...c, ...conversationExtras(c.key, c.wa, _lastIn, ctx) }));
+  // what the filters show (over every chat): counts per tab, number and template, and dots for the date picker
+  const senders = {}, templates = {}, days = {};
+  for (const c of all) {
+    senders[c.senderId] = (senders[c.senderId] || 0) + 1;
+    for (const t of c.templates) templates[t] = (templates[t] || 0) + 1;
+    if (c.lastAt) { const k = dayKey(c.lastAt); days[k] = (days[k] || 0) + 1; }
+  }
+  const senderLabels = Object.fromEntries(all.map((c) => [c.senderId, c.senderLabel]));
+  sendJson(req, res, {
+    conversations: slice, total: rows.length, offset, unread: all.reduce((n, c) => n + c.unread, 0),
+    counts: { all: all.length, unread: all.filter((c) => c.unread).length, open: all.filter(open).length },
+    senders, senderLabels, templates, days,
+  });
 });
 // Messages are stored in the order they arrive, so they're nearly always sorted already: only sort when they aren't.
 function sorted(msgs) {

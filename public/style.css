@@ -2685,7 +2685,7 @@ button.fp-hint:hover { filter: brightness(0.96); }
 .fp-hint svg.la { margin: 0; flex: none; }
 
 /* Send page: Message button always available; panel split into Compose / Preview */
-#spTools.no-data > :not(#spPanelBtn) { display: none; }
+#spTools.no-data > :not(#spPanelBtn):not(#spTestWrap) { display: none; }
 .sp-panel { display: flex; flex-direction: column; padding-top: 0; }
 .sp-panel-head { position: sticky; top: 0; z-index: 2; padding: 14px 0 10px; background: var(--surface); box-shadow: 0 1px 0 var(--hair); }
 .sp-pane-seg { display: flex; width: 100%; }
@@ -5979,3 +5979,103 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 .pbc-acts .btn { display: inline-flex; align-items: center; gap: 6px; }
 .pbc-status { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; font-size: 13px; color: var(--muted); }
 .pbc-status.added { color: var(--good-text); font-weight: 600; }
+
+/* ---- Send page ---- */
+/* "This is a test", in the top bar beside Message; what it means is in its tooltip */
+.sp-testtop { display: inline-flex; align-items: center; gap: 8px; margin: 0 4px 0 0; padding: 0 4px 0 10px; height: 34px; border-radius: 10px; font: 600 13px Inter, sans-serif; color: var(--muted); cursor: help; white-space: nowrap; }
+.sp-testtop:hover { background: var(--sunk); color: var(--text); }
+.sp-testtop .toggle { cursor: pointer; }
+.sp-testtop.suggested > span:first-child::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--warn, #d97706); vertical-align: 2px; }
+/* the template field: a button that opens the picker */
+.tp-btn { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 54px; padding: 8px 14px; border: 0; border-radius: var(--r-md); background: var(--field); box-shadow: var(--sh-sunk); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
+.tp-btn:hover { background: var(--surface); box-shadow: var(--sh-raised); }
+.tp-btn > svg { flex: none; color: var(--muted); }
+.tp-btn-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.tp-btn-main b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-btn-main small { color: var(--muted); font-size: 12px; }
+.tp-btn-act { flex: none; font-size: 12.5px; font-weight: 600; color: var(--info); }
+.sp-sec .field-label + .tp-btn { margin-top: 6px; }
+/* the picker */
+.modal-box.tp-box { width: min(1180px, calc(100vw - 32px)); max-width: none; height: min(860px, calc(100vh - 48px)); display: flex; flex-direction: column; }
+.modal-box.tp-box #modalBody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.tp-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.tp-bar .search-wrap { flex: 1 1 260px; min-width: 200px; }
+.tp-bar select { width: 170px; min-width: 0; height: 36px; margin: 0; }
+.tp-sort { height: 36px; background: var(--field); box-shadow: var(--sh-sunk); border-radius: var(--r-md); }
+.tp-grid { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; align-content: start; padding: 4px; margin: 0 -4px; scrollbar-width: thin; }
+.tp-card { display: flex; flex-direction: column; gap: 6px; height: 300px; padding: 14px; border-radius: 14px; background: var(--field); box-shadow: var(--sh-sunk); cursor: pointer; outline: 0; transition: background 0.15s, box-shadow 0.15s, transform 0.2s var(--ease-out, ease); }
+.tp-card:hover:not(.off), .tp-card:focus-visible { background: var(--surface); box-shadow: var(--sh-raised); }
+.tp-card.on { background: var(--surface); box-shadow: 0 0 0 2px var(--text), var(--sh-raised); }
+.tp-card.off { opacity: 0.55; cursor: not-allowed; }
+.tp-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tp-card-head b { font-size: 14px; font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-card-meta { font-size: 12px; color: var(--muted); }
+.tp-prev { flex: 1 1 auto; min-height: 0; margin: 4px 0 0; padding: 10px; overflow-y: auto; scrollbar-width: thin; }
+.tp-prev .bubble { font-size: 12.5px; }
+.tp-why { display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.tp-why svg { flex: none; margin-top: 1px; }
+.tp-none { grid-column: 1 / -1; }
+.tp-foot { display: flex; align-items: center; gap: 10px; padding-top: 14px; margin-top: 10px; box-shadow: 0 -1px 0 var(--hair); }
+.tp-count { margin-right: auto; color: var(--muted); font-size: 13px; }
+/* Send from: photo, name, number; click to include when there are several */
+#senderChecks.toggle-list { gap: 4px; }
+.sf-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: default; }
+.sf-item.pick { cursor: pointer; }
+.sf-item.pick:hover { background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.sf-item.pick:not(.on) { opacity: 0.55; }
+.sf-item.on.pick { background: var(--surface); box-shadow: var(--sh-raised); }
+.sf-item .sender-photo { width: 36px; height: 36px; flex: none; }
+.sf-who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.sf-who b { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sf-who small { color: var(--muted); font-size: 12px; }
+.sf-tick { flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--hair); color: #fff; }
+.sf-item.on .sf-tick { background: linear-gradient(180deg, var(--accent-1), var(--accent-2)); box-shadow: none; }
+/* the send confirmation: which number(s) it goes from */
+.cf-from { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 2px 0 14px; padding: 10px 12px; border-radius: 12px; background: var(--sunk); }
+.cf-from-l { flex-basis: 100%; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); }
+.cf-num { display: inline-flex; align-items: center; gap: 10px; padding-right: 8px; }
+.cf-num .sender-photo { width: 32px; height: 32px; }
+.cf-num > span:last-child { display: flex; flex-direction: column; line-height: 1.25; }
+.cf-num b { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.cf-num small { font-size: 12px; color: var(--muted); }
+.confirm-check .cb { margin-top: 1px; }
+.sf-item .sender-photo, .cf-num .sender-photo { font-size: 14px; }
+#templateSelect[hidden] { display: none !important; }
+.tp-card { height: auto; min-height: 200px; }
+.tp-prev { flex: 0 1 auto; max-height: 200px; }
+.tp-grid { align-items: start; }
+.tp-card { min-height: 0; }
+.tp-btn { margin-bottom: 14px; }
+/* Send page message panel: no divider lines (under the Setup / Personalise tabs, between template, send from, message) */
+.sp-panel-head { box-shadow: none; }
+#spPanel .sp-sec, #spPanel .sp-sec:last-child { box-shadow: none; }
+#spPanel .sp-sec { padding: 10px 0; }
+/* Template picker: every card the same height in its own row (no squeezing in the scrolling area); a long message
+   scrolls inside its preview */
+.tp-grid { grid-auto-rows: 300px; align-items: stretch; }
+.tp-card { height: 300px; min-height: 300px; overflow: hidden; }
+.tp-card > :not(.tp-prev) { flex: none; }
+.tp-prev { flex: 1 1 auto; min-height: 0; max-height: none; }
+.tp-manage { display: inline-flex; align-items: center; gap: 6px; margin-left: -10px; }
+.tp-foot .tp-count { margin-right: auto; margin-left: 4px; }
+/* Template picker's filter row: one height, one text size, the same field look (as the page headers) */
+.tp-bar { align-items: center; }
+.tp-bar :is(select, .tp-sort, .search-wrap, .search-wrap input.search) { margin: 0 !important; height: 36px; font: 500 13.5px Inter, sans-serif; }
+.tp-bar .search-wrap input.search { padding-top: 0; padding-bottom: 0; }
+.tp-bar select { width: 168px; }
+.tp-bar .tp-sort { padding: 0 10px 0 12px; }
+.tp-bar .tp-sort span { font-weight: 500; }
+.tp-bar .tp-sort:hover { background: var(--field); color: var(--text); }
+
+/* ---- Scrollbars: out of sight until they're useful ----
+   Every scrolling area keeps its (thin) scrollbar invisible, and shows it while you hover that area or while it's
+   scrolling (app.js adds .is-scrolling for a moment). The page's own scrollbar shows only while the page scrolls.
+   Its space stays reserved, so nothing shifts when it appears. */
+* { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+:not(html):hover, .is-scrolling { scrollbar-color: var(--scroll-thumb) transparent; }
+html.is-scrolling { scrollbar-color: var(--scroll-thumb) transparent; }
+:root { --scroll-thumb: color-mix(in srgb, var(--text) 24%, transparent); }
+/* (older Chrome / Safari, which use these instead) */
+::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+::-webkit-scrollbar-thumb { border-radius: 8px; background: transparent; }
+:not(html):hover::-webkit-scrollbar-thumb, .is-scrolling::-webkit-scrollbar-thumb { background: var(--scroll-thumb); }

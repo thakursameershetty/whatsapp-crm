@@ -332,6 +332,15 @@ function hideOverlay(el) {
   el.classList.add('closing');
   setTimeout(() => el.classList.remove('closing') || el.classList.add('hidden'), Motion.reduce() ? 0 : 180);
 }
+// Scrollbars stay hidden until used (style.css): whatever is scrolling shows its bar, which fades a moment after it stops.
+document.addEventListener('scroll', (e) => {
+  const el = e.target === document ? document.documentElement : e.target;
+  if (!el?.classList) return;
+  el.classList.add('is-scrolling');
+  clearTimeout(el.__scrollT);
+  el.__scrollT = setTimeout(() => el.classList.remove('is-scrolling'), 900);
+}, { capture: true, passive: true });
+
 // A popup opened from another (a number's playbooks, from its settings) can go back to it when closed, and can ask
 // first (unsaved changes). Both are set right after openModal, and cleared by the next one.
 let modalBack = null, modalGuard = null;
@@ -367,7 +376,7 @@ $('#modal').addEventListener('click', (e) => e.target.id === 'modal' && closeMod
 function confirmDialog({ title, message = '', confirmText = 'OK', danger = false, check = '', safe = false }) {
   return new Promise((resolve) => {
     $('#confirmTitle').textContent = title;
-    $('#confirmMsg').innerHTML = message + (check ? `<label class="confirm-check"><input type="checkbox" id="confirmCheck" /> <span>${check}</span></label>` : '');
+    $('#confirmMsg').innerHTML = message + (check ? `<label class="confirm-check"><input type="checkbox" class="cb" id="confirmCheck" /> <span>${check}</span></label>` : '');
     const yes = $('#confirmYes');
     yes.textContent = confirmText;
     yes.className = 'btn ' + (danger ? 'danger-solid' : 'primary');

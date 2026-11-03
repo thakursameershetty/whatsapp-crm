@@ -407,8 +407,24 @@
   $('#spPhone').addEventListener('change', (e) => setPhone(e.target.value));
   $('#spUndo').addEventListener('click', () => { grid.undo(); grid.focus(); });
   $('#spRedo').addEventListener('click', () => { grid.redo(); grid.focus(); });
-  $('#spAddRow').addEventListener('click', () => { grid.insertRowsAt('below'); grid.focus(); });
-  $('#spAddCol').addEventListener('click', () => { grid.insertColumn(); grid.focus(); });
+  // + Row / + Column: where to insert, next to the selection (as many as are selected).
+  $('#spAddRow').addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect(), { rows: n, hasRows } = grid.selectionSize();
+    if (!hasRows) { grid.insertRowsAt('below'); return grid.focus(); } // an empty sheet: just add one
+    const what = n > 1 ? `${n} rows` : 'row';
+    Sheet.Menu.open(r.left, r.bottom + 6, [
+      { label: `Insert ${what} above`, action: () => { grid.insertRowsAt('above'); grid.focus(); } },
+      { label: `Insert ${what} below`, action: () => { grid.insertRowsAt('below'); grid.focus(); } },
+    ]);
+  });
+  $('#spAddCol').addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect(), { cols: n } = grid.selectionSize();
+    const what = n > 1 ? `${n} columns` : 'column';
+    Sheet.Menu.open(r.left, r.bottom + 6, [
+      { label: `Insert ${what} left`, action: () => { grid.insertColumnAt('left'); grid.focus(); } },
+      { label: `Insert ${what} right`, action: () => { grid.insertColumnAt('right'); grid.focus(); } },
+    ]);
+  });
   // Delete: what's selected (cells, rows, columns), or the sheet / file itself.
   $('#spDelRows').addEventListener('click', (e) => {
     const sh = current(); if (!sh) return;
@@ -653,6 +669,92 @@
   }
   $('#templateSelect').addEventListener('change', onTemplateChange);
 
+  // --- Choosing a template: a window with every template as a preview card, to search, filter, sort and pick ---
+  function renderTplPickBtn() {
+    const t = currentTemplate(), b = $('#tplPickBtn');
+    b.innerHTML = t
+      ? `${icon('file-text', 16)}<span class="tp-btn-main"><b>${esc(t.name)}</b><small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}${t.variables.length ? ` · ${t.variables.length} variable${t.variables.length > 1 ? 's' : ''}` : ''}</small></span><span class="tp-btn-act">Change</span>`
+      : `${icon('file-text', 16)}<span class="tp-btn-main"><b>${state.templates.length ? 'Choose a template' : 'No templates yet'}</b><small>${state.templates.length ? `${state.templates.filter((x) => !tplSendBlock(x)).length} ready to send` : 'Add one under Templates'}</small></span>${icon('chevron-down', 15)}`;
+    b.classList.toggle('empty', !t);
+  }
+  const TP = { q: '', cat: '', status: 'ready', num: '', sort: 'name' };
+  const TP_SORTS = { name: ['Name A–Z', (a, b) => a.name.localeCompare(b.name)], new: ['Newest', (a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))], cat: ['Category', (a, b) => catLabel(a.category).localeCompare(catLabel(b.category)) || a.name.localeCompare(b.name)] };
+  function openTemplatePicker() {
+    if (!state.templates.length) { showTab('templates'); return toast('Add or sync a template first'); }
+    let pick = $('#templateSelect').value || '';
+    const nums = state.senders.filter((x) => x.enabled);
+    const body = openModal('Choose a template', `
+      <div class="tp-bar">
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="tpQ" placeholder="Search name or message" autocomplete="off" /></div>
+        <select id="tpCat" aria-label="Category"></select>
+        <select id="tpStatus" aria-label="Status"><option value="ready">Ready to send</option><option value="">Any status</option><option value="PENDING">In review</option><option value="REJECTED">Rejected</option></select>
+        ${nums.length > 1 ? `<select id="tpNum" aria-label="Number"><option value="">All numbers</option>${nums.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join('')}</select>` : ''}
+        <button type="button" class="ct-sortbtn tp-sort" id="tpSort" aria-haspopup="menu"></button>
+      </div>
+      <div class="tp-grid" id="tpGrid"></div>
+      <div class="tp-foot"><button type="button" class="btn quiet tp-manage" id="tpManage" title="Create, edit or sync templates on the Templates page">${icon('settings', 15)}Manage templates</button><span class="tp-count" id="tpCount"></span><button class="btn quiet" id="tpCancel">Cancel</button><button class="btn primary" id="tpUse" disabled>Use this template</button></div>`);
+    $('#modal .modal-box').classList.add('wide', 'tp-box');
+    LA.hydrate(body);
+    $('#tpQ', body).value = TP.q;
+    const shown = () => {
+      const q = TP.q.trim().toLowerCase();
+      const n = state.senders.find((x) => x.id === TP.num);
+      return state.templates.filter((t) => (!TP.cat || catLabel(t.category) === TP.cat)
+        && (TP.status === 'ready' ? !tplSendBlock(t) : !TP.status || String(t.status).toUpperCase() === TP.status)
+        && (!n || templateSenders(t, [n]).length)
+        && (!q || [t.name, t.language, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase().includes(q))).sort(TP_SORTS[TP.sort][1]);
+    };
+    const draw = () => {
+      const cats = [...new Set(state.templates.map((t) => catLabel(t.category)))].sort();
+      $('#tpCat', body).innerHTML = `<option value="">All categories</option>${cats.map((c) => `<option ${c === TP.cat ? 'selected' : ''}>${esc(c)}</option>`).join('')}`;
+      $('#tpStatus', body).value = TP.status;
+      if ($('#tpNum', body)) $('#tpNum', body).value = TP.num;
+      $('#tpSort', body).innerHTML = `${icon('arrow-up-down', 14)}<span>${TP_SORTS[TP.sort][0]}</span>${icon('chevron-down', 14)}`;
+      const list = shown();
+      $('#tpCount', body).textContent = `${list.length} template${list.length === 1 ? '' : 's'}`;
+      $('#tpGrid', body).innerHTML = list.length ? list.map((t) => {
+        const why = tplSendBlock(t);
+        const st = String(t.status || '').toUpperCase();
+        return `<div class="tp-card ${t.id === pick ? 'on' : ''} ${why ? 'off' : ''}" data-id="${t.id}" role="option" aria-selected="${t.id === pick}" tabindex="${why ? -1 : 0}" ${why ? `title="${esc(why)}"` : ''}>
+          <div class="tp-card-head"><b>${esc(t.name)}</b><span class="pill ${esc(st)}">${esc(TPL_STATUS[st] || t.status || '')}</span></div>
+          <div class="tp-card-meta">${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())} · ${t.variables.length ? `${t.variables.length} variable${t.variables.length > 1 ? 's' : ''}` : 'no variables'}</div>
+          <div class="tpl-chat tp-prev"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
+          ${why ? `<div class="tp-why">${icon('badge-alert', 13)}<span>${esc(why)}</span></div>` : ''}
+        </div>`;
+      }).join('') : `<div class="tp-none">${emptyState({ icon: 'search', title: 'No templates match', text: 'Try another word or filter.', actions: '<button class="btn" data-tp-clear>Clear filters</button>' })}</div>`;
+      LA.hydrate($('#tpGrid', body));
+      $('#tpUse', body).disabled = !pick || Boolean(tplSendBlock(state.templates.find((t) => t.id === pick) || {}));
+    };
+    draw();
+    const use = () => {
+      if (!pick) return;
+      $('#templateSelect').value = pick;
+      $('#templateSelect').dispatchEvent(new Event('change'));
+      closeModal();
+    };
+    $('#tpQ', body).oninput = (e) => { TP.q = e.target.value; draw(); };
+    $('#tpCat', body).onchange = (e) => { TP.cat = e.target.value; draw(); };
+    $('#tpStatus', body).onchange = (e) => { TP.status = e.target.value; draw(); };
+    if ($('#tpNum', body)) $('#tpNum', body).onchange = (e) => { TP.num = e.target.value; draw(); };
+    $('#tpSort', body).onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(TP_SORTS).map(([k, [label]]) => ({ label, checked: k === TP.sort, action: () => { TP.sort = k; draw(); } }))); };
+    $('#tpGrid', body).addEventListener('click', (e) => {
+      if (e.target.closest('[data-tp-clear]')) { Object.assign(TP, { q: '', cat: '', status: 'ready', num: '' }); $('#tpQ', body).value = ''; return draw(); }
+      const c = e.target.closest('.tp-card');
+      if (!c || c.classList.contains('off')) return;
+      pick = c.dataset.id;
+      $$('.tp-card', body).forEach((x) => { x.classList.toggle('on', x === c); x.setAttribute('aria-selected', String(x === c)); });
+      $('#tpUse', body).disabled = false;
+    });
+    $('#tpGrid', body).addEventListener('dblclick', (e) => { const c = e.target.closest('.tp-card:not(.off)'); if (c) { pick = c.dataset.id; use(); } });
+    $('#tpGrid', body).addEventListener('keydown', (e) => { const c = e.target.closest('.tp-card:not(.off)'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick = c.dataset.id; use(); } });
+    $('#tpCancel', body).onclick = closeModal;
+    $('#tpManage', body).onclick = () => { closeModal(); showTab('templates'); };
+    $('#tpUse', body).onclick = use;
+    // the chosen one in view; otherwise the search
+    requestAnimationFrame(() => { const on = $('.tp-card.on', body); if (on) on.scrollIntoView({ block: 'nearest' }); else $('#tpQ', body).focus(); });
+  }
+  $('#tplPickBtn').addEventListener('click', openTemplatePicker);
+
   // A "Visit website" button whose link is …/go/{{1}} (see goCode on the server) takes a full link.
   const goButton = (t, v) => {
     const i = /^button(\d+)$/.exec(v.where)?.[1];
@@ -677,6 +779,7 @@
   }
 
   function onTemplateChange() {
+    renderTplPickBtn();
     const t = currentTemplate();
     const next = {};
     for (const v of t?.variables || []) next[v.key] = SP.mapping[v.key] || autoMap(v);
@@ -697,17 +800,23 @@
     const ok = new Set(enabled.map((s) => s.id));
     for (const id of [...state.selectedSenders]) if (!ok.has(id)) state.selectedSenders.delete(id);
     if (!state.selectedSenders.size) enabled.forEach((s) => state.selectedSenders.add(s.id));
-    $('#sendFromHint').textContent = enabled.length > 1 ? 'split evenly across the numbers you turn on' : enabled.length ? 'every message goes from this number' : '';
+    $('#sendFromHint').textContent = enabled.length > 1 ? 'split evenly across the numbers you pick' : enabled.length ? 'every message goes from this number' : '';
     $('#senderChecks').innerHTML = enabled.length
-      ? enabled.map((s) => `<label class="toggle-item"><span><span class="ti-name">${esc(s.label)}</span><br/><span class="ti-meta">${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</span></span>${toggleHtml({ checked: state.selectedSenders.has(s.id), attrs: `value="${s.id}"`, size: 'sm' })}</label>`).join('')
+      ? enabled.map((s) => { const on = state.selectedSenders.has(s.id), many = enabled.length > 1;
+          return `<button type="button" class="sf-item ${on ? 'on' : ''} ${many ? 'pick' : ''}" data-sid="${s.id}" ${many ? `aria-pressed="${on}" title="${on ? 'Sending from this number. Click to leave it out.' : 'Click to send from this number too'}"` : 'tabindex="-1"'}>${senderPhotoHtml(s)}<span class="sf-who"><b>${esc(s.verifiedName || s.label)}</b><small>${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</small></span>${many ? `<span class="sf-tick">${on ? icon('check-one', 14) : ''}</span>` : ''}</button>`; }).join('')
       : all.length ? `<div class="empty-note">None of your numbers can send this template: it belongs to another WhatsApp Business Account.</div>`
       : `<div class="empty-note">No numbers yet. <a href="#" data-goto="numbers">Add one</a> to start sending.</div>`;
     renderSummary();
   }
-  $('#senderChecks').addEventListener('change', (e) => {
-    if (e.target.checked) state.selectedSenders.add(e.target.value);
-    else state.selectedSenders.delete(e.target.value);
-    renderSummary();
+  $('#senderChecks').addEventListener('click', (e) => {
+    const b = e.target.closest('.sf-item.pick');
+    if (!b) return;
+    const id = b.dataset.sid;
+    if (state.selectedSenders.has(id)) {
+      if (state.selectedSenders.size === 1) return toast('Send from at least one number', 'error');
+      state.selectedSenders.delete(id);
+    } else state.selectedSenders.add(id);
+    renderSenderChecks();
   });
 
   // The variable you're editing lights up in the preview, and its field lights up too.
@@ -1093,9 +1202,10 @@
   function suggestTest(count) {
     const name = $('#campaignName').value, few = count > 0 && count <= 5, named = /test/i.test(name);
     if (!testTouched) $('#spTest').checked = few || named;
-    $('#spTestHint').textContent = !testTouched && (few || named)
-      ? `Suggested: ${named ? 'the name says test' : `only ${count} ${count === 1 ? 'person' : 'people'}`} · left out of the Overview’s numbers`
-      : 'Left out of the Overview’s numbers';
+    // (the switch sits in the top bar; its tooltip says what a test is, and why it was switched on for you)
+    const why = !testTouched && (few || named) ? `Switched on for you: ${named ? 'the name says test' : `only ${count} ${count === 1 ? 'person' : 'people'}`}. ` : '';
+    $('#spTestWrap').title = `${why}A test send is tagged “Test” and left out of the Overview’s numbers, so trying a template on yourself or your team doesn’t skew your stats. It still really sends.`;
+    $('#spTestWrap').classList.toggle('suggested', Boolean(why));
   }
   $('#spTest').addEventListener('change', () => { testTouched = true; suggestTest(recipients().list.length); });
   $('#campaignName').addEventListener('input', () => suggestTest(recipients().list.length));
@@ -1251,6 +1361,11 @@
     }, e.target)
   );
 
+  // The numbers it sends from, as the confirmation shows them (photo, name, number).
+  function fromHtml() {
+    const list = state.senders.filter((x) => state.selectedSenders.has(x.id));
+    return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>`;
+  }
   $('#sendAll').addEventListener('click', (e) => {
     if (e.currentTarget.classList.contains('sp-go-next')) {
       if (!SP.panel) { SP.panel = true; try { localStorage.setItem('sendPanel', '1'); } catch {} renderChrome(); }
@@ -1270,7 +1385,7 @@
       const demo = state.settings.demoMode;
       const ok = await confirmDialog({
         title: scheduledAt ? `Schedule ${list.length.toLocaleString()} messages?` : `Send ${list.length.toLocaleString()} messages now?`,
-        message: `Template <strong>${esc(t.name)}</strong> from ${nums} number${nums === 1 ? '' : 's'}${sheets > 1 ? `, to rows from ${sheets} sheets` : ''}${scheduledAt ? `, on <strong>${esc(new Date(scheduledAt).toLocaleString())}</strong>` : ''}.<br><br>${demo ? 'Demo mode: sending is simulated.' : '<strong>Live:</strong> real WhatsApp messages will be sent.'}${window.Credits?.confirmText(t, list.length) || ''}`,
+        message: `${fromHtml()}Template <strong>${esc(t.name)}</strong> from ${nums} number${nums === 1 ? '' : 's'}${sheets > 1 ? `, to rows from ${sheets} sheets` : ''}${scheduledAt ? `, on <strong>${esc(new Date(scheduledAt).toLocaleString())}</strong>` : ''}.<br><br>${demo ? 'Demo mode: sending is simulated.' : '<strong>Live:</strong> real WhatsApp messages will be sent.'}${window.Credits?.confirmText(t, list.length) || ''}`,
         confirmText: scheduledAt ? 'Schedule' : 'Send now',
         check: demo ? '' : 'These people agreed to get WhatsApp messages from my business, and can reply STOP to opt out.',
         safe: true,

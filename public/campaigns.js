@@ -63,14 +63,36 @@
 
   // --- List --------------------------------------------------------------------
 
+  // The page asks the server for just what it shows: one page (or the calendar's month) after search, status, number,
+  // dates and sort, with the counts, the sending/scheduled cards and the 30-day summary. (GET /api/campaigns?page=…)
+  let loadSeq = 0;
+  async function fetchList() {
+    const seq = ++loadSeq;
+    const p = new URLSearchParams({ q: CP.q, filter: CP.filter, sender: CP.sender || '', sort: CP.sort, tz: String(new Date().getTimezoneOffset()) });
+    if (CP.date) p.set('dates', JSON.stringify(CP.date));
+    if (CP.view === 'calendar') {
+      p.set('view', 'calendar');
+      if (CP.calMonth) p.set('month', `${CP.calMonth.getFullYear()}-${String(CP.calMonth.getMonth() + 1).padStart(2, '0')}`);
+    } else { p.set('page', String(CP.page)); p.set('per', String(CP.per)); }
+    const r = await api('/campaigns?' + p);
+    if (seq !== loadSeq) return false; // a newer request is on its way
+    CP.res = r;
+    if (r.page != null) CP.page = r.page;
+    if (r.month) { const [y, m] = r.month.split('-').map(Number); CP.calMonth = new Date(y, m - 1, 1); }
+    CP.list = [...r.pinned, ...r.items];
+    for (const c of CP.list) folderColors.set(c.id, folderColorAt(c.colorIndex ?? 0));
+    return true;
+  }
   async function load() {
-    CP.list = await api('/campaigns');
-    assignColors(CP.list);
+    if (!(await fetchList())) return;
     if (CP.detail) return open(CP.detail);
     renderList();
     stop();
-    if (CP.list.some(live) || CP.list.some((c) => c.status === 'scheduled')) pollTimer = setTimeout(load, CP.list.some(live) ? 2000 : 15000);
+    if (CP.res.live || CP.res.scheduled) pollTimer = setTimeout(() => load().catch(() => {}), CP.res.live ? 2000 : 15000);
   }
+  // a filter, search, sort or date changed: back to the first page
+  const refilter = () => { CP.page = 0; return load().catch((e) => toast(e.message, 'error')); };
+  let searchT = 0;
 
   const FILTERS = [
     ['all', 'All', () => true],
@@ -104,44 +126,32 @@
     const el = $('#campaignList');
     el.classList.remove('hidden');
     $('#campaignDetail').classList.add('hidden');
-    if (!CP.list.length) {
+    const R = CP.res || { any: 0 };
+    if (!R.any) {
       // Same header as when there are campaigns, so the page always says where you are.
       el.innerHTML = `<div class="section-head"><div><h1>Campaigns</h1><p class="sub">Every bulk send you make, with its delivery, reads, replies and leads.</p></div><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div>` + emptyState({ icon: 'send', title: 'No campaigns yet', text: 'Every bulk send shows up here: delivery, reads, replies and the leads they bring in.', actions: `<button class="btn primary" data-goto="send">${icon('plus', 16)}Create a campaign</button>` });
       return;
     }
-    const pinned = CP.list.filter((c) => live(c) || c.status === 'scheduled').sort((a, b) => (live(b) - live(a)) || String(a.scheduledAt).localeCompare(String(b.scheduledAt)));
+    const pinned = R.pinned;
     const filter = FILTERS.find((f) => f[0] === CP.filter) || FILTERS[0];
     const q = CP.q.toLowerCase();
-    const rows = CP.list
-      .filter((c) => !live(c) && c.status !== 'scheduled' && filter[2](c))
-      .filter((c) => !q || [c.name, c.templateName].some((v) => String(v).toLowerCase().includes(q)))
-      .filter((c) => !CP.sender || (c.senderIds || []).includes(CP.sender))
-      .filter((c) => DateFilter.match(CP.date, dayOf(c)))
-      .sort(SORTS[CP.sort][1]);
-    // Pages (cards and table; the calendar shows the whole month)
-    const sig = [CP.filter, CP.q, CP.sender, JSON.stringify(CP.date), CP.sort, CP.per].join('|');
-    if (sig !== CP.pageSig) { CP.pageSig = sig; CP.page = 0; }
-    const pages = CP.per ? Math.max(1, Math.ceil(rows.length / CP.per)) : 1;
-    CP.page = Math.min(CP.page, pages - 1);
-    const from = CP.per ? CP.page * CP.per : 0;
-    const shown = CP.per ? rows.slice(from, from + CP.per) : rows;
-    const pager = pages > 1 ? `<div class="cp-pager">
-        <span>${(from + 1).toLocaleString()}–${(from + shown.length).toLocaleString()} of ${rows.length.toLocaleString()}</span>
+    // (one page from the server; the calendar gets its month)
+    const shown = CP.view === 'calendar' ? [] : R.items;
+    const total = R.total;
+    const pages = R.pages || 1;
+    const from = R.per ? CP.page * R.per : 0;
+    const pager = pages > 1 && CP.view !== 'calendar' ? `<div class="cp-pager">
+        <span>${(from + 1).toLocaleString()}–${(from + shown.length).toLocaleString()} of ${total.toLocaleString()}</span>
         <div class="seg"><button type="button" data-cp-page="-1" ${CP.page ? '' : 'disabled'} aria-label="Previous page">${icon('arrow-left', 14)}</button><span>Page ${CP.page + 1} of ${pages}</span><button type="button" data-cp-page="1" ${CP.page < pages - 1 ? '' : 'disabled'} aria-label="Next page">${icon('arrow-right', 14)}</button></div>
       </div>` : '';
-    // the calendar shows sending and scheduled campaigns too, on their days
-    const calRows = [...pinned.filter((c) => (!q || [c.name, c.templateName].some((v) => String(v).toLowerCase().includes(q))) && (!CP.sender || (c.senderIds || []).includes(CP.sender)) && DateFilter.match(CP.date, dayOf(c))), ...rows];
-
-    // The last 30 days, in the current mode (the server keeps demo and live campaigns apart).
-    const since = Date.now() - 30 * 86400000;
-    // (tests left out, as on the Overview)
-    const inWindow = CP.list.filter((c) => new Date(c.startedAt || c.createdAt).getTime() >= since && Boolean(c.demo) === Boolean(state.settings.demoMode));
-    const recent = inWindow.filter((c) => !c.test), testsOut = inWindow.length - recent.length;
-    const T = recent.reduce((a, c) => { const s = c.stats || {}; a.sent += sentOf(s); a.del += deliveredOf(s); a.read += s.read || 0; a.rep += c.replies || 0; a.leads += c.leads || 0; return a; }, { sent: 0, del: 0, read: 0, rep: 0, leads: 0 });
+    // the calendar shows sending and scheduled campaigns too, on their days (the server sends the month's)
+    const calRows = CP.view === 'calendar' ? R.items : [];
+    // The last 30 days, in the current mode, tests left out (as on the Overview): worked out by the server.
+    const T = R.summary, testsOut = T.testsOut;
 
     // (kept from the last draw, so a redraw doesn't flicker between one and two rows; fitHead corrects it right after)
     const wasBelow = $('#campaignList > .section-head')?.classList.contains('tools-below');
-    const statusCount = (fn) => CP.list.filter((c) => !live(c) && c.status !== 'scheduled' && fn(c)).length;
+    const statusCount = (fn) => R.counts[FILTERS.find((f) => f[2] === fn)[0]] || 0;
     el.innerHTML = `
       <div class="section-head has-tools${wasBelow ? ' tools-below' : ''}"><div><h1>Campaigns</h1>
         <p class="sub cp-summary" title="Last 30 days: ${T.sent.toLocaleString()} sent, ${pctOf(T.del, T.sent)}% delivered, ${pctOf(T.read, T.del)}% read, ${T.rep.toLocaleString()} replies, ${T.leads.toLocaleString()} leads${testsOut ? ` (${testsOut} test${testsOut === 1 ? '' : 's'} not counted)` : ''}">Last 30 days · <b>${T.sent.toLocaleString()}</b> sent · <b>${pctOf(T.del, T.sent)}%</b> delivered · <b>${pctOf(T.read, T.del)}%</b> read · <b>${T.rep.toLocaleString()}</b> repl${T.rep === 1 ? 'y' : 'ies'} · <b>${T.leads.toLocaleString()}</b> lead${T.leads === 1 ? '' : 's'}${testsOut ? ` <span class="cp-tests-out">· ${testsOut} test${testsOut === 1 ? '' : 's'} not counted</span>` : ''}</p></div>
@@ -161,35 +171,35 @@
         <div class="row tight cp-head-actions"><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
       ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
       ${CP.view === 'calendar' ? calendarHtml(calRows) : CP.view === 'cards'
-        ? `<div class="cp-folders">${shown.map(folderHtml).join('')}</div>${!rows.length ? `<p class="sub cp-none">${q || CP.date || CP.sender || CP.filter !== 'all' ? 'No campaigns match.' : 'Nothing here yet.'}</p>` : ''}${pager}`
+        ? `<div class="cp-folders">${shown.map(folderHtml).join('')}</div>${!total ? `<p class="sub cp-none">${q || CP.date || CP.sender || CP.filter !== 'all' ? 'No campaigns match.' : 'Nothing here yet.'}</p>` : ''}${pager}`
         : `<div class="card cp-card">
         <table class="data-table cp-table">
           <thead><tr class="heads"><th>Campaign</th><th class="num">Recipients</th><th>Delivered</th><th class="num">Read</th><th class="num">Replies</th><th class="num">Leads</th><th>Date</th></tr></thead>
-          <tbody>${rows.length ? shown.map(rowHtml).join('') : `<tr><td colspan="7" class="table-empty">${q ? 'No campaigns match.' : 'Nothing here yet.'}</td></tr>`}</tbody>
+          <tbody>${total ? shown.map(rowHtml).join('') : `<tr><td colspan="7" class="table-empty">${q ? 'No campaigns match.' : 'Nothing here yet.'}</td></tr>`}</tbody>
         </table>
       </div>${pager}`}`;
     LA.hydrate(el);
     Motion.segs(el);
     window.fitHead?.($('#campaignList > .section-head'));
-    $('#cpFilter').onchange = (e) => { CP.filter = e.target.value; renderList(); };
+    $('#cpFilter').onchange = (e) => { CP.filter = e.target.value; refilter(); };
     const search = $('#cpSearch');
-    search.oninput = () => { CP.q = search.value.trim(); const pos = search.selectionStart; renderList(); const s2 = $('#cpSearch'); s2.focus(); s2.setSelectionRange(pos, pos); };
+    // (asks the server after a short pause in typing; the box keeps focus and caret across the redraw)
+    search.oninput = () => { CP.q = search.value.trim(); clearTimeout(searchT); searchT = setTimeout(async () => { const pos = $('#cpSearch')?.selectionStart; await refilter(); const s2 = $('#cpSearch'); if (s2 && pos != null) { s2.focus(); s2.setSelectionRange(pos, pos); } }, 250); };
     $('#cpSortBtn').onclick = (e) => {
       e.stopPropagation();
       const r = e.currentTarget.getBoundingClientRect();
-      Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(SORTS).map(([k, [label]]) => ({ label, checked: k === CP.sort, action: () => { CP.sort = k; renderList(); } })));
+      Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(SORTS).map(([k, [label]]) => ({ label, checked: k === CP.sort, action: () => { CP.sort = k; refilter(); } })));
     };
-    if ($('#cpPer')) $('#cpPer').onchange = (e) => { CP.per = Number(e.target.value) || 0; try { localStorage.setItem('campPer', String(CP.per)); } catch {} renderList(); };
-    if ($('#cpSender')) $('#cpSender').onchange = (e) => { CP.sender = e.target.value; renderList(); };
+    if ($('#cpPer')) $('#cpPer').onchange = (e) => { CP.per = Number(e.target.value) || 0; try { localStorage.setItem('campPer', String(CP.per)); } catch {} refilter(); };
+    if ($('#cpSender')) $('#cpSender').onchange = (e) => { CP.sender = e.target.value; refilter(); };
     $('#cpDate').onclick = (e) => {
-      if (e.target.closest('[data-df-clear]')) { CP.date = null; return renderList(); }
-      const marks = new Map();
-      for (const c of CP.list) { const k = DateFilter.keyOf(new Date(dayOf(c))); marks.set(k, (marks.get(k) || 0) + 1); }
+      if (e.target.closest('[data-df-clear]')) { CP.date = null; return refilter(); }
+      const marks = new Map(Object.entries(R.days || {}));
       DateFilter.open(e.currentTarget, { value: CP.date, marks, onChange: (v) => {
         CP.date = v;
         // the calendar follows the choice to its month
         if (v) { const k = v.days ? v.days.at(-1) : v.to; const [y, m] = k.split('-').map(Number); CP.calMonth = new Date(y, m - 1, 1); }
-        renderList();
+        refilter();
       } });
     };
   }
@@ -201,7 +211,7 @@
     const byDay = new Map();
     for (const c of list) { const k = DateFilter.keyOf(new Date(dayOf(c))); (byDay.get(k) || byDay.set(k, []).get(k)).push(c); }
     for (const cs of byDay.values()) cs.sort((a, b) => String(dayOf(a)).localeCompare(String(dayOf(b))));
-    if (!CP.calMonth) { const newest = list.map(dayOf).sort().at(-1); const d = newest ? new Date(newest) : new Date(); CP.calMonth = new Date(d.getFullYear(), d.getMonth(), 1); }
+    if (!CP.calMonth) CP.calMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1); // (the server picks the month)
     const m = CP.calMonth, today = DateFilter.keyOf(new Date());
     const first = new Date(m.getFullYear(), m.getMonth(), 1 - m.getDay()); // the Sunday on or before the 1st
     const weeks = Math.ceil((m.getDay() + new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate()) / 7);
@@ -239,14 +249,14 @@
       const n = Number(nav.dataset.calnav), m = CP.calMonth || new Date();
       CP.calMonth = n ? new Date(m.getFullYear(), m.getMonth() + n, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       CP.calOpen = null;
-      return renderList();
+      return load().catch((err) => toast(err.message, 'error')); // that month's campaigns
     }
     // the month name: a month / year grid to jump to (months with campaigns are underlined)
     const title = e.target.closest('#campaignList [data-calpick]');
     if (title) {
       const r = title.getBoundingClientRect();
       let y = (CP.calMonth || new Date()).getFullYear();
-      const busy = new Set(CP.list.map((c) => String(dayOf(c) || '').slice(0, 7)));
+      const busy = new Set(Object.keys(CP.res?.days || {}).map((k) => k.slice(0, 7)));
       const el = Sheet.Menu.panel(r.left, r.bottom + 6, '<div class="cp-mpick"></div>');
       el.classList.add('cp-mpick-pop');
       const draw = () => {
@@ -260,7 +270,7 @@
         const b = ev.target.closest('button');
         if (!b) return;
         if (b.dataset.y) { y += Number(b.dataset.y); return draw(); }
-        if (b.dataset.m) { CP.calMonth = new Date(y, Number(b.dataset.m), 1); CP.calOpen = null; Sheet.Menu.close(); renderList(); }
+        if (b.dataset.m) { CP.calMonth = new Date(y, Number(b.dataset.m), 1); CP.calOpen = null; Sheet.Menu.close(); load().catch((err) => toast(err.message, 'error')); }
       });
       return;
     }
@@ -369,11 +379,11 @@
     </tr>`;
   }
 
-  $('#campaignList').addEventListener('click', (e) => {
+  $('#campaignList').addEventListener('click', async (e) => {
     const pg = e.target.closest('[data-cp-page]');
     if (pg) {
       CP.page += Number(pg.dataset.cpPage);
-      renderList();
+      await load(); // that page, from the server
       // back to the top of the list, under the pinned header and toolbar
       // (measured from the list itself: the toolbar is pinned, so its own position says nothing about where the list starts)
       const list = $('#campaignList .cp-folders, #campaignList .cp-card');
@@ -385,7 +395,10 @@
     if (v) {
       if (v.dataset.view === CP.view) return;
       try { localStorage.setItem('campView', v.dataset.view); } catch {}
-      return morph(() => { CP.view = v.dataset.view; renderList(); });
+      // the calendar asks for a month, the others for a page: get it first, then morph to the new view
+      const next = v.dataset.view, needs = (next === 'calendar') !== (CP.view === 'calendar');
+      if (needs) { const was = CP.view; CP.view = next; try { await fetchList(); } finally { CP.view = was; } }
+      return morph(() => { CP.view = next; renderList(); });
     }
     const a = e.target.closest('[data-act]');
     if (a) {
@@ -456,6 +469,7 @@
     let c;
     try {
       c = await api('/campaigns/' + cid);
+      if (c.colorIndex >= 0) folderColors.set(c.id, folderColorAt(c.colorIndex)); // opened from a link: its folder colour too
     } catch (e) {
       CP.detail = null;
       toast(e.message, 'error');

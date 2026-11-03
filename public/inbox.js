@@ -135,17 +135,67 @@
 
   // The list, from the server. A reply that's the same as what's on screen (most live updates touch one chat) is
   // left alone: no redraw at all.
-  async function loadList() {
-    const res = await api('/inbox');
-    const sig = res.conversations.map((c) => c.key + c.lastAt + c.unread + (c.last?.status || '') + (c.ai?.busy ? 1 : 0) + (c.ai?.hasDraft ? 1 : 0) + (c.ai?.handover ? 1 : 0) + (c.name || '')).join('|');
-    const same = ib.loaded && sig === ib.sig;
+  // The list comes from the server a slice at a time (GET /api/inbox?offset=…&limit=…): the first 30 chats, then 25
+  // more each time you scroll near the end. Search, filters, days and order are applied there.
+  const FIRST = 30, MORE = 25;
+  const listQuery = (offset, limit) => {
+    const p = new URLSearchParams({ offset: String(offset), limit: String(limit), q: ib.q, filter: ib.filter, sender: ib.sender, template: ib.template, sort: ib.sort, tz: String(new Date().getTimezoneOffset()) });
+    if (ib.date) p.set('dates', JSON.stringify(ib.date));
+    return '/inbox?' + p;
+  };
+  let listSeq = 0;
+  // How many chats the list should hold: 30, plus 25 for each "more" you scrolled to (back to 30 when a filter changes).
+  ib.wanted = FIRST;
+  // The same request already on its way is shared, not sent again (the page, the live stream and a reconnect can all
+  // ask at once).
+  // (and the same one asked again within a second reuses that answer: opening the page, the live stream connecting
+  // and a reconnect all ask for the first 30 one after another)
+  const inflight = new Map();
+  let lastList = null;
+  const getList = (url, fresh) => {
+    if (!fresh && lastList?.url === url && Date.now() - lastList.at < 1000) return lastList.p;
+    const p = inflight.get(url) || inflight.set(url, api(url).finally(() => inflight.delete(url))).get(url);
+    lastList = { url, at: Date.now(), p };
+    return p;
+  };
+  // From the top. reset (a filter or search changed): the first 30. Otherwise (a new message, a refresh): as many as
+  // you'd scrolled to, so the list stays as it was.
+  async function loadList({ reset = false } = {}) {
+    if (reset) ib.wanted = FIRST;
+    const seq = ++listSeq;
+    const res = await getList(listQuery(0, Math.min(200, ib.wanted)), reset);
+    if (seq !== listSeq) return; // a newer one is on its way
+    if (reset) $('#ibConvs').scrollTop = 0; // new results start at the top (and don't count as "scrolled to the end")
+    const sig = res.total + '#' + res.conversations.map((c) => c.key + c.lastAt + c.unread + (c.last?.status || '') + (c.ai?.busy ? 1 : 0) + (c.ai?.hasDraft ? 1 : 0) + (c.ai?.handover ? 1 : 0) + (c.name || '')).join('|');
+    const same = ib.loaded && !reset && sig === ib.sig;
     ib.sig = sig;
     ib.convs = res.conversations;
+    ib.res = res;
     ib.unread = res.unread;
     ib.loaded = true;
     renderBadge();
     if (visible() && !same) renderList();
   }
+  // The next 25, when you scroll near the end.
+  let loadingMore = false;
+  async function loadMore() {
+    if (loadingMore || !ib.res || ib.convs.length >= ib.res.total) return;
+    loadingMore = true;
+    const seq = listSeq;
+    try {
+      const res = await api(listQuery(ib.convs.length, MORE));
+      if (seq !== listSeq) return; // the list was reloaded meanwhile
+      const have = new Set(ib.convs.map((c) => c.key));
+      ib.convs = [...ib.convs, ...res.conversations.filter((c) => !have.has(c.key))];
+      ib.wanted = ib.convs.length;
+      ib.res = { ...ib.res, total: res.total };
+      loadingMore = false;
+      renderRows();
+    } catch (e) { toast(e.message, 'error'); } finally { loadingMore = false; }
+  }
+  // a filter, search or the days changed: ask again from the top
+  let refilterT = 0;
+  const refilter = (wait = 0) => { clearTimeout(refilterT); refilterT = setTimeout(() => loadList({ reset: true }).catch((e) => toast(e.message, 'error')), wait); };
 
   function renderBadge() {
     const b = $('#inboxBadge');
@@ -154,56 +204,40 @@
     document.title = (ib.unread ? `(${ib.unread}) ` : '') + 'SendON';
   }
 
-  function filtered() {
-    const fk = ib.q + '|' + ib.filter + '|' + ib.sender + '|' + ib.template + '|' + JSON.stringify(ib.date) + ib.sort;
-    if (fk !== ib.fk) { ib.fk = fk; ib.limit = PAGE; }
-    const q = ib.q.toLowerCase();
-    const now = Date.now();
-    return ib.convs.filter((c) => {
-      if (ib.filter === 'unread' && !c.unread) return false;
-      if (ib.filter === 'open' && !(c.windowEndsAt && new Date(c.windowEndsAt) > now)) return false;
-      if (ib.sender && c.senderId !== ib.sender) return false;
-      if (ib.template && !(c.templates || []).includes(ib.template)) return false;
-      if (q && ![c.name, c.wa, fmtPhone(c.wa), c.last?.text].some((v) => String(v || '').toLowerCase().includes(q))) return false;
-      if (ib.date && !DateFilter.match(ib.date, c.lastAt)) return false; // the day of the latest message
-      return true;
-    }).sort(ib.sort === 'old' ? (a, b) => String(a.lastAt || '').localeCompare(String(b.lastAt || '')) : () => 0);
-  }
-
-  // Rows a page at a time: a big inbox draws its first PAGE chats, and more as you scroll near the end.
-  const PAGE = 60;
-  ib.limit = PAGE;
+  // (already filtered and in order: the server did it)
+  const filtered = () => ib.convs;
   function renderList() {
     renderFilters();
     renderRows();
   }
   function renderFilters() {
     // Rebuilt only when the numbers or the templates on offer change (they rarely do).
-    const fsig = state.senders.map((x) => x.id + x.label + (x.photoUrl || '')).join() + '|' + [...new Set(ib.convs.map((c) => c.senderId))].join() + '|' + [...new Set(ib.convs.flatMap((c) => c.templates || []))].join() + '|' + ib.convs.length + '|' + ib.sender + ib.template;
+    const R = ib.res || { senders: {}, senderLabels: {}, templates: {}, counts: { all: 0 } };
+    const fsig = state.senders.map((x) => x.id + x.label + (x.photoUrl || '')).join() + '|' + JSON.stringify(R.senders) + '|' + JSON.stringify(R.templates) + '|' + ib.sender + ib.template;
     if (fsig === ib.fsig) return;
     ib.fsig = fsig;
     // Number filter only matters with more than one number in play.
     // Every number in the workspace (not only ones with chats yet), each with how many chats it has.
-    const senders = [...new Map([...state.senders.map((x) => [x.id, x.label]), ...ib.convs.map((c) => [c.senderId, c.senderLabel])])];
+    const senders = [...new Map([...state.senders.map((x) => [x.id, x.label]), ...Object.entries(R.senderLabels || {})])];
     const sel = $('#ibSender');
     $('#ibSenderWrap').classList.toggle('hidden', senders.length < 2);
     const chats = (n) => `${n} chat${n === 1 ? '' : 's'}`;
     // Each number shows its WhatsApp profile photo (or its first letter), in the list and on the closed filter.
     const pic = (id, label) => { const s = state.senders.find((x) => x.id === id); return { photo: s?.photoUrl || '', letter: (label || '?').trim().charAt(0).toUpperCase() }; };
-    sel.innerHTML = `<option value="" data-icon="layers">All numbers</option>` + senders.map(([id, label]) => { const p = pic(id, label); return `<option value="${esc(id)}" data-photo="${esc(p.photo)}" data-letter="${esc(p.letter)}" data-count="${esc(chats(ib.convs.filter((c) => c.senderId === id).length))}">${esc(label)}</option>`; }).join('');
+    sel.innerHTML = `<option value="" data-icon="layers">All numbers</option>` + senders.map(([id, label]) => { const p = pic(id, label); return `<option value="${esc(id)}" data-photo="${esc(p.photo)}" data-letter="${esc(p.letter)}" data-count="${esc(chats(R.senders[id] || 0))}">${esc(label)}</option>`; }).join('');
     sel.value = senders.some(([id]) => id === ib.sender) ? ib.sender : '';
     const cur = senders.find(([id]) => id === sel.value);
     $('#ibSenderPic').innerHTML = cur ? senderPhotoHtml(state.senders.find((x) => x.id === cur[0]) || { label: cur[1] }) : icon('layers', 15);
     $('#ibSenderPic').classList.toggle('all', !cur);
     // Template filter: people who were sent a given template (by a campaign or from here).
-    const tplNames = [...new Set(ib.convs.flatMap((c) => c.templates || []))].sort((a, b) => a.localeCompare(b));
+    const tplNames = Object.keys(R.templates || {}).sort((a, b) => a.localeCompare(b));
     const tsel = $('#ibTemplate');
     tsel.classList.toggle('hidden', !tplNames.length);
     if (ib.template && !tplNames.includes(ib.template)) ib.template = '';
     // In sections, like the Send page: by WhatsApp account when the numbers are in more than one, else by category.
     // data-tag (the category) drives the chips above the list.
     const tplOf = (n) => (state.templates || []).find((t) => t.name === n);
-    const tplOpt = (n) => `<option value="${esc(n)}" data-tag="${esc(catLabel(tplOf(n)?.category))}">${esc(n)} (${ib.convs.filter((c) => (c.templates || []).includes(n)).length})</option>`;
+    const tplOpt = (n) => `<option value="${esc(n)}" data-tag="${esc(catLabel(tplOf(n)?.category))}">${esc(n)} (${R.templates[n] || 0})</option>`;
     const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))];
     const sections = accounts.length > 1
       ? [...accounts.map((w) => [accountLabel(w), tplNames.filter((n) => tplOf(n)?.wabaId === w)]), ['Other', tplNames.filter((n) => !accounts.includes(tplOf(n)?.wabaId))]]
@@ -212,19 +246,16 @@
     tsel.value = ib.template;
   }
   function renderRows() {
-    const multi = new Set([...state.senders.map((x) => x.id), ...ib.convs.map((c) => c.senderId)]).size > 1;
-    const all = filtered();
-    // the open chat stays drawn even when it's further down than the page
-    const at = all.findIndex((c) => c.key === ib.key);
-    if (at >= ib.limit) ib.limit = Math.ceil((at + 1) / PAGE) * PAGE;
-    const list = all.slice(0, ib.limit);
-    ib.more = all.length > list.length;
+    const multi = new Set([...state.senders.map((x) => x.id), ...Object.keys(ib.res?.senders || {})]).size > 1;
+    const list = filtered();
+    const total = ib.res?.total ?? list.length;
+    ib.more = total > list.length;
     const box = $('#ibConvItems');
     // Where each row was, so rows that move (a new message lifts a chat to the top) can glide there.
     const before = new Map($$('.ib-conv', box).map((el) => [el.dataset.key, el.getBoundingClientRect().top]));
     if (!ib.loaded) {
       box.innerHTML = Skel.rows(8);
-    } else if (!ib.convs.length) {
+    } else if (!ib.res?.counts.all) {
       box.innerHTML = `<div class="ib-none">No conversations yet.</div>`;
     } else if (!list.length) {
       box.innerHTML = `<div class="ib-none">No chats match.</div>`;
@@ -244,7 +275,7 @@
             </span>
           </button>`;
         })
-        .join('') + (ib.more ? `<div class="ib-more" aria-hidden="true">${(all.length - list.length).toLocaleString()} more chats below</div>` : '');
+        .join('') + (ib.more ? `<div class="ib-more" aria-hidden="true">${loadingMore ? 'Loading more chats…' : `${(total - list.length).toLocaleString()} more chats below`}</div>` : '');
     }
     animateList(before);
     placeHighlight();
@@ -254,8 +285,7 @@
   $('#ibConvs').addEventListener('scroll', (e) => {
     const el = e.currentTarget;
     if (!ib.more || el.scrollHeight - el.scrollTop - el.clientHeight > 400) return;
-    ib.limit += PAGE;
-    renderRows();
+    loadMore(); // the next 25 from the server
   }, { passive: true });
 
   // Rows that moved glide from their old spot; new rows fade in. After a filter or search,
@@ -310,25 +340,24 @@
   $('.ib-search').addEventListener('click', (e) => {
     const b = e.target.closest('#ibDate');
     if (!b) return;
-    if (e.target.closest('[data-df-clear]')) { e.stopPropagation(); ib.date = null; dateBtn(); ib.enter = true; return renderList(); }
-    const marks = new Map();
-    for (const c of ib.convs) if (c.lastAt) { const k = DateFilter.keyOf(new Date(c.lastAt)); marks.set(k, (marks.get(k) || 0) + 1); }
+    if (e.target.closest('[data-df-clear]')) { e.stopPropagation(); ib.date = null; dateBtn(); ib.enter = true; return refilter(); }
+    const marks = new Map(Object.entries(ib.res?.days || {}));
     DateFilter.open(b, {
       value: ib.date, marks, sort: ib.sort,
-      onChange: (v) => { ib.date = v; ib.enter = true; renderList(); dateBtn(); },
-      onSort: (s) => { ib.sort = s; ib.enter = true; renderList(); dateBtn(); },
+      onChange: (v) => { ib.date = v; ib.enter = true; refilter(); dateBtn(); },
+      onSort: (s) => { ib.sort = s; ib.enter = true; refilter(); dateBtn(); },
     });
   });
-  $('#ibSearch').addEventListener('input', (e) => { ib.q = e.target.value.trim(); ib.enter = true; renderList(); });
-  $('#ibSender').addEventListener('change', (e) => { ib.sender = e.target.value; ib.enter = true; renderList(); });
-  $('#ibTemplate').addEventListener('change', (e) => { ib.template = e.target.value; ib.enter = true; renderList(); });
+  $('#ibSearch').addEventListener('input', (e) => { ib.q = e.target.value.trim(); ib.enter = true; refilter(250); }); // (after a pause in typing)
+  $('#ibSender').addEventListener('change', (e) => { ib.sender = e.target.value; ib.enter = true; refilter(); });
+  $('#ibTemplate').addEventListener('change', (e) => { ib.template = e.target.value; ib.enter = true; refilter(); });
   $('#ibFilter').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-f]');
     if (!b) return;
     ib.filter = b.dataset.f;
     $$('#ibFilter button').forEach((x) => x.classList.toggle('active', x === b));
     ib.enter = true;
-    renderList();
+    refilter();
   });
 
   // ---------- Conversation ----------
@@ -894,7 +923,7 @@
   });
 
   function emptyPane() {
-    if (ib.loaded && !ib.convs.length) {
+    if (ib.loaded && !ib.res?.counts.all) {
       const demo = state.settings.demoMode;
       return `<div class="ib-empty"><div>
         <div class="ib-empty-ico">${icon('message-circle', 30)}</div>

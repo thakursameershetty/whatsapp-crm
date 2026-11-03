@@ -46,7 +46,35 @@ module.exports = function mountNotifications(app, ctx) {
   const unread = () => visible().filter((n) => !n.read).length;
   const pick = (ids) => { const set = new Set(ids || []); return visible().filter((n) => set.has(n.id)); };
 
-  app.get('/api/notifications', (req, res) => res.json({ notifications: visible(), unread: unread() }));
+  // ?page=…: one page (newest first) after the kind and days, with the counts the page shows. Without it, everything
+  // (the badge and older callers).
+  const CATS = new Set(['messages', 'campaigns', 'ai']);
+  app.get('/api/notifications', (req, res) => {
+    const all = visible();
+    if (req.query.page == null) return res.json({ notifications: all, unread: unread() });
+    const tz = Number(req.query.tz) || 0;
+    const dayKey = (iso) => new Date(new Date(iso).getTime() - tz * 60000).toISOString().slice(0, 10);
+    let dates = null;
+    try { dates = req.query.dates ? JSON.parse(String(req.query.dates)) : null; } catch {}
+    const dayOk = (n) => {
+      if (!dates) return true;
+      const k = dayKey(n.ts);
+      if (Array.isArray(dates.days) && dates.days.length) return dates.days.includes(k);
+      if (dates.from && dates.to) return k >= dates.from && k <= dates.to;
+      return true;
+    };
+    const f = String(req.query.filter || 'all');
+    const kindOk = (n) => (f === 'unread' ? !n.read : CATS.has(f) ? n.category === f : true);
+    const rows = all.filter((n) => kindOk(n) && dayOk(n));
+    const per = Math.min(500, Math.max(0, Math.round(Number(req.query.per ?? 50)) || 0)); // 0 = all
+    const pages = per ? Math.max(1, Math.ceil(rows.length / per)) : 1;
+    const page = Math.min(Math.max(0, Math.round(Number(req.query.page)) || 0), pages - 1);
+    const counts = { all: all.length, unread: unread(), read: all.filter((n) => n.read).length };
+    for (const c of CATS) counts[c] = all.filter((n) => n.category === c).length;
+    const days = {};
+    for (const n of all) { const k = dayKey(n.ts); days[k] = (days[k] || 0) + 1; }
+    res.json({ notifications: per ? rows.slice(page * per, page * per + per) : rows, total: rows.length, page, pages, per, counts, days, unread: counts.unread });
+  });
 
   // { ids } or { all: true }; { read: false } marks unread again.
   app.post('/api/notifications/read', wrap((req, res) => {
