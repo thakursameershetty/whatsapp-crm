@@ -5550,8 +5550,8 @@ body.nav-instant, body.nav-instant .sidebar { transition: none !important; } /* 
 .fs-is-pie .fs-row { padding-top: 8px; padding-bottom: 8px; }
 .ib-lead-again { flex: none; display: inline-flex; align-items: center; gap: 4px; margin-left: auto; border: 0; padding: 0 2px; background: none; color: var(--info); font: 600 12px/19px Inter, sans-serif; cursor: pointer; }
 .ib-lead-again:hover span { text-decoration: underline; }
-.ib-lead-again.busy { opacity: 0.6; pointer-events: none; }
-.ib-lead-again.busy svg { animation: spin 0.9s linear infinite; }
+.ib-lead-again.busy { pointer-events: none; }
+.ib-lead-again.busy span { opacity: 0.75; }
 .pc-label .ib-lead-again { float: right; text-transform: none; letter-spacing: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* No notes yet: a small floating pill over the top of the chat, instead of a strip */
@@ -5564,3 +5564,18 @@ body.nav-instant, body.nav-instant .sidebar { transition: none !important; } /* 
 .ib-sum-fab:hover span { text-decoration: none; }
 @keyframes sum-fab-in { from { opacity: 0; transform: translateY(-6px); } }
 @media (prefers-reduced-motion: reduce) { .ib-sum-fab { animation: none; } }
+/* Assistant: the thinking pill, to show or hide how it's thinking */
+.ai-steps { gap: 0; }
+.think-pill { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px 0 12px; border: 0; border-radius: 99px; background: var(--sunk); box-shadow: inset 0 0 0 1px var(--hair); color: var(--muted); font: 500 12.5px Inter, sans-serif; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.think-pill:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, var(--sunk)); }
+.think-pill svg.la { transition: transform 0.22s var(--ease-out, ease-out); transform: rotate(180deg); }
+.ai-steps.folded .think-pill svg.la { transform: none; }
+.think-sub { color: var(--faint); font-variant-numeric: tabular-nums; }
+.think-live { background: linear-gradient(90deg, var(--muted) 30%, var(--text) 50%, var(--muted) 70%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: think-shine 1.6s linear infinite; }
+@keyframes think-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .think-live { animation: none; color: var(--text); background: none; } }
+.think-list { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 2px 4px; overflow: hidden; }
+.ai-steps.folded .think-list { display: none; }
+.ai-steps:has(.think-list:empty) .think-pill { display: none; }
+.msg-ai.done .ai-steps { margin-bottom: 4px; }
+.think-list:empty { display: none; }

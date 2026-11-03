@@ -390,11 +390,14 @@
       // Slightly heavier dots, so a still orb weighs the same as the line icons beside it.
       const orb = mountOrb(svg, { size: Number(svg.dataset.orbIcon) || 16, dotSize: 1.35 });
       orb.pause();
+      svg.__orb = orb;
       const host = svg.closest('button, a, label, .btn, h2, .as-name, [role="button"]') || svg;
+      // a host marked .busy (working on something) keeps its orb turning until it's done
+      const rest = () => { if (!host.classList.contains('busy')) orb.pause(); };
       host.addEventListener('pointerenter', orb.play);
-      host.addEventListener('pointerleave', orb.pause);
+      host.addEventListener('pointerleave', rest);
       host.addEventListener('focusin', orb.play);
-      host.addEventListener('focusout', orb.pause);
+      host.addEventListener('focusout', rest);
     });
   }
 

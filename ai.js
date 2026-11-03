@@ -344,8 +344,8 @@ const STEP_LABELS = {
   get_app_status: ['searching', 'Checking your setup'],
   use_contacts: ['searching', 'Getting your contacts'],
   peek_rows: ['searching', 'Reading more rows'],
-  build_sheet: ['working', 'Building the clean sheet'],
-  propose_campaign: ['working', 'Checking the plan'],
+  build_sheet: ['weaving', 'Building the clean sheet'], // strands plaited into one
+  propose_campaign: ['shaping', 'Checking the plan'],   // an outline taking its form
 };
 
 // --- Model providers -------------------------------------------------------
@@ -1275,13 +1275,13 @@ module.exports = function mountAi(app, ctx) {
 
     for (let step = 0; step < MAX_STEPS; step++) {
       const thinkId = 'think-' + step;
-      emit({ type: 'step', id: thinkId, state: 'reasoning', label: step ? 'Thinking it through' : 'Understanding your request', status: 'running' });
+      emit({ type: 'step', id: thinkId, state: step ? 'solving' : 'listening', label: step ? 'Thinking it through' : 'Understanding your request', status: 'running' });
       let reply;
       try {
         reply = await model.step(session.history, {
           onRetry: (secs, n) => {
             const rid = `retry-${step}-${n}`;
-            emit({ type: 'step', id: rid, state: 'retrying', label: `The AI is busy (free tier limit). Trying again in ${secs}s`, status: 'running' });
+            emit({ type: 'step', id: rid, state: 'connecting', label: `The AI is busy (free tier limit). Trying again in ${secs}s`, status: 'running' });
             setTimeout(() => emit({ type: 'step', id: rid, status: 'done' }), secs * 1000);
           },
         });

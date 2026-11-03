@@ -524,13 +524,28 @@
     const b = e.target.closest('[data-lead-again]');
     if (!b || !ib.key || b.classList.contains('busy')) return;
     const key = ib.key;
-    $$('[data-lead-again]').forEach((x) => x.classList.add('busy'));
+    // the orb turns while the AI reads, and the label says so
+    const working = (on) => $$('[data-lead-again]').forEach((x) => {
+      x.classList.toggle('busy', on);
+      // while it reads: the weaving thinking orb (the chat's threads drawn together) in place of the still icon
+      if (on && window.ThinkingOrb && !x.__live) {
+        const icon0 = x.querySelector('svg');
+        if (icon0) { x.__icon = document.createRange().createContextualFragment(`<svg class="orb-icon" data-orb-icon="${icon0.dataset.orbIcon || 14}" aria-hidden="true"></svg>`).firstChild; x.__live = ThinkingOrb.mount(icon0, { state: 'weaving', size: 16 }); }
+      } else if (!on && x.__live) {
+        x.__live.el.replaceWith(x.__icon); x.__live.destroy(); x.__live = null; Orb.hydrate(x);
+      }
+      const o = x.querySelector('svg')?.__orb;
+      if (o && !x.__live) on ? o.play() : o.pause();
+      const lab = x.querySelector('span');
+      if (lab) { if (on) { lab.dataset.was = lab.textContent; lab.textContent = 'Summarising…'; } else if (lab.dataset.was) lab.textContent = lab.dataset.was; }
+    });
+    working(true);
     guard(async () => {
       try {
         const r = await api('/inbox/' + enc(key) + '/summarize', { method: 'POST' });
         if (ib.key === key && ib.thread) { ib.thread.chatLead = r.lead; renderLead(); }
         toast('Summary updated');
-      } finally { $$('[data-lead-again]').forEach((x) => x.classList.remove('busy')); }
+      } finally { working(false); }
     });
   });
   $('#ibChat').addEventListener('click', (e) => {
@@ -588,15 +603,17 @@
         fab.className = 'ib-sum-fab ib-lead-again';
         fab.dataset.leadAgain = '';
         fab.title = 'Summarise: the AI reads the whole chat and writes notes (who they are, what they want)';
-        fab.innerHTML = `${icon('sparkles', 13)}<span>Summarise this chat</span>`;
+        fab.innerHTML = `<svg class="orb-icon" data-orb-icon="14" aria-hidden="true"></svg><span>Summarise this chat</span>`;
         strip.after(fab);
+        Orb.hydrate(fab);
       }
       const head = strip.parentElement.querySelector('.ib-head'); // just under the chat's header (the strip is hidden)
       fab.style.top = (head ? head.offsetTop + head.offsetHeight : 0) + 12 + 'px';
     } else fab?.remove();
     // One line, so the chat keeps its room; "More" opens the rest when it doesn't fit (remembered per chat).
     strip.classList.toggle('open', ib.leadOpen?.has(ib.key) || false);
-    strip.innerHTML = `<div class="ib-lead-body"><span class="ib-lead-sum">${empty ? 'No summary of this chat yet' : esc(lead.summary || '')}</span>${bits.map(([k, v]) => `<span><b>${k}</b> ${esc(v)}</span>`).join('')}</div><button type="button" class="ib-lead-more hidden" data-lead-more>${strip.classList.contains('open') ? 'Less' : 'More'}</button><button type="button" class="ib-lead-again" data-lead-again title="${empty ? 'Summarise: the AI reads the whole chat and writes notes (who they are, what they want)' : 'Summarise again: the AI re-reads the whole chat and rewrites these notes'}">${icon(empty ? 'sparkles' : 'refresh-cw', 13)}<span>Summarise</span></button>`;
+    strip.innerHTML = `<div class="ib-lead-body"><span class="ib-lead-sum">${empty ? 'No summary of this chat yet' : esc(lead.summary || '')}</span>${bits.map(([k, v]) => `<span><b>${k}</b> ${esc(v)}</span>`).join('')}</div><button type="button" class="ib-lead-more hidden" data-lead-more>${strip.classList.contains('open') ? 'Less' : 'More'}</button><button type="button" class="ib-lead-again" data-lead-again title="${empty ? 'Summarise: the AI reads the whole chat and writes notes (who they are, what they want)' : 'Summarise again: the AI re-reads the whole chat and rewrites these notes'}"><svg class="orb-icon" data-orb-icon="14" aria-hidden="true"></svg><span>Summarise</span></button>`;
+    Orb.hydrate(strip);
     requestAnimationFrame(() => {
       const body = strip.querySelector('.ib-lead-body'), more = strip.querySelector('[data-lead-more]');
       if (body && more) more.classList.toggle('hidden', !strip.classList.contains('open') && body.scrollHeight <= body.clientHeight + 2);
@@ -681,9 +698,9 @@
           <label class="ct-poptout"><span>Opted out <span class="opt">never message them</span></span>${toggleHtml({ checked: ct.optOut, attrs: 'data-info-optout', size: 'sm' })}</label>
         </section>` : `
         <section class="ibi-sec ibi-new"><p class="sub">They’re not in your contacts yet.</p><button type="button" class="btn sm primary" data-info-add>${icon('plus', 14)}Add to contacts</button></section>`}
-        ${lead.summary || bits.length ? `<section class="ct-leadbox ibi-sec"><div class="pc-label">This chat, from the lead assistant <button type="button" class="ib-lead-again" data-lead-again title="Summarise again">${icon('refresh-cw', 12)}<span>Summarise</span></button></div>
+        ${lead.summary || bits.length ? `<section class="ct-leadbox ibi-sec"><div class="pc-label">This chat, from the lead assistant <button type="button" class="ib-lead-again" data-lead-again title="Summarise again"><svg class="orb-icon" data-orb-icon="13" aria-hidden="true"></svg><span>Summarise</span></button></div>
           ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}${bits.length ? `<dl>${bits.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}</section>`
-          : t?.messages?.some((m) => m.dir === 'in') ? `<section class="ct-leadbox ibi-sec"><div class="pc-label">This chat, from the lead assistant <button type="button" class="ib-lead-again" data-lead-again title="Summarise: the AI reads the whole chat and writes notes">${icon('sparkles', 12)}<span>Summarise</span></button></div><p class="muted">No summary yet.</p></section>` : ''}
+          : t?.messages?.some((m) => m.dir === 'in') ? `<section class="ct-leadbox ibi-sec"><div class="pc-label">This chat, from the lead assistant <button type="button" class="ib-lead-again" data-lead-again title="Summarise: the AI reads the whole chat and writes notes"><svg class="orb-icon" data-orb-icon="13" aria-hidden="true"></svg><span>Summarise</span></button></div><p class="muted">No summary yet.</p></section>` : ''}
         ${ct ? `
         <section class="ibi-sec">
           <div class="field-label">Tags</div>
@@ -704,6 +721,7 @@
     box.classList.remove('hidden');
     $('#inbox').classList.add('has-info');
     LA.hydrate?.(box);
+    Orb.hydrate(box);
   }
   // Save one change to the contact, then reload the chat (pill, strip and this panel follow).
   async function saveContact(body, msg) {
@@ -808,7 +826,8 @@
     LA.hydrate(el);
     Orb.hydrate(el);
     const orbEl = $('#ibAiOrb', el);
-    if (orbEl) aiOrb = Orb.mount(orbEl, { state: 'reasoning', size: 16 });
+    // "AI is typing…": the composing orb
+    if (orbEl) aiOrb = window.ThinkingOrb ? ThinkingOrb.mount(orbEl, { state: 'composing', size: 16 }) : Orb.mount(orbEl, { state: 'reasoning', size: 16 });
   }
 
   $('#ibChat').addEventListener('click', async (e) => {

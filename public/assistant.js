@@ -20,8 +20,11 @@
 
   // --- Small helpers ---------------------------------------------------------
 
+  // The thinking orb for a state (thinking-orb.js); until that module has loaded, the older dotted orb with the
+  // nearest of its states.
+  const OLD = { listening: 'reasoning', solving: 'reasoning', connecting: 'retrying', weaving: 'working', shaping: 'working', composing: 'working', breathing: 'base' };
   const orb = (el, state, size = 18) => {
-    const h = Orb.mount(el, { state, size });
+    const h = window.ThinkingOrb ? ThinkingOrb.mount(el, { state, size }) : Orb.mount(el, { state: OLD[state] || state, size });
     AS.orbs.add(h);
     return {
       destroy() {
@@ -585,6 +588,46 @@
     };
     const steps = new Map();
     const stepsEl = $('.ai-steps', el), body = $('.ai-body', el);
+    // The thinking pill: shows or hides the steps (while it works and after). While working it follows your last
+    // choice (remembered); once the reply is in, the steps fold away behind "Thought for 6s · 3 steps".
+    const t0 = Date.now();
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'think-pill';
+    const list = document.createElement('div');
+    list.className = 'think-list';
+    stepsEl.append(pill, list);
+    let showLive = (() => { try { return localStorage.getItem('asShowThinking') !== '0'; } catch { return true; } })();
+    const setOpen = (open, animate = true) => {
+      const was = !stepsEl.classList.contains('folded');
+      pill.setAttribute('aria-expanded', String(open));
+      if (!animate || was === open || Motion.reduce() || !list.children.length) { stepsEl.classList.toggle('folded', !open); return; }
+      const ease = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+      if (open) {
+        stepsEl.classList.remove('folded');
+        list.animate([{ height: '0px', opacity: 0 }, { height: list.scrollHeight + 'px', opacity: 1 }], { duration: 240, easing: ease });
+      } else {
+        // slide shut first, then hide
+        list.animate([{ height: list.scrollHeight + 'px', opacity: 1 }, { height: '0px', opacity: 0, paddingTop: '0px' }], { duration: 200, easing: ease }).finished
+          .then(() => { if (pill.getAttribute('aria-expanded') === 'false') stepsEl.classList.add('folded'); });
+      }
+    };
+    let tookMs = null; // frozen when the reply is in
+    const secs = () => Math.max(1, Math.round((tookMs ?? Date.now() - t0) / 1000));
+    const labelPill = (done) => {
+      const n = steps.size, work = [...steps.keys()].filter((k) => !k.startsWith('think')).length;
+      const count = work ? ` · ${plural(work, 'step')}` : '';
+      pill.innerHTML = done ? `<span>Thought for ${secs()}s${count}</span>${icon('chevron-down', 13)}` : `<span class="think-live">Thinking…</span><span class="think-sub">${secs()}s${n > 1 ? count : ''}</span>${icon('chevron-down', 13)}`;
+      pill.title = stepsEl.classList.contains('folded') ? 'Show how it thought' : 'Hide the thinking';
+    };
+    pill.addEventListener('click', () => {
+      const open = stepsEl.classList.contains('folded');
+      setOpen(open);
+      if (!el.classList.contains('done')) { showLive = open; try { localStorage.setItem('asShowThinking', open ? '1' : '0'); } catch {} }
+      labelPill(el.classList.contains('done'));
+    });
+    setOpen(showLive, false);
+    const tick = setInterval(() => { if (el.classList.contains('done') || !el.isConnected) return clearInterval(tick); labelPill(false); }, 1000);
     follow(null, true);
     return {
       el,
@@ -595,7 +638,8 @@
           const row = document.createElement('div');
           row.className = 'ai-step running';
           row.innerHTML = `<span class="st-ico"><span class="st-dot"></span></span><span class="st-label">${esc(ev.label)}</span><span class="st-detail"></span>`;
-          stepsEl.append(row);
+          list.append(row);
+          labelPill(false);
           s = { row, state: ev.state || 'working' };
           steps.set(ev.id, s);
           setAvatar(s.state);
@@ -625,8 +669,8 @@
       finish() {
         this.stopSteps();
         el.classList.add('done');
-        // A single step ("Understanding your request") adds nothing once the answer is here.
-        if (steps.size === 1 && body.children.length) stepsEl.classList.add('quiet');
+        clearInterval(tick);
+        tookMs = Date.now() - t0;
         avatar.destroy();
         avatar = null;
         $('.ai-avatar', el).innerHTML = '<svg class="orb-icon" data-orb-icon="18"></svg>';
@@ -634,11 +678,9 @@
         // Steps fold into one line once the reply is done; keep what's on screen from jumping.
         const n = steps.size;
         const thread = $('#asThread'), anchor = body.firstElementChild, before = anchor?.getBoundingClientRect().top;
-        if (n > 1) {
-          const think = [...steps.keys()].filter((k) => k.startsWith('think')).length;
-          const work = n - think;
-          stepsEl.insertAdjacentHTML('afterbegin', `<button type="button" class="steps-toggle">${work ? plural(work, 'step') : 'Thought it through'} ${icon('chevron-down', 14)}</button>`);
-          stepsEl.classList.add('folded');
+        if (n) {
+          setOpen(false);
+          labelPill(true);
           if (anchor && before < thread.getBoundingClientRect().top + 40) thread.scrollTop += anchor.getBoundingClientRect().top - before;
         }
         if (!body.children.length && !n) el.remove();
@@ -646,10 +688,6 @@
     };
   }
 
-  $('#asThread').addEventListener('click', (e) => {
-    const t = e.target.closest('.steps-toggle');
-    if (t) t.parentElement.classList.toggle('folded');
-  });
 
   // Follow new content only if the reader was already at the bottom (checked before it was added).
   const nearBottom = () => {
@@ -1190,7 +1228,10 @@
 
   // --- Wiring ------------------------------------------------------------------------
 
-  Orb.mount($('#asHeroOrb'), { state: 'base', size: 36 });
+  // the empty page: a slow breathing ring, waiting for you
+  const hero = () => (window.ThinkingOrb ? ThinkingOrb.mount($('#asHeroOrb'), { state: 'breathing', size: 36, speed: 0.8 }) : Orb.mount($('#asHeroOrb'), { state: 'base', size: 36 }));
+  let heroOrb = hero();
+  if (!window.ThinkingOrb) addEventListener('thinkingorb:ready', () => { heroOrb.destroy?.(); heroOrb = hero(); }, { once: true });
   greet();
   renderSenderPick();
   autosize();
