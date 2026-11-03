@@ -762,6 +762,11 @@
         if (tr) select(S().ar, 0, Number(tr.dataset.r), nCols() - 1, { scroll: false, keep: true });
         return;
       }
+      if (dragging === 'names') { // dragging along the column names: select from the first one to here
+        const th = el.closest('th[data-name]');
+        if (th && hdr() && Number(th.dataset.name) !== hdr().f) selectHeader(hdr().a, Number(th.dataset.name));
+        return;
+      }
       if (dragging === 'cols') {
         const th = el.closest('th[data-c], th[data-name], td[data-c]');
         const c = th && Number(th.dataset.c ?? th.dataset.name);

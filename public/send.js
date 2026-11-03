@@ -303,7 +303,7 @@
         <button type="button" class="sp-tab-x" data-close="${i}" aria-label="Close ${esc(sh.name)}">×</button>
       </div>`;
     });
-    $('#spTabs').innerHTML = html + `<label class="sp-tab-add" title="Open more files">${icon('plus', 15)}<input type="file" class="spFileInput" multiple hidden accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" /></label><button type="button" class="sp-tab-add" data-from-contacts title="Add contacts by tag">${icon('users', 15)}</button>`;
+    $('#spTabs').innerHTML = html + `<button type="button" class="sp-tab-add" data-tab-add aria-haspopup="menu" title="Add a sheet: blank, or from a file">${icon('plus', 15)}</button><input type="file" class="spFileInput" id="spTabFile" multiple hidden accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" /><button type="button" class="sp-tab-add" data-from-contacts title="Add contacts by tag">${icon('users', 15)}</button>`;
   }
 
   $('#spTabs').addEventListener('click', async (e) => {
@@ -373,7 +373,18 @@
     };
   }
   $('#spFromContacts').addEventListener('click', () => guard(contactsPicker));
-  $('#spTabs').addEventListener('click', (e) => { if (e.target.closest('[data-from-contacts]')) guard(contactsPicker); });
+  $('#spTabs').addEventListener('click', (e) => {
+    if (e.target.closest('[data-from-contacts]')) return guard(contactsPicker);
+    // +: a blank sheet, or open a file (CSV / Excel)
+    const add = e.target.closest('[data-tab-add]');
+    if (add) {
+      const r = add.getBoundingClientRect();
+      Sheet.Menu.open(r.left, r.top - 8, [
+        { label: 'Blank sheet', action: () => $('#spBlank').click() },
+        { label: 'Upload a file…', action: () => $('#spTabFile').click() },
+      ]);
+    }
+  });
 
   $('#spBlank').addEventListener('click', () => {
     const headers = ['phone', 'name'];
@@ -447,7 +458,7 @@
     const sh = current();
     if (!sh) return;
     // nothing to download: say so, instead of saving a file with just the column names
-    if (!sh.rows.some((r) => r.st !== 'empty')) return toast('Nothing to export yet: this sheet has no rows. Paste or type some contacts first.', 'error');
+    if (!sh.rows.some((r) => r.st !== 'empty')) return; // (the button is disabled then: nothing to download)
     const q = (v) => (/[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v);
     const lines = [sh.headers.map(q).join(','), ...sh.rows.filter((r) => r.st !== 'empty').map((r) => r.cells.map((v) => q(String(v ?? ''))).join(','))];
     const a = document.createElement('a');
@@ -556,7 +567,7 @@
   $('#spSaveContacts').addEventListener('click', () => {
     const sh = current();
     if (!sh) return;
-    if (!sh.rows.some((r) => r.phone)) return toast('No valid numbers on this sheet to save yet.', 'error');
+    if (!sh.rows.some((r) => r.phone)) return; // (the button is disabled then: no numbers to save)
     // several rows selected in the grid: offer just those too
     const sel = grid.selectedRows().filter((r) => r.phone);
     guard(() => saveContacts(sel.length > 1 ? sel : null));
@@ -712,7 +723,7 @@
       $('#tpSort', body).innerHTML = `${icon('arrow-up-down', 14)}<span>${TP_SORTS[TP.sort][0]}</span>${icon('chevron-down', 14)}`;
       const list = shown();
       $('#tpCount', body).textContent = `${list.length} template${list.length === 1 ? '' : 's'}`;
-      $('#tpGrid', body).innerHTML = list.length ? list.map((t) => {
+      const card = (t) => {
         const why = tplSendBlock(t);
         const st = String(t.status || '').toUpperCase();
         return `<div class="tp-card ${t.id === pick ? 'on' : ''} ${why ? 'off' : ''}" data-id="${t.id}" role="option" aria-selected="${t.id === pick}" tabindex="${why ? -1 : 0}" ${why ? `title="${esc(why)}"` : ''}>
@@ -721,7 +732,19 @@
           <div class="tpl-chat tp-prev"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
           ${why ? `<div class="tp-why">${icon('badge-alert', 13)}<span>${esc(why)}</span></div>` : ''}
         </div>`;
-      }).join('') : `<div class="tp-none">${emptyState({ icon: 'search', title: 'No templates match', text: 'Try another word or filter.', actions: '<button class="btn" data-tp-clear>Clear filters</button>' })}</div>`;
+      };
+      // In sections by number, as in the dropdown: numbers in different WhatsApp Business Accounts send different
+      // templates. One account: a single grid.
+      const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))];
+      const sections = accounts.length > 1
+        ? [...accounts.map((w) => ({ w, ts: list.filter((t) => t.wabaId === w) })), { w: '', ts: list.filter((t) => !accounts.includes(t.wabaId)) }].filter((x) => x.ts.length)
+        : [{ w: null, ts: list }];
+      const head = ({ w, ts }) => {
+        if (w === null) return '';
+        const ss = state.senders.filter((x) => w && x.wabaId === w);
+        return `<div class="tp-sec">${ss.length ? `<span class="tp-sec-faces">${ss.slice(0, 3).map((x) => senderPhotoHtml(x)).join('')}</span>` : `<span class="tp-sec-ic">${icon('file-text', 15)}</span>`}<div><b>${w ? esc(ss.map((x) => x.label).join(', ')) : 'Other templates'}</b><small>${w ? esc(ss.map((x) => x.displayPhone).filter(Boolean).join(', ')) : 'Not tied to one of your numbers'}</small></div><span class="tp-sec-n">${ts.length} template${ts.length === 1 ? '' : 's'}</span></div>`;
+      };
+      $('#tpGrid', body).innerHTML = list.length ? sections.map((sec) => `<section class="tp-group">${head(sec)}<div class="tp-cards">${sec.ts.map(card).join('')}</div></section>`).join('') : `<div class="tp-none">${emptyState({ icon: 'search', title: 'No templates match', text: 'Try another word or filter.', actions: '<button class="btn" data-tp-clear>Clear filters</button>' })}</div>`;
       LA.hydrate($('#tpGrid', body));
       $('#tpUse', body).disabled = !pick || Boolean(tplSendBlock(state.templates.find((t) => t.id === pick) || {}));
     };
@@ -1084,15 +1107,14 @@
       const filtered = Object.keys(sh.filters).length;
       $('#spMeta').innerHTML = `${sh.file && sh.file !== sh.name ? `<span class="sp-file-dot" style="--tab-c:${colorOf(sh)}"></span>${esc(sh.file)} · ` : ''}${c.rows.toLocaleString()} rows · ${sh.headers.length} columns`;
       renderStrip(sh, filtered);
-      // Export looks off on an empty sheet (but still clickable, to say why)
-      const ex = $('#spExport'), none = !c.rows;
-      ex.classList.toggle('is-off', none);
-      ex.setAttribute('aria-disabled', String(none));
-      ex.title = none ? 'Nothing to export yet: this sheet has no rows' : 'Download this sheet, with your edits, as CSV';
+      // Export and Save contacts are disabled (not clickable) until there's something to export or save; the tooltip
+      // says what's needed, so nobody gets an error for trying
+      const ex = $('#spExport'), none = !sh.rows.some((r) => r.st !== 'empty');
+      ex.disabled = none;
+      ex.title = none ? 'Add some rows to export this sheet' : 'Download this sheet, with your edits, as CSV';
       const sv = $('#spSaveContacts'), noPhones = !sh.rows.some((r) => r.phone);
-      sv.classList.toggle('is-off', noPhones);
-      sv.setAttribute('aria-disabled', String(noPhones));
-      sv.title = noPhones ? 'No valid numbers on this sheet yet' : 'Save the people on this sheet to Contacts';
+      sv.disabled = noPhones;
+      sv.title = noPhones ? 'Add a valid phone number to save contacts' : 'Save the people on this sheet to Contacts';
       $('#spUndo').disabled = !grid.canUndo();
       $('#spRedo').disabled = !grid.canRedo();
     } else $('#spMeta').textContent = 'Open a contact list to start';
@@ -1289,6 +1311,8 @@
     if (state.sendMode === 'schedule') {
       input.min = toLocalInput(new Date());
       if (!input.value) input.value = defaultScheduleTime();
+      // choosing Later goes straight to picking the date and time (a real click, not a page restoring a draft)
+      if (e.isTrusted) requestAnimationFrame(() => input._dt?.click());
     }
     renderSummary();
   });
@@ -1430,6 +1454,19 @@
   // --- Used by app.js ------------------------------------------------------------------------
 
   Object.assign(window, { currentTemplate, renderTemplateSelect, onTemplateChange, renderSenderChecks, renderSendSummary: renderSummary });
+  // From the campaigns calendar's "Schedule a campaign": the Send page, set to send later on that day (10 AM, or
+  // half an hour from now when that's later), with the picker open to adjust it.
+  window.scheduleOn = (k) => {
+    showTab('send');
+    const [y, m, d] = k.split('-').map(Number);
+    let when = new Date(y, m - 1, d, 10, 0);
+    const soon = new Date(Date.now() + 30 * 60000);
+    soon.setMinutes(Math.ceil(soon.getMinutes() / 15) * 15, 0, 0);
+    if (when < soon) when = soon;
+    $('#scheduleAt').value = toLocalInput(when);
+    $('#sendMode [data-mode=schedule]').click();
+    toast(`Set to send later: ${when.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}. Open your contacts and pick a template.`, '', { icon: 'clock' });
+  };
   // Open contacts (from the Contacts page or a tag) as a sheet tab, ready to send to.
   function openContacts(list, label) {
     const extras = [...new Set(list.flatMap((c) => Object.keys(c.extra || {})))];

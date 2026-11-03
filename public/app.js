@@ -1362,6 +1362,7 @@ function senderForm(s = null) {
 }
 window.senderForm = senderForm;
 window.closeModal = closeModal;
+window.setModalBack = setModalBack;
 $('#addSender').addEventListener('click', () => senderForm());
 
 // ---------------------------------------------------------------------------

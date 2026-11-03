@@ -66,27 +66,48 @@
   // The page asks the server for just what it shows: one page (or the calendar's month) after search, status, number,
   // dates and sort, with the counts, the sending/scheduled cards and the 30-day summary. (GET /api/campaigns?page=…)
   let loadSeq = 0;
-  async function fetchList() {
-    const seq = ++loadSeq;
+  // The request for a view ('calendar' asks for its month, cards and table for the page).
+  function listUrl(view = CP.view) {
     const p = new URLSearchParams({ q: CP.q, filter: CP.filter, sender: CP.sender || '', sort: CP.sort, tz: String(new Date().getTimezoneOffset()) });
     if (CP.date) p.set('dates', JSON.stringify(CP.date));
-    if (CP.view === 'calendar') {
+    if (view === 'calendar') {
       p.set('view', 'calendar');
       if (CP.calMonth) p.set('month', `${CP.calMonth.getFullYear()}-${String(CP.calMonth.getMonth() + 1).padStart(2, '0')}`);
     } else { p.set('page', String(CP.page)); p.set('per', String(CP.per)); }
-    const r = await api('/campaigns?' + p);
-    if (seq !== loadSeq) return false; // a newer request is on its way
+    return '/campaigns?' + p;
+  }
+  // Answers kept by request, so switching between the list and the calendar is instant (and then refreshed).
+  const listCache = new Map();
+  function useRes(r) {
     CP.res = r;
     if (r.page != null) CP.page = r.page;
     if (r.month) { const [y, m] = r.month.split('-').map(Number); CP.calMonth = new Date(y, m - 1, 1); }
     CP.list = [...r.pinned, ...r.items];
     for (const c of CP.list) folderColors.set(c.id, folderColorAt(c.colorIndex ?? 0));
+  }
+  async function fetchList() {
+    const seq = ++loadSeq, url = listUrl();
+    const r = await api(url);
+    listCache.set(url, r);
+    if (listCache.size > 20) listCache.delete(listCache.keys().next().value);
+    if (seq !== loadSeq) return false; // a newer request is on its way
+    useRes(r);
     return true;
+  }
+  // Quietly get the other view ready (the calendar's month while on the list, the page while on the calendar).
+  let prefetchT = 0;
+  function prefetchOther() {
+    clearTimeout(prefetchT);
+    prefetchT = setTimeout(() => {
+      const url = listUrl(CP.view === 'calendar' ? 'cards' : 'calendar');
+      if (!listCache.has(url)) api(url).then((r) => listCache.set(url, r)).catch(() => {});
+    }, 600);
   }
   async function load() {
     if (!(await fetchList())) return;
     if (CP.detail) return open(CP.detail);
     renderList();
+    prefetchOther();
     stop();
     if (CP.res.live || CP.res.scheduled) pollTimer = setTimeout(() => load().catch(() => {}), CP.res.live ? 2000 : 15000);
   }
@@ -224,11 +245,11 @@
     let cells = '';
     for (let i = 0; i < weeks * 7; i++) {
       const d = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i), k = DateFilter.keyOf(d);
-      const cs = byDay.get(k) || [], open = CP.calOpen === k, shown = open ? cs : cs.slice(0, 3);
-      cells += `<div class="cp-cal-day ${d.getMonth() !== m.getMonth() ? 'out' : ''} ${k === today ? 'today' : ''} ${open ? 'open' : ''}" data-day="${k}">
+      const cs = byDay.get(k) || [], shown = cs.slice(0, 3);
+      cells += `<div class="cp-cal-day ${d.getMonth() !== m.getMonth() ? 'out' : ''} ${k === today ? 'today' : ''}" data-day="${k}" title="Open ${esc(d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }))}">
         <span class="cp-cal-n">${d.getDate()}</span>
         ${shown.map(chip).join('')}
-        ${cs.length > 3 ? `<button type="button" class="cp-cal-more" data-calday="${k}">${open ? 'Show less' : '+' + (cs.length - 3) + ' more'}</button>` : ''}
+        ${cs.length > 3 ? `<button type="button" class="cp-cal-more" data-calday="${k}">+${cs.length - 3} more</button>` : ''}
       </div>`;
     }
     return `<div class="card cp-cal">
@@ -274,17 +295,112 @@
       });
       return;
     }
+    // "+N more", or anywhere on a day that isn't a campaign: that day, hour by hour
     const more = e.target.closest('#campaignList [data-calday]');
-    if (more) { CP.calOpen = CP.calOpen === more.dataset.calday ? null : more.dataset.calday; renderList(); }
+    const cell = more ? more.closest('.cp-cal-day') : !e.target.closest('[data-open]') && e.target.closest('#campaignList .cp-cal-day[data-day]');
+    if (cell) openDay(cell.dataset.day, cell);
   });
+
+  // ── A day of the calendar: every campaign that day by the hour (sent, sending or scheduled), morphing out of its
+  // cell. ‹ › go to the days around it; an empty day offers to schedule one.
+  const dayKeyOf = (c) => DateFilter.keyOf(new Date(dayOf(c)));
+  const fromKey = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
+  function dayHtml(k) {
+    const cs = (CP.res?.items || []).filter((c) => dayKeyOf(c) === k).sort((a, b) => String(dayOf(a)).localeCompare(String(dayOf(b))));
+    const d = fromKey(k), today = DateFilter.keyOf(new Date()), past = k < today;
+    const title = d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+    const nav = `<div class="cd-day-nav"><button type="button" class="dt-nav" data-dayn="-1" aria-label="Previous day">‹</button><button type="button" class="dt-nav" data-dayn="1" aria-label="Next day">›</button></div>`;
+    const headTxt = `<div class="cd-day-head"><div><b>${esc(title)}</b><small>${k === today ? 'Today · ' : ''}${cs.length ? `${cs.length} campaign${cs.length === 1 ? '' : 's'}` : 'No campaigns'}</small></div>${nav}</div>`;
+    if (!cs.length) {
+      return headTxt + `<div class="cd-day-empty">
+        <span class="cd-day-art" aria-hidden="true"><svg viewBox="0 0 96 96"><rect class="a1" x="14" y="20" width="68" height="62" rx="14"/><rect class="a2" x="14" y="20" width="68" height="18" rx="9"/><path class="a3" d="M32 12v14M64 12v14"/><circle class="a4" cx="48" cy="60" r="12"/><path class="a5" d="M48 54v6l4 3"/></svg></span>
+        <b>${past ? 'Nothing was sent this day' : 'Nothing scheduled yet'}</b>
+        <p>${past ? 'No campaigns went out on this day.' : 'Pick contacts and a template, and it goes out at the time you choose.'}</p>
+        ${past ? `<button type="button" class="btn" data-day-new>${icon('plus', 15)}New campaign</button>` : `<button type="button" class="btn primary" data-day-schedule="${k}">${icon('clock', 15)}Schedule a campaign</button>`}
+      </div>`;
+    }
+    const hourOf = (c) => new Date(dayOf(c)).getHours();
+    const hrs = cs.map(hourOf);
+    const from = Math.min(9, ...hrs), to = Math.max(18, ...hrs);
+    const nowH = k === today ? new Date().getHours() : -1;
+    const fmtH = (h) => new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: 'numeric' });
+    let rows = '';
+    for (let h = from; h <= to; h++) {
+      const at = cs.filter((c) => hourOf(c) === h);
+      rows += `<div class="cd-hour ${at.length ? 'has' : ''} ${h === nowH ? 'now' : ''}"><span class="cd-hour-l">${esc(fmtH(h))}</span><div class="cd-hour-items">${at.map((c) => {
+        const s = c.stats || {}, del = deliveredOf(s);
+        const note = live(c) ? 'Sending now' : c.status === 'scheduled' ? 'Scheduled' : del ? `${pctOf(s.read || 0, del)}% read · ${pctOf(del, sentOf(s) + (s.failed || 0))}% delivered` : (STATUS_LABEL[c.status] || c.status);
+        return `<button type="button" class="cd-ev ${c.status}${c.test ? ' is-test' : ''}" data-day-open="${c.id}" style="--c:${colorOf(c)}">${miniFolder(c)}<span class="cd-ev-main"><b>${esc(displayName(c))}</b><small>${esc(c.templateName || '')} · ${c.total.toLocaleString()} recipient${c.total === 1 ? '' : 's'}</small></span><span class="cd-ev-side"><time>${esc(new Date(dayOf(c)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time><small>${c.test ? 'Test · ' : ''}${esc(note)}</small></span></button>`;
+      }).join('')}</div></div>`;
+    }
+    return headTxt + `<div class="cd-day-tl">${rows}</div>${past ? '' : `<div class="cd-day-foot"><button type="button" class="btn" data-day-schedule="${k}">${icon('plus', 15)}Schedule another</button></div>`}`;
+  }
+  // the morph: the cell and the window share a view-transition name for the change
+  const vtSwap = (fromEl, swap, getTo) => {
+    if (!document.startViewTransition || Motion.reduce() || !fromEl) return swap();
+    fromEl.style.viewTransitionName = 'cp-day';
+    document.documentElement.classList.add('vt-day');
+    const vt = document.startViewTransition(() => { fromEl.style.viewTransitionName = ''; swap(); const to = getTo(); if (to) to.style.viewTransitionName = 'cp-day'; });
+    vt.finished.finally(() => { document.documentElement.classList.remove('vt-day'); const to = getTo(); if (to) to.style.viewTransitionName = ''; });
+  };
+  function openDay(k, cell) {
+    let day = k;
+    const box = () => $('#modal .modal-box');
+    const draw = () => {
+      const body = $('#modalBody');
+      body.innerHTML = dayHtml(day);
+      LA.hydrate(body);
+      const d = fromKey(day);
+      $('#modalTitle').textContent = d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+    };
+    // closing morphs back into the day's cell (when it's on screen)
+    const back = () => {
+      const target = $(`#campaignList .cp-cal-day[data-day="${day}"]`);
+      const m = $('#modal');
+      if (!document.startViewTransition || Motion.reduce() || !target) return hideOverlay(m);
+      box().style.viewTransitionName = 'cp-day';
+      document.documentElement.classList.add('vt-day');
+      const vt = document.startViewTransition(() => { box().style.viewTransitionName = ''; m.classList.add('hidden'); target.style.viewTransitionName = 'cp-day'; });
+      vt.finished.finally(() => { document.documentElement.classList.remove('vt-day'); target.style.viewTransitionName = ''; });
+    };
+    vtSwap(cell, () => {
+      openModal('Day', '');
+      box().classList.add('cd-day-box');
+      draw();
+      setModalBack(back);
+    }, box);
+    $('#modalBody').onclick = (e) => {
+      const n = e.target.closest('[data-dayn]');
+      if (n) {
+        const d = fromKey(day); d.setDate(d.getDate() + Number(n.dataset.dayn));
+        const next = DateFilter.keyOf(d), sameMonth = next.slice(0, 7) === day.slice(0, 7);
+        day = next;
+        if (sameMonth) return draw();
+        // another month: its campaigns first (the calendar behind follows)
+        CP.calMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+        return load().then(draw).catch((err) => toast(err.message, 'error'));
+      }
+      const ev = e.target.closest('[data-day-open]');
+      if (ev) { setModalBack(null); hideOverlay($('#modal')); return open(ev.dataset.dayOpen); }
+      const sch = e.target.closest('[data-day-schedule]');
+      if (sch) { setModalBack(null); hideOverlay($('#modal')); return window.scheduleOn?.(sch.dataset.daySchedule); }
+      if (e.target.closest('[data-day-new]')) { setModalBack(null); hideOverlay($('#modal')); showTab('send'); }
+    };
+  }
 
   // Folders ↔ rows: each campaign keeps a view-transition name in both views, so the browser
   // morphs every folder into its row and back. Without support (or with reduced motion) it just swaps.
+  // Only what's on screen morphs (each named element is a snapshot: 50 folders off screen would only slow it down).
+  function markVisible() {
+    const h = innerHeight;
+    for (const el of $$('#campaignList [data-open]')) { const box = el.getBoundingClientRect(); el.classList.toggle('vt-on', box.bottom > -40 && box.top < h + 40); }
+  }
   function morph(swap) {
     if (!document.startViewTransition || Motion.reduce()) return swap();
     const root = document.documentElement;
+    markVisible();
     root.classList.add('vt-camp');
-    const vt = document.startViewTransition(swap);
+    const vt = document.startViewTransition(() => { swap(); markVisible(); });
     vt.finished.finally(() => root.classList.remove('vt-camp'));
   }
 
@@ -396,8 +512,16 @@
       if (v.dataset.view === CP.view) return;
       try { localStorage.setItem('campView', v.dataset.view); } catch {}
       // the calendar asks for a month, the others for a page: get it first, then morph to the new view
+      // (ready from the cache when it was fetched ahead; otherwise fetched first, then the morph)
       const next = v.dataset.view, needs = (next === 'calendar') !== (CP.view === 'calendar');
-      if (needs) { const was = CP.view; CP.view = next; try { await fetchList(); } finally { CP.view = was; } }
+      if (needs) {
+        const hit = listCache.get(listUrl(next));
+        if (hit) useRes(hit);
+        else { const was = CP.view; CP.view = next; try { await fetchList(); } finally { CP.view = was; } }
+        morph(() => { CP.view = next; renderList(); });
+        if (hit) setTimeout(() => load().catch(() => {}), 450); // refresh after the morph
+        return;
+      }
       return morph(() => { CP.view = next; renderList(); });
     }
     const a = e.target.closest('[data-act]');

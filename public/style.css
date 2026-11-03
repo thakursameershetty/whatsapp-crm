@@ -2004,7 +2004,7 @@ body.assistant-open main { padding-bottom: 0; }
 :root[data-mode="dark"] .cf-paper { background: color-mix(in srgb, var(--surface) 70%, white); }
 
 /* Morph between the folder grid and the table (campaigns.js → morph). Names only exist while it runs. */
-.vt-camp .cp-folder[data-open], .vt-camp .cp-table tr[data-open] { view-transition-name: var(--vt); }
+.vt-camp .cp-folder[data-open].vt-on, .vt-camp .cp-table tr[data-open].vt-on { view-transition-name: var(--vt); }
 .vt-camp .cp-folder-new { view-transition-name: cp-new; }
 html.vt-camp::view-transition-group(*) { animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
 /* Keep each snapshot crisp while its box reshapes: no stretching, the old one fades out quickly. */
@@ -6079,3 +6079,75 @@ html.is-scrolling { scrollbar-color: var(--scroll-thumb) transparent; }
 ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
 ::-webkit-scrollbar-thumb { border-radius: 8px; background: transparent; }
 :not(html):hover::-webkit-scrollbar-thumb, .is-scrolling::-webkit-scrollbar-thumb { background: var(--scroll-thumb); }
+/* Send bar, scheduled: the date reads as a field you can change (and opens its picker when you choose Later) */
+.dt-pick { user-select: none; -webkit-user-select: none; }
+.send-controls .dt-pick { height: 40px; padding: 0 12px 0 14px; box-shadow: var(--sh-sunk), inset 0 0 0 1.5px color-mix(in srgb, var(--info) 35%, transparent); }
+.send-controls .dt-pick span { font-weight: 600; }
+.send-controls .dt-pick::after { content: 'Change'; margin-left: 6px; padding-left: 10px; box-shadow: inset 1px 0 0 var(--hair); color: var(--info); font-weight: 600; font-size: 12.5px; }
+.send-controls .dt-pick:hover { box-shadow: var(--sh-sunk), inset 0 0 0 1.5px var(--info); }
+/* Template picker: sections by number (each its own grid), the list scrolls as one */
+.tp-grid { display: block; grid-auto-rows: auto; }
+.tp-group + .tp-group { margin-top: 18px; }
+.tp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: 300px; gap: 14px; }
+.tp-sec { position: sticky; top: -4px; z-index: 2; display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 8px 4px; background: var(--surface); }
+.tp-sec > div { display: flex; flex-direction: column; min-width: 0; }
+.tp-sec b { font-size: 13.5px; font-weight: 650; }
+.tp-sec small { font-size: 12px; color: var(--muted); }
+.tp-sec-faces { display: inline-flex; }
+.tp-sec-faces .sender-photo { width: 28px; height: 28px; font-size: 12px; box-shadow: 0 0 0 2px var(--surface); }
+.tp-sec-faces .sender-photo + .sender-photo { margin-left: -8px; }
+.tp-sec-ic { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--sunk); color: var(--muted); }
+.tp-sec-n { margin-left: auto; font-size: 12px; color: var(--muted); }
+
+/* Column names selected (copy, paste over them, or type to rename) */
+.sg thead th[data-name].hsel { background: color-mix(in srgb, var(--info) 11%, var(--sheet-head, var(--surface))); }
+.sg thead th[data-name].hact { box-shadow: inset 0 0 0 2px var(--info); }
+
+/* ---- Campaigns calendar: a day, hour by hour (morphs out of its cell) ---- */
+.cp-cal-day[data-day] { cursor: pointer; transition: background 0.15s; }
+.cp-cal-day[data-day]:hover { background: color-mix(in srgb, var(--sunk) 90%, transparent); }
+.modal-box.cd-day-box { width: min(620px, calc(100vw - 32px)); max-width: none; }
+.cd-day-box #modalTitle { font-size: 19px; }
+.cd-day-head > div > b { display: none; }
+.cd-day-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -10px 0 12px; }
+.cd-day-head b { display: block; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+.cd-day-head small { color: var(--muted); font-size: 12.5px; }
+.cd-day-nav { display: flex; gap: 4px; }
+.cd-day-tl { max-height: min(60vh, 560px); overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.cd-hour { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 10px; min-height: 34px; box-shadow: inset 0 1px 0 var(--hair); }
+.cd-hour-l { padding-top: 7px; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; text-align: right; }
+.cd-hour.has .cd-hour-l { color: var(--muted); font-weight: 600; }
+.cd-hour.now .cd-hour-l { color: var(--danger); font-weight: 700; }
+.cd-hour.now { box-shadow: inset 0 2px 0 color-mix(in srgb, var(--danger) 60%, transparent); }
+.cd-hour-items { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
+.cd-ev { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 12px; border: 0; border-radius: 12px; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  background: color-mix(in srgb, var(--c) 16%, var(--surface)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--c) 80%, var(--text) 10%); transition: transform 0.2s var(--ease-out, ease), box-shadow 0.2s; }
+.cd-ev:hover { transform: translateX(2px); }
+.cd-ev .cp-pin-folder, .cd-ev .cp-pin-folder svg { width: 30px; height: 24px; flex: none; }
+.cd-ev-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.cd-ev-main b { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-ev-main small, .cd-ev-side small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-ev-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; max-width: 45%; }
+.cd-ev-side time { font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.cd-ev.scheduled { background: color-mix(in srgb, var(--c) 8%, var(--surface)); box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px color-mix(in srgb, var(--c) 45%, transparent); }
+.cd-ev.is-test { opacity: 0.8; }
+.cd-day-foot { display: flex; justify-content: flex-end; padding-top: 12px; margin-top: 4px; box-shadow: 0 -1px 0 var(--hair); }
+.cd-day-foot .btn, .cd-day-empty .btn { display: inline-flex; align-items: center; gap: 7px; }
+/* an empty day */
+.cd-day-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 26px 16px 18px; }
+.cd-day-empty b { font-size: 16px; font-weight: 650; margin-top: 6px; }
+.cd-day-empty p { margin: 0 0 12px; max-width: 34ch; color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+.cd-day-art svg { width: 96px; height: 96px; overflow: visible; filter: drop-shadow(0 10px 16px color-mix(in srgb, var(--info) 22%, transparent)); animation: cd-float 3.2s ease-in-out infinite; }
+.cd-day-art .a1 { fill: var(--surface); stroke: color-mix(in srgb, var(--info) 35%, var(--hair)); stroke-width: 2; }
+.cd-day-art .a2 { fill: color-mix(in srgb, var(--info) 30%, var(--surface)); }
+.cd-day-art .a3 { stroke: color-mix(in srgb, var(--info) 70%, var(--text)); stroke-width: 4; stroke-linecap: round; fill: none; }
+.cd-day-art .a4 { fill: color-mix(in srgb, var(--info) 12%, var(--surface)); stroke: var(--info); stroke-width: 2.5; }
+.cd-day-art .a5 { stroke: var(--info); stroke-width: 2.5; stroke-linecap: round; fill: none; transform-origin: 48px 60px; animation: cd-tick 6s linear infinite; }
+@keyframes cd-float { 50% { transform: translateY(-4px); } }
+@keyframes cd-tick { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cd-day-art svg, .cd-day-art .a5 { animation: none; } }
+html.lite .cd-day-art svg, html.lite .cd-day-art .a5 { animation: none; }
+/* the morph between a day's cell and its window */
+html.vt-day::view-transition-group(cp-day) { animation-duration: 0.42s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+html.vt-day::view-transition-old(cp-day), html.vt-day::view-transition-new(cp-day) { height: 100%; width: 100%; object-fit: cover; object-position: left top; }
+html.vt-day::view-transition-old(root), html.vt-day::view-transition-new(root) { animation-duration: 0.3s; }
