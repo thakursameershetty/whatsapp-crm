@@ -3211,7 +3211,7 @@ function renderFunnel(st, el = $('#funnel'), onLight = null) {
     fs.classList.toggle('hovering', Boolean(k));
     fs.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x.dataset.kind === k));
     rollNum(big, k ? byKind[k].n : total);
-    of.innerHTML = k ? '<span class="cx-of-k">' + waMark(k) + esc(byKind[k].l) + '</span> · ' + pct(byKind[k].n) + ' of ' + total.toLocaleString() : 'messages tried';
+    of.innerHTML = k ? '<span class="cx-of-k">' + waMark(k) + esc(byKind[k].l) + '</span><span class="cx-of-pct">' + pct(byKind[k].n) + ' of ' + total.toLocaleString() + '</span>' : 'messages tried';
     onLight?.(k);
   };
   light(null);

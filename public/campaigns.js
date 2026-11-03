@@ -584,13 +584,15 @@
     scope.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x.dataset.kind === id));
     const big = scope.querySelector('.cx-num'), of = scope.querySelector('.cx-of');
     if (big) roll(big, id ? n[id] : total);
-    if (of) of.innerHTML = id ? '<span class="cx-of-k">' + KIND[id].mark() + esc(KIND[id].name) + '</span> · ' + pctOf(n[id], total) + '% of ' + num(total) : (total === 1 ? 'message in this campaign' : 'messages in this campaign');
+    if (of) of.innerHTML = id ? '<span class="cx-of-k">' + KIND[id].mark() + esc(KIND[id].name) + '</span><span class="cx-of-pct">' + pctOf(n[id], total) + '% of ' + num(total) + '</span>' : (total === 1 ? 'message in this campaign' : 'messages in this campaign');
   }
   // The shared chart tooltip, in its usual layout: a title, rows, a note.
   function tipFor(id, c) {
     const n = split(c), total = (c.recipients || []).length, k = KIND[id];
     return '<div class="tt-title">' + esc(c.name) + '</div>' +
-      '<div class="tt-row cur"><span><i class="cx-sw" data-sw="' + id + '"></i><span class="cx-mk">' + k.mark() + '</span>' + esc(k.name) + '</span><b>' + num(n[id]) + ' · ' + pctOf(n[id], total) + '%</b></div>' +
+      '<div class="tt-row cur"><span><i class="cx-sw" data-sw="' + id + '"></i><span class="cx-mk">' + k.mark() + '</span>' + esc(k.name) + '</span><b>' + num(n[id]) + ' <span class="tt-unit">' + (n[id] === 1 ? 'message' : 'messages') + '</span></b></div>' +
+      // the share on its own line, in words, so "72 · 29%" never reads as one number
+      '<div class="tt-share">' + pctOf(n[id], total) + '% of all ' + num(total) + '</div>' +
       '<div class="tt-note">' + esc(k.what) + '</div>';
   }
 
