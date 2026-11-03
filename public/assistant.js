@@ -1228,10 +1228,8 @@
 
   // --- Wiring ------------------------------------------------------------------------
 
-  // the empty page: a slow breathing ring, waiting for you
-  const hero = () => (window.ThinkingOrb ? ThinkingOrb.mount($('#asHeroOrb'), { state: 'breathing', size: 36, speed: 0.8 }) : Orb.mount($('#asHeroOrb'), { state: 'base', size: 36 }));
-  let heroOrb = hero();
-  if (!window.ThinkingOrb) addEventListener('thinkingorb:ready', () => { heroOrb.destroy?.(); heroOrb = hero(); }, { once: true });
+  // the empty page: the assistant's own orb (the same dotted sphere as its icon in the sidebar and on Ask AI)
+  Orb.mount($('#asHeroOrb'), { state: 'base', size: 36 });
   greet();
   renderSenderPick();
   autosize();
