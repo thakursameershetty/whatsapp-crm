@@ -710,43 +710,49 @@
     const via = state.senders.find((x) => x.id === c.senderId);
     const bits = [['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v);
     // About: their details as text; the pencil in the header opens the contact form to change them.
-    const about = (k, v) => `<div><dt>${k}</dt><dd class="${v ? '' : 'muted'}">${v ? esc(v) : '—'}</dd></div>`;
+    const about = (k, v) => `<div><dt>${k}</dt><dd class="${v ? '' : 'muted'}">${v ? esc(v) : 'Not added'}</dd></div>`;
+    // Stage as a pipeline: New → Interested → Qualified → Won (the steps up to the current one filled), and
+    // "Not interested" on its own beside it.
+    const PIPE = ['new', 'interested', 'qualified', 'won'];
+    const at = ct ? PIPE.indexOf(ct.status) : -1;
+    const card = (title, body, extra = '') => `<section class="ibi-card">${title ? `<div class="ibi-card-h">${title}${extra}</div>` : ''}${body}</section>`;
+    const leadBody = lead.summary || bits.length
+      ? `${lead.summary ? `<p class="ibi-sum">${esc(lead.summary)}</p>` : ''}${bits.length ? `<dl class="ibi-bits">${bits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}`
+      : '<p class="ibi-sum muted">No summary yet. Summarise reads the chat and writes notes.</p>';
+    const hasIn = t?.messages?.some((m) => m.dir === 'in');
     box.innerHTML = `
-      <div class="ibi-bar"><b>Contact info</b><span class="ibi-bar-acts">${ct ? `<button type="button" class="icon-btn" data-info-edit title="Edit contact" aria-label="Edit contact">${icon('square-pen', 16)}</button>` : ''}<button type="button" class="icon-btn" data-info-close title="Close" aria-label="Close">${icon('x', 17)}</button></span></div>
+      <div class="ibi-bar"><b>Contact info</b><span class="ibi-bar-acts"><button type="button" class="icon-btn" data-info-close title="Close" aria-label="Close">${icon('x', 17)}</button></span></div>
       <div class="ibi-scroll">
-        <div class="ct-phead ibi-head">
-          <span class="ib-av xl" style="${avatarStyle(c.wa)}">${initials(c)}</span>
-          <h2>${esc(ct?.name || displayName(c))}</h2>
-          <p><button type="button" class="ibi-copy" data-copy-num="+${esc(c.wa)}" title="Copy the number">${esc(fmtPhone(c.wa))}${icon('copy', 12)}</button></p>
-          ${via ? `<p class="ibi-via">Chatting with ${esc(via.label)}${via.displayPhone ? ' · ' + esc(via.displayPhone) : ''}</p>` : ''}
+        <div class="ibi-hero">
+          <span class="ib-av lg" style="${avatarStyle(c.wa)}">${initials(c)}</span>
+          <div class="ibi-who">
+            <h2>${esc(ct?.name || displayName(c))}</h2>
+            <button type="button" class="ibi-copy" data-copy-num="+${esc(c.wa)}" title="Copy the number">${esc(fmtPhone(c.wa))}${icon('copy', 12)}</button>
+            ${via ? `<span class="ibi-via" title="The number this chat is with">${senderPhotoHtml(via)}<span>via ${esc(via.label)}</span></span>` : ''}
+          </div>
         </div>
-        ${ct ? `
-        <section class="ibi-sec">
-          <div class="field-label">Stage${lock ? ` <span class="ibi-lock" title="You set this, so the AI won’t change it">${icon('lock', 11)}set by you</span>` : ' <span class="opt">set by the AI</span>'}</div>
-          <div class="ct-pstatus">${STATUS_ORDER.map((k) => `<button type="button" class="ct-tag ${ct.status === k ? 'active' : ''}" data-info-status="${k}">${esc(STATUS_LABEL[k])}</button>`).join('')}</div>
-          ${lock ? '<button type="button" class="ibi-link" data-info-ai>Let the AI decide again</button>' : ''}
-          <label class="ct-poptout"><span>Opted out <span class="opt">never message them</span></span>${toggleHtml({ checked: ct.optOut, attrs: 'data-info-optout', size: 'sm' })}</label>
-        </section>` : `
-        <section class="ibi-sec ibi-new"><p class="sub">They’re not in your contacts yet.</p><button type="button" class="btn sm primary" data-info-add>${icon('plus', 14)}Add to contacts</button></section>`}
-        ${lead.summary || bits.length ? `<section class="ct-leadbox ibi-sec"><div class="pc-label">This chat, from the lead assistant <button type="button" class="ib-lead-again" data-lead-again title="Summarise again"><svg class="orb-icon" data-orb-icon="13" aria-hidden="true"></svg><span>Summarise</span></button></div>
-          ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}${bits.length ? `<dl>${bits.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}</section>`
-          : t?.messages?.some((m) => m.dir === 'in') ? `<section class="ct-leadbox ibi-sec"><div class="pc-label">This chat, from the lead assistant <button type="button" class="ib-lead-again" data-lead-again title="Summarise: the AI reads the whole chat and writes notes"><svg class="orb-icon" data-orb-icon="13" aria-hidden="true"></svg><span>Summarise</span></button></div><p class="muted">No summary yet.</p></section>` : ''}
-        ${ct ? `
-        <section class="ibi-sec">
-          <div class="field-label">Tags</div>
-          <div class="ct-pick ibi-tags">${(t.tags || []).map((x) => `<button type="button" class="ct-tag tag-${esc(x.color)} ${ct.tags.includes(x.id) ? 'active' : ''}" data-info-tag="${x.id}"><i></i><span class="ct-tag-name">${esc(x.name)}</span></button>`).join('') || '<span class="sub">No tags yet. Make them on the Contacts page.</span>'}</div>
-        </section>
-        <section class="ibi-sec">
-          <div class="field-label">About</div>
-          <dl class="ibi-about">${about('Name', ct.name)}${about('Phone', fmtPhone(c.wa))}${about('Email', ct.email)}${about('Company', ct.company)}${about('Notes', ct.notes)}</dl>
-        </section>` : ''}
-        ${others.length ? `<section class="ibi-sec"><div class="field-label">Other chats with your numbers <span class="opt">${others.length}</span></div>
-          <div class="ibi-chats">${others.map((x) => `<button type="button" class="pf-chat" data-pf-open="${esc(x.key)}">
+        <div class="ibi-acts">
+          <button type="button" class="ibi-act" data-copy-num="+${esc(c.wa)}">${icon('copy', 16)}<span>Copy</span></button>
+          ${ct ? `<button type="button" class="ibi-act" data-info-edit>${icon('square-pen', 16)}<span>Edit</span></button>
+          <button type="button" class="ibi-act" data-info-contacts="${esc(ct.id)}">${icon('users', 16)}<span>Contacts</span></button>`
+          : `<button type="button" class="ibi-act primary" data-info-add>${icon('plus', 16)}<span>Add contact</span></button>`}
+        </div>
+        ${ct ? card('Stage', `
+          <div class="ibi-pipe" role="radiogroup" aria-label="Stage">${PIPE.map((k, i) => `<button type="button" role="radio" aria-checked="${ct.status === k}" class="ibi-step ${at >= 0 && i <= at ? 'done' : ''} ${ct.status === k ? 'on' : ''}" data-info-status="${k}"><i></i><span>${esc(STATUS_LABEL[k])}</span></button>`).join('')}</div>
+          <div class="ibi-row">
+            <button type="button" class="ibi-lost ${ct.status === 'lost' ? 'on' : ''}" data-info-status="lost">${icon('x', 12)}Not interested</button>
+            ${lock ? '<button type="button" class="ibi-link" data-info-ai>Let the AI decide</button>' : ''}
+          </div>
+          <label class="ibi-opt"><span><b>Opted out</b><small>Never message them again</small></span>${toggleHtml({ checked: ct.optOut, attrs: 'data-info-optout', size: 'sm' })}</label>`,
+          lock ? `<span class="ibi-lock" title="You set this, so the AI won’t change it">${icon('lock', 11)}Set by you</span>` : '<span class="ibi-badge">Set by the AI</span>') : ''}
+        ${lead.summary || bits.length || hasIn ? card(`<span class="ibi-ai"><svg class="orb-icon" data-orb-icon="14" aria-hidden="true"></svg>Lead notes</span>`, leadBody, `<button type="button" class="ib-lead-again" data-lead-again title="The AI reads the whole chat and writes notes"><span>Summarise</span></button>`) : ''}
+        ${ct ? card('Tags', `<div class="ibi-tags">${(t.tags || []).map((x) => `<button type="button" class="ct-tag tag-${esc(x.color)} ${ct.tags.includes(x.id) ? 'active' : ''}" data-info-tag="${x.id}"><i></i><span class="ct-tag-name">${esc(x.name)}</span></button>`).join('') || '<span class="sub">No tags yet. Make them on the Contacts page.</span>'}</div>`) : ''}
+        ${ct ? card('About', `<dl class="ibi-about">${about('Name', ct.name)}${about('Phone', fmtPhone(c.wa))}${about('Email', ct.email)}${about('Company', ct.company)}${about('Notes', ct.notes)}</dl>`) : ''}
+        ${others.length ? card(`Other chats <span class="ibi-n">${others.length}</span>`, `<div class="ibi-chats">${others.map((x) => `<button type="button" class="pf-chat" data-pf-open="${esc(x.key)}">
             <div class="pf-chat-h"><b>${esc(x.number)}</b><time>${esc(relTime(x.lastAt))}</time></div>
             <p class="pf-sum${x.lead?.summary ? '' : ' muted'}">${esc(x.lead?.summary || 'No summary yet.')}</p>
             <div class="pf-last">${x.lastDir === 'out' ? 'You: ' : ''}${esc(String(x.lastText || '').slice(0, 90))}</div>
-          </button>`).join('')}</div></section>` : ''}
-        ${ct ? `<button type="button" class="ibi-link ibi-foot" data-info-contacts="${esc(ct.id)}">${icon('users', 13)}Open in Contacts (change number, delete)</button>` : ''}
+          </button>`).join('')}</div>`) : ''}
       </div>`;
     box.classList.remove('hidden');
     $('#inbox').classList.add('has-info');

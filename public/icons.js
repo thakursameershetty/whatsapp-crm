@@ -138,4 +138,18 @@
   }
 
   window.LA = { icon, play, stop, hydrate, names: Object.keys(ICONS) };
+
+  // Icons draw themselves: once the page is parsed, and for anything added later. So the sidebar, buttons and search
+  // boxes keep their icons even if a page script stops early with an error (or a deploy briefly serves a new page with
+  // an old script).
+  const scan = () => hydrate(document);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan, { once: true });
+  else scan();
+  let pending = false;
+  new MutationObserver((recs) => {
+    if (pending) return;
+    if (!recs.some((r) => [...r.addedNodes].some((n) => n.nodeType === 1 && (n.hasAttribute?.('data-icon') || n.querySelector?.('[data-icon]:not([data-icon-done])'))))) return;
+    pending = true;
+    queueMicrotask(() => { pending = false; scan(); });
+  }).observe(document.documentElement, { childList: true, subtree: true });
 })();

@@ -5216,7 +5216,7 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .fl-empty .btn { margin-top: 8px; }
 .fl-empty-ic { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 4px; border-radius: 14px; background: var(--sunk); color: var(--muted); }
 .fl-empty-ic.ok { color: var(--good-text); background: var(--good-soft); }
-.fl-none .fl-empty { background-image: repeating-linear-gradient(to bottom, transparent 0 59px, var(--chart-grid) 59px 60px); background-position: 0 26px; }
+.fl-none .fl-empty { background: none; } /* an empty chart: just the note, no grid lines */
 .fs-bar-empty { height: 28px; border-radius: 6px; background: var(--meter-track); }
 .fs-none .fs-row { opacity: 0.85; }
 .fs-none .fs-n b { color: var(--faint); }
@@ -6154,3 +6154,64 @@ html.vt-day::view-transition-old(root), html.vt-day::view-transition-new(root) {
 /* day view: the campaign pills without the coloured left edge */
 .cd-ev { box-shadow: none; }
 .cd-ev.scheduled { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c) 45%, transparent); }
+
+/* ---- Inbox → Contact info: a compact header with quick actions, then cards ---- */
+.ib-info .ibi-scroll { padding: 18px 16px 20px; background: var(--bg); }
+.ibi-hero { display: flex; align-items: center; gap: 14px; padding: 2px 4px 14px; }
+.ib-av.lg { width: 58px; height: 58px; flex: none; font-size: 20px; margin: 0; }
+.ibi-who { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.ibi-who h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.ibi-who .ibi-copy { margin: 0 -6px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.ibi-via { display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.ibi-via .sender-photo { width: 18px; height: 18px; font-size: 9px; }
+.ibi-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.ibi-act { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 6px 9px; border: 0; border-radius: 12px; background: var(--surface); box-shadow: var(--sh-card); color: var(--text); font: 600 12px Inter, sans-serif; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.ibi-act svg { color: var(--muted); }
+.ibi-act:hover { transform: translateY(-1px); box-shadow: var(--sh-raised); }
+.ibi-act.primary { background: var(--text); color: var(--surface); }
+.ibi-act.primary svg { color: inherit; }
+.ibi-card { margin: 0 0 10px; padding: 12px 14px; border-radius: 14px; background: var(--surface); box-shadow: var(--sh-card); }
+.ibi-card-h { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; font-weight: 650; letter-spacing: 0.02em; color: var(--muted); }
+.ibi-card-h > :last-child:not(:first-child) { margin-left: auto; }
+.ibi-badge { font-size: 11px; font-weight: 500; letter-spacing: 0; color: var(--faint); }
+.ibi-n { font-weight: 500; color: var(--faint); }
+.ibi-ai { display: inline-flex; align-items: center; gap: 6px; color: var(--info); }
+/* stage pipeline */
+.ibi-pipe { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.ibi-step { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 0 0 2px; border: 0; background: none; color: var(--muted); font: 500 12px Inter, sans-serif; cursor: pointer; text-align: left; min-width: 0; }
+.ibi-step i { display: block; width: 100%; height: 5px; border-radius: 5px; background: var(--sunk); transition: background 0.25s; }
+.ibi-step span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.ibi-step.done i { background: color-mix(in srgb, var(--good) 55%, var(--surface)); }
+.ibi-step.on i { background: var(--good); }
+.ibi-step.on span { color: var(--text); font-weight: 650; }
+.ibi-step:hover span { color: var(--text); }
+.ibi-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.ibi-lost { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: 0; border-radius: 99px; background: var(--sunk); color: var(--muted); font: 500 12px Inter, sans-serif; cursor: pointer; }
+.ibi-lost.on { background: color-mix(in srgb, var(--danger) 14%, var(--surface)); color: var(--danger); font-weight: 600; }
+.ibi-row .ibi-link { margin: 0; }
+.ibi-opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px -14px -12px; padding: 10px 14px; box-shadow: inset 0 1px 0 var(--hair); cursor: pointer; font-weight: 400; }
+.ibi-opt b { display: block; font-size: 13px; font-weight: 600; }
+.ibi-opt small { font-size: 11.5px; color: var(--muted); }
+/* lead notes */
+.ibi-card .ib-lead-again { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 0; border-radius: 99px; background: var(--info-soft); color: var(--info); font: 600 11.5px Inter, sans-serif; cursor: pointer; }
+.ibi-sum { margin: 0; font-size: 13.5px; line-height: 1.5; }
+.ibi-bits { display: grid; gap: 6px; margin: 10px 0 0; }
+.ibi-bits div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; font-size: 13px; }
+.ibi-bits dt { color: var(--muted); }
+.ibi-bits dd { margin: 0; }
+/* tags, about */
+.ibi-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.ibi-card .ibi-about { gap: 0; }
+.ibi-card .ibi-about div { padding: 8px 0; box-shadow: inset 0 -1px 0 var(--hair); }
+.ibi-card .ibi-about div:last-child { box-shadow: none; padding-bottom: 0; }
+.ibi-card .ibi-about div:first-child { padding-top: 0; }
+.ibi-card .ibi-about dd.muted { color: var(--faint); font-style: italic; }
+
+/* "Nothing here yet" cards fill the rest of the page (app.js fillEmpties), their content centred */
+.empty.fill-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.empty.fill-empty .row.tight { justify-content: center; }
+#ctLayout .ct-card.fill-empty { display: flex; flex-direction: column; }
+#ctLayout .ct-card.fill-empty .ct-scroll { flex: 1 1 auto; display: flex; }
+#ctLayout .ct-card.fill-empty .ct-scroll > .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+/* A chart with nothing to show: no grid lines or axis numbers behind the note */
+.chart-is-empty svg.d3chart g.grid, .chart-is-empty svg.d3chart g.yticks, .chart-is-empty svg.d3chart g.xlabels { opacity: 0; transition: opacity 0.2s; }

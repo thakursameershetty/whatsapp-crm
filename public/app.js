@@ -332,6 +332,25 @@ function hideOverlay(el) {
   el.classList.add('closing');
   setTimeout(() => el.classList.remove('closing') || el.classList.add('hidden'), Motion.reduce() ? 0 : 180);
 }
+// A page with nothing on it yet (no templates, numbers, campaigns, contacts…): its "nothing here" card fills the
+// rest of the screen instead of sitting in the top half.
+const FILL_EMPTY = '#senderList > .empty, #templateList > .empty, #campaignList > .empty, #ntList > .empty, #rsList > .empty, #ctLayout .ct-card';
+let fillT = 0;
+function fillEmpties() {
+  cancelAnimationFrame(fillT);
+  fillT = requestAnimationFrame(() => {
+    for (const el of document.querySelectorAll(FILL_EMPTY)) {
+      const isCard = el.classList.contains('ct-card');
+      if (!el.offsetParent || (isCard && !el.querySelector('.empty'))) { el.style.minHeight = ''; el.classList.remove('fill-empty'); continue; }
+      const top = el.getBoundingClientRect().top + scrollY;
+      el.style.minHeight = Math.max(280, innerHeight - top - 24) + 'px';
+      el.classList.add('fill-empty');
+    }
+  });
+}
+addEventListener('resize', fillEmpties);
+new MutationObserver(fillEmpties).observe(document.querySelector('main') || document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+
 // Scrollbars stay hidden until used (style.css): whatever is scrolling shows its bar, which fades a moment after it stops.
 document.addEventListener('scroll', (e) => {
   const el = e.target === document ? document.documentElement : e.target;
@@ -2994,6 +3013,7 @@ function drawChart(el, bs, m, { instant = false, resize = false } = {}) {
   const empty = isRate ? !present.length : max === 0;
   const em = el.querySelector('.chart-empty');
   em.classList.toggle('hidden', !empty);
+  el.classList.toggle('chart-is-empty', empty); // no grid lines or y-axis numbers behind the "nothing here" note
   em.querySelector('strong').textContent = isRate ? 'Nothing to measure yet' : `No ${m.label.toLowerCase()} in this period`;
   em.querySelector('span').textContent = state.ov.sender || state.ov.template ? 'Try a wider range or clear the filters.' : 'Try a wider date range.';
 }
