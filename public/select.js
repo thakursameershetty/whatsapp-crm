@@ -133,61 +133,122 @@
     btn.addEventListener('click', () => openDate(inp, btn));
   }
 
+  // The schedule picker: the month (click its name for a month / year grid), a time you can type or nudge (↑/↓,
+  // the wheel, or the small arrows; AM/PM where the locale uses it), quick picks, and Now. Every change applies to the
+  // input straight away; a time that has already passed is said so in the footer (Send checks it again).
+  const CLOCK = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+  const CHEV = (rot) => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform:rotate(${rot}deg)"><path d="m6 9 6 6 6-6"/></svg>`;
   function openDate(inp, btn) {
     const min = parse(inp.min) || null;
     let sel = parse(inp.value) || (() => { const d = new Date(Date.now() + 3600e3); d.setMinutes(0, 0, 0); return d; })();
-    let view = new Date(sel.getFullYear(), sel.getMonth(), 1);
+    let view = new Date(sel.getFullYear(), sel.getMonth(), 1), picking = 'days';
+    const h12 = new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hour12 !== false;
     const r = btn.getBoundingClientRect();
-    const el = Sheet.Menu.panel(r.left, r.bottom + 6, '<div class="dt-body"></div>');
-    el.classList.add('dt-pop');
-    // every pick applies straight away (closing by clicking outside keeps it); Done just closes
-    const set = (d) => { if (min && d < min) d = new Date(min); sel = d; inp.value = toLocal(sel); fire(inp); draw(); };
+    const el = Sheet.Menu.panel(r.left, r.bottom + 6, `<div class="dt-body sch-body">
+      <div class="dt-quick"></div>
+      <div class="sch-cal"></div>
+      <div class="sch-clock">
+        <span class="sch-clock-ic">${CLOCK}</span>
+        <span class="sch-field"><input class="sch-hh" inputmode="numeric" maxlength="2" aria-label="Hour" autocomplete="off" /><span class="sch-step"><button type="button" data-step="h" data-by="1" tabindex="-1" aria-label="Later hour">${CHEV(180)}</button><button type="button" data-step="h" data-by="-1" tabindex="-1" aria-label="Earlier hour">${CHEV(0)}</button></span></span>
+        <b class="sch-colon">:</b>
+        <span class="sch-field"><input class="sch-mm" inputmode="numeric" maxlength="2" aria-label="Minutes" autocomplete="off" /><span class="sch-step"><button type="button" data-step="m" data-by="1" tabindex="-1" aria-label="Later minute">${CHEV(180)}</button><button type="button" data-step="m" data-by="-1" tabindex="-1" aria-label="Earlier minute">${CHEV(0)}</button></span></span>
+        ${h12 ? '<div class="seg seg-sm sch-ampm" role="radiogroup" aria-label="AM or PM"><button type="button" data-ap="am">AM</button><button type="button" data-ap="pm">PM</button></div>' : ''}
+        <button type="button" class="btn sm quiet sch-now" data-now>Now</button>
+      </div>
+      <div class="dt-foot"><span class="sch-sum"></span><button type="button" class="btn sm primary" data-done>Done</button></div>
+    </div>`);
+    el.classList.add('dt-pop', 'sch-pop');
+    const hh = el.querySelector('.sch-hh'), mm = el.querySelector('.sch-mm');
+    // apply a date: from the calendar or quick picks it can't be before the earliest allowed; typed times aren't moved
+    const set = (d, clamp = true) => { if (clamp && min && d < min) d = new Date(min); sel = d; inp.value = toLocal(sel); fire(inp); drawCal(); syncClock(); };
     const quick = () => {
       const at = (days, h) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(h, 0, 0, 0); return d; };
       const hour = new Date(Date.now() + 3600e3); hour.setMinutes(Math.ceil(hour.getMinutes() / 15) * 15, 0, 0);
       const mon = at((8 - new Date().getDay()) % 7 || 7, 10);
       return [['In 1 hour', hour], ...(new Date().getHours() < 18 ? [['This evening, 7 PM', at(0, 19)]] : []), ['Tomorrow, 10 AM', at(1, 10)], ['Monday, 10 AM', mon]];
     };
-    function draw() {
-      const today = new Date(), first = view.getDay(), days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
-      const minDay = min && new Date(min.getFullYear(), min.getMonth(), min.getDate());
-      let cells = '';
-      for (let i = 0; i < first; i++) cells += '<span></span>';
-      for (let d = 1; d <= days; d++) {
-        const day = new Date(view.getFullYear(), view.getMonth(), d), off = minDay && day < minDay;
-        cells += `<button type="button" class="dt-day ${sameDay(day, sel) ? 'on' : ''} ${sameDay(day, today) ? 'today' : ''}" data-d="${d}" ${off ? 'disabled' : ''}>${d}</button>`;
+    el.querySelector('.dt-quick').innerHTML = quick().map(([l], i) => `<button type="button" class="dt-chip" data-q="${i}">${esc(l)}</button>`).join('');
+    const minDay = min && new Date(min.getFullYear(), min.getMonth(), min.getDate());
+    function drawCal() {
+      const box = el.querySelector('.sch-cal');
+      if (picking === 'months') {
+        const y = view.getFullYear(), now = new Date();
+        const months = [...Array(12)].map((_, m) => {
+          const off = minDay && new Date(y, m + 1, 0) < minDay;
+          const on = y === sel.getFullYear() && m === sel.getMonth(), cur = y === now.getFullYear() && m === now.getMonth();
+          return `<button type="button" class="sch-month ${on ? 'on' : ''} ${cur ? 'today' : ''}" data-month="${m}" ${off ? 'disabled' : ''}>${esc(new Date(y, m, 1).toLocaleDateString(undefined, { month: 'short' }))}</button>`;
+        }).join('');
+        const prevOff = minDay && y - 1 < minDay.getFullYear();
+        box.innerHTML = `<div class="dt-head"><button type="button" class="dt-nav" data-year="-1" aria-label="Previous year" ${prevOff ? 'disabled' : ''}>${CHEV(90)}</button><button type="button" class="sch-title" data-pick="days" aria-label="Back to the days">${y}${CHEV(180)}</button><button type="button" class="dt-nav" data-year="1" aria-label="Next year">${CHEV(-90)}</button></div><div class="sch-months">${months}</div>`;
+        return;
       }
-      let times = '';
-      for (let m = 0; m < 1440; m += 15) {
-        const t = new Date(sel); t.setHours(0, m, 0, 0);
-        const off = min && t < min, on = sel.getHours() * 60 + sel.getMinutes() === m;
-        times += `<button type="button" class="dt-time ${on ? 'on' : ''}" data-m="${m}" ${off ? 'disabled' : ''}>${esc(t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }))}</button>`;
+      const today = new Date(), first = view.getDay(), days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+      const weeks = Math.ceil((first + days) / 7);
+      let cells = '';
+      for (let i = 0; i < weeks * 7; i++) {
+        const day = new Date(view.getFullYear(), view.getMonth(), 1 - first + i), out = day.getMonth() !== view.getMonth();
+        if (out) { cells += `<span class="sch-cell out"><span class="dt-day">${day.getDate()}</span></span>`; continue; }
+        const off = minDay && day < minDay;
+        cells += `<span class="sch-cell"><button type="button" class="dt-day ${sameDay(day, sel) ? 'on' : ''} ${sameDay(day, today) ? 'today' : ''}" data-d="${day.getDate()}" ${off ? 'disabled' : ''}>${day.getDate()}</button></span>`;
       }
       const prevOff = minDay && new Date(view.getFullYear(), view.getMonth(), 0) < minDay;
-      el.querySelector('.dt-body').innerHTML = `
-        <div class="dt-quick">${quick().map(([l, d], i) => `<button type="button" class="dt-chip" data-q="${i}">${esc(l)}</button>`).join('')}</div>
-        <div class="dt-main">
-          <div class="dt-cal">
-            <div class="dt-head"><button type="button" class="dt-nav" data-nav="-1" aria-label="Previous month" ${prevOff ? 'disabled' : ''}>‹</button><b>${esc(view.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))}</b><button type="button" class="dt-nav" data-nav="1" aria-label="Next month">›</button></div>
-            <div class="dt-week">${[...Array(7)].map((_, i) => `<span>${esc(new Date(2023, 0, 1 + i).toLocaleDateString(undefined, { weekday: 'narrow' }))}</span>`).join('')}</div>
-            <div class="dt-grid">${cells}</div>
-          </div>
-          <div class="dt-times">${times}</div>
-        </div>
-        <div class="dt-foot"><span>Sends <b>${esc(fmt(sel))}</b> · ${esc(rel(sel))}</span><button type="button" class="btn sm primary" data-done>Done</button></div>`;
-      const on = el.querySelector('.dt-time.on'), col = el.querySelector('.dt-times');
-      if (on) col.scrollTop = on.offsetTop - col.clientHeight / 2 + on.offsetHeight / 2;
+      box.innerHTML = `<div class="dt-head"><button type="button" class="dt-nav" data-nav="-1" aria-label="Previous month" ${prevOff ? 'disabled' : ''}>${CHEV(90)}</button><button type="button" class="sch-title" data-pick="months" aria-label="Choose the month and year">${esc(view.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))}${CHEV(0)}</button><button type="button" class="dt-nav" data-nav="1" aria-label="Next month">${CHEV(-90)}</button></div>
+        <div class="dt-week">${[...Array(7)].map((_, i) => `<span>${esc(new Date(2023, 0, 1 + i).toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 2))}</span>`).join('')}</div>
+        <div class="dt-grid">${cells}</div>`;
     }
-    draw();
-    const h = el.offsetHeight;
-    if (r.bottom + 6 + h > innerHeight - 8 && r.top - 6 - h > 8) el.style.top = r.top - 6 - h + 'px';
-    el.style.left = Math.max(8, Math.min(innerWidth - el.offsetWidth - 8, r.left)) + 'px';
+    function syncClock() {
+      const h = sel.getHours(), m = sel.getMinutes();
+      if (document.activeElement !== hh) hh.value = h12 ? String(h % 12 || 12) : pad(h);
+      if (document.activeElement !== mm) mm.value = pad(m);
+      el.querySelectorAll('[data-ap]').forEach((b) => { const on = (b.dataset.ap === 'pm') === (h >= 12); b.classList.toggle('active', on); b.setAttribute('aria-checked', String(on)); });
+      if (h12) Motion?.segs?.(el);
+      const past = sel < (min || new Date());
+      const sum = el.querySelector('.sch-sum');
+      sum.classList.toggle('bad', past);
+      sum.innerHTML = past ? `<b>${esc(fmt(sel))}</b> has already passed: pick a later time` : `Sends <b>${esc(fmt(sel))}</b> · ${esc(rel(sel))}`;
+    }
+    // typed hour / minute: applied as soon as it's a real one
+    const typedHour = (v) => { const n = Number(v); if (!/^\d{1,2}$/.test(v)) return null; if (h12) return n >= 1 && n <= 12 ? (n % 12) + (sel.getHours() >= 12 ? 12 : 0) : null; return n <= 23 ? n : null; };
+    hh.addEventListener('input', () => {
+      hh.value = hh.value.replace(/\D/g, '');
+      const h = typedHour(hh.value);
+      if (h == null) return;
+      const d = new Date(sel); d.setHours(h); set(d, false);
+      // two digits, or one that can't start a longer hour: on to the minutes
+      if (hh.value.length === 2 || Number(hh.value) > (h12 ? 1 : 2)) { mm.focus(); mm.select(); }
+    });
+    mm.addEventListener('input', () => {
+      mm.value = mm.value.replace(/\D/g, '');
+      const n = Number(mm.value);
+      if (!/^\d{1,2}$/.test(mm.value) || n > 59) return;
+      const d = new Date(sel); d.setMinutes(n, 0, 0); set(d, false);
+    });
+    const nudge = (part, by) => { const d = new Date(sel); if (part === 'h') d.setHours(d.getHours() + by); else d.setMinutes(d.getMinutes() + by, 0, 0); view = new Date(d.getFullYear(), d.getMonth(), 1); set(d, false); };
+    for (const [f, part] of [[hh, 'h'], [mm, 'm']]) {
+      f.addEventListener('focus', () => f.select());
+      f.addEventListener('blur', () => setTimeout(syncClock)); // tidy (05, 12…)
+      f.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); nudge(part, (e.key === 'ArrowUp' ? 1 : -1) * (part === 'm' && e.shiftKey ? 5 : 1)); f.value = part === 'h' ? (h12 ? String(sel.getHours() % 12 || 12) : pad(sel.getHours())) : pad(sel.getMinutes()); f.select(); }
+        else if (e.key === 'Enter') { e.preventDefault(); Sheet.Menu.close(); btn.focus({ preventScroll: true }); }
+        else if (e.key === ':' && f === hh) { e.preventDefault(); mm.focus(); }
+      });
+      f.parentElement.addEventListener('wheel', (e) => { e.preventDefault(); nudge(part, e.deltaY < 0 ? 1 : -1); }, { passive: false });
+    }
+    drawCal();
+    syncClock();
+    Sheet.Menu.fit(el, r); // above the button when there's no room below, held there by its bottom edge
+    const swap = (to) => Sheet.Menu.morph(el, () => { picking = to; drawCal(); }, { zoom: to === 'months' ? 'out' : 'in', part: '.sch-cal' });
     el.addEventListener('click', (e) => {
       const t = e.target.closest('button'); if (!t || t.disabled) return;
-      if (t.dataset.nav) { view = new Date(view.getFullYear(), view.getMonth() + Number(t.dataset.nav), 1); draw(); }
+      if (t.dataset.nav) { view = new Date(view.getFullYear(), view.getMonth() + Number(t.dataset.nav), 1); drawCal(); }
+      else if (t.dataset.year) { view = new Date(view.getFullYear() + Number(t.dataset.year), view.getMonth(), 1); drawCal(); }
+      else if (t.dataset.pick) swap(t.dataset.pick);
+      else if (t.dataset.month) { view = new Date(view.getFullYear(), Number(t.dataset.month), 1); swap('days'); }
       else if (t.dataset.d) { const d = new Date(sel); d.setFullYear(view.getFullYear(), view.getMonth(), Number(t.dataset.d)); set(d); }
-      else if (t.dataset.m) { const d = new Date(sel); d.setHours(0, Number(t.dataset.m), 0, 0); set(d); }
-      else if (t.dataset.q) { const d = quick()[Number(t.dataset.q)][1]; view = new Date(d.getFullYear(), d.getMonth(), 1); set(d); }
+      else if (t.dataset.step) nudge(t.dataset.step, Number(t.dataset.by));
+      else if (t.dataset.ap) { const d = new Date(sel), pm = sel.getHours() >= 12; if ((t.dataset.ap === 'pm') !== pm) { d.setHours(d.getHours() + (pm ? -12 : 12)); set(d, false); } }
+      else if ('now' in t.dataset) { const d = new Date(Date.now() + 60000); d.setSeconds(0, 0); view = new Date(d.getFullYear(), d.getMonth(), 1); picking = 'days'; set(d); }
+      else if (t.dataset.q) { const d = quick()[Number(t.dataset.q)][1]; view = new Date(d.getFullYear(), d.getMonth(), 1); picking = 'days'; set(d); }
       else if ('done' in t.dataset) { Sheet.Menu.close(); btn.focus({ preventScroll: true }); }
     });
   }

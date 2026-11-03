@@ -1192,7 +1192,14 @@
       node.style.overflowY = 'auto';
       const { width: w, height: h } = node.getBoundingClientRect();
       const below = anchor.bottom + gap, above = anchor.top - gap - h;
-      node.style.top = (below + h <= innerHeight - 8 ? below : above >= 8 ? above : Math.max(8, innerHeight - h - 8)) + 'px';
+      if (below + h <= innerHeight - 8 || above < 8) {
+        node.style.bottom = '';
+        node.style.top = (below + h <= innerHeight - 8 ? below : Math.max(8, innerHeight - h - 8)) + 'px';
+      } else {
+        // above its button: held by its bottom edge, so when its content gets shorter or taller it stays on the button
+        node.style.top = 'auto';
+        node.style.bottom = innerHeight - (anchor.top - gap) + 'px';
+      }
       // the page's width without its scrollbar; a panel that doesn't fit to the right of its button lines up with the
       // button's right edge instead (so it opens leftward, as a menu at the end of a toolbar should)
       const vw = document.documentElement.clientWidth;
@@ -1214,7 +1221,24 @@
     // (The first moments after opening don't count: the page may still be easing into place.)
     let openedAt = 0;
     addEventListener('scroll', (e) => { if (el && Date.now() - openedAt > 400 && !(e.target instanceof Node && el.contains(e.target))) close(); }, { capture: true, passive: true });
-    return { open, panel, close, fit };
+    // Swap what a panel shows (days ↔ months, say) as one movement: its height glides from the old size to the new,
+    // and the new content zooms in ('out': from a little larger, as when stepping back to a wider view; 'in': from a
+    // little smaller, as when stepping into one).
+    function morph(node, render, { zoom = 'out', part = null } = {}) {
+      if (window.Motion?.reduce?.()) return render();
+      const h0 = node.getBoundingClientRect().height;
+      render();
+      const h1 = node.getBoundingClientRect().height;
+      const ease = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+      if (Math.abs(h1 - h0) > 1) {
+        const ov = node.style.overflowY;
+        node.style.overflowY = 'hidden';
+        node.animate([{ height: h0 + 'px' }, { height: h1 + 'px' }], { duration: 280, easing: ease }).finished.finally(() => { node.style.overflowY = ov; });
+      }
+      const target = typeof part === 'string' ? node.querySelector(part) : part || node.firstElementChild;
+      target?.animate([{ opacity: 0, transform: `scale(${zoom === 'out' ? 1.06 : 0.94})`, filter: 'blur(2px)' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: 260, easing: ease });
+    }
+    return { open, panel, close, fit, morph };
   })();
 
   window.Sheet = { create, letter, parseTsv, Menu };

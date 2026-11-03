@@ -197,7 +197,7 @@
     return `<div class="card cp-cal">
       <div class="cp-cal-head">
         <button type="button" class="dt-nav" data-calnav="-1" aria-label="Previous month">‹</button>
-        <b>${esc(m.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))}</b>
+        <button type="button" class="sch-title cp-cal-title" data-calpick aria-label="Choose the month and year">${esc(m.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))}${icon('chevron-down', 14)}</button>
         <button type="button" class="dt-nav" data-calnav="1" aria-label="Next month">›</button>
         <span class="sub">${inMonth ? inMonth + ' campaign' + (inMonth === 1 ? '' : 's') + ' this month' : 'No campaigns this month'}</span>
         <button type="button" class="btn sm quiet" data-calnav="0">Today</button>
@@ -213,6 +213,29 @@
       CP.calMonth = n ? new Date(m.getFullYear(), m.getMonth() + n, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       CP.calOpen = null;
       return renderList();
+    }
+    // the month name: a month / year grid to jump to (months with campaigns are underlined)
+    const title = e.target.closest('#campaignList [data-calpick]');
+    if (title) {
+      const r = title.getBoundingClientRect();
+      let y = (CP.calMonth || new Date()).getFullYear();
+      const busy = new Set(CP.list.map((c) => String(dayOf(c) || '').slice(0, 7)));
+      const el = Sheet.Menu.panel(r.left, r.bottom + 6, '<div class="cp-mpick"></div>');
+      el.classList.add('cp-mpick-pop');
+      const draw = () => {
+        const cur = CP.calMonth || new Date(), now = new Date();
+        const month = (k) => `<button type="button" class="sch-month ${y === cur.getFullYear() && k === cur.getMonth() ? 'on' : ''} ${y === now.getFullYear() && k === now.getMonth() ? 'today' : ''} ${busy.has(`${y}-${String(k + 1).padStart(2, '0')}`) ? 'has' : ''}" data-m="${k}">${esc(new Date(y, k, 1).toLocaleDateString(undefined, { month: 'short' }))}</button>`;
+        el.querySelector('.cp-mpick').innerHTML = `<div class="dt-head"><button type="button" class="dt-nav" data-y="-1" aria-label="Previous year">${icon('chevron-down', 15)}</button><b>${y}</b><button type="button" class="dt-nav" data-y="1" aria-label="Next year">${icon('chevron-down', 15)}</button></div><div class="sch-months">${[...Array(12).keys()].map(month).join('')}</div>`;
+      };
+      draw();
+      Sheet.Menu.fit(el, r);
+      el.addEventListener('click', (ev) => {
+        const b = ev.target.closest('button');
+        if (!b) return;
+        if (b.dataset.y) { y += Number(b.dataset.y); return draw(); }
+        if (b.dataset.m) { CP.calMonth = new Date(y, Number(b.dataset.m), 1); CP.calOpen = null; Sheet.Menu.close(); renderList(); }
+      });
+      return;
     }
     const more = e.target.closest('#campaignList [data-calday]');
     if (more) { CP.calOpen = CP.calOpen === more.dataset.calday ? null : more.dataset.calday; renderList(); }

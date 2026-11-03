@@ -175,3 +175,6 @@ svg.la-smartphone.on { animation: la-buzz 0.5s linear; }
   svg.la, svg.la * { animation: none !important; transition: none !important; }
   svg.la.on, svg.la.on * { transform: none !important; }
 }
+/* arrow-right ("View all →"): the arrow nudges on along its way */
+svg.la-arrow-right .a-arrow { transition: transform 0.45s var(--la-spring); }
+svg.la-arrow-right.on .a-arrow { transform: translateX(3px); }

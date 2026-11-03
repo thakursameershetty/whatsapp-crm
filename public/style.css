@@ -5408,3 +5408,94 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .rpk-tabs button:hover { color: var(--text); }
 .rpk-tabs button.on { background: var(--sunk); color: var(--text); font-weight: 600; }
 .rpk-list.loading { opacity: 0.55; transition: opacity 0.15s; }
+/* Date filter calendar: round days on a soft band. A range is one continuous band with solid ink circles at its ends;
+   joined picked days share the band; the band rounds off at the ends of a week. Weekday row over a hairline; days of
+   the next and last month faded; Cancel / Apply at the foot. (Scoped to .df-pop: the schedule picker keeps its look.) */
+.df-pop { width: 344px; padding: 14px 14px 12px; }
+.df-pop .dt-head { justify-content: center; gap: 18px; margin: 2px 0 10px; }
+.df-pop .dt-head b { min-width: 130px; text-align: center; font-size: 14px; font-weight: 600; }
+.df-pop .dt-nav { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; }
+.df-pop .dt-nav:hover:not(:disabled) { background: var(--sunk); color: var(--text); }
+.df-pop .dt-nav:disabled { opacity: 0.3; cursor: default; }
+.df-pop .dt-nav[data-nav="-1"] svg { transform: rotate(90deg); }
+.df-pop .dt-nav[data-nav="1"] svg { transform: rotate(-90deg); }
+.df-pop .dt-week { gap: 0; padding-bottom: 8px; margin-bottom: 6px; box-shadow: 0 1px 0 var(--hair); }
+.df-pop .dt-week span { font-size: 12px; font-weight: 500; color: var(--faint); }
+.df-pop .dt-grid { gap: 4px 0; }
+.df-cell { position: relative; display: grid; place-items: center; height: 38px; }
+/* the band: behind the day, half on the side that joins on */
+.df-cell::before { content: ''; position: absolute; top: 3px; bottom: 3px; left: 50%; right: 50%; background: color-mix(in srgb, var(--text) 8%, var(--surface)); pointer-events: none; }
+.df-cell.jl::before { left: 0; }
+.df-cell.jr::before { right: 0; }
+.df-cell:not(.jl):not(.jr)::before { display: none; }
+.df-cell:has(.df-day.in):not(.jl)::before { left: 3px; border-radius: 16px 0 0 16px; }
+.df-cell:has(.df-day.in):not(.jr)::before { right: 3px; border-radius: 0 16px 16px 0; }
+.df-pop .df-day { position: relative; z-index: 1; width: 32px; height: 32px; padding: 0; border-radius: 50%; font-size: 13.5px; transition: background 0.12s, color 0.12s; }
+.df-pop .df-day.in { background: transparent; color: var(--text); border-radius: 50%; }
+.df-pop .df-day.on { background: var(--text); color: var(--surface); font-weight: 600; box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--text) 60%, transparent); }
+.df-pop .df-day.today:not(.on) { box-shadow: inset 0 0 0 1.5px var(--hair); font-weight: 700; }
+.df-pop .df-day:hover:not(:disabled):not(.on) { background: var(--sunk); }
+.df-cell.out .df-day, .df-pop .df-day:disabled { color: var(--faint); opacity: 0.35; cursor: default; } /* another month, or not pickable yet: equally faint */
+.df-pop .df-day.has::after { bottom: 3px; }
+.df-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 22px; margin: 10px 2px 0; }
+.df-clear { flex: none; border: 0; padding: 0; background: none; color: var(--muted); font: 600 12.5px Inter, sans-serif; cursor: pointer; }
+.df-clear:hover { color: var(--text); }
+.df-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.df-foot .btn { justify-content: center; height: 38px; }
+.df-cancel { background: var(--sunk); box-shadow: none; }
+/* Schedule picker (Send → Later): the date filter's round days, a month / year grid behind the title, and a time you
+   can type or nudge, with Now beside it */
+.sg-pop.sch-pop { width: 360px; padding: 14px; }
+.sch-pop .dt-head { justify-content: space-between; margin: 0 0 8px; }
+.sch-pop .dt-nav { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: var(--muted); }
+.sch-pop .dt-nav:hover:not(:disabled) { background: var(--sunk); color: var(--text); }
+.sch-title { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border: 0; border-radius: 99px; background: none; color: var(--text); font: 600 14px Inter, sans-serif; cursor: pointer; }
+.sch-title:hover { background: var(--sunk); }
+.sch-title svg { color: var(--muted); }
+.sch-pop .dt-week { gap: 0; padding-bottom: 8px; margin-bottom: 6px; box-shadow: 0 1px 0 var(--hair); }
+.sch-pop .dt-week span { font-size: 12px; font-weight: 500; }
+.sch-pop .dt-grid { gap: 2px 0; }
+.sch-cell { display: grid; place-items: center; height: 36px; }
+.sch-pop .dt-day { width: 32px; height: 32px; padding: 0; border-radius: 50%; font-size: 13.5px; }
+.sch-pop .dt-day.on, .sch-pop .dt-day.on:hover { background: var(--text); color: var(--surface); box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--text) 60%, transparent); } /* stays dark under the pointer */
+.sch-pop .dt-day.today:not(.on) { box-shadow: inset 0 0 0 1.5px var(--hair); }
+.sch-cell.out .dt-day, .sch-pop .dt-day:disabled { color: var(--faint); opacity: 0.35; cursor: default; }
+.sch-months { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 6px 0 4px; }
+.sch-month { height: 40px; border: 0; border-radius: 12px; background: none; color: var(--text); font: 500 13.5px Inter, sans-serif; cursor: pointer; }
+.sch-month:hover:not(:disabled) { background: var(--sunk); }
+.sch-month.today:not(.on) { box-shadow: inset 0 0 0 1.5px var(--hair); }
+.sch-month.on { background: var(--text); color: var(--surface); font-weight: 600; }
+.sch-month:disabled { color: var(--faint); opacity: 0.4; cursor: default; }
+.sch-clock { display: flex; align-items: center; gap: 6px; margin-top: 12px; padding-top: 12px; box-shadow: 0 -1px 0 var(--hair); }
+.sch-clock-ic { display: grid; place-items: center; color: var(--muted); margin-right: 2px; }
+.sch-field { position: relative; display: inline-flex; align-items: center; height: 38px; border-radius: 10px; background: var(--field); box-shadow: var(--sh-sunk); }
+.sch-field input { width: 34px !important; height: 38px !important; min-height: 0 !important; margin: 0 !important; padding: 0 0 0 10px !important; border: 0 !important; border-radius: 0 !important; background: none !important; box-shadow: none !important; font: 600 16px Inter, sans-serif !important; font-variant-numeric: tabular-nums; color: var(--text); text-align: center; } /* (the general input style would draw a box inside the box) */
+.sch-field input:focus { outline: 0; }
+.sch-field:focus-within { box-shadow: var(--sh-sunk), 0 0 0 2px var(--ring, color-mix(in srgb, var(--info) 40%, transparent)); }
+.sch-step { display: flex; flex-direction: column; padding-right: 4px; }
+.sch-step button { display: grid; place-items: center; width: 18px; height: 16px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--faint); cursor: pointer; }
+.sch-step button:hover { color: var(--text); background: var(--sunk); }
+.sch-step svg { width: 12px; height: 12px; }
+.sch-colon { color: var(--muted); font-size: 16px; }
+.sch-ampm { margin: 0 0 0 4px; }
+.sch-ampm > button { height: 30px; padding: 0 10px; font-size: 12.5px; }
+.sch-now { margin-left: auto; }
+.sch-sum.bad { color: var(--danger); }
+.sch-sum.bad b { color: var(--danger); }
+/* Month / year grid in the date filter (same pieces as the schedule picker) */
+.df-pop .dt-head .sch-title { min-width: 150px; justify-content: center; }
+.df-pop .dt-head [data-year="-1"] svg { transform: rotate(90deg); }
+.df-pop .dt-head [data-year="1"] svg { transform: rotate(-90deg); }
+.sch-title.open svg { transform: rotate(180deg); }
+.sch-month { position: relative; }
+.sch-month.has::after { content: ''; position: absolute; left: 50%; bottom: 6px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--faint); } /* something in that month */
+.sch-month.has.on::after { background: var(--surface); }
+/* Campaigns calendar: the month name opens a month / year grid */
+.cp-cal-head .cp-cal-title { min-width: 150px; justify-content: center; font-size: 16px; }
+.cp-mpick-pop { width: 280px; padding: 12px; }
+.cp-mpick .dt-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.cp-mpick .dt-head b { font-size: 14px; }
+.cp-mpick .dt-nav { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; }
+.cp-mpick .dt-nav:hover { background: var(--sunk); color: var(--text); }
+.cp-mpick [data-y="-1"] svg { transform: rotate(90deg); }
+.cp-mpick [data-y="1"] svg { transform: rotate(-90deg); }
