@@ -58,6 +58,45 @@ module.exports = function mountContacts(app, ctx) {
 
   const isOptedOut = (phone) => Boolean(byPhone(phone)?.optOut);
 
+  // Everyone a campaign messages is in Contacts, delivered or not. Each contact keeps every campaign that messaged
+  // them and how it went: contact.campaigns = [{ id, name, status: sent | delivered | read | failed, at, senderId,
+  // error? }] (newest last), and contact.delivery = the latest one. contact.via: the number that first brought them in
+  // (a campaign's sender, or the number they first wrote to). A contact you already have keeps its name and details;
+  // demo campaigns don't add anyone.
+  const DELIVERY_AT = (r) => r.readAt || r.deliveredAt || r.failedAt || r.sentAt || '';
+  function noteDelivery(c, r) {
+    if (!c || c.demo || !r?.phone || !['sent', 'delivered', 'read', 'failed'].includes(r.status)) return;
+    const had = byPhone(r.phone);
+    const { contact, created } = upsert(r.phone, had?.name ? {} : { name: r.name || '' }, { source: 'campaign' });
+    if (created && r.senderId) contact.via = r.senderId;
+    const at = DELIVERY_AT(r) || now();
+    const entry = { id: c.id, name: String(c.name || '').slice(0, 120), status: r.status, at, ...(r.senderId ? { senderId: r.senderId } : {}), ...(r.status === 'failed' && r.error ? { error: String(r.error).slice(0, 300) } : {}) };
+    const list = (contact.campaigns ||= []);
+    const i = list.findIndex((x) => x.id === c.id);
+    if (i >= 0) list[i] = entry; else list.push(entry);
+    list.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    if (list.length > 200) list.splice(0, list.length - 200);
+    const last = list[list.length - 1];
+    contact.delivery = { status: last.status, at: last.at, campaignId: last.id, campaign: last.name, ...(last.error ? { error: last.error } : {}) };
+  }
+  // Once per workspace: every campaign sent before this existed (oldest first), and the number that brought in each
+  // contact added before numbers were recorded (their first campaign message or first chat, whichever came first).
+  function contactsFromPastCampaigns() {
+    if (db.settings.campaignContactsV2) return 0;
+    const before = db.contacts.length;
+    for (const c of [...(db.campaigns || [])].filter((x) => !x.demo).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))) {
+      for (const r of c.recipients || []) noteDelivery(c, r);
+    }
+    const first = new Map(); // phone → { senderId, at }
+    const seen = (phone, senderId, at) => { if (!phone || !senderId) return; const f = first.get(phone); if (!f || String(at) < String(f.at)) first.set(phone, { senderId, at }); };
+    for (const c of db.campaigns || []) if (!c.demo) for (const r of c.recipients || []) if (r.sentAt || r.failedAt) seen(r.phone, r.senderId, r.sentAt || r.failedAt);
+    for (const m of db.messages || []) if (m.dir === 'in' && !m.demo) seen(normalizePhone(m.wa) || m.wa, m.senderId, m.ts);
+    for (const c of db.contacts) if (!c.via && ['campaign', 'inbox'].includes(c.source) && first.has(c.phone)) c.via = first.get(c.phone).senderId;
+    db.settings.campaignContactsV2 = true;
+    save();
+    return db.contacts.length - before;
+  }
+
   // Numbers saved by older versions (which allowed 8–9 digits, without a country code) are cleaned again with
   // today's rules. One that still isn't a valid number, or that now matches another contact, is kept as it is and
   // marked with `phoneProblem` so it shows up in Contacts to fix; nothing is deleted or merged. Safe to run on every start.
@@ -77,9 +116,10 @@ module.exports = function mountContacts(app, ctx) {
   }
 
   // Someone messaged one of our numbers: make sure they're in Contacts, and honour STOP at once.
-  function onInbound(wa, { name, text, ts } = {}) {
+  function onInbound(wa, { name, text, ts, senderId } = {}) {
     const phone = normalizePhone(wa) || wa;
-    const { contact } = upsert(phone, { name }, { source: 'inbox' });
+    const { contact, created } = upsert(phone, { name }, { source: 'inbox' });
+    if (created && senderId) contact.via = senderId;
     contact.lastMessageAt = ts || now();
     if (text && STOP_RE.test(text)) {
       contact.optOut = true;
@@ -247,5 +287,5 @@ module.exports = function mountContacts(app, ctx) {
     res.json({ ok: true });
   }));
 
-  return { byPhone, upsert, onInbound, applyLead, setLead, isOptedOut, listByTags, ensureTags, recheckPhones, STATUSES, notify: (key) => broadcast({ kind: 'contact', key }) };
+  return { byPhone, upsert, onInbound, applyLead, setLead, isOptedOut, listByTags, ensureTags, recheckPhones, noteDelivery, contactsFromPastCampaigns, STATUSES, notify: (key) => broadcast({ kind: 'contact', key }) };
 };

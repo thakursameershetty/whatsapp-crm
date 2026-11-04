@@ -575,7 +575,7 @@
 
   $('#spPanelBtn').addEventListener('click', () => {
     SP.panel = !SP.panel;
-    try { localStorage.setItem('sendPanel', SP.panel ? '1' : '0'); } catch {}
+    try { localStorage.setItem('sendPanel', SP.panel ? '1' : '0'); } catch { }
     renderChrome();
   });
 
@@ -670,7 +670,7 @@
     const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))];
     const grouped = accounts.length > 1
       ? accounts.map((w) => { const ts = state.templates.filter((t) => t.wabaId === w); return ts.length ? `<optgroup label="${esc(accountLabel(w))}">${ts.map(opt).join('')}</optgroup>` : ''; }).join('')
-        + (state.templates.some((t) => !accounts.includes(t.wabaId)) ? `<optgroup label="Other">${state.templates.filter((t) => !accounts.includes(t.wabaId)).map(opt).join('')}</optgroup>` : '')
+      + (state.templates.some((t) => !accounts.includes(t.wabaId)) ? `<optgroup label="Other">${state.templates.filter((t) => !accounts.includes(t.wabaId)).map(opt).join('')}</optgroup>` : '')
       : state.templates.map(opt).join('');
     sel.innerHTML = state.templates.length
       ? `<option value="">— Choose a template —</option>` + grouped
@@ -845,10 +845,12 @@
     if (!state.selectedSenders.size) enabled.forEach((s) => state.selectedSenders.add(s.id));
     $('#sendFromHint').textContent = enabled.length > 1 ? 'split evenly across the numbers you pick' : enabled.length ? 'every message goes from this number' : '';
     $('#senderChecks').innerHTML = enabled.length
-      ? enabled.map((s) => { const on = state.selectedSenders.has(s.id), many = enabled.length > 1;
-          return `<button type="button" class="sf-item ${on ? 'on' : ''} ${many ? 'pick' : ''}" data-sid="${s.id}" ${many ? `aria-pressed="${on}" title="${on ? 'Sending from this number. Click to leave it out.' : 'Click to send from this number too'}"` : 'tabindex="-1"'}>${senderPhotoHtml(s)}<span class="sf-who"><b>${esc(s.verifiedName || s.label)}</b><small>${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</small></span>${many ? `<span class="sf-tick">${on ? icon('check-one', 14) : ''}</span>` : ''}</button>`; }).join('')
+      ? enabled.map((s) => {
+        const on = state.selectedSenders.has(s.id), many = enabled.length > 1;
+        return `<button type="button" class="sf-item ${on ? 'on' : ''} ${many ? 'pick' : ''}" data-sid="${s.id}" ${many ? `aria-pressed="${on}" title="${on ? 'Sending from this number. Click to leave it out.' : 'Click to send from this number too'}"` : 'tabindex="-1"'}>${senderPhotoHtml(s)}<span class="sf-who"><b>${esc(s.verifiedName || s.label)}</b><small>${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</small></span>${many ? `<span class="sf-tick">${on ? icon('check-one', 14) : ''}</span>` : ''}</button>`;
+      }).join('')
       : all.length ? `<div class="empty-note">None of your numbers can send this template: it belongs to another WhatsApp Business Account.</div>`
-      : `<div class="empty-note">No numbers yet. <a href="#" data-goto="numbers">Add one</a> to start sending.</div>`;
+        : `<div class="empty-note">No numbers yet. <a href="#" data-goto="numbers">Add one</a> to start sending.</div>`;
     renderSummary();
   }
   $('#senderChecks').addEventListener('click', (e) => {
@@ -999,7 +1001,7 @@
     renderMapping();
     renderPreview();
     renderSummary();
-    if (file) api('/uploads/' + file, { method: 'DELETE' }).catch(() => {});
+    if (file) api('/uploads/' + file, { method: 'DELETE' }).catch(() => { });
   });
   // Placeholders as empty, or sent as written (e.g. "Na" is a real name here).
   $('#mapping').addEventListener('change', (e) => {
@@ -1194,7 +1196,7 @@
     const shown = sh.view.filter((r) => r.st !== 'empty').length;
     $('#spStrip').innerHTML = `
       <div class="seg sp-show" role="radiogroup" aria-label="Show rows">${Object.entries(SHOW).map(([k, v]) =>
-        k !== 'all' && k !== 'valid' && !n[k] && cur !== k ? '' : `<button type="button" data-show="${k}" class="${cur === k ? 'active' : ''} st-${k}" role="radio" aria-checked="${cur === k}">${v.label} <span class="n">${n[k].toLocaleString()}</span></button>`).join('')}</div>
+      k !== 'all' && k !== 'valid' && !n[k] && cur !== k ? '' : `<button type="button" data-show="${k}" class="${cur === k ? 'active' : ''} st-${k}" role="radio" aria-checked="${cur === k}">${v.label} <span class="n">${n[k].toLocaleString()}</span></button>`).join('')}</div>
       ${filtered ? `<span class="sp-filtered">${shown.toLocaleString()} of ${sh.counts.rows.toLocaleString()} rows match the column filters · <button type="button" class="link" data-clear-filters>Clear</button></span>` : ''}
       ${!sh.phoneName ? '<span class="sp-alert">Choose the phone column in the toolbar</span>' : ''}
       ${phoneHint(sh)}${shiftHint(sh)}${n.multi && cur !== 'multi' ? `<button type="button" class="link sp-phone-hint" data-show="multi">${n.multi.toLocaleString()} row${n.multi > 1 ? 's have' : ' has'} more than one number: the first one is used. Review</button>` : ''}`;
@@ -1275,14 +1277,14 @@
     }
     const why =
       !SP.sheets.length ? 'Open a contact list' :
-      !sheets ? 'Tick at least one sheet tab to send to' :
-      !count && !missing.length ? 'No rows to send: tick rows that have a valid number' :
-      !t ? 'Choose a template in the Message panel' :
-      !nums ? 'Turn on at least one sender number' :
-      emptyFixed ? `Fill in ${missLabel(emptyFixed.key)} in the Message panel` :
-      badLink ? badLink :
-      !count ? `Every row is missing a value for ${missLabel(missing[0][0])}` :
-      window.Credits?.short(t, count) || ''; // not enough credits (billing.js)
+        !sheets ? 'Tick at least one sheet tab to send to' :
+          !count && !missing.length ? 'No rows to send: tick rows that have a valid number' :
+            !t ? 'Choose a template in the Message panel' :
+              !nums ? 'Turn on at least one sender number' :
+                emptyFixed ? `Fill in ${missLabel(emptyFixed.key)} in the Message panel` :
+                  badLink ? badLink :
+                    !count ? `Every row is missing a value for ${missLabel(missing[0][0])}` :
+                      window.Credits?.short(t, count) || ''; // not enough credits (billing.js)
 
     const notes = [
       sheets > 1 ? `from ${sheets} sheets` : '',
@@ -1340,7 +1342,7 @@
   // Send a test (under the preview): to your own number (remembered), or to the person shown in the preview, with
   // their values: exactly the message they'd get.
   let myTestPhone = '';
-  try { myTestPhone = localStorage.getItem('testPhone') || ''; } catch {}
+  try { myTestPhone = localStorage.getItem('testPhone') || ''; } catch { }
   let testWho = 'me';
   const leadOf = () => {
     const x = previewTarget();
@@ -1398,7 +1400,7 @@
       for (const v of empty) values[v.key] = 'test';
       const phone = $('#testPhone').value;
       if (phoneError(phone)) { $('#testPhone').focus(); throw new Error(phoneError(phone)); }
-      if (testWho === 'me') { myTestPhone = phone; try { localStorage.setItem('testPhone', phone); } catch {} }
+      if (testWho === 'me') { myTestPhone = phone; try { localStorage.setItem('testPhone', phone); } catch { } }
       const r = await api('/send/test', { method: 'POST', body: { senderId, templateId: t.id, phone, values } });
       toast(`${r.demo ? '(Demo) ' : ''}Test sent to +${r.to}${empty.length ? ` · ${empty.length} empty variable${empty.length > 1 ? 's' : ''} sent as “test”` : ''}`);
       closeTest();
@@ -1412,7 +1414,7 @@
   }
   $('#sendAll').addEventListener('click', (e) => {
     if (e.currentTarget.classList.contains('sp-go-next')) {
-      if (!SP.panel) { SP.panel = true; try { localStorage.setItem('sendPanel', '1'); } catch {} renderChrome(); }
+      if (!SP.panel) { SP.panel = true; try { localStorage.setItem('sendPanel', '1'); } catch { } renderChrome(); }
       return setPane('preview');
     }
     return guard(async () => {
@@ -1548,7 +1550,7 @@
       timer = setTimeout(() => {
         const data = pack();
         const empty = !data.sheets.length && !data.templateId && !data.name;
-        tx('readwrite', (st) => (empty ? st.delete(key()) : st.put(data, key()))).catch(() => {});
+        tx('readwrite', (st) => (empty ? st.delete(key()) : st.put(data, key()))).catch(() => { });
       }, 500);
     }
     async function restore() {
@@ -1559,9 +1561,11 @@
       restoring = true;
       try {
         SP.sheets = d.sheets.map((x) => {
-          const sh = { id: nextId++, name: x.name, file: x.file, headers: x.headers, widths: x.widths, wraps: x.wraps || [], phoneName: x.phoneName, included: x.included, dirty: x.dirty,
+          const sh = {
+            id: nextId++, name: x.name, file: x.file, headers: x.headers, widths: x.widths, wraps: x.wraps || [], phoneName: x.phoneName, included: x.included, dirty: x.dirty,
             rows: x.rows.map(([cells, on, pick]) => ({ cells, on: Boolean(on), ...(pick ? { pick } : {}) })),
-            filters: Object.fromEntries(Object.entries(x.filters || {}).map(([c, f]) => [c, { text: f.text, ...(f.values ? { values: new Set(f.values) } : {}) }])) };
+            filters: Object.fromEntries(Object.entries(x.filters || {}).map(([c, f]) => [c, { text: f.text, ...(f.values ? { values: new Set(f.values) } : {}) }]))
+          };
           recheck(sh);
           return sh;
         });
@@ -1577,7 +1581,7 @@
       } finally { restoring = false; }
       return SP.sheets.length > 0;
     }
-    const clear = () => tx('readwrite', (st) => st.clear()).catch(() => {});
+    const clear = () => tx('readwrite', (st) => st.clear()).catch(() => { });
     return { save, restore, clear };
   })();
   $('#campaignName').addEventListener('input', () => Draft.save());

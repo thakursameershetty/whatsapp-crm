@@ -300,6 +300,7 @@
             placeholder="Search contacts" title="Search by name, phone, email or company"
             aria-label="Search contacts" /><button type="button" class="num-filter" id="ctSourceBtn" aria-haspopup="menu" title="Filter by who added them"></button></div>
         <button type="button" class="ct-sortbtn ct-tagbtn" id="ctTagBtn" aria-haspopup="menu" title="Filter by tag"></button>
+        <button type="button" class="ct-sortbtn ct-numbtn hidden" id="ctNumBtn" aria-haspopup="menu" title="Filter by the number that added them"></button>
         <button type="button" class="ct-sortbtn" id="ctSortBtn" aria-haspopup="menu"></button>
         <button type="button" class="btn quiet ct-selall" id="ctSelAll"><input type="checkbox" class="cb" tabindex="-1"
             aria-hidden="true" /><span>Select all</span></button>
@@ -311,9 +312,9 @@
           <button class="btn primary" id="ctAdd" data-icon="plus">Add contact</button>
         </div>
       </div>
-      <div class="ct-stats" id="ctStats" role="toolbar" aria-label="Filter by status" data-skel="stat:7"></div>
       <div class="ct-sel hidden" id="ctSel"></div>
-      <div class="ct-layout" id="ctLayout">
+      <div class="ct-layout has-labels" id="ctLayout">
+        <nav class="ct-labels" id="ctStats" aria-label="Filter contacts"></nav>
         <div class="card ct-card">
           <div class="ct-scroll" id="ctList" data-skel="person:12"></div>
           <div class="ct-foot" id="ctFoot"></div>

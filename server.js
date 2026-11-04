@@ -391,6 +391,7 @@ async function runCampaign(campaign) {
           break;
         }
       }
+      contactsApi.noteDelivery(campaign, r);
       recount(campaign);
       save();
       // Many failures usually means a bad list or a blocked number: stop before it hurts the number's quality.
@@ -528,6 +529,7 @@ function handleWebhookChange(change) {
           r.status = st.status;
           r[st.status + 'At'] = new Date(Number(st.timestamp) * 1000).toISOString();
         }
+        contactsApi.noteDelivery(c, r);
         recount(c);
       }
       if (change.value?.messages) ingestMessages(change.value);
@@ -1877,7 +1879,7 @@ function ingestMessages(value) {
     db.messages.push(msg);
     inboxIndex.set(m.id, msg);
     // Everyone who writes in becomes a contact; STOP opts them out straight away.
-    const contact = contactsApi.onInbound(m.from, { name: names[m.from], text: msg.text, ts: msg.ts });
+    const contact = contactsApi.onInbound(m.from, { name: names[m.from], text: msg.text, ts: msg.ts, senderId });
     const who = chat.name || contact?.name || '+' + m.from;
     if (contact?.optOut && contact.optOutAt && Date.now() - Date.parse(contact.optOutAt) < 5000) notes?.optout({ name: who, phone: contact.phone, key });
     else if (msg.type !== 'reaction') notes?.message({ key, name: who, text: msg.text, type: msg.type });
@@ -2222,7 +2224,7 @@ app.post('/api/demo/inbound', wrap((req, res) => {
   db.messages.push(msg);
   inboxIndex.set(msg.wamid, msg);
   const had = Boolean(contactsApi.byPhone(wa));
-  const contact = contactsApi.onInbound(wa, { name: chat.name, text, ts: msg.ts });
+  const contact = contactsApi.onInbound(wa, { name: chat.name, text, ts: msg.ts, senderId });
   if (!had && contact) contact.seed = true; // removed with the rest of the demo data
   const who = chat.name || contact?.name || '+' + wa;
   if (contact?.optOut && contact.optOutAt && Date.now() - Date.parse(contact.optOutAt) < 5000) notes?.optout({ name: who, phone: contact.phone, key, demo: true });
@@ -2734,6 +2736,11 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
     }
   }
   if (n) save();
+});
+// Everyone from campaigns sent before campaign contacts existed (once per workspace).
+for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
+  const n = contactsApi.contactsFromPastCampaigns();
+  if (n) console.log(`Contacts in ${ws.meta.name}: ${n} added from past campaigns.`);
 });
 // Clean numbers saved by older versions with today's rules; ones that still aren't valid are flagged in Contacts.
 for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {

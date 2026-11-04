@@ -3,7 +3,7 @@
 // Uses helpers from app.js and send.js (SendPage.readWorkbook / toTable / openContacts).
 
 (function () {
-  const CT = { contacts: [], tags: [], counts: {}, q: '', tag: '', status: '', source: '', page: 0, selected: new Set(), chats: new Map(), loaded: false };
+  const CT = { contacts: [], tags: [], counts: {}, q: '', tag: '', status: '', flag: '', num: '', source: '', page: 0, selected: new Set(), chats: new Map(), loaded: false };
   const PAGE = 100;
   const STATUS = {
     new: { label: 'New', cls: '' },
@@ -32,7 +32,9 @@
     return CT.contacts
       .filter((c) => {
         if (CT.tag === 'none' ? c.tags.length : CT.tag && !c.tags.includes(CT.tag)) return false;
-        if (CT.status === 'optout' ? !c.optOut : CT.status && c.status !== CT.status) return false;
+        if (CT.status && (c.optOut || c.status !== CT.status)) return false;
+        if (CT.flag === 'optout' ? !c.optOut : CT.flag === 'undelivered' && !everFailed(c)) return false;
+        if (CT.num && (CT.num === 'none' ? c.via : c.via !== CT.num)) return false;
         if (CT.source && (c.source || 'manual') !== CT.source) return false;
         if (q && ![c.name, c.phone, fmtPhone(c.phone), c.email, c.company, c.lead?.summary].some((v) => String(v || '').toLowerCase().includes(q))) return false;
         return true;
@@ -113,9 +115,36 @@
       : '';
     return `<span class="ct-av ${cls}" style="--av:var(--file-${(h % 6) + 1})">${text}${ai}</span>`;
   }
-  const statusPill = (c) => (c.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS[c.status]?.cls || ''}">${esc(STATUS[c.status]?.label || c.status)}</span>`) + (c.phoneProblem ? ` <span class="pill failed" title="${esc(c.phoneProblem)}">Fix number</span>` : '');
+  // How their latest campaign message went (contact.delivery, kept by the server).
+  const DELIVERY = { sent: 'Sent', delivered: 'Delivered', read: 'Read', failed: 'Not delivered' };
+  // Not delivered in any campaign (not only the latest)
+  const failedIn = (c) => (c.campaigns || []).filter((x) => x.status === 'failed');
+  const everFailed = (c) => failedIn(c).length > 0 || c.delivery?.status === 'failed';
+  const deliveryText = (c) => (c.delivery ? `${c.delivery.campaign || 'A campaign'} · ${DELIVERY[c.delivery.status] || c.delivery.status}${c.delivery.error ? ` (${c.delivery.error})` : ''}${c.delivery.at ? ` · ${relTime(c.delivery.at)}` : ''}` : '');
+  const undelivered = (c) => { const f = failedIn(c); return everFailed(c) ? ` <span class="pill failed" title="${esc(`Not delivered: ${(f.length ? f.map((x) => x.name) : [c.delivery?.campaign || 'a campaign']).join(', ')}`)}">Not delivered${f.length > 1 ? ` ×${f.length}` : ''}</span>` : ''; };
+  const statusPill = (c) => (c.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS[c.status]?.cls || ''}">${esc(STATUS[c.status]?.label || c.status)}</span>`) + (c.phoneProblem ? ` <span class="pill failed" title="${esc(c.phoneProblem)}">Fix number</span>` : '') + undelivered(c);
   const letterOf = (c) => { const ch = (c.name || '').trim()[0]?.toUpperCase() || '#'; return /[A-Z]/.test(ch) ? ch : '#'; };
-  const STATS = [['', 'All', () => true], ...Object.entries(STATUS).map(([k, v]) => [k, v.label, (c) => !c.optOut && c.status === k]), ['optout', 'Opted out', (c) => c.optOut]];
+  // The labels sidebar (like a phone's or Google's address book): All, then Stages and Delivery, each
+  // with its count. One pick per section (they combine: e.g. Interested + one number); picking the chosen one again
+  // clears it, and All contacts clears everything.
+  const senderName = (id) => state.senders.find((s) => s.id === id)?.label || 'A removed number';
+  function labelsHtml() {
+    const n = (fn) => CT.contacts.filter(fn).length.toLocaleString();
+    const item = (sec, k, label, count, lead = '', extra = '') => {
+      const on = (sec === 'all' ? !(CT.status || CT.flag) : CT[sec] === k);
+      return `<button type="button" class="ct-lab ${on ? 'active' : ''}" data-sec="${sec}" data-k="${esc(k)}" aria-pressed="${on}" ${extra}>${lead}<span class="ct-lab-t">${esc(label)}</span><b>${count}</b></button>`;
+    };
+    const head = (t) => `<div class="ct-lab-h">${t}</div>`;
+    const dot = (cls) => `<i class="ct-lab-dot ${cls}"></i>`;
+    return [
+      item('all', '', 'All contacts', n(() => true), `<span class="ct-lab-ic">${icon('users', 15)}</span>`),
+      head('Stages'),
+      ...Object.entries(STATUS).map(([k, v]) => item('status', k, v.label, n((c) => !c.optOut && c.status === k), dot('st-' + k))),
+      head('Delivery'),
+      item('flag', 'undelivered', 'Not delivered', n(everFailed), dot('st-bad'), 'title="Not delivered in at least one campaign"'),
+      item('flag', 'optout', 'Opted out', n((c) => c.optOut), dot('st-optout')),
+    ].join('');
+  }
 
   // How a contact got here: you added it, it was imported, or it was added automatically when the person messaged
   // one of your numbers (shown with the AI sphere on their photo). aiFilled: the assistant filled in their details.
@@ -131,10 +160,8 @@
     const opted = CT.contacts.filter((c) => c.optOut).length;
     $('#ctSub').textContent = `Everyone you message, with tags. ${CT.contacts.length.toLocaleString()} contact${CT.contacts.length === 1 ? '' : 's'}${opted ? ` · ${opted} opted out` : ''}`;
 
-    Motion.patch($('#ctStats'), STATS.map(([k, label, fn]) => {
-      const n = CT.contacts.filter(fn).length;
-      return `<button type="button" class="ct-stat ${CT.status === k ? 'active' : ''} ${k ? 'st-' + k : ''}" data-status="${k}"><span>${label}</span><b>${n.toLocaleString()}</b></button>`;
-    }).join(''));
+    $('#ctStats').innerHTML = labelsHtml();
+    renderNumBtn();
 
     const untagged = CT.contacts.filter((c) => !c.tags.length).length;
     CT.untagged = untagged;
@@ -283,7 +310,7 @@
 
   let searchT;
   // "Added by" lives in a filter button inside the search box (like the Numbers page's quality filter).
-  const SOURCES = [['', 'Added by anyone'], ['manual', 'Added by you'], ['import', 'Imported'], ['inbox', 'Auto-added']];
+  const SOURCES = [['', 'Added by anyone'], ['manual', 'Added by you'], ['import', 'Imported'], ['inbox', 'Auto-added'], ['campaign', 'From campaigns']];
   function drawSourceBtn() {
     const b = $('#ctSourceBtn');
     const label = SOURCES.find(([k]) => k === CT.source)?.[1];
@@ -302,8 +329,12 @@
   });
   $('#ctSearch').addEventListener('input', (e) => { clearTimeout(searchT); searchT = setTimeout(() => { CT.q = e.target.value.trim(); CT.page = 0; CT.enter = true; render(); }, 120); });
   $('#ctStats').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-status]');
-    if (b && b.dataset.status !== CT.status) { CT.status = b.dataset.status; CT.page = 0; CT.enter = true; render(); }
+    const b = e.target.closest('[data-sec]');
+    if (!b) return;
+    const { sec, k } = b.dataset;
+    if (sec === 'all') Object.assign(CT, { status: '', flag: '' }); // the toolbar's Tags and Added by keep their choices
+    else CT[sec] = CT[sec] === k ? '' : k;
+    CT.page = 0; CT.enter = true; render();
   });
   $('#ctView').addEventListener('click', (e) => {
     const b = e.target.closest('[data-view]');
@@ -320,6 +351,35 @@
     b.innerHTML = `${t ? `<i class="ct-dot tag-${esc(t.color)}"></i>` : icon('tag', 14)}<span>${esc(label)}</span>${icon('chevron-down', 14)}`;
     b.classList.toggle('on', Boolean(CT.tag));
   }
+  // Added by: which of your numbers brought each contact in (a campaign's sender, or the number they first wrote to),
+  // as a dropdown beside the tags. Each number with its WhatsApp photo and count; "By hand or import" for the rest.
+  function numChoices() {
+    const n = (fn) => CT.contacts.filter(fn).length;
+    const gone = [...new Set(CT.contacts.map((c) => c.via).filter((v) => v && !state.senders.some((s) => s.id === v)))];
+    return [
+      ...state.senders.map((s) => ({ k: s.id, label: s.label, sub: s.displayPhone || '', pre: senderPhotoHtml(s), count: n((c) => c.via === s.id) })),
+      ...gone.map((v) => ({ k: v, label: senderName(v), pre: icon('phone', 15), count: n((c) => c.via === v) })),
+      { k: 'none', label: 'By hand or import', pre: icon('upload', 15), count: n((c) => !c.via) },
+    ];
+  }
+  function renderNumBtn() {
+    const b = $('#ctNumBtn');
+    b.classList.toggle('hidden', !state.senders.length);
+    const s = CT.num && CT.num !== 'none' ? state.senders.find((x) => x.id === CT.num) : null;
+    const label = !CT.num ? 'Added by anyone' : CT.num === 'none' ? 'By hand or import' : s ? s.label : senderName(CT.num);
+    b.innerHTML = `${s ? `<span class="ct-numbtn-ph">${senderPhotoHtml(s)}</span>` : icon(CT.num === 'none' ? 'upload' : 'phone', 14)}<span>${esc(label)}</span>${icon('chevron-down', 14)}`;
+    b.classList.toggle('on', Boolean(CT.num));
+  }
+  $('#ctNumBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    const pick = (k) => { if (k === CT.num) return; CT.num = k; CT.page = 0; CT.enter = true; render(); };
+    Sheet.Menu.open(r.left, r.bottom + 6, [
+      { label: 'Added by anyone', kbd: CT.contacts.length.toLocaleString(), checked: !CT.num, pre: `<span class="mi-ic">${icon('users', 15)}</span>`, action: () => pick('') },
+      '-',
+      ...numChoices().map((x) => ({ label: x.label, kbd: x.count.toLocaleString(), checked: CT.num === x.k, pre: `<span class="mi-ph">${x.pre}</span>`, action: () => pick(x.k) })),
+    ]);
+  });
   const pickTag = (k) => { if (k === CT.tag) return; CT.tag = k; CT.page = 0; CT.enter = true; render(); };
   $('#ctTagBtn').addEventListener('click', (e) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -344,7 +404,7 @@
       return render();
     }
     const emptyAct = e.target.closest('[data-empty]')?.dataset.empty;
-    if (emptyAct === 'clear') { CT.q = ''; CT.tag = ''; CT.status = ''; CT.source = ''; $('#ctSearch').value = ''; CT.enter = true; return render(); }
+    if (emptyAct === 'clear') { CT.q = ''; CT.tag = ''; CT.status = ''; CT.flag = ''; CT.num = ''; CT.source = ''; $('#ctSearch').value = ''; CT.enter = true; return render(); }
     if (emptyAct === 'import') return importModal();
     if (emptyAct === 'add') return open(null);
     const sortBtn = e.target.closest('[data-sort]');
@@ -477,7 +537,7 @@
     if (!c) return;
     const chatKey = CT.chats.get(c.phone);
     const lead = c.lead || {};
-    const details = [['Phone', fmtPhone(c.phone) + (c.phoneProblem ? ` · ${c.phoneProblem}` : '')], ['Email', c.email], ['Company', c.company], ['Last message', c.lastMessageAt && relTime(c.lastMessageAt)], ['Added', c.createdAt && `${new Date(c.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}${c.source ? ` · ${c.source === 'inbox' ? 'automatically, when they messaged you' : c.source === 'import' ? 'imported' : 'by you'}` : ''}`], ['Details', aiFilled(c) && `filled in by the AI assistant · ${relTime(c.lead.updatedAt)}`], ...Object.entries(c.extra || {})].filter(([, v]) => v);
+    const details = [['Phone', fmtPhone(c.phone) + (c.phoneProblem ? ` · ${c.phoneProblem}` : '')], ['Email', c.email], ['Company', c.company], ['Last message', c.lastMessageAt && relTime(c.lastMessageAt)], ['Added', c.createdAt && `${new Date(c.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}${c.source ? ` · ${c.source === 'inbox' ? 'automatically, when they messaged you' : c.source === 'import' ? 'imported' : c.source === 'campaign' ? 'automatically, when a campaign messaged them' : 'by you'}` : ''}`], ['Added by number', c.via && `${senderName(c.via)}${state.senders.find((s) => s.id === c.via)?.displayPhone ? ' · ' + state.senders.find((s) => s.id === c.via).displayPhone : ''}`], ['Details', aiFilled(c) && `filled in by the AI assistant · ${relTime(c.lead.updatedAt)}`], ...Object.entries(c.extra || {})].filter(([, v]) => v);
     panel.innerHTML = `
       <button type="button" class="ct-pclose" id="ctPClose" title="Close" aria-label="Close">${icon('x', 16)}</button>
       <div class="ct-phead">
@@ -503,6 +563,7 @@
       ${lead.summary || lead.need || lead.budget || lead.timeline ? `<div class="ct-leadbox"><div class="pc-label">From the lead assistant</div>
         ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}
         <dl>${[['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>` : ''}
+      ${c.campaigns?.length ? `<div class="ct-psec"><div class="field-label">Campaigns <span class="opt">${c.campaigns.length}${failedIn(c).length ? ` · ${failedIn(c).length} not delivered` : ''}</span></div><ul class="ct-camps">${[...c.campaigns].reverse().map((x) => `<li class="${x.status === 'failed' ? 'bad' : ''}"><span><b>${esc(x.name || 'Campaign')}</b><small>${esc([senderName(x.senderId), x.at && relTime(x.at)].filter(Boolean).join(' · '))}</small>${x.error ? `<small class="ct-camp-err">${esc(x.error)}</small>` : ''}</span><span class="pill ${x.status === 'failed' ? 'failed' : x.status === 'read' ? 'read' : x.status === 'delivered' ? 'delivered' : 'sent'}">${esc(DELIVERY[x.status] || x.status)}</span></li>`).join('')}</ul></div>` : ''}
       <div class="ct-psec"><div class="field-label">Details</div><dl class="ct-pdl">${details.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>
       <label class="ct-psec ct-pnotes"><span class="field-label">Notes</span><textarea id="ctPNotes" rows="3" placeholder="Anything to remember about them">${esc(c.notes || '')}</textarea></label>`;
     Orb.hydrate(panel);

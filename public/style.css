@@ -554,6 +554,10 @@ td.err { white-space: normal !important; color: var(--danger); font-size: 12px; 
 /* Keep scrolling inside an open dialog: lock the page behind it and stop the box's scroll from chaining out. */
 html:has(.modal:not(.hidden)) { overflow: hidden; }
 .modal, .modal-box { overscroll-behavior: contain; }
+/* No rubber-band bounce when a page is scrolled past its top or bottom (macOS trackpads): the app's pinned headers and
+   fixed background make the stretch look like the layout coming loose. Only with a mouse or trackpad: on phones the
+   same rule would also turn off pull-to-refresh. */
+@media (hover: hover) and (pointer: fine) { html, body { overscroll-behavior-y: none; } }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .modal-head h2 { margin: 0; font-size: 17px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
@@ -2065,6 +2069,49 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 
 .ct-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .ct-layout.has-panel { grid-template-columns: minmax(0, 1fr) 360px; }
+/* The labels (filters with counts) as one row of tabs above the contacts, full width for the list below. Stages,
+   then a divider, then Delivery. Too many for the width: the row scrolls sideways. */
+.ct-layout.has-labels { grid-template-columns: minmax(0, 1fr); }
+.ct-layout.has-labels.has-panel { grid-template-columns: minmax(0, 1fr) 360px; }
+.ct-labels { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 4px; margin: 0 -2px; }
+.ct-labels::-webkit-scrollbar { display: none; }
+.ct-lab { display: inline-flex; align-items: center; gap: 7px; flex: none; height: 34px; padding: 0 12px 0 10px; border: 0; border-radius: 99px; background: var(--sunk); color: var(--muted); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color 0.12s, color 0.12s, box-shadow 0.15s; }
+.ct-lab:hover { background: color-mix(in srgb, var(--surface) 55%, var(--sunk)); color: var(--text); }
+.ct-lab.active { background: var(--surface); box-shadow: var(--sh-raised); color: var(--text); font-weight: 600; }
+.ct-lab-t { white-space: nowrap; }
+.ct-lab b { font-size: 12px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums; }
+.ct-lab.active b { color: var(--muted); }
+/* section titles become a thin divider between the groups (the first one, before Stages, isn't needed) */
+.ct-lab-h { flex: none; width: 1px; height: 20px; margin: 0 4px; background: var(--hair); font-size: 0; overflow: hidden; }
+.ct-lab:first-child + .ct-lab-h { display: none; }
+.ct-lab-dot { flex: none; width: 7px; height: 7px; margin: 0 1px; border-radius: 50%; background: var(--faint); }
+.ct-lab-dot.st-interested { background: var(--info); } .ct-lab-dot.st-qualified { background: var(--violet); } .ct-lab-dot.st-won { background: var(--good, #1f9d55); }
+.ct-lab-dot.st-lost { background: var(--muted); } .ct-lab-dot.st-optout { background: var(--muted); } .ct-lab-dot.st-bad { background: var(--danger); }
+.ct-lab-ic { display: grid; place-items: center; flex: none; width: 18px; height: 18px; color: inherit; }
+.ct-lab-ph .sender-photo { width: 22px; height: 22px; font-size: 10px; margin-left: -2px; }
+/* Added by: the number dropdown in the Contacts toolbar (and its menu) shows each number's photo */
+.ct-numbtn-ph .sender-photo, .sg-menu-pop .mi-ph .sender-photo { width: 20px; height: 20px; font-size: 9px; }
+.ct-numbtn-ph, .sg-menu-pop .mi-ph, .sg-menu-pop .mi-ic { display: inline-grid; place-items: center; flex: none; width: 20px; height: 20px; color: var(--muted); }
+.ct-numbtn { max-width: 220px; }
+/* Menu items with a photo or icon: tick, picture, name (takes the room), count; the picture never stretches */
+/* (more specific than ".sg-menu-pop.choice > button > span { flex: 1 }", which would stretch the picture's slot) */
+.sg-menu-pop.choice > button > span:is(.mi-ph, .mi-ic), .sg-menu-pop > button > span:is(.mi-ph, .mi-ic) { flex: 0 0 20px; }
+.sg-menu-pop > button:has(> .mi-ph, > .mi-ic) { gap: 10px; }
+.sg-menu-pop > button > .mi-check + :is(.mi-ph, .mi-ic) { margin-left: -4px; } /* tick and picture sit together */
+.sg-menu-pop > button:has(> .mi-ph, > .mi-ic) > span:not(.mi-ph):not(.mi-ic) { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-menu-pop > button:has(> .mi-ph, > .mi-ic) > kbd { margin-left: 14px; }
+.sg-menu-pop:has(.mi-ph) { min-width: 240px; }
+.ct-numbtn > span:not(.ct-numbtn-ph) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A contact's campaigns (newest first), the undelivered ones marked */
+.ct-camps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 260px; overflow-y: auto; scrollbar-width: thin; }
+.ct-camps li { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--sunk); }
+.ct-camps li.bad { background: var(--danger-soft); }
+.ct-camps li > span:first-child { display: grid; min-width: 0; }
+.ct-camps b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-camps small { font-size: 11.5px; color: var(--muted); }
+.ct-camps .ct-camp-err { color: var(--danger); overflow-wrap: anywhere; }
+.ct-camps .pill { flex: none; }
+@media (max-width: 900px) { .ct-layout.has-labels.has-panel { grid-template-columns: minmax(0, 1fr); } }
 .has-panel .ct-c-lead, .has-panel .ct-c-co { display: none; }
 .ct-scroll { position: relative; max-height: none; min-height: 0; overflow: visible; }
 .ct-who { display: flex; align-items: center; gap: 10px; }
@@ -6336,6 +6383,10 @@ html.vt-day::view-transition-old(root), html.vt-day::view-transition-new(root) {
 #ctLayout .ct-card.fill-empty { display: flex; flex-direction: column; }
 #ctLayout .ct-card.fill-empty .ct-scroll { flex: 1 1 auto; display: flex; }
 #ctLayout .ct-card.fill-empty .ct-scroll > .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+/* "No contacts match" (inside .ct-empty): the whole list area, with the message in its middle, both ways */
+#ctLayout .ct-card.fill-empty .ct-scroll > .ct-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
+.ct-scroll-grid > .ct-empty { grid-column: 1 / -1; }
+.ct-empty .empty { margin: 0 auto; text-align: center; }
 /* A chart with nothing to show: no grid lines or axis numbers behind the note */
 .chart-is-empty svg.d3chart g.grid, .chart-is-empty svg.d3chart g.yticks, .chart-is-empty svg.d3chart g.xlabels { opacity: 0; transition: opacity 0.2s; }
 /* The category-changed flag sits mid-line: centre its tooltip arrow on the icon, and let the bubble run right. */
