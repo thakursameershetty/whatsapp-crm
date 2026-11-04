@@ -1787,7 +1787,7 @@ body.assistant-open main { padding-bottom: 0; }
 .ct-foot { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; font-size: 13px; color: var(--muted); box-shadow: inset 0 1px 0 var(--hair); }
 /* Contacts pages: the Campaigns pager inside the list's card (its own margin there would be doubled) */
 .ct-foot .ct-pager { flex: 1; margin: 0; }
-#ctPer { width: 112px; min-width: 0; flex: none; margin: 0; }
+#ctPer { width: 132px; min-width: 132px; flex: none; margin: 0; } /* room for the longest choice, "200 / page", beside the arrow */
 .ct-form .row > label { flex: 1; }
 .ct-optout { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 30px !important; }
 .ct-leadbox { margin: 6px 0 12px; padding: 12px 14px; border-radius: 12px; background: var(--info-soft); font-size: 13.5px; }
@@ -2208,8 +2208,33 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .chw-card.off:hover, .chw-card.off:focus-visible { opacity: 1; outline: 0; }
 .chw-card.off::after { content: attr(data-why); position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; padding: 18px; border-radius: 12px; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(3px); color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.45; text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
 .chw-card.off:hover::after, .chw-card.off:focus-visible::after { opacity: 1; }
+/* The contact panel's tags: the chosen ones as pills (× removes), then the Tags dropdown */
+.ct-ptags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ct-ptag { display: inline-flex; align-items: center; gap: 2px; padding-right: 3px; }
+.ct-ptag button { display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: none; color: inherit; opacity: 0.6; cursor: pointer; }
+.ct-ptag button:hover { opacity: 1; background: color-mix(in srgb, currentColor 15%, transparent); }
+.ct-ptag-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 10px; border: 0; border-radius: 9px; background: var(--field); box-shadow: var(--sh-sunk); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.ct-ptag-btn:hover, .ct-ptag-btn:focus-visible { background: var(--surface); box-shadow: var(--sh-raised); outline: 0; }
+.ct-ptag-btn > svg { color: var(--muted); }
+/* …its dropdown: search with + beside it, then the tags with tick boxes */
+.ptm { width: 270px; display: flex; flex-direction: column; gap: 8px; }
+.ptm-top { display: flex; align-items: center; gap: 6px; }
+.ptm-top .search-wrap { flex: 1; min-width: 0; }
+.ptm-top .search { width: 100%; height: 34px; margin: 0; }
+.ptm-add { display: grid; place-items: center; flex: none; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 9px; background: var(--accent); color: var(--on-accent); cursor: pointer; }
+.ptm-add:hover { filter: brightness(1.15); }
+.ptm-list { display: grid; gap: 1px; max-height: 260px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.ptm-row { display: flex; align-items: center; gap: 9px; margin: 0; padding: 7px 8px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.ptm-row:hover { background: var(--sunk); }
+.ptm-row.on { font-weight: 600; }
+.ptm-row .cb { margin: 0; flex: none; }
+.ptm-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptm-new { display: flex; align-items: center; gap: 8px; margin-top: 2px; padding: 8px; border: 0; border-radius: 8px; background: none; color: var(--info); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
+.ptm-new:hover { background: var(--info-soft); }
+.ptm-none { margin: 4px 8px; font-size: 12.5px; color: var(--muted); }
 /* Meta errors in Contacts: the short title and the code chip (hovering it explains the error) */
-.ct-errline { display: inline-flex; align-items: center; gap: 6px; color: var(--danger); font-weight: 500; }
+.ct-errline { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; color: var(--danger); font-weight: 500; overflow-wrap: normal; }
+.ct-errline .cd-ecode { flex: none; white-space: nowrap; overflow-wrap: normal; word-break: normal; } /* the code never splits; only the title wraps */
 .ct-errline .cd-ecode, .chx-err .cd-ecode { cursor: help; }
 /* The Chat window's cards (the template window): how the latest send went */
 .chx-line { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--muted); }
@@ -2270,7 +2295,7 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 /* The contact panel is its own scroll area: pinned just under the page header (not behind it), as tall as the window
    allows, and a scroll inside it never carries on into the list (nor the list's scroll into it). */
 @media (min-width: 901px) {
-  #ctLayout .ct-panel { top: calc(var(--stick-top) + var(--head-h, 0px) + 10px); max-height: calc(100vh - var(--stick-top) - var(--head-h, 0px) - 24px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  #ctLayout .ct-panel { top: calc(var(--stick-top) + var(--head-h, 0px) + var(--ct-sel-h, 0px) - 1px); z-index: 4; max-height: calc(100vh - var(--stick-top) - var(--head-h, 0px) - var(--ct-sel-h, 0px) - 14px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; transition: top 0.2s var(--ease-out), max-height 0.2s var(--ease-out); } /* pinned on the same line as the list's headings (below the selection bar too, while it shows), so the two read as side-by-side columns; above the headings' strip */
 }
 /* The table's column headings stay pinned under the page header while the contacts scroll */
 /* The headings' strip pins under the page header (and the selection bar); the rows below scroll sideways. Both tables
@@ -2319,6 +2344,9 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .ct-pst-btn > svg { color: var(--muted); margin-left: 2px; }
 .ct-pst-btn .ct-lab-dot { margin: 0; }
 .ct-poptout { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; font-size: 13.5px; }
+/* Status on one line with its dropdown (label left, dropdown right), like the Opted out row below it */
+.ct-pstrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ct-pstrow .field-label { margin: 0; }
 .ct-panel .ct-pick { margin: 0; }
 .ct-pdl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
 .ct-pdl dt { color: var(--muted); }
@@ -6027,7 +6055,7 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 #campaignList > .section-head.has-tools:not(.tools-below) h1 { cursor: help; }
 #campaignList > .section-head.has-tools .cp-tools { gap: 10px; }
 #cpFilter { width: 178px; min-width: 0; }
-#cpPer { width: 112px; min-width: 0; }
+#cpPer { width: 132px; min-width: 132px; } /* "200 / page" fits beside the arrow */
 #cpSender { width: 160px; min-width: 0; }
 
 /* Header filters: one height (36px, like the buttons), one text size, no stray margins, and the same sunk field look
@@ -6335,7 +6363,7 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 .tp-grid { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; align-content: start; padding: 4px; margin: 0 -4px; scrollbar-width: thin; }
 .tp-card { display: flex; flex-direction: column; gap: 6px; height: 300px; padding: 14px; border-radius: 14px; background: var(--field); box-shadow: var(--sh-sunk); cursor: pointer; outline: 0; transition: background 0.15s, box-shadow 0.15s, transform 0.2s var(--ease-out, ease); }
 .tp-card:hover:not(.off), .tp-card:focus-visible { background: var(--surface); box-shadow: var(--sh-raised); }
-.tp-card.on { background: var(--surface); box-shadow: 0 0 0 2px var(--text), var(--sh-raised); }
+.tp-card.on, .tp-card.on:hover:not(.off), .tp-card.on:focus-visible { background: var(--surface); box-shadow: 0 0 0 2px var(--text), var(--sh-raised); } /* the chosen card keeps its ring while pointed at (the hover rule is more specific) */
 .tp-card.off { opacity: 0.55; cursor: not-allowed; }
 .tp-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tp-card-head b { font-size: 14px; font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

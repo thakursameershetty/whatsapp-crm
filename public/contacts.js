@@ -617,13 +617,12 @@
         <button type="button" class="ct-pact" data-pact="delete">${icon('delete', 17)}<span>Delete</span></button>
       </div>
       <div class="ct-psec">
-        <div class="field-label">Status</div>
-        <button type="button" class="ct-pst-btn" data-pstatus-menu aria-haspopup="menu" title="Change their stage"><i class="ct-lab-dot st-${esc(c.status)}"></i><span>${esc(STATUS[c.status]?.label || c.status)}</span>${icon('chevron-down', 14)}</button>
+        <div class="ct-pstrow"><span class="field-label">Status</span><button type="button" class="ct-pst-btn" data-pstatus-menu aria-haspopup="menu" title="Change their stage"><i class="ct-lab-dot st-${esc(c.status)}"></i><span>${esc(STATUS[c.status]?.label || c.status)}</span>${icon('chevron-down', 14)}</button></div>
         <label class="ct-poptout"><span>Opted out <span class="opt">never message them</span></span>${toggleHtml({ checked: c.optOut, attrs: 'id="ctPOpt"', size: 'sm' })}</label>
       </div>
       <div class="ct-psec">
         <div class="field-label">Tags</div>
-        <div class="ct-pick">${CT.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)} ${c.tags.includes(t.id) ? 'active' : ''}" data-ptag="${t.id}" title="${esc(t.name)}"><i></i><span class="ct-tag-name">${esc(t.name)}</span></button>`).join('')}<button type="button" class="ct-tag ct-tag-new" data-ptag="+">${icon('plus', 13)} New</button></div>
+        <div class="ct-ptags">${c.tags.map(tagById).filter(Boolean).map((t) => `<span class="tag-chip tag-${esc(t.color)} ct-ptag">${esc(t.name)}<button type="button" data-ptag-rm="${esc(t.id)}" aria-label="Remove ${esc(t.name)}" title="Remove">${icon('x', 11)}</button></span>`).join('')}<button type="button" class="ct-ptag-btn" data-ptag-menu aria-haspopup="dialog">${icon('tag', 14)}<span>${c.tags.length ? 'Tags' : 'Add tags'}</span>${icon('chevron-down', 14)}</button></div>
       </div>
       ${lead.summary || lead.need || lead.budget || lead.timeline ? `<div class="ct-leadbox"><div class="pc-label">From the lead assistant</div>
         ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}
@@ -685,6 +684,55 @@
     });
   }
 
+  // Tags dropdown (the contact panel): a search box with + beside it, then every tag with a tick box; several can be
+  // ticked, each change saves at once. + (or Enter on a name that isn't a tag yet) makes that tag and puts it on them.
+  function tagPicker(c, anchor) {
+    const sel = new Set(c.tags);
+    const r = anchor.getBoundingClientRect();
+    const pop = Sheet.Menu.panel(r.left, r.bottom + 6, `<div class="ptm">
+      <div class="ptm-top"><div class="search-wrap" data-icon="search" data-icon-size="14"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" placeholder="Search or name a new tag" aria-label="Search tags" /></div>
+        <button type="button" class="ptm-add" title="Make a new tag with this name" aria-label="New tag">${icon('plus', 16)}</button></div>
+      <div class="ptm-list" role="listbox" aria-multiselectable="true"></div></div>`);
+    LA.hydrate(pop);
+    const input = $('input', pop), list = $('.ptm-list', pop);
+    const save = () => patch(c, { tags: [...sel] });
+    const draw = () => {
+      const q = input.value.trim().toLowerCase();
+      const shown = CT.tags.filter((t) => !q || t.name.toLowerCase().includes(q));
+      const exact = CT.tags.some((t) => t.name.toLowerCase() === q);
+      list.innerHTML = shown.map((t) => `<label class="ptm-row ${sel.has(t.id) ? 'on' : ''}"><input type="checkbox" class="cb" value="${esc(t.id)}" ${sel.has(t.id) ? 'checked' : ''} /><i class="ct-dot tag-${esc(t.color)}"></i><span>${esc(t.name)}</span></label>`).join('')
+        + (q && !exact ? `<button type="button" class="ptm-new" data-ptm-new>${icon('plus', 14)}<span>New tag “${esc(input.value.trim())}”</span></button>` : '')
+        + (!shown.length && !q ? '<p class="ptm-none">No tags yet: type a name and press +.</p>' : '');
+      Sheet.Menu.fit(pop, r);
+    };
+    const create = () => guard(async () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); return toast('Type the new tag’s name first'); }
+      const had = CT.tags.find((t) => t.name.toLowerCase() === name.toLowerCase());
+      const t = had || await api('/tags', { method: 'POST', body: { name } });
+      if (!had) CT.tags.push(t);
+      sel.add(t.id);
+      input.value = '';
+      draw();
+      await save();
+    });
+    list.addEventListener('change', (e) => { const cb = e.target.closest('input[type=checkbox]'); if (!cb) return; cb.checked ? sel.add(cb.value) : sel.delete(cb.value); cb.closest('.ptm-row').classList.toggle('on', cb.checked); save(); });
+    list.addEventListener('click', (e) => { if (e.target.closest('[data-ptm-new]')) create(); });
+    $('.ptm-add', pop).addEventListener('click', create);
+    input.addEventListener('input', draw);
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const q = input.value.trim().toLowerCase();
+      const match = CT.tags.filter((t) => t.name.toLowerCase().includes(q));
+      const one = CT.tags.find((t) => t.name.toLowerCase() === q) || (match.length === 1 ? match[0] : null);
+      if (!q) return;
+      if (one) { sel.has(one.id) ? sel.delete(one.id) : sel.add(one.id); input.value = ''; draw(); save(); } else create();
+    });
+    draw();
+    input.focus();
+  }
+
   async function patch(c, body, msg) {
     await guard(async () => { await api('/contacts/' + c.id, { method: 'PUT', body }); await refresh(); if (msg) toast(msg); });
   }
@@ -702,12 +750,10 @@
       const r = stBtn.getBoundingClientRect();
       return Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(STATUS).map(([k, v]) => ({ label: v.label, checked: c.status === k, pre: `<span class="mi-ic"><i class="ct-lab-dot st-${k}"></i></span>`, action: () => { if (k !== c.status) patch(c, { status: k }); } })));
     }
-    const tg = e.target.closest('[data-ptag]');
-    if (tg) {
-      if (tg.dataset.ptag === '+') return tagModal(null, (t) => patch(c, { tags: [...c.tags, t.id] }));
-      const id = tg.dataset.ptag;
-      return patch(c, { tags: c.tags.includes(id) ? c.tags.filter((x) => x !== id) : [...c.tags, id] });
-    }
+    const rm = e.target.closest('[data-ptag-rm]');
+    if (rm) return patch(c, { tags: c.tags.filter((x) => x !== rm.dataset.ptagRm) });
+    const tm = e.target.closest('[data-ptag-menu]');
+    if (tm) { e.stopPropagation(); return tagPicker(c, tm); }
     const act = e.target.closest('[data-pact]')?.dataset.pact;
     if (act === 'send') return SendPage.openContacts([c], nameOf(c));
     if (act === 'chat') return chatWindow(c);
