@@ -4051,6 +4051,21 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 /* While its templates scroll by, a number's header stays pinned just under the page's title bar, until the next
    number's section pushes it away (sticky inside its own section). */
 #templateList .tpl-num-h { position: sticky; top: calc(var(--stick-top) + var(--head-h, 0px) - 1px); z-index: 20; }
+/* Pinned (markStuck adds .pinned): the number joins the title bar: edge to edge, the bar's own background (the same
+   fixed gradient, so no seam), square corners, content lined up with the page title, and the edge line moves from
+   under the title bar to under the number. */
+#templateList .tpl-num-h { transition: margin 0.22s var(--ease-out), padding 0.22s var(--ease-out), border-radius 0.22s var(--ease-out), box-shadow 0.22s; }
+#templateList .tpl-num-h.pinned {
+  margin-left: calc(-1 * var(--gut, 28px)); margin-right: calc(-1 * var(--gut, 28px));
+  padding-left: var(--gut, 28px); padding-right: var(--gut, 28px);
+  border-radius: 0;
+  background: var(--bg) linear-gradient(180deg, var(--bg-top) 0, var(--bg) 420px) fixed;
+  box-shadow: 0 1px 0 var(--hair), 0 8px 16px -14px rgba(0, 0, 0, 0.35);
+}
+#templateList .tpl-num-h.pinned:hover { box-shadow: 0 1px 0 var(--hair), 0 8px 16px -14px rgba(0, 0, 0, 0.35); }
+#templateList .tpl-num-h.pinned .sender-photo { box-shadow: none; }
+#tab-templates > .sticky-head.stuck.merged { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { #templateList .tpl-num-h { transition: none; } }
 #templateList .tpl-group { scroll-margin-top: calc(var(--stick-top) + var(--head-h, 0px)); }
 .tpl-num-h[data-toggle] { cursor: pointer; user-select: none; transition: box-shadow 0.2s, background-color 0.2s; }
 .tpl-num-h[data-toggle]:hover { box-shadow: var(--sh-raised, var(--sh-card)); }

@@ -1611,6 +1611,7 @@ function renderTemplates() {
   }).join('');
   tplJustOpened = '';
   bindTplWheel(list);
+  requestAnimationFrame(markStuck);
 }
 const tplOpen = () => { try { return new Set(JSON.parse(localStorage.getItem('tplOpen') || '[]')); } catch { return new Set(); } };
 document.addEventListener('click', (e) => {
@@ -2174,6 +2175,18 @@ function markStuck() {
   const barStuck = bar && bar.getBoundingClientRect().top <= top + (head?.offsetHeight || 0) + 1 && scrollY > 0;
   head?.classList.toggle('stuck', scrollY > 2 && !bar); // with a toolbar, only the toolbar draws the edge line
   tab.querySelectorAll('.sticky-bar').forEach((b) => { b.classList.toggle('stuck', b === bar && barStuck); b.classList.toggle('pinned', b === bar && barStuck); });
+  // Templates: a number's header pinned under the title bar joins it (full width, the bar's background, one edge line
+  // under both), so header and number read as one bar while that number's templates scroll by.
+  if (state.tab === 'templates' && head) {
+    const edge = top + head.getBoundingClientRect().height;
+    let any = false;
+    tab.querySelectorAll('.tpl-group.open > .tpl-num-h').forEach((h) => {
+      const on = h.getBoundingClientRect().top <= edge + 0.5 && h.parentElement.getBoundingClientRect().top < h.getBoundingClientRect().top - 0.5;
+      h.classList.toggle('pinned', on);
+      any ||= on;
+    });
+    head.classList.toggle('merged', any);
+  }
 }
 addEventListener('scroll', markStuck, { passive: true });
 
