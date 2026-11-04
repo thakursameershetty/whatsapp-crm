@@ -259,9 +259,11 @@
     const list = filtered(), slice = list, pages = CT.pages;
     CT.slice = slice;
     const opted = CT.opted || 0;
-    // "Contacts (2,218)": the whole book, rolling like the Campaigns numbers when contacts are added or removed
+    // "Contacts (2,218)": how many the current search and filters show (the whole book when there are none), rolling like
+    // the Campaigns numbers whenever it changes
     $('#ctTotal').classList.toggle('hidden', !CT.loaded);
-    rollNum($('#ctTotalN'), CT.all);
+    rollNum($('#ctTotalN'), CT.total);
+    $('#ctTotal').title = CT.total === CT.all ? `${CT.all.toLocaleString()} contacts` : `${CT.total.toLocaleString()} of ${CT.all.toLocaleString()} contacts match the search and filters`;
     $('#ctSub').textContent = `Everyone you message, with tags. ${CT.all.toLocaleString()} contact${CT.all === 1 ? '' : 's'}${opted ? ` · ${opted} opted out` : ''}`;
 
 
