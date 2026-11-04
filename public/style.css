@@ -726,6 +726,10 @@ html:has(.modal:not(.hidden)) { overflow: hidden; }
 .tpl-chat .bubble { font-size: 13px; max-width: 100%; }
 .var-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .var-chip { font: 600 11.5px ui-monospace, Menlo, monospace; padding: 3px 8px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-text); }
+.var-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; min-width: 0; }
+.var-chip > b { font-weight: 600; flex: none; }
+/* The sample value beside the variable, in the normal font so it reads as text, cut short with "…" */
+.var-chip .var-ex { font: 500 12px Inter, sans-serif; color: var(--text); opacity: 0.8; min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Campaign list */
 .camp-filters { margin-bottom: 18px; }
@@ -5722,7 +5726,8 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
    buttons sit at the bottom of the card, so the rows line up. */
 #templateList .tpl-card, .tpl-group .tpl-card { height: 440px; min-height: 0; }
 #templateList.cards, .tpl-group .cards { align-items: stretch; }
-.tpl-card .tpl-chat { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+/* No overscroll containment: once the message is scrolled to its end, the wheel goes on scrolling the page. */
+.tpl-card .tpl-chat { flex: 0 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
 .tpl-card .tpl-reason { flex: none; }
 .tpl-card .var-chips { margin-top: auto; flex: none; max-height: 64px; overflow-y: auto; scrollbar-width: thin; }
 .tpl-card > .row.tight { flex: none; }
@@ -6446,6 +6451,20 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
 .it-tpl-l { display: grid; gap: 6px; margin-bottom: 14px; }
 /* Template card head: the category-changed warning sits just left of the status pill; its tooltip opens below,
    lined up with the card's right side (it's near the edge). */
+/* Template name: one line ending in "…", so the status pill and warning icon stay put; the full name shows on hover. */
+.tpl-card .li-head { flex-wrap: nowrap; align-items: flex-start; }
+.tpl-card .tpl-title { flex: 1; min-width: 0; display: block; position: relative; line-height: 22px; outline: none; }
+.tpl-card .tpl-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
+.tpl-title[data-tip] { cursor: default; }
+.tpl-title[data-tip]::after {
+  content: attr(data-tip); position: absolute; left: -6px; top: calc(100% + 6px); z-index: 20; pointer-events: none;
+  width: max-content; max-width: min(340px, 80vw); padding: 8px 11px; border-radius: 9px;
+  background: #1c1f22; color: #fff; font: 500 12.5px/1.45 Inter, sans-serif; white-space: normal; word-break: break-all;
+  box-shadow: 0 8px 24px rgba(16, 24, 32, 0.22);
+  opacity: 0; transform: translateY(-4px); transition: opacity 0.16s, transform 0.16s var(--ease-out);
+}
+.tpl-title[data-tip]:hover::after, .tpl-title[data-tip]:focus-visible::after { opacity: 1; transform: none; }
+.tpl-title[data-tip]:focus-visible .tpl-name { text-decoration: underline dotted; }
 .tpl-head-r { display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .tpl-head-r .cat-flag { margin: 0; vertical-align: 0; padding: 3px; border-radius: 8px; transition: background-color 0.15s; }
 .tpl-head-r .cat-flag:hover, .tpl-head-r .cat-flag:focus-visible { background: var(--warn-soft); }

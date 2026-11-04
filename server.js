@@ -172,25 +172,38 @@ function docFileName(values) {
 // Extract the variables ({{1}} or {{name}}) a template needs, as a flat list.
 function templateVariables(components = []) {
   const vars = [];
-  const scan = (text, where) => {
+  // `example`: the sample value given when the template was made (Meta keeps them), so people can see what each
+  // variable is for. Positional samples are listed in order ({{1}}, {{2}}…); named ones by name.
+  const sampleOf = (name, list = [], named = []) => {
+    const hit = (named || []).find((x) => x?.param_name === name);
+    if (hit) return String(hit.example ?? '');
+    return /^\d+$/.test(name) ? String(list?.[Number(name) - 1] ?? '') : '';
+  };
+  const scan = (text, where, sample = () => '') => {
     const seen = new Set();
     for (const m of String(text || '').matchAll(/{{\s*([\w]+)\s*}}/g)) {
       if (seen.has(m[1])) continue;
       seen.add(m[1]);
-      vars.push({ key: `${where}.${m[1]}`, where, name: m[1] });
+      const example = sample(m[1]).trim();
+      vars.push({ key: `${where}.${m[1]}`, where, name: m[1], ...(example ? { example } : {}) });
     }
   };
   for (const c of components) {
     const type = (c.type || '').toUpperCase();
+    const ex = c.example || {};
     if (type === 'HEADER') {
-      if (c.format === 'TEXT') scan(c.text, 'header');
+      if (c.format === 'TEXT') scan(c.text, 'header', (n) => sampleOf(n, ex.header_text, ex.header_text_named_params));
       else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(c.format)) {
         vars.push({ key: 'header.media', where: 'header', name: c.format.toLowerCase() + ' URL', media: c.format.toLowerCase() });
       }
-    } else if (type === 'BODY') scan(c.text, 'body');
+    } else if (type === 'BODY') scan(c.text, 'body', (n) => sampleOf(n, ex.body_text?.[0], ex.body_text_named_params));
     else if (type === 'BUTTONS') {
       (c.buttons || []).forEach((b, i) => {
-        if (b.type === 'URL') scan(b.url, `button${i}`);
+        // A button's sample is the whole link; the variable's part is what follows the fixed start ("…/go/{{1}}").
+        if (b.type === 'URL') scan(b.url, `button${i}`, () => {
+          const full = String((Array.isArray(b.example) ? b.example[0] : b.example) || ''), start = String(b.url).split('{{')[0];
+          return full.startsWith(start) ? full.slice(start.length) : full;
+        });
       });
     }
   }
@@ -1023,7 +1036,12 @@ app.post('/api/senders/:id/photo', express.raw({ type: () => true, limit: '5mb' 
 
 // --- Templates --------------------------------------------------------------
 
-const publicTemplate = (t) => ({ ...t, variables: templateVariables(t.components) });
+// A link button's sample is a short-link code ("…/go/{{1}}" → "k3x9qa2"): show the page it opens instead.
+const publicTemplate = (t) => ({ ...t, variables: templateVariables(t.components).map((v) => {
+  if (!/^button/.test(v.where) || !v.example || /^https?:/i.test(v.example)) return v;
+  const link = db.links?.find((l) => l.id === v.example.toLowerCase());
+  return link ? { ...v, example: link.url } : v;
+}) });
 
 app.get('/api/templates', (req, res) => res.json(db.templates.map(publicTemplate)));
 

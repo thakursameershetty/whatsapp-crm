@@ -1415,8 +1415,48 @@ function tplDates(t) {
   return parts.length ? `<div class="li-meta tpl-dates">${parts.map(esc).join(' · ')}</div>` : '';
 }
 
+// A template's variables as chips, each with the sample given when it was made: "{{1}} Ravi", "button {{1}} https://…".
+// The sample is cut short on the card; hovering shows all of it.
+function varChips(t) {
+  const label = (v) => (v.media ? v.media + ' URL' : `${v.where === 'header' ? 'header ' : /^button/.test(v.where) ? 'link ' : ''}{{${v.name}}}`);
+  const seen = new Set();
+  return t.variables.filter((v) => !seen.has(label(v)) && seen.add(label(v))).map((v) => {
+    const l = label(v);
+    return `<span class="var-chip${v.example ? ' has-ex' : ''}"${v.example ? ` title="${esc(`${l}, for example: ${v.example}`)}"` : ''}><b>${esc(l)}</b>${v.example ? `<span class="var-ex">${esc(v.example)}</span>` : ''}</span>`;
+  }).join('');
+}
+
+// Scrolling over a template's message (or its variable chips) scrolls that first; once it's at the end, the same
+// wheel movement goes on scrolling the page. Chrome would otherwise stay "latched" to the box until the next gesture.
+document.addEventListener('wheel', (e) => {
+  if (e.ctrlKey || !e.deltaY) return;
+  const box = e.target.closest?.('#templateList .tpl-chat, #templateList .var-chips');
+  if (!box || box.scrollHeight <= box.clientHeight) return;
+  const atEnd = e.deltaY > 0 ? box.scrollTop + box.clientHeight >= box.scrollHeight - 1 : box.scrollTop <= 0;
+  if (!atEnd) return;
+  let page = box.parentElement;
+  while (page && !(page.scrollHeight > page.clientHeight && /auto|scroll/.test(getComputedStyle(page).overflowY))) page = page.parentElement;
+  page ||= document.scrollingElement;
+  e.preventDefault();
+  page.scrollBy({ top: e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * page.clientHeight : e.deltaY, behavior: 'instant' });
+}, { passive: false });
+
+// Long template names end in "…" on one line; those get the full name in a tooltip (hover or keyboard focus).
+function tipLongTemplateNames(only) {
+  for (const h of only ? [only] : document.querySelectorAll('#templateList .tpl-title')) {
+    const cut = h.firstElementChild.scrollWidth > h.firstElementChild.clientWidth + 1;
+    h.toggleAttribute('data-tip', cut);
+    if (cut) { h.dataset.tip = h.textContent; h.tabIndex = 0; h.setAttribute('aria-label', h.textContent); }
+    else { h.removeAttribute('tabindex'); h.removeAttribute('aria-label'); }
+  }
+}
+addEventListener('resize', () => { clearTimeout(tipLongTemplateNames.t); tipLongTemplateNames.t = setTimeout(() => tipLongTemplateNames(), 150); });
+// Checked again on hover too: a list drawn while the tab was hidden had no widths to measure.
+document.addEventListener('pointerover', (e) => { const h = e.target.closest?.('#templateList .tpl-title'); if (h) tipLongTemplateNames(h); });
+
 function renderTemplates() {
   renderPlaybooks(); // its cards count the templates each playbook answers
+  requestAnimationFrame(() => tipLongTemplateNames());
   const list = $('#templateList');
   // With several numbers: a "which number" filter, showing the templates each one can send.
   const nums = state.senders.filter((s) => s.wabaId);
@@ -1459,14 +1499,14 @@ function renderTemplates() {
   const card = (t) => `
     <div class="card tpl-card">
       <div class="li-head">
-        <h3>${esc(t.name)}</h3>
+        <h3 class="tpl-title"><span class="tpl-name">${esc(t.name)}</span></h3>
         <span class="tpl-head-r">${t.categoryChangedFrom ? `<span class="cat-flag" tabindex="0" aria-label="Category changed by Meta" data-tip="${esc(`Submitted as ${catLabel(t.categoryChangedFrom)}, but Meta changed it to ${catLabel(t.category)}. It's charged and treated as a ${(t.category || '').toLowerCase()} message. Think that's wrong? Request a review in WhatsApp Manager → Business Support Home.`)}">${icon('triangle-alert', 16)}</span>` : ''}<span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span></span>
       </div>
       <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
       ${tplDates(t)}
       ${t.rejectedReason ? `<div class="tpl-reason">${icon('badge-alert', 14)}<span>Meta's reason: ${esc(t.rejectedReason.toLowerCase().replace(/_/g, ' '))}. Edit it and submit again.</span></div>` : ''}
       <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
-      ${t.variables.length ? `<div class="var-chips">${[...new Set(t.variables.map((v) => (v.media ? v.media + ' URL' : `{{${v.name}}}`)))].map((label) => `<span class="var-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
+      ${t.variables.length ? `<div class="var-chips">${varChips(t)}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
       <div class="row tight">
         ${(() => { const why = tplSendBlock(t); return `<button class="btn sm${why ? ' is-off' : ''}" data-use="${t.id}" ${why ? `aria-disabled="true" data-tip="${esc(why)}"` : ''}>${icon('send', 15)}Use for sending</button>`; })()}
         ${(() => { const why = tplEditBlock(t); return `<button class="btn quiet sm" data-tedit="${t.id}" ${why ? `disabled title="${esc(why)}"` : ''}>${icon('square-pen', 15)}Edit</button>`; })()}
