@@ -93,11 +93,10 @@ module.exports = function mountContacts(app, ctx) {
   function applyLead(phone, lead = {}) {
     const { contact } = upsert(phone, { name: lead.name, email: lead.email, company: lead.company }, { source: 'inbox' });
     const status = { not_interested: 'lost' }[lead.status] || lead.status;
-    // A human's "won" stands; the assistant can move a lead along but not undo that. And when a person has said whether
-    // this is a qualified lead (setLead), that stands too: the assistant keeps its notes up to date but can't change it.
-    const lock = contact.leadLock;
-    const lockedOut = lock && (lock.qualified || status === 'qualified');
-    if (STATUSES.includes(status) && status !== 'won' && contact.status !== 'won' && !lockedOut) contact.status = status;
+    // A human's "won" stands; the assistant can move a lead along but not undo that. And once a person has set the
+    // stage (any stage, from the Inbox or Contacts), it stands: the assistant keeps its notes up to date but can't
+    // move it until "Let the AI decide" hands it back.
+    if (STATUSES.includes(status) && status !== 'won' && contact.status !== 'won' && !contact.leadLock) contact.status = status;
     contact.lead = {
       ...contact.lead,
       ...Object.fromEntries(['summary', 'need', 'budget', 'timeline'].filter((k) => clean(lead[k])).map((k) => [k, clean(lead[k], 600)])),
@@ -114,9 +113,9 @@ module.exports = function mountContacts(app, ctx) {
     const { contact } = upsert(phone, {}, { source: 'inbox' });
     if (qualified === null) delete contact.leadLock;
     else {
-      contact.leadLock = { qualified: Boolean(qualified), by, at: now() };
       if (qualified && contact.status !== 'won') contact.status = 'qualified';
       if (!qualified && contact.status === 'qualified') contact.status = 'interested';
+      contact.leadLock = { status: contact.status, qualified: Boolean(qualified), by, at: now() };
     }
     contact.updatedAt = now();
     return contact;
@@ -158,7 +157,7 @@ module.exports = function mountContacts(app, ctx) {
     for (const k of ['name', 'email', 'company', 'notes']) if (k in req.body) c[k] = clean(req.body[k], k === 'notes' ? 4000 : 200);
     // A stage a person picks is their decision about the lead: the assistant won't change it (see applyLead; the
     // Inbox's "Let the AI decide" hands it back).
-    if (STATUSES.includes(req.body.status) && req.body.status !== c.status) c.leadLock = { qualified: ['qualified', 'won'].includes(req.body.status), by: req.user?.email || '', at: now() };
+    if (STATUSES.includes(req.body.status) && (req.body.status !== c.status || req.body.lockStage === true)) c.leadLock = { status: req.body.status, qualified: ['qualified', 'won'].includes(req.body.status), by: req.user?.email || '', at: now() };
     if (STATUSES.includes(req.body.status)) c.status = req.body.status;
     if (typeof req.body.optOut === 'boolean') c.optOut = req.body.optOut;
     if (Array.isArray(req.body.tags)) c.tags = tagIds(req.body.tags);

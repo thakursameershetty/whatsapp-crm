@@ -940,7 +940,7 @@
         <div class="sg-pop-title">Filter “${escHtml(sh.headers[c])}”</div>
         <input class="sg-pop-text" placeholder="Cell contains…" value="${escHtml(cur.text || '')}" />
         <div class="sg-pop-sub"><span>By value</span><span><button type="button" data-all>All</button> · <button type="button" data-none>None</button></span></div>
-        <input class="sg-pop-search" placeholder="Search values" />
+        <input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="sg-pop-search" placeholder="Search values" />
         <div class="sg-pop-list">${values.map((v) => `<label data-v="${escHtml(v.toLowerCase())}"><input type="checkbox" value="${escHtml(v)}" ${!cur.values || cur.values.has(v) ? 'checked' : ''} /><span>${v === '' ? '<i>(empty)</i>' : escHtml(v)}</span><small>${counts.get(v)}</small></label>`).join('')}</div>
         ${counts.size > values.length ? `<div class="sg-pop-sub">Showing ${values.length} of ${counts.size} values</div>` : ''}
         <div class="sg-pop-actions"><button type="button" class="btn sm quiet" data-clear>Clear</button><button type="button" class="btn sm primary" data-apply>Apply</button></div>`);

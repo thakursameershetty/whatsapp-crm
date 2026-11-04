@@ -23,7 +23,7 @@
     const tags = 'chips' in sel.dataset ? [...new Set(opts.map((x) => x.o.dataset.tag).filter(Boolean))] : [];
     let tag = '';
     const chips = tags.length > 1 ? `<div class="ss-chips" role="tablist">${['', ...tags].map((t) => `<button type="button" class="ss-chip ${t ? '' : 'on'}" data-tag="${esc(t)}">${esc(t || 'All')} <span>${opts.filter((x) => (t ? x.o.dataset.tag === t : x.o.dataset.tag)).length}</span></button>`).join('')}</div>` : '';
-    const searchBox = opts.length >= SEARCH_FROM || chips ? `<div class="search-wrap ss-search">${SEARCH}<input class="search" placeholder="Search" autocomplete="off" aria-label="Search options" /></div>` : '';
+    const searchBox = opts.length >= SEARCH_FROM || chips ? `<div class="search-wrap ss-search">${SEARCH}<input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" placeholder="Search" autocomplete="off" aria-label="Search options" /></div>` : '';
     const el = Sheet.Menu.panel(r.left, r.bottom + 6, `${searchBox}${chips}<div class="ss-list" role="listbox"></div>`);
     el.classList.add('ss-pop');
     el.style.minWidth = Math.max(180, r.width) + 'px';

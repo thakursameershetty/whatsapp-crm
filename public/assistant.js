@@ -805,7 +805,7 @@
   // The whole sheet in a large popup: search across every column, all rows (drawn in pages as you scroll).
   function viewSheet(t, id) {
     const body = openModal(t.name, `
-      <div class="shv-bar"><div class="search-wrap">${icon('search', 15)}<input class="search" id="shvQ" placeholder="Search ${t.rows.length.toLocaleString()} rows" autocomplete="off" /></div><span class="shv-count" id="shvCount"></span>
+      <div class="shv-bar"><div class="search-wrap">${icon('search', 15)}<input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="shvQ" placeholder="Search ${t.rows.length.toLocaleString()} rows" autocomplete="off" /></div><span class="shv-count" id="shvCount"></span>
         <span class="shv-acts"><button type="button" class="btn sm" data-sheet-act="xlsx">${icon('download', 14)}Excel</button><button type="button" class="btn sm primary" data-sheet-act="send">${icon('send', 14)}Open in Send</button></span></div>
       <div class="shv-table" id="shvWrap"><table><thead><tr><th class="shv-n">#</th>${t.headers.map((h) => `<th>${h === t.phoneColumn ? icon('phone', 11) : ''}${esc(h)}</th>`).join('')}</tr></thead><tbody id="shvBody"></tbody></table></div>`);
     body.closest('.modal-box').classList.add('shv-box');

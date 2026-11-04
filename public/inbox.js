@@ -412,7 +412,8 @@
     t.messages.push(...pending);
     // Nothing new since it was drawn (coming back to the Inbox, a poll): keep what's on screen. Redrawing a long
     // chat costs a few frames, and that's the stutter you'd see.
-    const sig = JSON.stringify([key, t.earlier, t.chatLead, t.messages.map((m) => [m.id, m.status, m.text?.length, m.reaction])]);
+    const ctSig = t.contact && [t.contact.status, t.contact.optOut, t.contact.tags, t.contact.leadLock?.at, t.contact.name];
+    const sig = JSON.stringify([key, t.earlier, t.chatLead, ctSig, t.messages.map((m) => [m.id, m.status, m.text?.length, m.reaction])]);
     ib.thread = t;
     if (sig === ib.threadSig && $('#ibChat').dataset.key === key) { if (toBottom) toLatest(); return; }
     renderChat(toBottom);
@@ -545,7 +546,7 @@
   function leadPill(ct) {
     const lock = ct?.leadLock;
     const st = ct?.status || 'new';
-    const why = lock ? `You set this: ${lock.qualified ? 'a qualified lead' : 'not a qualified lead'}. The AI won’t change it.` : 'Set by the AI. Click to decide yourself whether they’re a qualified lead.';
+    const why = lock ? 'You set this stage, so the AI won’t change it. Click to change it or let the AI decide.' : 'Set by the AI. Click to set the stage yourself.';
     return `<button type="button" class="pill ib-lead-pill ${STATUS_PILL[st] || ''}${lock ? ' locked' : ''}" data-lead aria-haspopup="menu" title="${esc(why)}">${lock ? icon('lock', 11) : ''}${esc(STATUS_LABEL[st] || st)}${icon('chevron-down', 11)}</button>`;
   }
   // Summarise again (the strip above the chat, and the contact panel): the notes are rewritten from the whole chat
@@ -587,19 +588,13 @@
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-lead]');
     if (!b || !ib.key) return;
-    const key = ib.key, ct = ib.thread?.contact, lock = ct?.leadLock;
-    const set = (qualified) => guard(async () => {
-      const r = await api(`/inbox/${enc(key)}/lead`, { method: 'POST', body: { qualified } });
-      if (ib.key === key && ib.thread) { ib.thread.contact = r.contact; renderLead(); }
-      toast(qualified === null ? 'The AI decides again whether they’re a qualified lead' : qualified ? 'Marked as a qualified lead' : 'Marked as not a qualified lead');
-    });
+    const ct = ib.thread?.contact, lock = ct?.leadLock;
     const r = b.getBoundingClientRect();
-    Sheet.Menu.open(r.left, r.bottom + 4, [
-      { label: 'Qualified lead', checked: lock?.qualified === true, action: () => set(true) },
-      { label: 'Not a qualified lead', checked: lock?.qualified === false, action: () => set(false) },
+    Sheet.Menu.open(r.left, r.bottom + 4, ct ? [
+      ...STATUS_ORDER.map((k) => ({ label: STATUS_LABEL[k], checked: ct.status === k, action: () => setStage(k) })),
       '-',
-      { label: `Let the AI decide${!lock && ct ? ` (now: ${STATUS_LABEL[ct.status] || ct.status})` : ''}`, checked: !lock, action: () => set(null) },
-    ]);
+      { label: 'Let the AI decide', checked: !lock, action: () => letAiDecide() },
+    ] : [{ label: 'Add to contacts to set a stage', action: () => addContact() }]);
   });
 
   function renderLead() {
@@ -701,20 +696,25 @@
     const box = $('#ibInfo');
     if (!ib.infoOpen || !ib.key || !ib.thread) { box.classList.add('hidden'); $('#inbox').classList.remove('has-info'); return; }
     const key = ib.key, mine = ++infoReq;
+    if (ib.infoP?.key === key) drawInfo(ib.infoP.p); // at once, from what we have (a click shows straight away)
     let p;
     try { p = await api(`/inbox/${enc(key)}/profile`); } catch (err) { return toast(err.message, 'error'); }
     if (mine !== infoReq || ib.key !== key || !ib.thread) return;
+    ib.infoP = { key, p };
+    drawInfo(p);
+  }
+  function drawInfo(p) {
+    const box = $('#ibInfo');
+    if (!ib.infoOpen || !ib.thread) return;
     if (box.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return; // don't redraw under someone typing
-    const c = current(), t = ib.thread, ct = p.contact, lead = t.chatLead || {}, lock = ct?.leadLock;
+    // The chat's copy of the contact is the newest (changes made here land on it first).
+    const tc = ib.thread.contact;
+    const c = current(), t = ib.thread, ct = tc ? { ...(p.contact || {}), ...tc } : p.contact, lead = t.chatLead || {}, lock = ct?.leadLock;
     const others = p.chats.filter((x) => !x.current);
     const via = state.senders.find((x) => x.id === c.senderId);
     const bits = [['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v);
     // About: their details as text; the pencil in the header opens the contact form to change them.
     const about = (k, v) => `<div><dt>${k}</dt><dd class="${v ? '' : 'muted'}">${v ? esc(v) : 'Not added'}</dd></div>`;
-    // Stage as a pipeline: New → Interested → Qualified → Won (the steps up to the current one filled), and
-    // "Not interested" on its own beside it.
-    const PIPE = ['new', 'interested', 'qualified', 'won'];
-    const at = ct ? PIPE.indexOf(ct.status) : -1;
     const card = (title, body, extra = '') => `<section class="ibi-card">${title ? `<div class="ibi-card-h">${title}${extra}</div>` : ''}${body}</section>`;
     const leadBody = lead.summary || bits.length
       ? `${lead.summary ? `<p class="ibi-sum">${esc(lead.summary)}</p>` : ''}${bits.length ? `<dl class="ibi-bits">${bits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}`
@@ -737,14 +737,9 @@
           <button type="button" class="ibi-act" data-info-contacts="${esc(ct.id)}">${icon('users', 16)}<span>Contacts</span></button>`
           : `<button type="button" class="ibi-act primary" data-info-add>${icon('plus', 16)}<span>Add contact</span></button>`}
         </div>
-        ${ct ? card('Stage', `
-          <div class="ibi-pipe" role="radiogroup" aria-label="Stage">${PIPE.map((k, i) => `<button type="button" role="radio" aria-checked="${ct.status === k}" class="ibi-step ${at >= 0 && i <= at ? 'done' : ''} ${ct.status === k ? 'on' : ''}" data-info-status="${k}"><i></i><span>${esc(STATUS_LABEL[k])}</span></button>`).join('')}</div>
-          <div class="ibi-row">
-            <button type="button" class="ibi-lost ${ct.status === 'lost' ? 'on' : ''}" data-info-status="lost">${icon('x', 12)}Not interested</button>
-            ${lock ? '<button type="button" class="ibi-link" data-info-ai>Let the AI decide</button>' : ''}
-          </div>
-          <label class="ibi-opt"><span><b>Opted out</b><small>Never message them again</small></span>${toggleHtml({ checked: ct.optOut, attrs: 'data-info-optout', size: 'sm' })}</label>`,
-          lock ? `<span class="ibi-lock" title="You set this, so the AI won’t change it">${icon('lock', 11)}Set by you</span>` : '<span class="ibi-badge">Set by the AI</span>') : ''}
+        ${ct ? card('Stage', stageHtml(ct, lock), lock
+          ? `<span class="stg-src you" title="${esc(`You set this${lock.by ? ` (${lock.by})` : ''}, so the AI won’t change it`)}">${icon('lock', 11)}Set by you</span>`
+          : '<span class="stg-src" title="The AI moves the stage as the chat goes on"><svg class="orb-icon" data-orb-icon="12" aria-hidden="true"></svg>Set by the AI</span>') : ''}
         ${lead.summary || bits.length || hasIn ? card(`<span class="ibi-ai"><svg class="orb-icon" data-orb-icon="14" aria-hidden="true"></svg>Lead notes</span>`, leadBody, `<button type="button" class="ib-lead-again" data-lead-again title="The AI reads the whole chat and writes notes"><span>Summarise</span></button>`) : ''}
         ${ct ? card('Tags', `<div class="ibi-tags">${(t.tags || []).map((x) => `<button type="button" class="ct-tag tag-${esc(x.color)} ${ct.tags.includes(x.id) ? 'active' : ''}" data-info-tag="${x.id}"><i></i><span class="ct-tag-name">${esc(x.name)}</span></button>`).join('') || '<span class="sub">No tags yet. Make them on the Contacts page.</span>'}</div>`) : ''}
         ${ct ? card('About', `<dl class="ibi-about">${about('Name', ct.name)}${about('Phone', fmtPhone(c.wa))}${about('Email', ct.email)}${about('Company', ct.company)}${about('Notes', ct.notes)}</dl>`) : ''}
@@ -759,11 +754,70 @@
     LA.hydrate?.(box);
     Orb.hydrate(box);
   }
-  // Save one change to the contact, then reload the chat (pill, strip and this panel follow).
-  async function saveContact(body, msg) {
+  // The stage: New → Interested → Qualified → Won as steps (the ones passed get a tick), "Not interested" as its own
+  // state below (it greys the steps), then whether they've opted out.
+  const PIPE = ['new', 'interested', 'qualified', 'won'];
+  function stageHtml(ct, lock) {
+    const lost = ct.status === 'lost', at = PIPE.indexOf(ct.status);
+    const steps = PIPE.map((k, i) => {
+      const cls = lost ? '' : i < at ? 'done' : i === at ? 'on' : '';
+      return `<button type="button" role="radio" aria-checked="${ct.status === k}" class="stg-step ${cls}" data-info-status="${k}" title="${ct.status === k ? (lock ? 'The stage now' : 'Click to confirm it, so the AI won’t change it') : `Move to ${STATUS_LABEL[k]}`}">
+        <span class="stg-dot"></span><span class="stg-lbl">${esc(STATUS_LABEL[k])}</span></button>`;
+    }).join('');
+    return `<div class="stg${lost ? ' is-lost' : ''}${ct.optOut ? ' is-out' : ''}">
+      <div class="stg-track" role="radiogroup" aria-label="Stage">${steps}</div>
+      <div class="stg-foot">
+        <button type="button" role="radio" aria-checked="${lost}" class="stg-lost${lost ? ' on' : ''}" data-info-status="lost" title="${lost ? 'Click a step above to bring them back' : 'They’re not interested'}">${icon('x', 13)}${lost ? 'Not interested' : 'Mark not interested'}</button>
+        ${lock ? `<button type="button" class="stg-ai" data-info-ai title="Hand the stage back to the AI">${icon('refresh-cw', 12)}Let the AI decide</button>` : ''}
+      </div>
+      <label class="stg-opt${ct.optOut ? ' on' : ''}"><span class="stg-opt-ic">${icon(ct.optOut ? 'badge-alert' : 'bell', 15)}</span><span class="stg-opt-t"><b>${ct.optOut ? 'Opted out' : 'Can be messaged'}</b><small>${ct.optOut ? 'They won’t get campaigns, templates or AI replies' : 'Switch on if they asked you to stop'}</small></span>${toggleHtml({ checked: ct.optOut, attrs: 'data-info-optout aria-label="Opted out"', size: 'sm' })}</label>
+    </div>`;
+  }
+  // Save one change to the contact. It shows at once (header pill, phone sheet and this panel) and is put back if the
+  // save fails. Only the newest of quick clicks gets to draw the server's answer, so they can't undo each other.
+  let saveSeq = 0;
+  const redrawContact = () => { renderLead(); if (ib.infoOpen && ib.infoP?.key === ib.key) drawInfo(ib.infoP.p); };
+  async function saveContact(body, msg, local = body) {
     const ct = ib.thread?.contact;
     if (!ct) return;
-    await guard(async () => { await api('/contacts/' + ct.id, { method: 'PUT', body }); if (msg) toast(msg); await loadThread(); });
+    const key = ib.key, before = structuredClone(ct), mine = ++saveSeq;
+    Object.assign(ct, local);
+    redrawContact();
+    try {
+      const r = await api('/contacts/' + ct.id, { method: 'PUT', body });
+      if (ib.key === key && mine === saveSeq && ib.thread?.contact) { Object.assign(ib.thread.contact, r); redrawContact(); }
+      if (msg) toast(msg);
+    } catch (err) {
+      if (ib.key === key && mine === saveSeq && ib.thread?.contact) { ib.thread.contact = Object.assign(ib.thread.contact, before); redrawContact(); }
+      toast(err.message, 'error');
+    }
+  }
+  function setStage(k) {
+    const ct = ib.thread?.contact;
+    if (!ct) return;
+    const same = ct.status === k;
+    if (same && ct.leadLock) return;
+    saveContact({ status: k, lockStage: true }, same ? `${STATUS_LABEL[k]}: confirmed, the AI won’t change it` : `Stage: ${STATUS_LABEL[k]}`,
+      { status: k, leadLock: { status: k, qualified: ['qualified', 'won'].includes(k), by: '', at: new Date().toISOString() } });
+  }
+  async function letAiDecide() {
+    const ct = ib.thread?.contact, key = ib.key;
+    if (!ct?.leadLock) return;
+    const before = ct.leadLock;
+    delete ct.leadLock;
+    redrawContact();
+    try {
+      const r = await api(`/inbox/${enc(key)}/lead`, { method: 'POST', body: { qualified: null } });
+      if (ib.key === key && ib.thread?.contact) { ib.thread.contact = r.contact; redrawContact(); }
+      toast('The AI decides the stage again');
+    } catch (err) {
+      if (ib.key === key && ib.thread?.contact) { ib.thread.contact.leadLock = before; redrawContact(); }
+      toast(err.message, 'error');
+    }
+  }
+  function addContact() {
+    const c = current();
+    return guard(async () => { await api('/contacts', { method: 'POST', body: { phone: '+' + c.wa, name: c.name || '' } }); toast('Added to contacts'); await loadThread(); });
   }
   $('#ibInfo').addEventListener('click', (e) => {
     const ct = ib.thread?.contact, key = ib.key;
@@ -772,14 +826,11 @@
     const num = e.target.closest('[data-copy-num]');
     if (num) return navigator.clipboard?.writeText(num.dataset.copyNum).then(() => toast('Number copied'), () => {});
     const st = e.target.closest('[data-info-status]');
-    if (st && ct && st.dataset.infoStatus !== ct.status) return saveContact({ status: st.dataset.infoStatus }, `Stage: ${STATUS_LABEL[st.dataset.infoStatus]}`);
-    if (e.target.closest('[data-info-ai]')) return guard(async () => { await api(`/inbox/${enc(key)}/lead`, { method: 'POST', body: { qualified: null } }); toast('The AI decides the stage again'); await loadThread(); });
+    if (st && ct) return setStage(st.dataset.infoStatus);
+    if (e.target.closest('[data-info-ai]')) return letAiDecide();
     const tg = e.target.closest('[data-info-tag]');
     if (tg && ct) { const id = tg.dataset.infoTag; return saveContact({ tags: ct.tags.includes(id) ? ct.tags.filter((x) => x !== id) : [...ct.tags, id] }); }
-    if (e.target.closest('[data-info-add]')) {
-      const c = current();
-      return guard(async () => { await api('/contacts', { method: 'POST', body: { phone: '+' + c.wa, name: c.name || '' } }); toast('Added to contacts'); await loadThread(); });
-    }
+    if (e.target.closest('[data-info-add]')) return addContact();
     const o = e.target.closest('[data-pf-open]');
     if (o) return openConversation(o.dataset.pfOpen);
     const cb = e.target.closest('[data-info-contacts]');

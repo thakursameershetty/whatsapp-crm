@@ -6221,3 +6221,43 @@ html.vt-day::view-transition-old(root), html.vt-day::view-transition-new(root) {
 /* The category-changed flag sits mid-line: centre its tooltip arrow on the icon, and let the bubble run right. */
 .cat-flag[data-tip]::before { left: 2px; }
 .cat-flag[data-tip]::after { left: -10px; max-width: 260px; }
+/* API keys and tokens: dotted like a password, but a text field so the browser's password manager
+   doesn't take the page for a login form and fill the saved email into a search box. */
+input.secret { -webkit-text-security: disc; text-security: disc; font-family: inherit; }
+/* Fields held read-only by no-autofill.js until they're used: they look and feel like ordinary fields. */
+input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(--text); }
+
+/* Inbox contact info → Stage: a stepper (New → Interested → Qualified → Won), "Not interested" and who set it, then
+   the opt-out switch. Steps passed get a tick, the current one a ring; Not interested greys the steps. */
+.stg-src { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 99px; background: var(--sunk); color: var(--muted); font-size: 11px; font-weight: 550; letter-spacing: 0; }
+.stg-src.you { background: var(--info-soft); color: var(--info); }
+.stg-track { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 2px -4px 0; }
+.stg-step { position: relative; display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 0; padding: 4px 2px 6px; border: 0; border-radius: 10px; background: none; color: var(--muted); font: 500 12px Inter, sans-serif; cursor: pointer; transition: background-color 0.15s; }
+.stg-step:hover { background: var(--sunk); color: var(--text); }
+.stg-step:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--ring); }
+/* the line to the previous step, behind the dots */
+.stg-step + .stg-step::before { content: ''; position: absolute; top: 12px; right: calc(50% + 11px); width: calc(100% - 22px); height: 2px; border-radius: 2px; background: var(--hair); transition: background-color 0.25s; }
+.stg-step.done + .stg-step::before, .stg-step.done + .stg-step.on::before { background: var(--good); }
+.stg-dot { position: relative; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); box-shadow: inset 0 0 0 2px var(--hair); transition: background-color 0.2s, box-shadow 0.2s; }
+.stg-step.done .stg-dot { background: var(--good); box-shadow: none; }
+.stg-step.done .stg-dot::after { content: ''; width: 7px; height: 4px; margin-top: -2px; border: solid #fff; border-width: 0 0 2px 2px; rotate: -45deg; }
+.stg-step.on .stg-dot { background: var(--surface); box-shadow: inset 0 0 0 5px var(--good), 0 0 0 4px color-mix(in srgb, var(--good) 18%, transparent); }
+.stg-lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stg-step.on .stg-lbl { color: var(--text); font-weight: 650; }
+.stg.is-lost .stg-track { opacity: 0.55; }
+.stg.is-lost .stg-step:hover { opacity: 1; }
+.stg-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.stg-lost { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px; border: 0; border-radius: 99px; background: var(--sunk); color: var(--muted); font: 500 12px Inter, sans-serif; cursor: pointer; transition: background-color 0.15s, color 0.15s; }
+.stg-lost:hover { color: var(--danger); }
+.stg-lost.on { background: var(--danger-soft); color: var(--danger); font-weight: 600; }
+.stg-lost:focus-visible, .stg-ai:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--ring); }
+.stg-ai { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 4px; border: 0; border-radius: 8px; background: none; color: var(--info); font: 600 12px Inter, sans-serif; cursor: pointer; }
+.stg-ai:hover { text-decoration: underline; }
+.stg-opt { display: flex; align-items: center; gap: 10px; margin: 12px -14px -12px; padding: 11px 14px; border-radius: 0 0 14px 14px; box-shadow: inset 0 1px 0 var(--hair); cursor: pointer; font-weight: 400; transition: background-color 0.2s; }
+.stg-opt-ic { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 9px; background: var(--sunk); color: var(--muted); }
+.stg-opt-t { flex: 1; min-width: 0; }
+.stg-opt-t b { display: block; font-size: 13px; font-weight: 600; }
+.stg-opt-t small { display: block; font-size: 11.5px; color: var(--muted); }
+.stg-opt.on { background: color-mix(in srgb, var(--danger) 7%, var(--surface)); }
+.stg-opt.on .stg-opt-ic { background: var(--danger-soft); color: var(--danger); }
+.stg-opt.on .stg-opt-t b { color: var(--danger); }

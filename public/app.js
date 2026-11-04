@@ -484,7 +484,7 @@ function setCountry(iso, code) {
 }
 $('#ccPick').addEventListener('click', (e) => {
   const btn = e.currentTarget, r = btn.getBoundingClientRect();
-  const el = Sheet.Menu.panel(r.left, r.bottom + 6, `<div class="search-wrap cc-search">${icon('search', 15)}<input class="search" id="ccQ" placeholder="Search country or code" autocomplete="off" /></div><div class="cc-list" id="ccList" role="listbox"></div>`);
+  const el = Sheet.Menu.panel(r.left, r.bottom + 6, `<div class="search-wrap cc-search">${icon('search', 15)}<input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="ccQ" placeholder="Search country or code" autocomplete="off" /></div><div class="cc-list" id="ccList" role="listbox"></div>`);
   el.classList.add('cc-pop');
   el.style.width = r.width + 'px';
   const current = $('#setCountry').value;
@@ -731,7 +731,7 @@ function pbFormHtml(p, isNew) {
         </div>
         <div class="pb-sec">
           <div class="field-label">Campaign templates <span class="opt">replies to these use it</span></div>
-          ${tpls.length > 8 ? `<div class="search-wrap" data-icon="search" data-icon-size="14"><input class="search" id="pbTplQ" placeholder="Search templates" /></div>` : ''}
+          ${tpls.length > 8 ? `<div class="search-wrap" data-icon="search" data-icon-size="14"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="pbTplQ" placeholder="Search templates" /></div>` : ''}
           <div class="pb-checks pb-tpls" id="pbTpls">${tpls.map((t) => `<label data-name="${esc(t.name.toLowerCase())}"><input type="checkbox" class="cb" value="${esc(t.id)}" ${p.templates.includes(t.id) ? 'checked' : ''} /><span>${esc(t.name)}<small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}</small></span></label>`).join('') || '<p class="sub">No templates yet.</p>'}</div>
         </div>
       </div>
@@ -750,7 +750,7 @@ function playbookManager(selectId, { numberId = null, back = null } = {}) {
   let numF = num ? num.id : '';
   const body = openModal('Playbooks', `<div class="pbm">
     <aside class="pbm-side">
-      <div class="search-wrap has-filter pbm-search" data-icon="search" data-icon-size="14"><input class="search" id="pbmQ" placeholder="Search playbooks" />${state.senders.length > 1 ? '<button type="button" class="num-filter" id="pbmNum" aria-haspopup="menu"></button>' : ''}</div>
+      <div class="search-wrap has-filter pbm-search" data-icon="search" data-icon-size="14"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="pbmQ" placeholder="Search playbooks" />${state.senders.length > 1 ? '<button type="button" class="num-filter" id="pbmNum" aria-haspopup="menu"></button>' : ''}</div>
       <div class="pbm-list" id="pbmList"></div>
       <button type="button" class="btn pbm-new" id="pbmNew">${icon('plus', 15)}New playbook</button>
     </aside>
@@ -1283,8 +1283,8 @@ function senderForm(s = null) {
       ${s?.hasToken
         ? `<div class="field-label">Access token ${sfHelp('accessToken')}</div>
            <div class="sf-token" id="sfSaved"><span>${icon('lock', 14)}Saved token ending in <b>${esc((s.accessTokenMasked || '').replace(/^•+/, ''))}</b></span><button type="button" class="btn sm" id="sfReplace">Replace token</button></div>
-           <label class="hidden" id="sfTokenWrap">New access token<input name="accessToken" type="password" autocomplete="off" placeholder="Paste the new token" /></label>`
-        : `<label>Access token ${sfHelp('accessToken')}${live ? '' : '<span class="opt">optional in demo mode</span>'}<input name="accessToken" type="password" autocomplete="off" placeholder="Permanent system-user token" /></label>`}
+           <label class="hidden" id="sfTokenWrap">New access token<input name="accessToken" type="text" class="secret" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" spellcheck="false" placeholder="Paste the new token" /></label>`
+        : `<label>Access token ${sfHelp('accessToken')}${live ? '' : '<span class="opt">optional in demo mode</span>'}<input name="accessToken" type="text" class="secret" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" spellcheck="false" placeholder="Permanent system-user token" /></label>`}
       <label>WhatsApp Business Account ID ${sfHelp('wabaId')}<span class="opt">${live ? 'found from Meta when the number is checked' : 'needed to sync templates'}</span>${live ? '<span class="sf-find">' : ''}<input name="wabaId" autocomplete="off" inputmode="numeric" data-digits maxlength="17" placeholder="${live ? 'Click Find, or paste the ID or Business portfolio ID' : 'Digits'}" value="${esc(s?.wabaId)}" />${live ? `<button type="button" class="btn sm tip-end" id="sfFind" data-tip="I can find it for you with your phone number ID and access token">${icon('search', 14)}Find</button></span>` : ''}</label>
       <label>Display phone ${sfHelp('displayPhone')}<span class="opt">${live ? 'filled in from Meta when the number is checked' : 'optional, for your reference'}</span>${live ? '<span class="sf-find">' : ''}<input name="displayPhone" autocomplete="off" inputmode="tel" maxlength="22" placeholder="${live ? 'Click Find, or type it with the country code' : '+91 98765 43210'}" value="${esc(s?.displayPhone)}" />${live ? `<button type="button" class="btn sm tip-end" id="sfFindPhone" data-tip="I can read it from Meta with your phone number ID and access token">${icon('search', 14)}Find</button></span>` : ''}</label>
       <div class="sf-status hidden" id="sfStatus" role="status" aria-live="polite"></div>
@@ -4158,7 +4158,7 @@ function invitePop(anchor) {
   email.addEventListener('keydown', (e) => e.key === 'Enter' && send());
 }
 function allPop(anchor) {
-  const el = tmPop(anchor, `<div class="search-wrap tm-search">${icon('search', 15)}<input class="search" id="tmQ" placeholder="Search people" /></div><div class="tm-list" id="tmList"></div>`, 'tm-all');
+  const el = tmPop(anchor, `<div class="search-wrap tm-search">${icon('search', 15)}<input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="tmQ" placeholder="Search people" /></div><div class="tm-list" id="tmList"></div>`, 'tm-all');
   const draw = () => {
     const q = $('#tmQ', el).value.trim().toLowerCase();
     const list = teamPeople().filter((p) => !q || (p.name || '').toLowerCase().includes(q) || p.email.toLowerCase().includes(q));

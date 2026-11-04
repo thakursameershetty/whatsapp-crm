@@ -696,7 +696,7 @@
     const nums = state.senders.filter((x) => x.enabled);
     const body = openModal('Choose a template', `
       <div class="tp-bar">
-        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="tpQ" placeholder="Search name or message" autocomplete="off" /></div>
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="tpQ" placeholder="Search name or message" autocomplete="off" /></div>
         <select id="tpCat" aria-label="Category"></select>
         <select id="tpStatus" aria-label="Status"><option value="ready">Ready to send</option><option value="">Any status</option><option value="PENDING">In review</option><option value="REJECTED">Rejected</option></select>
         ${nums.length > 1 ? `<select id="tpNum" aria-label="Number"><option value="">All numbers</option>${nums.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join('')}</select>` : ''}

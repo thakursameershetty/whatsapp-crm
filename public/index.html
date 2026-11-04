@@ -12,6 +12,7 @@
     rel="stylesheet" />
   <link rel="stylesheet" href="icons.css" />
   <link rel="stylesheet" href="style.css" />
+  <script src="no-autofill.js"></script>
   <script>
     // Resolve the theme before first paint. "auto" follows the OS setting.
     (function () {
@@ -248,7 +249,7 @@
             <button type="button" class="icon-btn la-host" id="ashNew" title="New chat" aria-label="New chat"
               data-icon="square-pen" data-icon-size="18"></button>
           </div>
-          <div class="ash-tools search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="ashSearch"
+          <div class="ash-tools search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="ashSearch"
               type="search" placeholder="Search chats" aria-label="Search chats" autocomplete="off" /></div>
           <div class="ash-list" id="ashList"></div>
         </aside>
@@ -266,7 +267,7 @@
           </div>
           <div class="ib-tools">
             <div class="search-wrap has-filter ib-search" data-icon="search" data-icon-size="15">
-              <input id="ibSearch" class="search" type="search" placeholder="Search name, number or message"
+              <input data-1p-ignore data-lpignore="true" data-form-type="other" id="ibSearch" class="search" type="search" placeholder="Search name, number or message"
                 autocomplete="off" />
             </div>
             <div class="ib-filters">
@@ -295,7 +296,7 @@
           <p class="sub" id="ctSub">Everyone you message, with tags.</p>
         </div>
         <div class="in-head ct-bar">
-        <div class="search-wrap has-filter" data-icon="search" data-icon-size="15"><input class="search" id="ctSearch"
+        <div class="search-wrap has-filter" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="ctSearch"
             placeholder="Search contacts" title="Search by name, phone, email or company"
             aria-label="Search contacts" /><button type="button" class="num-filter" id="ctSourceBtn" aria-haspopup="menu" title="Filter by who added them"></button></div>
         <button type="button" class="ct-sortbtn ct-tagbtn" id="ctTagBtn" aria-haspopup="menu" title="Filter by tag"></button>
@@ -351,7 +352,7 @@
               target="_blank" rel="noopener">Meta's full list ↗</a></p>
         </div>
         <div class="in-head ec-bar">
-        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="ecSearch" type="search"
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="ecSearch" type="search"
             placeholder="Search codes or words" title="A code like 131031, or a word like template" autocomplete="off" /></div>
         <select id="ecFilter" aria-label="Category" title="Category"></select>
       </div>
@@ -372,7 +373,7 @@
           <p class="sub">Issues reported from this workspace, and whether the team has resolved them. Open one to see everything that was sent.</p>
         </div>
         <div class="in-head list-bar">
-        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="rsSearch" type="search"
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="rsSearch" type="search"
             placeholder="Search reports" autocomplete="off" /></div>
         <select id="rsFilter" aria-label="Status" title="Status"></select>
       </div>
@@ -418,7 +419,7 @@
       </div>
 
       <div class="sp-find hidden" id="spFindBar">
-        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="spFindQ"
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="spFindQ"
             placeholder="Find in sheet" /></div>
         <span class="sp-find-n" id="spFindN"></span>
         <button class="tool" id="spFindPrev" title="Previous (⇧Enter)">↑</button>
@@ -505,7 +506,7 @@
                     <button type="button" data-who="lead" role="radio" aria-checked="false">Person in preview</button>
                   </div>
                   <div class="row tight">
-                    <input id="testPhone" placeholder="Your number, e.g. 9876543210" inputmode="tel" maxlength="22" />
+                    <input id="testPhone" data-af-skip placeholder="Your number, e.g. 9876543210" inputmode="tel" maxlength="22" />
                     <button class="btn primary" id="testSend">Send</button>
                   </div>
                   <span class="sub" id="testNote"></span>
@@ -552,7 +553,7 @@
         </div>
         <div class="row tight num-head">
           <div class="search-wrap num-search hidden" id="numBar" data-icon="search" data-icon-size="15">
-            <input class="search" id="numSearch" type="search" placeholder="Search by name or number" autocomplete="off" />
+            <input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="numSearch" type="search" placeholder="Search by name or number" autocomplete="off" />
             <button type="button" class="num-filter" id="numFilter" aria-haspopup="menu" title="Filter by quality"></button>
           </div>
           <button class="btn primary" id="addSender" data-icon="plus">Add number</button>
@@ -569,7 +570,7 @@
           <p class="sub">Create templates here and Meta reviews them, or sync the ones you made in Meta. Only approved templates can be sent.</p>
         </div>
         <div class="in-head list-bar hidden" id="tplBar">
-        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="tplSearch" type="search"
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="tplSearch" type="search"
             placeholder="Search templates" autocomplete="off" /></div>
         <select id="tplCat" aria-label="Category" title="Category"></select>
         <select id="tplStatus" aria-label="Status" title="Review status">
@@ -746,7 +747,7 @@
               </div>
               <div class="ai-fields" data-for="gemini">
                 <label><span class="prov-label"><img class="prov-logo" src="/brand/gemini.svg" alt="" />Gemini API key</span> <span class="opt" id="geminiKeyState"></span>
-                  <input id="setGeminiKey" type="password" autocomplete="off" spellcheck="false"
+                  <input id="setGeminiKey" type="text" class="secret" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" spellcheck="false"
                     placeholder="Paste your key" />
                 </label>
                 <label>Model <span class="opt">from Google AI Studio</span>
@@ -761,7 +762,7 @@
               </div>
               <div class="ai-fields hidden" data-for="claude">
                 <label><span class="prov-label"><img class="prov-logo" src="/brand/claude.svg" alt="" />Anthropic API key</span> <span class="opt" id="aiKeyState"></span>
-                  <input id="setAiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…" />
+                  <input id="setAiKey" type="text" class="secret" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" spellcheck="false" placeholder="sk-ant-…" />
                 </label>
                 <p class="sub">Uses Claude Opus 5.5.</p>
               </div>
@@ -912,7 +913,7 @@
           <button data-f="invalid">Invalid <span class="n"></span></button>
           <button data-f="duplicate">Duplicates <span class="n"></span></button>
         </div>
-        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="fpSearch"
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="fpSearch"
             placeholder="Search rows" aria-label="Search rows" /></div>
         <label class="inline">Phone column <select id="fpPhone"></select></label>
       </div>
