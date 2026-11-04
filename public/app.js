@@ -1415,30 +1415,56 @@ function tplDates(t) {
   return parts.length ? `<div class="li-meta tpl-dates">${parts.map(esc).join(' · ')}</div>` : '';
 }
 
-// A template's variables as chips, each with the sample given when it was made: "{{1}} Ravi", "button {{1}} https://…".
-// The sample is cut short on the card; hovering shows all of it.
+// A template's variables as short chips. The preview above shows their sample values in place; hovering a chip
+// highlights its spot there. A link's sample isn't in the preview, so its chip shows it on hover.
 function varChips(t) {
   const label = (v) => (v.media ? v.media + ' URL' : `${v.where === 'header' ? 'header ' : /^button/.test(v.where) ? 'link ' : ''}{{${v.name}}}`);
   const seen = new Set();
   return t.variables.filter((v) => !seen.has(label(v)) && seen.add(label(v))).map((v) => {
-    const l = label(v);
-    return `<span class="var-chip${v.example ? ' has-ex' : ''}"${v.example ? ` title="${esc(`${l}, for example: ${v.example}`)}"` : ''}><b>${esc(l)}</b>${v.example ? `<span class="var-ex">${esc(v.example)}</span>` : ''}</span>`;
+    const tip = /^button/.test(v.where) && v.example ? ` title="${esc(`Sample: ${v.example}`)}"` : '';
+    return `<span class="var-chip" data-var="${esc(v.key)}"${tip}>${esc(label(v))}</span>`;
   }).join('');
 }
 
-// Scrolling over a template's message (or its variable chips) scrolls that first; once it's at the end, the same
-// wheel movement goes on scrolling the page. Chrome would otherwise stay "latched" to the box until the next gesture.
-document.addEventListener('wheel', (e) => {
-  if (e.ctrlKey || !e.deltaY) return;
-  const box = e.target.closest?.('#templateList .tpl-chat, #templateList .var-chips');
-  if (!box || box.scrollHeight <= box.clientHeight) return;
-  const atEnd = e.deltaY > 0 ? box.scrollTop + box.clientHeight >= box.scrollHeight - 1 : box.scrollTop <= 0;
-  if (!atEnd) return;
-  let page = box.parentElement;
+// Hovering a variable chip lights up that variable in the card's preview (and scrolls it into view there).
+document.addEventListener('pointerover', (e) => {
+  const chip = e.target.closest?.('#templateList .var-chip[data-var]');
+  const card = (chip || e.target).closest?.('.tpl-card');
+  card?.querySelectorAll('.bubble .var.lit').forEach((x) => x.classList.remove('lit'));
+  if (!chip) return;
+  const spots = [...card.querySelectorAll('.bubble .var')].filter((x) => x.dataset.var === chip.dataset.var);
+  spots.forEach((x) => x.classList.add('lit'));
+  const box = card.querySelector('.tpl-chat'), el = spots[0];
+  if (box && el) {
+    const r = el.getBoundingClientRect(), b = box.getBoundingClientRect();
+    if (r.top < b.top || r.bottom > b.bottom) box.scrollBy({ top: r.top - b.top - b.height / 3, behavior: 'smooth' });
+  }
+});
+
+// Scrolling and template cards, one scroll movement (a "gesture": wheel events less than 200ms apart) at a time:
+// - a gesture that starts over a template's message (or its variable chips) scrolls only that box and stops at its
+//   end; the page moves only with a new gesture once the box is already at its end.
+// - a gesture that starts on the page keeps scrolling the page, even when the pointer drifts over a card.
+const tplWheel = { at: 0, box: null, moved: false };
+function scrollPageFrom(el, e) {
+  let page = el.parentElement;
   while (page && !(page.scrollHeight > page.clientHeight && /auto|scroll/.test(getComputedStyle(page).overflowY))) page = page.parentElement;
   page ||= document.scrollingElement;
-  e.preventDefault();
   page.scrollBy({ top: e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * page.clientHeight : e.deltaY, behavior: 'instant' });
+}
+document.addEventListener('wheel', (e) => {
+  if (e.ctrlKey || !e.deltaY) return;
+  const t = performance.now(), fresh = t - tplWheel.at > 200;
+  tplWheel.at = t;
+  let box = e.target.closest?.('#templateList .tpl-chat, #templateList .var-chips');
+  if (box && box.scrollHeight <= box.clientHeight) box = null; // nothing to scroll in it
+  if (fresh) Object.assign(tplWheel, { box, moved: false });
+  if (!box) return;
+  if (box !== tplWheel.box) { e.preventDefault(); scrollPageFrom(box, e); return; } // the page's gesture carries on
+  const atEnd = e.deltaY > 0 ? box.scrollTop + box.clientHeight >= box.scrollHeight - 1 : box.scrollTop <= 0;
+  if (!atEnd) { tplWheel.moved = true; return; } // the box scrolls
+  e.preventDefault(); // at its end: stop here if this gesture scrolled the box, else move the page
+  if (!tplWheel.moved) scrollPageFrom(box, e);
 }, { passive: false });
 
 // Long template names end in "…" on one line; those get the full name in a tooltip (hover or keyboard focus).
@@ -1505,7 +1531,7 @@ function renderTemplates() {
       <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
       ${tplDates(t)}
       ${t.rejectedReason ? `<div class="tpl-reason">${icon('badge-alert', 14)}<span>Meta's reason: ${esc(t.rejectedReason.toLowerCase().replace(/_/g, ' '))}. Edit it and submit again.</span></div>` : ''}
-      <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
+      <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, Object.fromEntries(t.variables.filter((v) => v.example).map((v) => [v.key, v.example])), 'sample')}</div></div>
       ${t.variables.length ? `<div class="var-chips">${varChips(t)}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
       <div class="row tight">
         ${(() => { const why = tplSendBlock(t); return `<button class="btn sm${why ? ' is-off' : ''}" data-use="${t.id}" ${why ? `aria-disabled="true" data-tip="${esc(why)}"` : ''}>${icon('send', 15)}Use for sending</button>`; })()}
@@ -2489,7 +2515,7 @@ function fill(text, where, values, neutral = false) {
   const marked = esc(text).replace(/{{\s*([\w]+)\s*}}/g, (_, name) => {
     const val = values[`${where}.${name}`];
     const key = `data-var="${esc(`${where}.${name}`)}"`;
-    chips.push(val ? `<span class="var" ${key}>${waFormat(esc(val))}</span>` : `<span class="var ${neutral ? '' : 'empty'}" ${key}>{{${esc(name)}}}</span>`);
+    chips.push(val ? `<span class="var${neutral === 'sample' ? ' sample' : ''}" ${key}${neutral === 'sample' ? ` title="{{${esc(name)}}}: sample value"` : ''}>${waFormat(esc(val))}</span>` : `<span class="var ${neutral ? '' : 'empty'}" ${key}>{{${esc(name)}}}</span>`);
     return `\u0001${chips.length - 1}\u0001`;
   });
   return waFormat(marked).replace(/\u0001(\d+)\u0001/g, (_, n) => chips[n]);

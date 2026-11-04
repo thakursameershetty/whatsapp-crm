@@ -726,10 +726,10 @@ html:has(.modal:not(.hidden)) { overflow: hidden; }
 .tpl-chat .bubble { font-size: 13px; max-width: 100%; }
 .var-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .var-chip { font: 600 11.5px ui-monospace, Menlo, monospace; padding: 3px 8px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-text); }
-.var-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; min-width: 0; }
-.var-chip > b { font-weight: 600; flex: none; }
-/* The sample value beside the variable, in the normal font so it reads as text, cut short with "…" */
-.var-chip .var-ex { font: 500 12px Inter, sans-serif; color: var(--text); opacity: 0.8; min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.var-chip[data-var] { cursor: default; }
+/* Sample values in a template card's preview: highlighted like a filled-in variable; .lit while its chip is hovered */
+.bubble .var.sample { transition: background-color 0.15s, box-shadow 0.15s; }
+.bubble .var.lit { background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 
 /* Campaign list */
 .camp-filters { margin-bottom: 18px; }
