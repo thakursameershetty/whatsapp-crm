@@ -727,21 +727,28 @@
     let q = '', st = '';
     const body = openModal(`Campaigns · ${nameOf(c)}`, `<div class="ctw">
       <div class="ctw-bar"><div class="search-wrap" data-icon="search" data-icon-size="14"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="ctwQ" placeholder="Search campaigns or numbers" /></div>
-        <div class="seg ctw-seg" id="ctwSt" role="radiogroup" aria-label="How it went"></div></div>
+        <button type="button" class="ct-sortbtn ctw-stbtn" id="ctwSt" aria-haspopup="menu" title="Show by how it went"></button></div>
       <div class="ctw-sum ctl-sum">${campSummary(list)}</div>
       <ol class="ctl ctw-list" id="ctwList"></ol></div>`);
     $('#modal .modal-box').classList.add('wide', 'ctw-box');
     LA.hydrate(body);
     const STS = [['', 'All'], ['read', 'Read'], ['delivered', 'Delivered'], ['sent', 'Sent'], ['failed', 'Not delivered']].filter(([k]) => !k || list.some((x) => x.status === k));
     const draw = () => {
-      $('#ctwSt', body).innerHTML = STS.map(([k, label]) => `<button type="button" data-st="${k}" class="${st === k ? 'active' : ''}" role="radio" aria-checked="${st === k}">${k ? waMark(k) : ''}${label}<span class="ctw-n">${(k ? list.filter((x) => x.status === k).length : list.length).toLocaleString()}</span></button>`).join('');
+      const cur = STS.find(([k]) => k === st) || STS[0];
+      $('#ctwSt', body).innerHTML = `${st ? waMark(st) : icon('sliders-horizontal', 14)}<span>${esc(cur[1])}</span><span class="ctw-n">${(st ? list.filter((x) => x.status === st).length : list.length).toLocaleString()}</span>${icon('chevron-down', 14)}`;
+      $('#ctwSt', body).classList.toggle('on', Boolean(st));
       const qq = q.trim().toLowerCase();
       const shown = list.filter((x) => (!st || x.status === st) && (!qq || [x.name, senderName(x.senderId), x.error].some((v) => String(v || '').toLowerCase().includes(qq))));
       $('#ctwList', body).innerHTML = shown.map(campRow).join('') || '<p class="ctw-none">No campaigns match.</p>';
     };
     draw();
     $('#ctwQ', body).addEventListener('input', (e) => { q = e.target.value; draw(); });
-    $('#ctwSt', body).addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (b) { st = b.dataset.st; draw(); } });
+    // How it went: a dropdown (each choice with WhatsApp's mark and its count)
+    $('#ctwSt', body).addEventListener('click', (e) => {
+      e.stopPropagation();
+      const r = e.currentTarget.getBoundingClientRect();
+      Sheet.Menu.open(r.left, r.bottom + 6, STS.map(([k, label]) => ({ label, checked: st === k, kbd: (k ? list.filter((x) => x.status === k).length : list.length).toLocaleString(), pre: `<span class="mi-ic">${k ? waMark(k) : icon('list', 14)}</span>`, action: () => { st = k; draw(); } })));
+    });
     $('#ctwList', body).addEventListener('click', (e) => { const r = e.target.closest('[data-camp-sender]'); if (r && !e.target.closest('[data-ecode]')) openCampChat(c, r.dataset.campSender, true); });
     $('#ctwList', body).addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[data-camp-sender]')) { e.preventDefault(); e.target.click(); } });
     $('#ctwQ', body).focus();

@@ -2270,14 +2270,16 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .ctl-more { margin: 8px 0 0 46px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--info); cursor: pointer; }
 .ctl-more:hover { text-decoration: underline; }
 /* All campaigns window: search and a filter by how it went, a summary, and the same rows as the panel */
-.modal-box.ctw-box { width: min(760px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.modal-box.ctw-box { width: min(760px, calc(100vw - 32px)); max-width: none; height: min(640px, calc(100vh - 48px)); display: flex; flex-direction: column; } /* a fixed size: filtering changes the list inside, not the window */
 .modal-box.ctw-box #modalBody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .ctw { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .ctw-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
 .ctw-bar .search-wrap { flex: 1 1 220px; min-width: 0; }
 .ctw-bar .search { width: 100%; height: 36px; margin: 0; }
-.ctw-seg button { display: inline-flex; align-items: center; gap: 5px; }
-.ctw-seg .wa-mk { width: auto; }
+.ctw-stbtn { flex: none; height: 36px; margin: 0; background: var(--field); box-shadow: var(--sh-sunk); }
+.ctw-stbtn.on { background: var(--surface); box-shadow: var(--sh-raised); color: var(--text); }
+.ctw-stbtn .wa-mk { width: auto; }
+.ctw-stbtn span { font-weight: 500; }
 .ctw-n { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .ctw-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; margin: 0 -10px; padding: 2px 0 8px; }
 .ctw-none { margin: 20px 10px; color: var(--muted); }
