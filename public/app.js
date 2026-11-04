@@ -1444,9 +1444,9 @@ function renderTemplates() {
     <div class="card tpl-card">
       <div class="li-head">
         <h3>${esc(t.name)}</h3>
-        <span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span>
+        <span class="tpl-head-r">${t.categoryChangedFrom ? `<span class="cat-flag" tabindex="0" aria-label="Category changed by Meta" data-tip="${esc(`Submitted as ${catLabel(t.categoryChangedFrom)}, but Meta changed it to ${catLabel(t.category)}. It's charged and treated as a ${(t.category || '').toLowerCase()} message. Think that's wrong? Request a review in WhatsApp Manager → Business Support Home.`)}">${icon('triangle-alert', 16)}</span>` : ''}<span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span></span>
       </div>
-      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())}${t.categoryChangedFrom ? `<span class="cat-flag" tabindex="0" aria-label="Category changed by Meta" data-tip="${esc(`Submitted as ${catLabel(t.categoryChangedFrom)}, but Meta changed it to ${catLabel(t.category)}. It's charged and treated as a ${(t.category || '').toLowerCase()} message. Think that's wrong? Request a review in WhatsApp Manager → Business Support Home.`)}">${icon('badge-alert', 13)}</span>` : ''} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
+      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
       ${t.rejectedReason ? `<div class="tpl-reason">${icon('badge-alert', 14)}<span>Meta's reason: ${esc(t.rejectedReason.toLowerCase().replace(/_/g, ' '))}. Edit it and submit again.</span></div>` : ''}
       <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
       ${t.variables.length ? `<div class="var-chips">${[...new Set(t.variables.map((v) => (v.media ? v.media + ' URL' : `{{${v.name}}}`)))].map((label) => `<span class="var-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
@@ -1592,14 +1592,15 @@ function templateEditor(t = null) {
       <div class="te-form">
         ${card(1, 'Basics', '', `
           <div class="te-row">
-            <label class="te-name"><span>Name${t ? '' : '<span class="te-req">required</span>'}</span><input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="e.g. webinar_invite" maxlength="60" autocomplete="off">${t ? '' : '<span class="te-hint" id="teNameHint">Lowercase letters, numbers and underscores. Suggested from your message if left empty.</span>'}</label>
-            <label>Language<select name="language" ${t ? 'disabled' : ''}>${TPL_LANGS.map(([v, l]) => `<option value="${v}" ${v === spec.language ? 'selected' : ''}>${l}</option>`).join('')}${TPL_LANGS.some(([v]) => v === spec.language) ? '' : `<option value="${esc(spec.language)}" selected>${esc(spec.language)}</option>`}</select></label>
+            <label class="te-name"><span class="te-lbl">Name${t ? '' : '<span class="te-req">required</span>'}</span><span class="te-inline"><input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="e.g. webinar_invite" maxlength="512" autocomplete="off" spellcheck="false">${t ? '' : '<span class="te-count in hidden" id="teNameCount"></span>'}</span>${t ? '' : '<span class="te-hint te-name-hint" id="teNameHint" aria-live="polite"></span>'}</label>
+            <label><span class="te-lbl">Language</span><select name="language" ${t ? 'disabled' : ''}>${TPL_LANGS.map(([v, l]) => `<option value="${v}" ${v === spec.language ? 'selected' : ''}>${l}</option>`).join('')}${TPL_LANGS.some(([v]) => v === spec.language) ? '' : `<option value="${esc(spec.language)}" selected>${esc(spec.language)}</option>`}</select></label>
           </div>
-          <div class="te-field"><span class="field-label">Category</span>
+          <div class="te-field"><span class="field-label">Category ${(() => { const h = 'Meta checks the category when it reviews: a Utility template that promotes anything is moved to Marketing.'; return `<span class="sf-help" tabindex="0" role="img" aria-label="Help: ${esc(h)}" data-help="${esc(h)}">?</span>`; })()}</span>
             <div class="te-cats" role="radiogroup" aria-label="Category">${CATS.map(([v, l, ic, d]) => `<button type="button" role="radio" class="te-cat${spec.category === v ? ' on' : ''}" aria-checked="${spec.category === v}" data-cat="${v}"><span class="te-cat-ic">${icon(ic, 16)}</span><span><b>${l}</b><small>${d}</small></span></button>`).join('')}</div>
-            <span class="te-hint">Meta checks the category when it reviews: a Utility template that promotes anything is moved to Marketing.</span>
           </div>
-          ${live && !t && accounts.length > 1 ? `<label class="te-acct">Business Account<select name="senderId">${accounts.map((x) => `<option value="${x.id}">${esc(x.verifiedName || x.label)}</option>`).join('')}</select></label>` : ''}`)}
+          ${live && !t && accounts.length ? `<div class="te-acct"><span class="field-label">Business Account</span>
+            <select name="senderId" class="hidden" aria-hidden="true" tabindex="-1">${accounts.map((x) => `<option value="${x.id}">${esc(x.verifiedName || x.label)}</option>`).join('')}</select>
+            <button type="button" class="te-acct-btn${accounts.length > 1 ? '' : ' single'}" id="teAcct" ${accounts.length > 1 ? 'aria-haspopup="listbox"' : 'tabindex="-1"'}></button></div>` : ''}`)}
 
         ${card(2, 'Header', '<span class="opt">optional</span>', `
           <div class="te-hdrs" role="radiogroup" aria-label="Header">${HEADERS.map(([v, l, ic, d]) => `<button type="button" role="radio" class="te-hdr${spec.header.format === v ? ' on' : ''}" aria-checked="${spec.header.format === v}" data-hfmt="${v}" title="${d}">${icon(ic, 18)}<b>${l}</b><small>${d}</small></button>`).join('')}</div>
@@ -1614,6 +1615,7 @@ function templateEditor(t = null) {
             </div>
             <textarea name="bodyText" rows="7" maxlength="1024" placeholder="Hi {{1}}, your order {{2}} is on its way. Track it here: {{3}}">${esc(spec.body.text)}</textarea>
           </div>
+          <div id="teBodyWarn" class="te-warns" aria-live="polite"></div>
           <div id="teSamples" class="te-samples"></div>`)}
 
         ${card(4, 'Footer', '<span class="opt">optional</span><span class="te-count" id="teFooterCount"></span>', `
@@ -1625,7 +1627,7 @@ function templateEditor(t = null) {
       </div>
       <aside class="te-preview">
         <div class="te-phone">
-          <div class="te-phone-bar"><span class="te-phone-av">${icon('smartphone', 14)}</span><span><b>Preview</b><small>As customers see it, with your sample values</small></span></div>
+          <div class="te-phone-bar" id="tePhoneBar"></div>
           <div class="te-chat" id="teChat"><div class="bubble" id="tePreview"></div></div>
         </div>
         <p class="sub">${live ? 'Meta reviews every new or edited template, usually within minutes and at most a day. Its status updates here by itself.' : 'Demo mode: the template is saved here for practice and nothing goes to Meta.'}</p>
@@ -1640,6 +1642,69 @@ function templateEditor(t = null) {
   const form = $('#teForm', body), ta = $('[name=bodyText]', form), fileIn = $('#teFile', form);
   const status = $('#teStatus', body);
   const show = (kind, html) => { status.className = 'sf-status ' + kind; status.innerHTML = html; };
+
+
+  // --- Business Account: who the template is for (photo, WhatsApp name, number), also heading the preview ---
+  const acctOf = () => accounts.find((x) => x.id === $('[name=senderId]', form)?.value) || (t ? state.senders.find((x) => x.wabaId === t.wabaId) : accounts[0]);
+  const acctName = (x) => x?.verifiedName || x?.label || '';
+  const acctRow = (x) => `${senderPhotoHtml(x)}<span class="te-acct-t"><b>${esc(acctName(x))}</b><small>${esc(x.displayPhone || x.label || '')}</small></span>`;
+  const drawAcct = () => {
+    const x = acctOf(), btn = $('#teAcct', form);
+    if (btn && x) btn.innerHTML = acctRow(x) + (accounts.length > 1 ? icon('chevron-down', 15) : '');
+    $('#tePhoneBar', body).innerHTML = x
+      ? `${senderPhotoHtml(x)}<span><b>${esc(acctName(x))}</b><small>${esc(x.displayPhone || 'WhatsApp Business')}</small></span>`
+      : `<span class="te-phone-av">${icon('smartphone', 14)}</span><span><b>Preview</b></span>`;
+  };
+  $('#teAcct', form)?.addEventListener('click', (e) => {
+    if (accounts.length < 2) return;
+    const r = e.currentTarget.getBoundingClientRect(), cur = acctOf();
+    const pop = Sheet.Menu.panel(r.left, r.bottom + 6, `<div class="te-acct-list" role="listbox">${accounts.map((x) => `<button type="button" role="option" class="te-acct-opt${x.id === cur?.id ? ' on' : ''}" aria-selected="${x.id === cur?.id}" data-acct="${x.id}">${acctRow(x)}${x.id === cur?.id ? icon('check-one', 15) : ''}</button>`).join('')}</div>`);
+    pop.style.width = r.width + 'px';
+    Sheet.Menu.fit?.(pop, r);
+    pop.addEventListener('click', (ev) => {
+      const o = ev.target.closest('[data-acct]');
+      if (!o) return;
+      $('[name=senderId]', form).value = o.dataset.acct;
+      Sheet.Menu.close();
+      drawAcct();
+    });
+    pop.querySelector('.te-acct-opt.on, .te-acct-opt')?.focus();
+  });
+
+  // --- What Meta won't accept, caught as you type (the server checks the same) ---
+  // HTML or script tags show as plain text on WhatsApp, so they're never meant; a lone "<" or "a < b" is fine.
+  const HTML_TAG = /<\/?[a-z][a-z0-9-]*(\s[^<>]*)?\/?>|<!--|<\?[a-z]/i;
+  const TAG_MSG = 'Remove the HTML tags (like <b> or <script>): WhatsApp shows them as plain text. For formatting use the B, I and S buttons.';
+  const bodyIssues = () => {
+    const b = spec.body.text.trim(), out = [];
+    const first = b.match(/^{{\s*(\w+)\s*}}/), last = b.match(/{{\s*(\w+)\s*}}$/);
+    if (first) out.push(`The message starts with {{${first[1]}}}. Meta doesn't accept a variable at the very start: add a word before it, like “Hi {{${first[1]}}}”.`);
+    if (last) out.push(`The message ends with {{${last[1]}}}. Meta doesn't accept a variable at the very end: add a word or a full stop after it.`);
+    if (HTML_TAG.test(b)) out.push(TAG_MSG);
+    return out;
+  };
+  // What's wrong with a name, or ''. Meta takes lowercase letters, numbers and _, up to 512; a run of _ (from extra
+  // spaces, or typed) reads as a mistake, so it's flagged until fixed.
+  const nameProblem = (v) => (/__/.test(v) ? 'Use a single _ between words (there are several in a row)' : '');
+  // The name's helper line and count: only while it's being typed in (or just after a change worth saying).
+  let nameT = 0;
+  const nameHint = (msg) => {
+    const h = $('#teNameHint', body), cnt = $('#teNameCount', body), el = $('[name=name]', form);
+    if (!h) return;
+    const focused = document.activeElement === el;
+    cnt.textContent = `${el.value.length} / 512`;
+    cnt.classList.toggle('hidden', !focused && !el.value.length);
+    cnt.classList.toggle('warn', el.value.length >= 480);
+    const err = nameProblem(el.value);
+    el.classList.toggle('bad', Boolean(err));
+    h.textContent = err || msg || (focused ? 'Lowercase letters, numbers and _ · up to 512' : '');
+    h.classList.toggle('on', Boolean(h.textContent));
+    h.classList.toggle('bad', Boolean(err));
+    clearTimeout(nameT);
+    if (msg && !err) nameT = setTimeout(() => nameHint(''), 3200);
+  };
+  // A field with tags gets a red outline and says why on hover.
+  const markTags = (el) => { if (!el) return false; const bad = HTML_TAG.test(el.value); el.classList.toggle('bad', bad); el.title = bad ? TAG_MSG : ''; return bad; };
 
   // --- Header ---
   const MEDIA_ACCEPT = { IMAGE: 'image/jpeg,image/png', VIDEO: 'video/mp4', DOCUMENT: 'application/pdf' };
@@ -1741,6 +1806,9 @@ function templateEditor(t = null) {
         ? `<video class="media-img te-pv-video" src="${esc(h.preview)}" muted playsinline controls></video>`
         : `<button type="button" class="media te-pv-drop" data-pick title="${keeping ? 'Replace the sample' : `Add a sample ${kind}`}">${icon(h.format === 'IMAGE' ? 'image' : h.format === 'VIDEO' ? 'video' : 'file-text', 22)}<b>${keeping ? `Current sample ${kind}` : `Add a sample ${kind}`}</b><small>${keeping ? 'Click to replace' : 'Click or drop a file here'}</small></button>`;
     }
+    const issues = bodyIssues();
+    $('#teBodyWarn', body).innerHTML = issues.map((x) => `<p class="te-warn">${icon('badge-alert', 14)}<span>${esc(x)}</span></p>`).join('');
+    ta.classList.toggle('bad', issues.length > 0);
     const n = spec.body.text.length;
     $('#teBodyCount', body).textContent = `${n} / 1024`;
     $('#teBodyCount', body).classList.toggle('warn', n > 1000);
@@ -1799,28 +1867,37 @@ function templateEditor(t = null) {
   form.addEventListener('input', (e) => {
     const el = e.target;
     status.className = 'sf-status hidden';
-    if (el.name === 'name') { const v = el.value.toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, ''); if (v !== el.value) el.value = v; spec.name = v; el.dataset.suggested = ''; el.classList.toggle('bad', false); }
+    if (el.name === 'name') {
+      const raw = el.value, v = raw.toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, '');
+      const dropped = [...new Set(raw.replace(/[a-zA-Z0-9_\s-]/g, ''))].join(' ');
+      if (v !== raw) { const pos = Math.max(0, el.selectionStart - (raw.length - v.length)); el.value = v; el.setSelectionRange(pos, pos); }
+      spec.name = v; el.dataset.suggested = '';
+      nameHint(dropped ? `Only lowercase letters, numbers and _ (left out: ${dropped})` : /[A-Z\s-]/.test(raw) ? 'Capitals become lowercase, spaces and dashes become _' : '');
+    }
     else if (el.name === 'bodyText') {
       spec.body.text = el.value;
-      el.classList.remove('bad');
       // No name typed yet: suggest one from the message's first words (it stays editable).
       const nameEl = $('[name=name]', form);
       if (!t && (!nameEl.value || nameEl.dataset.suggested)) {
         const sug = el.value.replace(/{{\s*\d+\s*}}/g, ' ').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 4).join('_').slice(0, 40);
         nameEl.value = sug; spec.name = sug; nameEl.dataset.suggested = sug ? '1' : ''; nameEl.classList.remove('bad');
+        nameHint(sug ? 'Suggested from your message. Change it if you like.' : '');
       } if (tplVarNums(el.value).join() !== $$('[data-sample]', body).map((x) => Number(x.dataset.sample) + 1).join()) renderSamples(); }
-    else if (el.name === 'footer') spec.footer = el.value;
+    else if (el.name === 'footer') { spec.footer = el.value; markTags(el); }
     else if (el.name === 'headerText') {
       spec.header.text = el.value;
+      markTags(el);
       const cnt = $('.te-count.in', body); if (cnt) cnt.textContent = `${el.value.length} / 60`;
       if (Boolean(tplVarNums(el.value).length) !== Boolean($('[name=headerSample]', body))) { const pos = el.selectionStart; renderHeader(); const x = $('[name=headerText]', body); x.focus(); x.setSelectionRange(pos, pos); }
     }
-    else if (el.name === 'headerSample') spec.header.sample = el.value;
-    else if (el.dataset.sample != null) { spec.body.samples[Number(el.dataset.sample)] = el.value; el.classList.toggle('bad', Boolean(linkProblem(el.value))); el.title = linkProblem(el.value) ? `This ${linkProblem(el.value)}. Write the full link, e.g. https://example.com` : ''; }
-    else if (el.dataset.bf) { const b = spec.buttons[Number(el.closest('.te-btn').dataset.i)]; b[el.dataset.bf] = el.value; if (el.dataset.bf === 'url') { const bad = el.value.trim() && linkProblem(el.value, true); el.classList.toggle('bad', Boolean(bad)); el.title = bad ? 'Write the full link, starting with https://' : ''; } }
+    else if (el.name === 'headerSample') { spec.header.sample = el.value; markTags(el); }
+    else if (el.dataset.sample != null) { spec.body.samples[Number(el.dataset.sample)] = el.value; if (!markTags(el)) { el.classList.toggle('bad', Boolean(linkProblem(el.value))); el.title = linkProblem(el.value) ? `This ${linkProblem(el.value)}. Write the full link, e.g. https://example.com` : ''; } }
+    else if (el.dataset.bf) { const b = spec.buttons[Number(el.closest('.te-btn').dataset.i)]; b[el.dataset.bf] = el.value; if (el.dataset.bf === 'text') markTags(el); if (el.dataset.bf === 'url') { const bad = el.value.trim() && linkProblem(el.value, true); el.classList.toggle('bad', Boolean(bad)); el.title = bad ? 'Write the full link, starting with https://' : ''; } }
     renderPreview();
   });
   form.addEventListener('change', (e) => { if (e.target.name === 'language') spec.language = e.target.value; });
+  form.addEventListener('focusin', (e) => { if (e.target.name === 'name' && !t) nameHint(''); });
+  form.addEventListener('focusout', (e) => { if (e.target.name === 'name' && !t) setTimeout(() => nameHint(''), 0); });
 
   const fileData = (f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(f); });
   // Points at what's missing: scrolls to it, outlines it, and says so beside the buttons.
@@ -1828,9 +1905,14 @@ function templateEditor(t = null) {
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     if (!t && !spec.name.trim()) return missing($('[name=name]', form), 'Give the template a name, e.g. webinar_invite');
+    if (!t && nameProblem(spec.name)) { nameHint(''); return missing($('[name=name]', form), `${nameProblem(spec.name)}: e.g. ${esc(spec.name.replace(/_{2,}/g, '_'))}`); }
     const h = spec.header;
     if (MEDIA_ACCEPT[h.format] && !h.file && !(t && original === h.format)) { const d = $('.te-drop', body); missing(d, `Add a sample ${kindOf(h.format)} for the header: Meta needs it to review the template`); return; }
     if (!spec.body.text.trim()) return missing(ta, 'Write the message');
+    const issue = bodyIssues()[0];
+    if (issue) return missing(ta, esc(issue));
+    const tagged = $$('[name=headerText], [name=headerSample], [name=footer], [data-sample], [data-bf=text]', form).find((x) => HTML_TAG.test(x.value));
+    if (tagged) { markTags(tagged); return missing(tagged, esc(TAG_MSG)); }
     const btn = $('.te-actions .btn.primary', body);
     guard(async () => {
       if (t && String(t.status).toUpperCase() === 'APPROVED' && live && t.metaId) {
@@ -1854,6 +1936,7 @@ function templateEditor(t = null) {
     }, btn);
   });
 
+  drawAcct();
   renderHeader();
   renderSamples();
   renderButtons();

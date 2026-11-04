@@ -692,9 +692,18 @@
   const TP_SORTS = { name: ['Name A–Z', (a, b) => a.name.localeCompare(b.name)], new: ['Newest', (a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))], cat: ['Category', (a, b) => catLabel(a.category).localeCompare(catLabel(b.category)) || a.name.localeCompare(b.name)] };
   function openTemplatePicker() {
     if (!state.templates.length) { showTab('templates'); return toast('Add or sync a template first'); }
-    let pick = $('#templateSelect').value || '';
-    const nums = state.senders.filter((x) => x.enabled);
-    const body = openModal('Choose a template', `
+    templatePicker({
+      selected: $('#templateSelect').value || '',
+      onUse: (id) => { $('#templateSelect').value = id; $('#templateSelect').dispatchEvent(new Event('change')); },
+    });
+  }
+  // The template window, shared with the Inbox (window.TemplatePicker). selected: the one picked now; block(t): why a
+  // template can't be picked here, or null (default: not approved); nums: the numbers for the number filter; firstWaba:
+  // the Business Account listed first; onUse(id): what picking does. It returns true when it opened another window in
+  // this one's place (so this one doesn't close under it).
+  function templatePicker({ selected = '', block = tplSendBlock, nums = state.senders.filter((x) => x.enabled), firstWaba = '', title = 'Choose a template', useText = 'Use this template', onUse }) {
+    let pick = selected;
+    const body = openModal(title, `
       <div class="tp-bar">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="tpQ" placeholder="Search name or message" autocomplete="off" /></div>
         <select id="tpCat" aria-label="Category"></select>
@@ -703,15 +712,15 @@
         <button type="button" class="ct-sortbtn tp-sort" id="tpSort" aria-haspopup="menu"></button>
       </div>
       <div class="tp-grid" id="tpGrid"></div>
-      <div class="tp-foot"><button type="button" class="btn quiet tp-manage" id="tpManage" title="Create, edit or sync templates on the Templates page">${icon('settings', 15)}Manage templates</button><span class="tp-count" id="tpCount"></span><button class="btn quiet" id="tpCancel">Cancel</button><button class="btn primary" id="tpUse" disabled>Use this template</button></div>`);
+      <div class="tp-foot"><button type="button" class="btn quiet tp-manage" id="tpManage" title="Create, edit or sync templates on the Templates page">${icon('settings', 15)}Manage templates</button><span class="tp-count" id="tpCount"></span><button class="btn quiet" id="tpCancel">Cancel</button><button class="btn primary" id="tpUse" disabled>${esc(useText)}</button></div>`);
     $('#modal .modal-box').classList.add('wide', 'tp-box');
     LA.hydrate(body);
     $('#tpQ', body).value = TP.q;
     const shown = () => {
       const q = TP.q.trim().toLowerCase();
-      const n = state.senders.find((x) => x.id === TP.num);
+      const n = nums.length > 1 && state.senders.find((x) => x.id === TP.num); // (no number filter shown: none applies)
       return state.templates.filter((t) => (!TP.cat || catLabel(t.category) === TP.cat)
-        && (TP.status === 'ready' ? !tplSendBlock(t) : !TP.status || String(t.status).toUpperCase() === TP.status)
+        && (TP.status === 'ready' ? !block(t) : !TP.status || String(t.status).toUpperCase() === TP.status)
         && (!n || templateSenders(t, [n]).length)
         && (!q || [t.name, t.language, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase().includes(q))).sort(TP_SORTS[TP.sort][1]);
     };
@@ -724,7 +733,7 @@
       const list = shown();
       $('#tpCount', body).textContent = `${list.length} template${list.length === 1 ? '' : 's'}`;
       const card = (t) => {
-        const why = tplSendBlock(t);
+        const why = block(t);
         const st = String(t.status || '').toUpperCase();
         return `<div class="tp-card ${t.id === pick ? 'on' : ''} ${why ? 'off' : ''}" data-id="${t.id}" role="option" aria-selected="${t.id === pick}" tabindex="${why ? -1 : 0}" ${why ? `title="${esc(why)}"` : ''}>
           <div class="tp-card-head"><b>${esc(t.name)}</b><span class="pill ${esc(st)}">${esc(TPL_STATUS[st] || t.status || '')}</span></div>
@@ -735,7 +744,7 @@
       };
       // In sections by number, as in the dropdown: numbers in different WhatsApp Business Accounts send different
       // templates. One account: a single grid.
-      const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))];
+      const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))].sort((a, b) => (b === firstWaba) - (a === firstWaba));
       const sections = accounts.length > 1
         ? [...accounts.map((w) => ({ w, ts: list.filter((t) => t.wabaId === w) })), { w: '', ts: list.filter((t) => !accounts.includes(t.wabaId)) }].filter((x) => x.ts.length)
         : [{ w: null, ts: list }];
@@ -746,14 +755,12 @@
       };
       $('#tpGrid', body).innerHTML = list.length ? sections.map((sec) => `<section class="tp-group">${head(sec)}<div class="tp-cards">${sec.ts.map(card).join('')}</div></section>`).join('') : `<div class="tp-none">${emptyState({ icon: 'search', title: 'No templates match', text: 'Try another word or filter.', actions: '<button class="btn" data-tp-clear>Clear filters</button>' })}</div>`;
       LA.hydrate($('#tpGrid', body));
-      $('#tpUse', body).disabled = !pick || Boolean(tplSendBlock(state.templates.find((t) => t.id === pick) || {}));
+      $('#tpUse', body).disabled = !pick || Boolean(block(state.templates.find((t) => t.id === pick) || {}));
     };
     draw();
     const use = () => {
       if (!pick) return;
-      $('#templateSelect').value = pick;
-      $('#templateSelect').dispatchEvent(new Event('change'));
-      closeModal();
+      if (!onUse(pick)) closeModal();
     };
     $('#tpQ', body).oninput = (e) => { TP.q = e.target.value; draw(); };
     $('#tpCat', body).onchange = (e) => { TP.cat = e.target.value; draw(); };
@@ -777,6 +784,7 @@
     requestAnimationFrame(() => { const on = $('.tp-card.on', body); if (on) on.scrollIntoView({ block: 'nearest' }); else $('#tpQ', body).focus(); });
   }
   $('#tplPickBtn').addEventListener('click', openTemplatePicker);
+  window.TemplatePicker = templatePicker;
 
   // A "Visit website" button whose link is …/go/{{1}} (see goCode on the server) takes a full link.
   const goButton = (t, v) => {

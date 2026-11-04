@@ -1523,7 +1523,26 @@
   // Send a template to this person: pick it (with the category chips, like the Send page), fill in its variables (a
   // header file can be uploaded), and watch the message take shape beside the fields. Then a review step, and once
   // sent there are 5 seconds to undo before it goes. Undo brings this window back as it was.
+  // First the template window (the Send page's, with search, filters and previews): what this chat's number can't
+  // send shows greyed with the reason. Picking one goes on to its variables.
   function templateModal(prev = null) {
+    if (prev?.templateId || !window.TemplatePicker) return fillTemplate(prev);
+    const key = ib.key, senderId = key.split(':')[0];
+    const sender = state.senders.find((s) => s.id === senderId);
+    if (!state.templates.some((t) => !tplSendBlock(t) && (!sender || templateSenders(t, [sender]).length))) return toast('No approved template can be sent from this number yet (Templates page)', 'error');
+    let lastTpl = '';
+    try { lastTpl = localStorage.getItem('ibTpl') || ''; } catch {}
+    window.TemplatePicker({
+      title: `Send a template to ${current()?.name || fmtPhone(current()?.wa || key.split(':')[1])}`,
+      useText: 'Next',
+      selected: prev?.pickFrom || lastTpl,
+      nums: [],
+      firstWaba: sender?.wabaId,
+      block: (t) => tplSendBlock(t) || (sender && !templateSenders(t, [sender]).length ? `Not from ${sender.label}: it belongs to another Business Account` : null),
+      onUse: (id) => { if (ib.key !== key) return false; try { localStorage.setItem('ibTpl', id); } catch {} fillTemplate({ templateId: id, values: prev?.values }); return true; },
+    });
+  }
+  function fillTemplate(prev = null) {
     const key = ib.key, c = current();
     const senderId = key.split(':')[0];
     const sender = state.senders.find((s) => s.id === senderId);
@@ -1554,7 +1573,8 @@
       `<div class="it-grid">
         <div class="it-fields">
           <p class="sub it-to">To ${to} · via ${esc(sender?.label || c?.senderLabel || '')}</p>
-          <label>Template<select id="itTpl" data-chips><option value="">— Choose a template —</option>${tplOptions()}</select></label>
+          <div class="it-tpl-l"><span class="field-label">Template</span><select id="itTpl" class="hidden" aria-hidden="true" tabindex="-1"><option value="">— Choose a template —</option>${tplOptions()}</select>
+            <button type="button" class="tp-btn" id="itChange" aria-haspopup="dialog"></button></div>
           <div class="it-vars-wrap" id="itVarsWrap"><div class="field-label">Fill in the variables</div><div id="itVars"></div></div>
           <div class="it-review hidden" id="itReview"></div>
         </div>
@@ -1571,6 +1591,9 @@
     const defaultFor = (t, v) => t.linkDefaults?.[/^button(\d+)$/.exec(v.where)?.[1]] || (v.key === 'body.1' || /name/i.test(v.name) ? firstName : '');
     const preview = () => {
       const t = tpl();
+      $('#itChange', body).innerHTML = t
+        ? `${icon('file-text', 16)}<span class="tp-btn-main"><b>${esc(t.name)}</b><small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}${t.variables.length ? ` · ${t.variables.length} variable${t.variables.length > 1 ? 's' : ''}` : ' · no variables'}</small></span><span class="tp-btn-act">Change</span>`
+        : `${icon('file-text', 16)}<span class="tp-btn-main"><b>Choose a template</b></span>${icon('chevron-down', 15)}`;
       $('#itPrev', body).innerHTML = t ? bubbleHtml(t, values) : '<span class="muted">Pick a template to see the message here.</span>';
     };
     const row = (t, v) => {
@@ -1616,7 +1639,7 @@
     const setStep = (next) => {
       step = next;
       const t = tpl(), review = next === 'review';
-      $('#itTpl', body).closest('label').classList.toggle('hidden', review);
+      $('#itTpl', body).closest('.it-tpl-l').classList.toggle('hidden', review);
       $('#itVarsWrap', body).classList.toggle('hidden', review || !t);
       $('#itReview', body).classList.toggle('hidden', !review);
       if (review) {
@@ -1635,6 +1658,8 @@
     };
     draw();
     $('#itTpl', body).onchange = () => { try { localStorage.setItem('ibTpl', $('#itTpl', body).value); } catch {} draw(); };
+    // Change: back to the template window, keeping what's been typed (a variable with the same name carries over)
+    $('#itChange', body).onclick = () => templateModal({ pickFrom: $('#itTpl', body).value, values });
     $('#itVars', body).addEventListener('input', (e) => {
       const r = e.target.closest('.sp-map');
       if (!r || !e.target.matches('.m-val')) return;

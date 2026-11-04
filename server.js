@@ -1115,9 +1115,15 @@ function categoryChangedFrom(existing, category, previous) {
 // The editor sends a plain description ({ name, language, category, header, body, footer, buttons }); this turns
 // it into Meta's template format, with the sample values Meta's review needs. Variables are numbered {{1}}, {{2}}…
 const TEMPLATE_LIMITS = { header: 60, body: 1024, footer: 60, button: 25, buttons: 10 };
+// HTML or script tags (<b>, </script>, <img …>, <!-- …): WhatsApp shows them as plain text, so they're never meant.
+// Formatting is *bold*, _italic_, ~strike~ and ```mono```. A lone "<" or "a < b" is fine.
+const HTML_TAG = /<\/?[a-z][a-z0-9-]*(\s[^<>]*)?\/?>|<!--|<\?[a-z]/i;
 const varsIn = (text) => [...String(text || '').matchAll(/{{\s*(\w+)\s*}}/g)].map((m) => m[1]);
 function templateComponents(spec, { handle, linkBase }) {
   const out = [];
+  const noTags = (text, where) => { if (HTML_TAG.test(String(text || ''))) throw fail(`${where}: remove the HTML tags (like <b> or <script>). WhatsApp shows them as plain text. For formatting use *bold*, _italic_ or ~strikethrough~.`); };
+  for (const [v, where] of [[spec.header?.text, 'Header'], [spec.header?.sample, 'Header sample'], [spec.body?.text, 'Message'], [spec.footer, 'Footer'],
+    ...(spec.body?.samples || []).map((x, i) => [x, `Sample for {{${i + 1}}}`]), ...(spec.buttons || []).map((b) => [b.text, 'Button text'])]) noTags(v, where);
   const checkVars = (text, where) => {
     const v = varsIn(text);
     if (v.some((x) => !/^\d+$/.test(x))) throw fail(`${where}: use numbered variables like {{1}}, {{2}}`);
@@ -1235,7 +1241,9 @@ const TEMPLATE_CATEGORIES = ['MARKETING', 'UTILITY'];
 app.post('/api/templates/meta', wrap(async (req, res) => {
   const spec = req.body;
   const name = String(spec.name || '').trim();
-  if (!/^[a-z0-9_]{1,512}$/.test(name)) throw fail('Name the template with lowercase letters, numbers and underscores, e.g. order_update');
+  // Meta's rule: lowercase letters, numbers and underscores, up to 512 characters. A run of underscores is a mistake.
+  if (!/^[a-z0-9_]{1,512}$/.test(name)) throw fail(name.length > 512 ? 'Keep the template name to 512 characters' : 'Name the template with lowercase letters, numbers and underscores, e.g. order_update');
+  if (/__/.test(name)) throw fail(`Use a single underscore between words in the name, e.g. ${name.replace(/_{2,}/g, '_')}`);
   const language = String(spec.language || '').trim();
   if (!/^[a-z]{2,3}(_[A-Z]{2})?$/.test(language)) throw fail('Pick the language');
   const category = String(spec.category || '').toUpperCase();
