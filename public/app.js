@@ -1404,19 +1404,27 @@ window.templateSenders = (t, list = state.senders) => list.filter((s) => canSend
 const accountLabel = (wabaId) => state.senders.filter((s) => s.wabaId === wabaId).map((s) => s.label).join(', ');
 window.accountLabel = accountLabel;
 state.tplSender = '';
-// "Created 4 Nov 2026, 3:12 pm · Approved 4 Nov 2026, 5:40 pm". Templates made in WhatsApp Manager show when they
-// were first synced here instead, since Meta doesn't share when they were made.
+// One short date at the end of the card's grey line ("· Approved 4 Nov"; the year only when it isn't this year), with
+// every date in full on hover. Templates made in WhatsApp Manager show when they were first synced instead of
+// created, since Meta doesn't share that.
 const tplWhen = (d) => new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+const tplDay = (d) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', ...(new Date(d).getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
 function tplDates(t) {
-  const parts = [];
-  if (t.createdAt) parts.push(`Created ${tplWhen(t.createdAt)}`);
-  else if (t.firstSeenAt) parts.push(`Synced ${tplWhen(t.firstSeenAt)}`);
-  if (t.approvedAt) parts.push(`Approved ${tplWhen(t.approvedAt)}`);
-  return parts.length ? `<div class="li-meta tpl-dates">${parts.map(esc).join(' · ')}</div>` : '';
+  const all = [t.createdAt && ['Created', t.createdAt], !t.createdAt && t.firstSeenAt && ['Synced', t.firstSeenAt], t.approvedAt && ['Approved', t.approvedAt]].filter(Boolean);
+  if (!all.length) return '';
+  const [word, d] = all[all.length - 1];
+  return ` · <span class="tpl-date" title="${esc(all.map(([w, x]) => `${w} ${tplWhen(x)}`).join('\n'))}">${word} ${esc(tplDay(d))}</span>`;
 }
 
 // A template's variables as short chips. The preview above shows their sample values in place; hovering a chip
 // highlights its spot there. A link's sample isn't in the preview, so its chip shows it on hover.
+// The sample values a template was made with, for its card's preview, including its saved header image, video or document.
+function tplSamples(t) {
+  const values = Object.fromEntries(t.variables.filter((v) => v.example).map((v) => [v.key, v.example]));
+  if (t.headerSample) values['header.media'] = location.origin + t.headerSample;
+  return values;
+}
+
 function varChips(t) {
   const label = (v) => (v.media ? v.media + ' URL' : `${v.where === 'header' ? 'header ' : /^button/.test(v.where) ? 'link ' : ''}{{${v.name}}}`);
   const seen = new Set();
@@ -1528,10 +1536,9 @@ function renderTemplates() {
         <h3 class="tpl-title"><span class="tpl-name">${esc(t.name)}</span></h3>
         <span class="tpl-head-r">${t.categoryChangedFrom ? `<span class="cat-flag" tabindex="0" aria-label="Category changed by Meta" data-tip="${esc(`Submitted as ${catLabel(t.categoryChangedFrom)}, but Meta changed it to ${catLabel(t.category)}. It's charged and treated as a ${(t.category || '').toLowerCase()} message. Think that's wrong? Request a review in WhatsApp Manager → Business Support Home.`)}">${icon('triangle-alert', 16)}</span>` : ''}<span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span></span>
       </div>
-      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
-      ${tplDates(t)}
+      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}${tplDates(t)}</div>
       ${t.rejectedReason ? `<div class="tpl-reason">${icon('badge-alert', 14)}<span>Meta's reason: ${esc(t.rejectedReason.toLowerCase().replace(/_/g, ' '))}. Edit it and submit again.</span></div>` : ''}
-      <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, Object.fromEntries(t.variables.filter((v) => v.example).map((v) => [v.key, v.example])), 'sample')}</div></div>
+      <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, tplSamples(t), 'sample')}</div></div>
       ${t.variables.length ? `<div class="var-chips">${varChips(t)}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
       <div class="row tight">
         ${(() => { const why = tplSendBlock(t); return `<button class="btn sm${why ? ' is-off' : ''}" data-use="${t.id}" ${why ? `aria-disabled="true" data-tip="${esc(why)}"` : ''}>${icon('send', 15)}Use for sending</button>`; })()}
@@ -1886,7 +1893,7 @@ function templateEditor(t = null) {
     if (spot && MEDIA_ACCEPT[h.format]) {
       const kind = kindOf(h.format), keeping = t && original === h.format && !h.file;
       spot.outerHTML = h.format === 'VIDEO' && h.preview
-        ? `<video class="media-img te-pv-video" src="${esc(h.preview)}" muted playsinline controls></video>`
+        ? videoHtml(h.preview, 'te-pv-video')
         : `<button type="button" class="media te-pv-drop" data-pick title="${keeping ? 'Replace the sample' : `Add a sample ${kind}`}">${icon(h.format === 'IMAGE' ? 'image' : h.format === 'VIDEO' ? 'video' : 'file-text', 22)}<b>${keeping ? `Current sample ${kind}` : `Add a sample ${kind}`}</b><small>${keeping ? 'Click to replace' : 'Click or drop a file here'}</small></button>`;
     }
     const issues = bodyIssues();
@@ -2005,7 +2012,7 @@ function templateEditor(t = null) {
       show('busy', `<span class="sf-spin"></span>${live && (!t || t.metaId) ? 'Sending to Meta…' : 'Saving…'}`);
       const payload = {
         name: spec.name, language: $('[name=language]', form).value, category: spec.category, senderId: $('[name=senderId]', form)?.value,
-        header: { format: h.format, text: h.text, sample: h.sample, file: h.file ? { mime: h.file.type, data: await fileData(h.file) } : null },
+        header: { format: h.format, text: h.text, sample: h.sample, file: h.file ? { mime: h.file.type, name: h.file.name, data: await fileData(h.file) } : null },
         body: { text: spec.body.text, samples: tplVarNums(spec.body.text).map((n) => spec.body.samples[n - 1] || '') },
         footer: spec.footer, buttons: spec.buttons,
       };
@@ -2521,6 +2528,44 @@ function fill(text, where, values, neutral = false) {
   return waFormat(marked).replace(/\u0001(\d+)\u0001/g, (_, n) => chips[n]);
 }
 
+// A video the way WhatsApp shows one: its first frame, a round play button and its length; click to play or pause
+// (a thin progress bar runs along the bottom), double-click or the corner button for full screen. Used in message
+// bubbles, the Inbox and the template editor. Behaviour below, shared by every .vid on the page.
+const PLAY_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 5.6v12.8a1 1 0 0 0 1.5.86l10.2-6.4a1 1 0 0 0 0-1.72L9.5 4.74A1 1 0 0 0 8 5.6z"/></svg>';
+const FULL_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
+function videoHtml(src, cls = '') {
+  const u = String(src || '');
+  const first = /^blob:/.test(u) || u.includes('#') ? u : u + '#t=0.1'; // #t: Chrome paints the first frame as the thumbnail
+  return `<div class="vid ${cls}" data-vid><video src="${esc(first)}" preload="metadata" playsinline></video>`
+    + `<button type="button" class="vid-play" aria-label="Play video">${PLAY_SVG}</button>`
+    + `<span class="vid-time">${icon('video', 12)}<span class="vid-len"></span></span>`
+    + `<button type="button" class="vid-full" aria-label="Full screen">${FULL_SVG}</button><i class="vid-bar"><b></b></i></div>`;
+}
+const vidClock = (sec) => (Number.isFinite(sec) ? `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}` : '');
+document.addEventListener('click', (e) => {
+  const box = e.target.closest?.('.vid');
+  if (!box) return;
+  e.preventDefault(); e.stopPropagation(); // a video inside a link or clickable card shouldn't open that too
+  const v = box.querySelector('video');
+  if (e.target.closest('.vid-full')) { (v.requestFullscreen || v.webkitEnterFullscreen)?.call(v); v.controls = true; return v.play().catch(() => {}); }
+  if (v.paused) { document.querySelectorAll('.vid.playing video').forEach((o) => o !== v && o.pause()); v.play().catch(() => box.classList.add('broken')); } else v.pause();
+});
+document.addEventListener('dblclick', (e) => { const v = e.target.closest?.('.vid')?.querySelector('video'); if (v) { v.controls = true; (v.requestFullscreen || v.webkitEnterFullscreen)?.call(v); } });
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.querySelectorAll('.vid video[controls]').forEach((v) => (v.controls = false)); });
+// Media events don't bubble, so these listen in the capture phase.
+const vidOf = (e) => (e.target?.tagName === 'VIDEO' ? e.target.closest('.vid') : null);
+document.addEventListener('loadedmetadata', (e) => { const b = vidOf(e); if (b) { b.querySelector('.vid-len').textContent = vidClock(e.target.duration); b.classList.add('ready'); } }, true);
+document.addEventListener('error', (e) => { vidOf(e)?.classList.add('broken'); }, true);
+document.addEventListener('play', (e) => vidOf(e)?.classList.add('playing'), true);
+document.addEventListener('pause', (e) => vidOf(e)?.classList.remove('playing'), true);
+document.addEventListener('ended', (e) => { const b = vidOf(e); if (b) { b.classList.remove('playing'); e.target.currentTime = 0.1; } }, true);
+document.addEventListener('timeupdate', (e) => {
+  const b = vidOf(e), v = e.target;
+  if (!b || !v.duration) return;
+  b.querySelector('.vid-bar b').style.width = `${(100 * v.currentTime) / v.duration}%`;
+  b.querySelector('.vid-len').textContent = vidClock(b.classList.contains('playing') ? v.duration - v.currentTime : v.duration);
+}, true);
+
 // WhatsApp bubble for a template. Unfilled variables show as {{name}} chips.
 // `meta` (the Inbox's time and ticks) goes under the text and above the buttons, as on the phone.
 function bubbleHtml(t, values, neutral = false, meta = '') {
@@ -2531,12 +2576,14 @@ function bubbleHtml(t, values, neutral = false, meta = '') {
     else {
       const url = values['header.media'];
       const isImg = h.format === 'IMAGE' && /^(https?:\/\/|blob:)/.test(url || '');
+      const isVideo = h.format === 'VIDEO' && /^(https?:\/\/|blob:)/.test(url || '');
       // A real image keeps its own shape, like on the phone; until there is one, a placeholder box.
       let docName = h.format === 'DOCUMENT' && url ? String(values['header.filename'] || '').trim() || decodeURIComponent(String(url).split('/').pop() || '') : '';
       if (/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(docName)) docName = 'Document.pdf'; // an upload from before names were kept
       if (docName && !/\.[a-z0-9]{2,4}$/i.test(docName)) docName += '.pdf'; // the server adds it when sending, too
       // A PDF opens in the preview popup (pdfViewer) when clicked.
       html += isImg ? `<img class="media-img" src="${esc(url)}" alt="" loading="lazy" />`
+        : isVideo ? videoHtml(url)
         : docName && /^(https?:\/\/|blob:)/.test(url) ? `<a class="media media-doc" href="${esc(url)}" target="_blank" rel="noopener" data-pdf="${esc(url)}" data-pdf-name="${esc(docName)}" title="Preview ${esc(docName)}">${icon('file-text', 22)}<span>${esc(docName)}</span><small>Preview</small></a>`
         : `<div class="media">${esc(h.format.toLowerCase())}</div>`;
     }

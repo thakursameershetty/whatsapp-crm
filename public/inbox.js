@@ -1109,7 +1109,7 @@
         h += `<a class="ib-media ${m.type}" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${m.type}" loading="lazy" onerror="this.parentNode.classList.add('broken')"></a>`;
         break;
       case 'video':
-        h += `<video class="ib-media" controls preload="metadata" src="${src}"></video>`;
+        h += videoHtml(src, 'ib-media');
         break;
       case 'audio':
         h += `<audio class="ib-audio" controls preload="none" src="${src}"></audio>`;

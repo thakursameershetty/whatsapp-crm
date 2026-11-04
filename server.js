@@ -1117,6 +1117,7 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
       errors.push(`WABA ${wabaId}: ${e.message}`);
     }
   }
+  await fetchMetaSamples(db.templates.filter((t) => t.source === 'synced' && accounts.has(t.wabaId)));
   save();
   res.json({ synced, errors, templates: db.templates.map(publicTemplate) });
 }));
@@ -1241,6 +1242,52 @@ async function linkBaseFor(req, spec) {
   }
   return d;
 }
+// A copy of a template's header image, video or document sample, kept with the uploads (/u/…) so the Templates
+// page can show it. Meta's own sample links expire, and a template made here only has Meta's upload code.
+const SAMPLE_MIME = { IMAGE: 'image/jpeg', VIDEO: 'video/mp4', DOCUMENT: 'application/pdf' };
+function keepSample(buf, mime, format, name = '') {
+  const ext = (UPLOAD_TYPES[mime] || UPLOAD_TYPES[SAMPLE_MIME[format]])[0];
+  const file = `${crypto.createHash('sha256').update(buf).digest('hex').slice(0, 32)}.${ext}`;
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  if (!fs.existsSync(path.join(UPLOAD_DIR, file))) fs.writeFileSync(path.join(UPLOAD_DIR, file), buf);
+  const nice = format === 'DOCUMENT' ? safeFileName(name, ext) : '';
+  return `/u/${file}${nice ? '/' + encodeURIComponent(nice) : ''}`;
+}
+const sampleFileOk = (p) => /^\/u\/[0-9a-f]{32}\.[a-z0-9]{2,4}/.test(p || '') && fs.existsSync(path.join(UPLOAD_DIR, p.split('/')[2]));
+// The sample picked in the template form, saved; '' when none was uploaded this time.
+function formSample(spec) {
+  const f = spec.header?.file, format = String(spec.header?.format || 'NONE').toUpperCase();
+  if (!f?.data || !SAMPLE_MIME[format]) return '';
+  try { return keepSample(Buffer.from(String(f.data), 'base64'), String(f.mime || '').toLowerCase(), format, f.name); } catch { return ''; }
+}
+// The template's sample after a create or edit: the new upload, else the one it had (if the header kind is the same).
+function sampleAfterEdit(spec, t) {
+  const format = String(spec.header?.format || 'NONE').toUpperCase();
+  if (!SAMPLE_MIME[format]) return {};
+  const fresh = formSample(spec);
+  if (fresh) return { headerSample: fresh, headerSampleFrom: '' };
+  return t?.headerSample && (t.components || []).some((c) => String(c.type).toUpperCase() === 'HEADER' && c.format === format) ? {} : { headerSample: '' };
+}
+// Sync: download the sample Meta shows for each image/video/document template that has no saved copy yet (or whose
+// sample changed in Meta). Failures are skipped quietly; the card keeps its placeholder.
+async function fetchMetaSamples(list) {
+  for (const t of list) {
+    const h = (t.components || []).find((c) => String(c.type).toUpperCase() === 'HEADER');
+    const from = h?.example?.header_handle?.[0];
+    if (!SAMPLE_MIME[h?.format] || !/^https:\/\//.test(from || '')) continue;
+    if (sampleFileOk(t.headerSample) && (!t.headerSampleFrom || t.headerSampleFrom === from)) continue;
+    try {
+      const r = await fetch(from, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) continue;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (!buf.length || buf.length > 16 * 1024 * 1024) continue;
+      const mime = String(r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      t.headerSample = keepSample(buf, mime, h.format, t.headerSample?.split('/')[3] ? decodeURIComponent(t.headerSample.split('/')[3]) : '');
+      t.headerSampleFrom = from;
+    } catch {}
+  }
+}
+
 async function headerHandle(s, spec, t) {
   const f = spec.header?.file;
   const format = String(spec.header?.format || 'NONE').toUpperCase();
@@ -1273,7 +1320,7 @@ app.post('/api/templates/meta', wrap(async (req, res) => {
     // Demo: nothing goes to Meta; the template is kept here as if approved, for practice sends.
     const components = templateComponents(spec, { handle: 'demo', linkBase: await linkBaseFor(req, spec) });
     if (db.templates.some((x) => x.name === name && x.language === language)) throw fail('A template with this name and language already exists');
-    const t = { id: id(), name, language, category, status: 'MANUAL', source: 'manual', parameterFormat: 'POSITIONAL', components, linkDefaults: components.linkDefaults, createdAt: now, updatedAt: now };
+    const t = { id: id(), name, language, category, status: 'MANUAL', source: 'manual', parameterFormat: 'POSITIONAL', components, linkDefaults: components.linkDefaults, ...sampleAfterEdit(spec), createdAt: now, updatedAt: now };
     db.templates.push(t);
     save();
     return res.json(publicTemplate(t));
@@ -1282,7 +1329,7 @@ app.post('/api/templates/meta', wrap(async (req, res) => {
   if (db.templates.some((x) => x.wabaId === s.wabaId && x.name === name && x.language === language)) throw fail('A template with this name and language already exists. Pick another name, or edit that one.');
   const components = templateComponents(spec, { handle: await headerHandle(s, spec), linkBase: await linkBaseFor(req, spec) });
   const r = await graph(s, `${encodeURIComponent(s.wabaId)}/message_templates`, { method: 'POST', body: JSON.stringify({ name, language, category, components }) });
-  const t = { id: id(), name, language, category: r.category || category, requestedCategory: category, categoryChangedFrom: categoryChangedFrom({ requestedCategory: category }, r.category || category), status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, linkDefaults: components.linkDefaults, createdAt: now, submittedAt: now, updatedAt: now };
+  const t = { id: id(), name, language, category: r.category || category, requestedCategory: category, categoryChangedFrom: categoryChangedFrom({ requestedCategory: category }, r.category || category), status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, linkDefaults: components.linkDefaults, ...sampleAfterEdit(spec), createdAt: now, submittedAt: now, updatedAt: now };
   db.templates.push(t);
   save();
   res.json(publicTemplate(t));
@@ -1299,7 +1346,7 @@ app.put('/api/templates/:id/meta', wrap(async (req, res) => {
   if (t.source !== 'synced' || !t.metaId) {
     // A demo template: just change it here.
     const components = templateComponents(spec, { handle: 'demo', linkBase: await linkBaseFor(req, spec) });
-    Object.assign(t, { category, components, linkDefaults: components.linkDefaults, updatedAt: new Date().toISOString() });
+    Object.assign(t, { category, ...sampleAfterEdit(spec, t), components, linkDefaults: components.linkDefaults, updatedAt: new Date().toISOString() });
     save();
     return res.json(publicTemplate(t));
   }
@@ -1308,7 +1355,7 @@ app.put('/api/templates/:id/meta', wrap(async (req, res) => {
   const components = templateComponents(spec, { handle: await headerHandle(s, spec, t), linkBase: await linkBaseFor(req, spec) });
   await graph(s, encodeURIComponent(t.metaId), { method: 'POST', body: JSON.stringify({ components, ...(category !== t.category ? { category } : {}) }) });
   const now = new Date().toISOString();
-  Object.assign(t, { components, linkDefaults: components.linkDefaults, category, requestedCategory: category, categoryChangedFrom: '', status: 'PENDING', rejectedReason: '', editedAt: now, updatedAt: now });
+  Object.assign(t, { ...sampleAfterEdit(spec, t), components, linkDefaults: components.linkDefaults, category, requestedCategory: category, categoryChangedFrom: '', status: 'PENDING', rejectedReason: '', editedAt: now, updatedAt: now });
   delete t.approvedAt; // set again when Meta approves the edit
   save();
   res.json(publicTemplate(t));
@@ -2276,7 +2323,7 @@ app.delete('/api/uploads/:file', wrap((req, res) => {
   const name = req.params.file;
   if (!/^[0-9a-f]{32}\.[a-z0-9]{2,4}$/.test(name)) throw fail('Not found', 404);
   // Identical files share one copy (named by contents), possibly across workspaces: keep it while anyone uses it.
-  const used = tenants.allWorkspaces().some(({ db: w }) => w.campaigns.some((c) => JSON.stringify(c.recipients).includes(name)) || w.messages.some((m) => JSON.stringify(m.values || {}).includes(name)));
+  const used = tenants.allWorkspaces().some(({ db: w }) => w.campaigns.some((c) => JSON.stringify(c.recipients).includes(name)) || w.messages.some((m) => JSON.stringify(m.values || {}).includes(name)) || w.templates.some((t) => String(t.headerSample || '').includes(name)));
   if (!used) fs.rmSync(path.join(UPLOAD_DIR, name), { force: true });
   res.json({ ok: true, deleted: !used });
 }));
