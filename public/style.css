@@ -4018,7 +4018,17 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .wss-danger .wss-ic { color: var(--danger); }
 /* Templates: the number filter stays compact in the header; with all numbers, one section per number. */
 #tplSender { width: auto; min-width: 160px; max-width: 220px; margin: 0; }
-.tpl-groups { display: grid; gap: 34px; }
+.tpl-groups { display: grid; gap: 14px; }
+/* Sync in progress: spinning icon on the button, a running bar with a note above the list, the cards dimmed */
+#syncTemplates.syncing { pointer-events: none; }
+#syncTemplates.syncing svg { animation: spin 0.9s linear infinite; }
+.tpl-sync-bar { position: relative; display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 10px 14px 13px; border-radius: 12px; background: var(--info-soft); color: var(--info); font-size: 13px; font-weight: 500; overflow: hidden; animation: tpl-sync-in 0.2s var(--ease-out); }
+.tpl-sync-bar i { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: linear-gradient(90deg, transparent, var(--info), transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: tpl-sync-run 1.1s ease-in-out infinite; }
+@keyframes tpl-sync-run { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+@keyframes tpl-sync-in { from { opacity: 0; transform: translateY(-4px); } }
+#templateList.tpl-syncing { opacity: 0.5; pointer-events: none; transition: opacity 0.2s; }
+@media (prefers-reduced-motion: reduce) { #syncTemplates.syncing svg, .tpl-sync-bar i { animation-duration: 3s; } }
+.tpl-group.open + .tpl-group, .tpl-group + .tpl-group.open { margin-top: 14px; }
 .tpl-group { display: grid; gap: 14px; }
 .tpl-group-empty { margin: 0; }
 /* A number's header above its templates: the WhatsApp profile (photo, name, number, quality, limit) and template counts */
@@ -4036,12 +4046,24 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .tpl-num-ic { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: var(--sunk); color: var(--muted); flex: none; }
 .tpl-num-h.other { justify-content: flex-start; }
 .tpl-num-h.other .tpl-num-stats { margin-left: auto; }
-.tpl-num-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.tpl-num-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+/* Collapsible sections: the header opens and closes its templates (grid rows 0fr ↔ 1fr animates the height) */
+.tpl-num-h[data-toggle] { cursor: pointer; user-select: none; transition: box-shadow 0.2s, background-color 0.2s; }
+.tpl-num-h[data-toggle]:hover { box-shadow: var(--sh-raised, var(--sh-card)); }
+.tpl-num-h[data-toggle]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tpl-num-chev { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--sunk); color: var(--muted); transition: rotate 0.25s var(--ease-out), background-color 0.15s; }
+.tpl-num-h[data-toggle]:hover .tpl-num-chev { background: var(--hair); color: var(--text); }
+.tpl-group.open .tpl-num-chev { rotate: 180deg; }
+.tpl-group-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.3s var(--ease-out); }
+.tpl-group.open .tpl-group-body { grid-template-rows: 1fr; }
+.tpl-group-in { min-height: 0; overflow: hidden; }
+.tpl-group.open .tpl-group-in { overflow: visible; animation: tpl-in-clip 0.3s; }
+@keyframes tpl-in-clip { from, to { overflow: hidden; } }
+.tpl-group:not(.open) { gap: 0; }
+.tpl-group-in > .cards { padding-top: 2px; }
 .tng-stat { display: inline-flex; align-items: baseline; gap: 4px; padding: 4px 10px; border-radius: 99px; background: var(--sunk); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .tng-stat b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
-.tng-stat.good { background: var(--good-soft); color: var(--good-text); } .tng-stat.good b { color: var(--good-text); }
-.tng-stat.warn { background: var(--warn-soft); color: var(--warn); } .tng-stat.warn b { color: var(--warn); }
-.tng-stat.bad { background: var(--danger-soft); color: var(--danger); } .tng-stat.bad b { color: var(--danger); }
+
 #cpSender { width: auto; min-width: 180px; max-width: 260px; margin: 0; }
 .cp-head-actions { flex-wrap: nowrap; align-items: center; }
 /* Page headers: the title and description take the space left, the actions stay on the right
@@ -4123,11 +4145,11 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 }
 .tag-pop::before { content: ''; position: absolute; top: -5px; left: 18px; width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
 .tag.has-pop:hover .tag-pop, .tag.has-pop:focus-visible .tag-pop, .tag.has-pop:focus-within .tag-pop { opacity: 1; visibility: visible; transform: none; }
-.tag-pop .tp-head { display: flex; flex-direction: column; gap: 1px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-.tag-pop .tp-head b { font-size: 13px; color: #fff; white-space: nowrap; }
-.tag-pop .tp-head span { font-size: 11px; color: #9aa3ab; white-space: nowrap; }
-.tag-pop .tp-sec { display: block; }
-.tag-pop .tp-sec i { display: block; font-style: normal; font-weight: 600; font-size: 11px; letter-spacing: 0.02em; text-transform: uppercase; color: #9aa3ab; margin-bottom: 1px; }
+.tag-pop .qp-head { display: flex; flex-direction: column; gap: 1px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.tag-pop .qp-head b { font-size: 13px; color: #fff; white-space: nowrap; }
+.tag-pop .qp-head span { font-size: 11px; color: #9aa3ab; white-space: nowrap; }
+.tag-pop .qp-sec { display: block; } /* qp-: not tp-, which the template picker (send.js) uses */
+.tag-pop .qp-sec i { display: block; font-style: normal; font-weight: 600; font-size: 11px; letter-spacing: 0.02em; text-transform: uppercase; color: #9aa3ab; margin-bottom: 1px; }
 .tag.has-pop::before { flex: none; }
 /* The card with an open hover card sits above its neighbours, so the next card's switch can't show through. */
 .sender-card:has(.tag.has-pop:hover), .sender-card:has(.tag.has-pop:focus-within) { position: relative; z-index: 20; }
@@ -5857,6 +5879,47 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 .pb-row b { font-weight: 600; font-size: 13.5px; }
 .pb-row small { display: block; color: var(--muted); font-size: 12px; line-height: 1.4; margin-top: 2px; }
 .pb-row.dim { opacity: 0.5; }
+/* Playbook editor: what's chosen (numbers as chips, templates as rows, each removable); choosing happens in pickers */
+.pb-sec-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.pb-sec-h .btn { flex: none; }
+.pb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pb-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 5px 6px 5px 5px; border-radius: 99px; background: var(--field); box-shadow: var(--sh-sunk); }
+.pb-chip .sender-photo { width: 26px; height: 26px; font-size: 11px; }
+.pb-chip > span:not(.sender-photo) { display: grid; min-width: 0; line-height: 1.2; }
+.pb-chip b { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-chip small { font-size: 11px; color: var(--muted); }
+.pb-x { display: grid; place-items: center; flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.pb-x:hover { background: var(--hair); color: var(--text); }
+.pb-sum-all { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--field); box-shadow: var(--sh-sunk); }
+.pb-sum-all > svg { flex: none; color: var(--muted); }
+.pb-sum-all span { display: grid; } .pb-sum-all b { font-size: 13px; } .pb-sum-all small { font-size: 12px; color: var(--muted); }
+.pb-tpl-list { display: grid; gap: 4px; max-height: 260px; overflow-y: auto; scrollbar-width: thin; }
+.pb-tpl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 8px 7px 12px; border-radius: 10px; background: var(--field); box-shadow: var(--sh-sunk); }
+.pb-tpl-t { display: grid; min-width: 0; }
+.pb-tpl-t b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-tpl-t small { font-size: 11.5px; color: var(--muted); }
+/* Pickers opened over another popup (layerModal) */
+.modal-box.tp-box .layer-body, .modal-box.np-box .layer-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.modal-box.np-box { width: min(760px, calc(100vw - 32px)); max-width: none; max-height: min(720px, calc(100vh - 48px)); display: flex; flex-direction: column; }
+.np-all { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; background: var(--field); box-shadow: var(--sh-sunk); cursor: pointer; }
+.np-all > span { display: flex; align-items: center; gap: 10px; } .np-all > span > svg { color: var(--muted); flex: none; }
+.np-all b { display: block; font-size: 13.5px; } .np-all small { font-size: 12px; color: var(--muted); }
+.np-grid { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; align-content: start; padding: 4px; margin: 0 -4px; scrollbar-width: thin; }
+.np-grid.all .np-card { cursor: default; opacity: 0.75; }
+.np-card { position: relative; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 14px; background: var(--field); box-shadow: var(--sh-sunk); cursor: pointer; outline: 0; transition: background 0.15s, box-shadow 0.15s; }
+.np-card:hover, .np-card:focus-visible { background: var(--surface); box-shadow: var(--sh-raised); }
+.np-card.on { background: var(--surface); box-shadow: 0 0 0 2px var(--text), var(--sh-raised); }
+.np-card .sender-photo { width: 42px; height: 42px; font-size: 16px; }
+.np-t { display: grid; gap: 1px; min-width: 0; }
+.np-t b { font-size: 13.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-t small { font-size: 12px; color: var(--muted); }
+.np-meta { display: inline-flex; align-items: center; gap: 5px; }
+/* The tick on a chosen card (numbers, and templates when picking several) */
+.np-check { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--sunk); color: transparent; box-shadow: inset 0 0 0 1.5px var(--hair); transition: background 0.15s, color 0.15s; }
+.np-card.on .np-check, .tp-card.multi.on .np-check { background: var(--accent); color: var(--on-accent); box-shadow: none; }
+.tp-card.multi .tp-card-head { position: relative; }
+.tp-card.multi .np-check { position: static; flex: none; }
+.pb-hint { display: flex; align-items: center; gap: 8px; margin: 0; padding: 14px; border-radius: 10px; background: var(--sunk); color: var(--muted); font-size: 13px; }
 .pb-checks { display: flex; flex-direction: column; gap: 2px; max-height: 190px; overflow: auto; scrollbar-width: thin; }
 .pb-checks.dim { opacity: 0.45; }
 .pb-checks label { display: flex; align-items: center; gap: 10px; margin: 0; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; }

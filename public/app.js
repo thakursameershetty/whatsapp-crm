@@ -708,7 +708,6 @@ $('#pbList').addEventListener('click', (e) => {
 const AUTO_WARN = 'Live mode: the AI will send real WhatsApp messages to your customers without anyone approving them. It holds back when a person is needed, after an opt-out, when your team is active in the chat, and after 5 auto-replies in an hour. Make sure “About the business” is filled in.';
 // The editing form for one playbook (used inside the All playbooks window).
 function pbFormHtml(p, isNew) {
-  const tpls = [...state.templates].sort((a, b) => a.name.localeCompare(b.name));
   return `<div class="pbm-form-head">${pbBook(p)}<div><h3>${isNew ? 'New playbook' : esc(p.name)}</h3><p class="sub">${isNew ? 'A setup for another number, offer or kind of question.' : 'Changes apply to the next reply in every chat using it.'}</p></div></div>
     <div class="pb-ed">
       <div class="pb-ed-main">
@@ -725,14 +724,12 @@ function pbFormHtml(p, isNew) {
           <label class="pb-row"><span><b>Send automatically <span class="pill scheduled">Beta</span></b><small>Replies on its own, within the guardrails (waits when a person is needed, after an opt-out, when your team is active, after 5 an hour).</small></span>${toggleHtml({ checked: p.auto, attrs: 'id="pbAuto"', size: 'sm' })}</label>
         </div>
         <div class="pb-sec">
-          <div class="field-label">Numbers</div>
-          <label class="pb-row"><span><b>All numbers</b><small>Every number uses it, including ones you add later.</small></span>${toggleHtml({ checked: p.allNumbers, attrs: 'id="pbAll"', size: 'sm' })}</label>
-          <div class="pb-checks" id="pbNums">${state.senders.map((x) => `<label><input type="checkbox" class="cb" value="${esc(x.id)}" ${p.numbers.includes(x.id) ? 'checked' : ''} /><span>${esc(x.label)}<small>${esc(x.displayPhone || '')}</small></span></label>`).join('') || '<p class="sub">No numbers yet.</p>'}</div>
+          <div class="pb-sec-h"><div class="field-label">Numbers</div><button type="button" class="btn sm" id="pbNumPick">${icon('phone', 14)}Choose numbers</button></div>
+          <div id="pbNumSum"></div>
         </div>
         <div class="pb-sec">
-          <div class="field-label">Campaign templates <span class="opt">replies to these use it</span></div>
-          ${tpls.length > 8 ? `<div class="search-wrap" data-icon="search" data-icon-size="14"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="pbTplQ" placeholder="Search templates" /></div>` : ''}
-          <div class="pb-checks pb-tpls" id="pbTpls">${tpls.map((t) => `<label data-name="${esc(t.name.toLowerCase())}"><input type="checkbox" class="cb" value="${esc(t.id)}" ${p.templates.includes(t.id) ? 'checked' : ''} /><span>${esc(t.name)}<small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}</small></span></label>`).join('') || '<p class="sub">No templates yet.</p>'}</div>
+          <div class="pb-sec-h"><div class="field-label">Campaign templates <span class="opt">replies to these use it</span></div><button type="button" class="btn sm" id="pbTplPick">${icon('file-text', 14)}Choose templates</button></div>
+          <div id="pbTplSum"></div>
         </div>
       </div>
     </div>
@@ -795,16 +792,46 @@ function playbookManager(selectId, { numberId = null, back = null } = {}) {
     main.addEventListener('change', markDirty);
     $('#pbName', main).value = p.name; $('#pbWhen', main).value = p.when; $('#pbBusiness', main).value = p.business;
     $('#pbQualified', main).value = p.qualified; $('#pbNext', main).value = p.nextStep; $('#pbTone', main).value = p.tone;
-    const syncNums = () => { $('#pbNums', main).classList.toggle('dim', $('#pbAll', main).checked); $$('#pbNums input', main).forEach((c) => { c.disabled = $('#pbAll', main).checked; }); };
+    // Numbers and templates are chosen in their own windows (the template window is the Send page's and Inbox's),
+    // opened over this one; here, a summary of what's chosen. Templates follow the numbers: only templates the chosen
+    // numbers can send are offered, and saving drops any that no chosen number can send.
+    let allNums = Boolean(p.allNumbers);
+    const numSel = new Set(p.numbers), tplSel = new Set(p.templates);
+    const chosenNums = () => (allNums ? state.senders : state.senders.filter((x) => numSel.has(x.id)));
+    const inScope = (t) => chosenNums().some((x) => canSend(t, x));
+    const drawSummary = () => {
+      const ns = chosenNums();
+      $('#pbNumSum', main).innerHTML = allNums
+        ? `<div class="pb-sum-all">${icon('phone', 15)}<span><b>All numbers</b><small>Every number uses it, including ones you add later.</small></span></div>`
+        : ns.length ? `<div class="pb-chips">${ns.map((x) => `<span class="pb-chip">${senderPhotoHtml(x)}<span><b>${esc(x.label)}</b><small>${esc(x.displayPhone || '')}</small></span><button type="button" class="pb-x" data-unnum="${esc(x.id)}" aria-label="Remove ${esc(x.label)}">${icon('x', 13)}</button></span>`).join('')}</div>`
+        : '<p class="pb-hint">No number uses this playbook yet.</p>';
+      const ts = state.templates.filter((t) => tplSel.has(t.id) && inScope(t)).sort((a, b) => a.name.localeCompare(b.name));
+      $('#pbTplPick', main).disabled = !ns.length;
+      $('#pbTplSum', main).innerHTML = !ns.length ? `<p class="pb-hint">${icon('phone', 15)}Choose numbers first: you pick from their templates.</p>`
+        : ts.length ? `<div class="pb-tpl-list">${ts.map((t) => `<div class="pb-tpl-row"><span class="pb-tpl-t"><b title="${esc(t.name)}">${esc(t.name)}</b><small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}</small></span><button type="button" class="pb-x" data-untpl="${esc(t.id)}" aria-label="Remove ${esc(t.name)}">${icon('x', 13)}</button></div>`).join('')}</div>`
+        : '<p class="pb-hint">None yet: replies to any campaign use it.</p>';
+    };
+    drawSummary();
+    main.addEventListener('click', (e) => {
+      const un = e.target.closest('[data-unnum]'), ut = e.target.closest('[data-untpl]');
+      if (un) { numSel.delete(un.dataset.unnum); markDirty(); drawSummary(); }
+      if (ut) { tplSel.delete(ut.dataset.untpl); markDirty(); drawSummary(); }
+    });
+    $('#pbNumPick', main).onclick = () => numberPicker({ all: allNums, ids: [...numSel], onUse: ({ all, ids }) => {
+      allNums = all; numSel.clear(); ids.forEach((x) => numSel.add(x)); markDirty(); drawSummary();
+    } });
+    $('#pbTplPick', main).onclick = () => window.TemplatePicker?.({
+      title: 'Templates for this playbook', multi: true, stacked: true, nums: chosenNums(), selectedIds: [...tplSel].filter((id) => inScope(state.templates.find((t) => t.id === id) || {})),
+      only: inScope, block: () => null, useText: 'Use selected',
+      onUse: (ids) => { tplSel.clear(); ids.forEach((x) => tplSel.add(x)); markDirty(); drawSummary(); },
+    });
     const syncAuto = () => { const on = $('#pbDraft', main).checked; $('#pbAuto', main).disabled = !on; if (!on) $('#pbAuto', main).checked = false; $('#pbAuto', main).closest('.pb-row').classList.toggle('dim', !on); };
-    syncNums(); syncAuto();
-    $('#pbAll', main).onchange = syncNums;
+    syncAuto();
     $('#pbDraft', main).onchange = syncAuto;
     $('#pbAuto', main).onchange = async (e) => {
       if (!e.target.checked || state.settings.demoMode) return;
       if (!(await confirmDialog({ title: 'Let the AI reply on its own?', message: AUTO_WARN, confirmText: 'Turn on auto-reply' }))) e.target.checked = false;
     };
-    if ($('#pbTplQ', main)) $('#pbTplQ', main).oninput = (e) => { const q = e.target.value.trim().toLowerCase(); $$('#pbTpls label', main).forEach((l) => l.classList.toggle('hidden', Boolean(q) && !l.dataset.name.includes(q))); };
     if ($('#pbReset', main)) $('#pbReset', main).onclick = () => drawForm();
     if (cur) $('#pbDel', main).onclick = (e) => guard(async () => {
       if (!(await confirmDialog({ title: `Delete “${esc(cur.name)}”?`, message: 'Chats using it switch to their number’s default playbook. Numbers with no playbook left only draft when you ask.', confirmText: 'Delete', danger: true }))) return;
@@ -816,12 +843,12 @@ function playbookManager(selectId, { numberId = null, back = null } = {}) {
     $('#pbSave', main).onclick = (e) => guard(async () => {
       const name = $('#pbName', main).value.trim();
       if (!name) { $('#pbName', main).focus(); throw new Error('Give the playbook a name'); }
-      const all = $('#pbAll', main).checked;
-      const numbers = $$('#pbNums input:checked', main).map((c) => c.value);
+      const all = allNums;
+      const numbers = [...numSel].filter((x) => state.senders.some((s) => s.id === x));
       if (!all && !numbers.length && !(await confirmDialog({ title: 'No numbers use it yet', message: 'It won’t answer any chat until a number uses it. Save anyway?', confirmText: 'Save' }))) return;
       if ($('#pbDraft', main).checked && !$('#pbBusiness', main).value.trim()) toast('Tip: write about the business, so its drafts can answer questions', 'error');
       const next = { ...p, name, when: $('#pbWhen', main).value.trim(), business: $('#pbBusiness', main).value, qualified: $('#pbQualified', main).value, nextStep: $('#pbNext', main).value.trim(), tone: $('#pbTone', main).value.trim(),
-        draft: $('#pbDraft', main).checked, auto: $('#pbDraft', main).checked && $('#pbAuto', main).checked, allNumbers: all, numbers: all ? [] : numbers, templates: $$('#pbTpls input:checked', main).map((c) => c.value) };
+        draft: $('#pbDraft', main).checked, auto: $('#pbDraft', main).checked && $('#pbAuto', main).checked, allNumbers: all, numbers: all ? [] : numbers, templates: state.templates.filter((t) => tplSel.has(t.id) && inScope(t)).map((t) => t.id) };
       const before = new Set(cfg.playbooks.map((x) => x.id));
       const playbooks = cur ? cfg.playbooks.map((x) => (x.id === cur.id ? next : x)) : [...cfg.playbooks, next];
       await savePlaybooks({ playbooks, defaults: cfg.defaults }, cur ? 'Playbook saved' : `“${name}” created`);
@@ -1564,27 +1591,43 @@ function renderTemplates() {
   if (other.length) groups.push({ w: '', ts: other });
   askPhotos();
   list.className = 'tpl-groups';
-  list.innerHTML = groups.map(({ w, ts }) => `<section class="tpl-group">${tplGroupHead(w, ts, pick)}
-      ${ts.length ? `<div class="cards">${ts.map(card).join('')}</div>` : `<p class="sub tpl-group-empty">No templates for this number yet. Create one, or click Sync from Meta.</p>`}
-    </section>`).join('');
+  // Collapsible: with several numbers they start closed (a list of numbers to open); with one, open. What's opened or
+  // closed is remembered; a search or filter opens every section with a match.
+  const solo = groups.length < 2;
+  list.innerHTML = groups.map(({ w, ts }) => {
+    const id = w || 'other', open = solo || filtering || tplOpen().has(id);
+    return `<section class="tpl-group${open ? ' open' : ''}" data-tg="${esc(id)}">${tplGroupHead(w, ts, pick, solo)}
+      <div class="tpl-group-body"><div class="tpl-group-in">${ts.length ? `<div class="cards">${ts.map(card).join('')}</div>` : `<p class="sub tpl-group-empty">No templates for this number yet. Create one, or click Sync from Meta.</p>`}</div></div>
+    </section>`;
+  }).join('');
 }
+const tplOpen = () => { try { return new Set(JSON.parse(localStorage.getItem('tplOpen') || '[]')); } catch { return new Set(); } };
+document.addEventListener('click', (e) => {
+  const head = e.target.closest?.('#templateList .tpl-num-h[data-toggle]');
+  if (!head) return;
+  const sec = head.closest('.tpl-group'), open = !sec.classList.contains('open'), set = tplOpen();
+  sec.classList.toggle('open', open);
+  head.setAttribute('aria-expanded', open);
+  open ? set.add(sec.dataset.tg) : set.delete(sec.dataset.tg);
+  try { localStorage.setItem('tplOpen', JSON.stringify([...set])); } catch {}
+});
+document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('#templateList .tpl-num-h[data-toggle]')) { e.preventDefault(); e.target.click(); } });
 
-function tplGroupHead(w, ts, pick) {
-  const n = (st) => ts.filter((t) => String(t.status).toUpperCase() === st).length;
-  const stats = [[ts.length, ts.length === 1 ? 'template' : 'templates', ''], [n('APPROVED'), 'approved', 'good'], [n('PENDING'), 'in review', 'warn'], [n('REJECTED'), 'rejected', 'bad'], [n('PAUSED') + n('DISABLED'), 'paused', 'bad']]
-    .filter(([c], i) => i === 0 || c).map(([c, word, cls]) => `<span class="tng-stat ${cls}"><b>${c}</b> ${word}</span>`).join('');
-  if (!w) return `<header class="tpl-num-h other"><span class="tpl-num-ic">${icon('file-text', 18)}</span><div class="tpl-num-main"><b>Other templates</b><span class="tpl-num-sub">Not tied to one of your numbers</span></div><div class="tpl-num-stats">${stats}</div></header>`;
+function tplGroupHead(w, ts, pick, solo) {
+  const count = `<span class="tng-stat"><b>${ts.length}</b> ${ts.length === 1 ? 'template' : 'templates'}</span>`;
+  const right = `<div class="tpl-num-stats">${count}${solo ? '' : `<span class="tpl-num-chev">${icon('chevron-down', 18)}</span>`}</div>`;
+  const toggle = solo ? '' : ` data-toggle role="button" tabindex="0" aria-expanded="${(tplOpen().has(w || 'other'))}"`;
+  if (!w) return `<header class="tpl-num-h other"${toggle}><span class="tpl-num-ic">${icon('file-text', 18)}</span><div class="tpl-num-main"><b>Other templates</b><span class="tpl-num-sub">Not tied to one of your numbers</span></div>${right}</header>`;
   const ss = pick ? [pick] : state.senders.filter((x) => x.wabaId === w);
   const one = (s) => {
     const q = QUALITY[s.qualityRating];
     const bits = [s.displayPhone && `<span class="tpl-num-phone">${esc(s.displayPhone)}</span>`,
-      `<span class="tpl-num-q" title="Meta quality rating"><i class="q-dot ${esc(q ? s.qualityRating : 'none')}"></i>${q ? `Quality ${esc(q.label.toLowerCase())}` : 'Not rated yet'}</span>`,
-      s.messagingLimit && `<span title="Meta's messaging limit">${esc(tierText(s.messagingLimit))}</span>`].filter(Boolean);
+      `<span class="tpl-num-q" title="Meta quality rating"><i class="q-dot ${esc(q ? s.qualityRating : 'none')}"></i>${q ? `Quality ${esc(q.label.toLowerCase())}` : 'Not rated yet'}</span>`].filter(Boolean);
     return `<div class="tpl-num-one">${senderPhotoHtml(s)}<div class="tpl-num-main">
         <b>${esc(s.label)}${s.verifiedName && s.verifiedName !== s.label ? `<small> · ${esc(s.verifiedName)}</small>` : ''}${s.enabled === false ? ' <span class="pill">off</span>' : ''}</b>
         <span class="tpl-num-sub">${bits.join('<i class="tpl-num-sep">·</i>')}</span></div></div>`;
   };
-  return `<header class="tpl-num-h"><div class="tpl-num-list">${ss.map(one).join('')}</div><div class="tpl-num-stats">${stats}</div></header>`;
+  return `<header class="tpl-num-h"${toggle}><div class="tpl-num-list">${ss.map(one).join('')}</div>${right}</header>`;
 }
 
 $('#tplSender').addEventListener('change', (e) => { state.tplSender = e.target.value; renderTemplates(); });
@@ -1641,16 +1684,35 @@ $('#templateList').addEventListener('click', (e) => {
     }, b);
 });
 
-$('#syncTemplates').addEventListener('click', (e) =>
-  guard(async () => {
+// Sync can take a while (every Business Account, then the header samples): the button spins and says "Syncing…",
+// a bar runs above the list and the cards dim until it's done.
+$('#syncTemplates').addEventListener('click', async (e) => {
+  const btn = e.currentTarget, list = $('#templateList');
+  if (btn.classList.contains('syncing')) return;
+  const label = btn.innerHTML;
+  btn.classList.add('syncing');
+  btn.setAttribute('aria-busy', 'true');
+  btn.innerHTML = `${icon('refresh-cw', 16)}Syncing…`;
+  const bar = document.createElement('div');
+  bar.className = 'tpl-sync-bar';
+  bar.setAttribute('role', 'status');
+  bar.innerHTML = `<i></i><span>Getting your templates and their latest review status from Meta…</span>`;
+  list.before(bar);
+  list.classList.add('tpl-syncing');
+  await guard(async () => {
     const r = await api('/templates/sync', { method: 'POST' });
     state.templates = r.templates;
     renderTemplates();
     renderTemplateSelect();
-    toast(`Synced ${r.synced} template(s) from Meta`);
+    toast(r.errors.length ? `Synced ${r.synced} template${r.synced === 1 ? '' : 's'}, with problems below` : `Up to date: ${r.synced} template${r.synced === 1 ? '' : 's'} from Meta`);
     r.errors.forEach((er) => toast(er, 'error'));
-  }, e.target)
-);
+  }, btn);
+  bar.remove();
+  list.classList.remove('tpl-syncing');
+  btn.classList.remove('syncing');
+  btn.removeAttribute('aria-busy');
+  btn.innerHTML = label;
+});
 
 // --- Template editor: create a template in Meta, or edit one ------------------------------------------
 // One popup for both: the form on the left, the message as WhatsApp shows it on the right (with the
@@ -2487,6 +2549,53 @@ function realignShiftedRows(headers, rows, groups) {
 }
 
 const varLabel = (v) => (v.media ? `header ${v.media} URL` : `${v.where} {{${v.name}}}`);
+
+// A popup over the one already open (which keeps its state): the template and number pickers use it from the
+// playbook editor. Returns { body, box, close }. Escape and a click outside close only this one.
+function layerModal(id, title, html, cls = '') {
+  let el = $('#' + id);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = id;
+    el.className = 'modal layer hidden';
+    document.body.append(el);
+    el.addEventListener('click', (e) => { if (e.target === el || e.target.closest('[data-layer-close]')) hideOverlay(el); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !el.classList.contains('hidden') && !$$('.modal.layer:not(.hidden)').some((o) => o !== el && el.compareDocumentPosition(o) & Node.DOCUMENT_POSITION_FOLLOWING)) { e.stopPropagation(); hideOverlay(el); } }, true);
+  }
+  el.innerHTML = `<div class="modal-box ${cls}" role="dialog" aria-label="${esc(title)}"><div class="modal-head"><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-layer-close aria-label="Close">${icon('x', 18)}</button></div><div class="layer-body">${html}</div></div>`;
+  LA.hydrate(el);
+  el.classList.remove('hidden');
+  return { body: el.querySelector('.layer-body'), box: el.querySelector('.modal-box'), close: () => hideOverlay(el) };
+}
+
+// Choosing numbers (for a playbook): every number as a card with its WhatsApp photo, name, number, quality and how
+// many templates it can send; or "All numbers", which also covers numbers added later. onUse({ all, ids }).
+function numberPicker({ all = false, ids = [], title = 'Choose numbers', onUse }) {
+  let every = all;
+  const sel = new Set(ids);
+  const { body, close } = layerModal('numPickModal', title, `
+    <label class="np-all"><span>${icon('phone', 16)}<span><b>All numbers</b><small>Every number uses it, including ones you add later.</small></span></span>${toggleHtml({ checked: every, attrs: 'id="npAll"', size: 'sm' })}</label>
+    <div class="np-grid" id="npGrid" role="listbox" aria-multiselectable="true"></div>
+    <div class="tp-foot"><span class="tp-count" id="npCount"></span><button type="button" class="btn quiet" data-layer-close>Cancel</button><button type="button" class="btn primary" id="npUse">Use selected</button></div>`, 'wide np-box');
+  const draw = () => {
+    $('#npGrid', body).classList.toggle('all', every);
+    $('#npGrid', body).innerHTML = state.senders.map((s) => {
+      const on = every || sel.has(s.id), q = QUALITY[s.qualityRating];
+      const n = state.templates.filter((t) => canSend(t, s)).length;
+      return `<div class="np-card ${on ? 'on' : ''}" data-id="${esc(s.id)}" role="option" aria-selected="${on}" tabindex="${every ? -1 : 0}">
+        <span class="np-check">${TICK_SVG}</span>${senderPhotoHtml(s)}
+        <span class="np-t"><b>${esc(s.label)}${s.enabled === false ? ' <span class="pill">off</span>' : ''}</b><small>${esc(s.displayPhone || '')}</small>
+        <small class="np-meta"><i class="q-dot ${esc(q ? s.qualityRating : 'none')}"></i>${q ? `Quality ${esc(q.label.toLowerCase())}` : 'Not rated yet'} · ${n} template${n === 1 ? '' : 's'}</small></span></div>`;
+    }).join('') || '<p class="pb-hint">No numbers yet. Add one on the Numbers page.</p>';
+    $('#npCount', body).textContent = every ? 'All numbers' : `${sel.size} selected`;
+  };
+  draw();
+  const toggle = (c) => { if (every || !c) return; sel.has(c.dataset.id) ? sel.delete(c.dataset.id) : sel.add(c.dataset.id); draw(); $(`.np-card[data-id="${CSS.escape(c.dataset.id)}"]`, body)?.focus(); };
+  $('#npAll', body).onchange = (e) => { every = e.target.checked; draw(); };
+  $('#npGrid', body).addEventListener('click', (e) => toggle(e.target.closest('.np-card')));
+  $('#npGrid', body).addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e.target.closest('.np-card')); } });
+  $('#npUse', body).onclick = () => { onUse({ all: every, ids: every ? [] : state.senders.filter((s) => sel.has(s.id)).map((s) => s.id) }); close(); };
+}
 
 // A PDF in a message: clicking it opens this preview popup (above anything else open) instead of leaving the app.
 function pdfViewer(url, name) {
@@ -4011,10 +4120,10 @@ function qualityTag(rating) {
   const q = QUALITY[rating] || QUALITY_NONE;
   return `<span class="tag ${q.cls} has-pop" tabindex="0">${q.label}
     <span class="tag-pop" role="tooltip">
-      <span class="tp-head"><b>Quality: ${q.label}</b><span>Meta's rating: ${esc(rating || 'UNKNOWN')}</span></span>
-      <span class="tp-sec"><i>Why</i>${esc(q.why)}</span>
-      <span class="tp-sec"><i>What it means</i>${esc(q.means)}</span>
-      <span class="tp-sec"><i>What to do</i>${esc(q.todo)}</span>
+      <span class="qp-head"><b>Quality: ${q.label}</b><span>Meta's rating: ${esc(rating || 'UNKNOWN')}</span></span>
+      <span class="qp-sec"><i>Why</i>${esc(q.why)}</span>
+      <span class="qp-sec"><i>What it means</i>${esc(q.means)}</span>
+      <span class="qp-sec"><i>What to do</i>${esc(q.todo)}</span>
     </span></span>`;
 }
 

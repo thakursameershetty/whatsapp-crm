@@ -701,9 +701,13 @@
   // template can't be picked here, or null (default: not approved); nums: the numbers for the number filter; firstWaba:
   // the Business Account listed first; onUse(id): what picking does. It returns true when it opened another window in
   // this one's place (so this one doesn't close under it).
-  function templatePicker({ selected = '', block = tplSendBlock, nums = state.senders.filter((x) => x.enabled), firstWaba = '', title = 'Choose a template', useText = 'Use this template', onUse }) {
+  // multi: pick several (selectedIds; onUse gets the list); only(t): which templates are offered at all; stacked: open
+  // over the current popup instead of replacing it (the playbook editor).
+  function templatePicker({ selected = '', block = tplSendBlock, nums = state.senders.filter((x) => x.enabled), firstWaba = '', title = 'Choose a template', useText = 'Use this template', onUse, multi = false, selectedIds = [], only = () => true, stacked = false }) {
     let pick = selected;
-    const body = openModal(title, `
+    const picks = new Set(selectedIds);
+    const isOn = (id) => (multi ? picks.has(id) : id === pick);
+    const html = `
       <div class="tp-bar">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="tpQ" placeholder="Search name or message" autocomplete="off" /></div>
         <select id="tpCat" aria-label="Category"></select>
@@ -712,31 +716,34 @@
         <button type="button" class="ct-sortbtn tp-sort" id="tpSort" aria-haspopup="menu"></button>
       </div>
       <div class="tp-grid" id="tpGrid"></div>
-      <div class="tp-foot"><button type="button" class="btn quiet tp-manage" id="tpManage" title="Create, edit or sync templates on the Templates page">${icon('settings', 15)}Manage templates</button><span class="tp-count" id="tpCount"></span><button class="btn quiet" id="tpCancel">Cancel</button><button class="btn primary" id="tpUse" disabled>${esc(useText)}</button></div>`);
-    $('#modal .modal-box').classList.add('wide', 'tp-box');
+      <div class="tp-foot"><button type="button" class="btn quiet tp-manage" id="tpManage" title="Create, edit or sync templates on the Templates page">${icon('settings', 15)}Manage templates</button><span class="tp-count" id="tpCount"></span><button class="btn quiet" id="tpCancel">Cancel</button><button class="btn primary" id="tpUse" disabled>${esc(useText)}</button></div>`;
+    const layer = stacked ? layerModal('tplPickModal', title, html, 'wide tp-box') : null;
+    const body = layer ? layer.body : openModal(title, html);
+    if (!layer) $('#modal .modal-box').classList.add('wide', 'tp-box');
+    const close = layer ? layer.close : closeModal;
     LA.hydrate(body);
     $('#tpQ', body).value = TP.q;
     const shown = () => {
       const q = TP.q.trim().toLowerCase();
       const n = nums.length > 1 && state.senders.find((x) => x.id === TP.num); // (no number filter shown: none applies)
-      return state.templates.filter((t) => (!TP.cat || catLabel(t.category) === TP.cat)
+      return state.templates.filter((t) => only(t) && (!TP.cat || catLabel(t.category) === TP.cat)
         && (TP.status === 'ready' ? !block(t) : !TP.status || String(t.status).toUpperCase() === TP.status)
         && (!n || templateSenders(t, [n]).length)
         && (!q || [t.name, t.language, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase().includes(q))).sort(TP_SORTS[TP.sort][1]);
     };
     const draw = () => {
-      const cats = [...new Set(state.templates.map((t) => catLabel(t.category)))].sort();
+      const cats = [...new Set(state.templates.filter(only).map((t) => catLabel(t.category)))].sort();
       $('#tpCat', body).innerHTML = `<option value="">All categories</option>${cats.map((c) => `<option ${c === TP.cat ? 'selected' : ''}>${esc(c)}</option>`).join('')}`;
       $('#tpStatus', body).value = TP.status;
       if ($('#tpNum', body)) $('#tpNum', body).value = TP.num;
       $('#tpSort', body).innerHTML = `${icon('arrow-up-down', 14)}<span>${TP_SORTS[TP.sort][0]}</span>${icon('chevron-down', 14)}`;
       const list = shown();
-      $('#tpCount', body).textContent = `${list.length} template${list.length === 1 ? '' : 's'}`;
+      $('#tpCount', body).textContent = `${list.length} template${list.length === 1 ? '' : 's'}${multi ? ` · ${picks.size} selected` : ''}`;
       const card = (t) => {
         const why = block(t);
         const st = String(t.status || '').toUpperCase();
-        return `<div class="tp-card ${t.id === pick ? 'on' : ''} ${why ? 'off' : ''}" data-id="${t.id}" role="option" aria-selected="${t.id === pick}" tabindex="${why ? -1 : 0}" ${why ? `title="${esc(why)}"` : ''}>
-          <div class="tp-card-head"><b>${esc(t.name)}</b><span class="pill ${esc(st)}">${esc(TPL_STATUS[st] || t.status || '')}</span></div>
+        return `<div class="tp-card ${isOn(t.id) ? 'on' : ''} ${why ? 'off' : ''} ${multi ? 'multi' : ''}" data-id="${t.id}" role="option" aria-selected="${isOn(t.id)}" tabindex="${why ? -1 : 0}" ${why ? `title="${esc(why)}"` : ''}>
+          <div class="tp-card-head">${multi ? `<span class="np-check">${TICK_SVG}</span>` : ''}<b title="${esc(t.name)}">${esc(t.name)}</b><span class="pill ${esc(st)}">${esc(TPL_STATUS[st] || t.status || '')}</span></div>
           <div class="tp-card-meta">${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())} · ${t.variables.length ? `${t.variables.length} variable${t.variables.length > 1 ? 's' : ''}` : 'no variables'}</div>
           <div class="tpl-chat tp-prev"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
           ${why ? `<div class="tp-why">${icon('badge-alert', 13)}<span>${esc(why)}</span></div>` : ''}
@@ -744,7 +751,7 @@
       };
       // In sections by number, as in the dropdown: numbers in different WhatsApp Business Accounts send different
       // templates. One account: a single grid.
-      const accounts = [...new Set(state.senders.map((x) => x.wabaId).filter(Boolean))].sort((a, b) => (b === firstWaba) - (a === firstWaba));
+      const accounts = [...new Set((multi ? nums : state.senders).map((x) => x.wabaId).filter(Boolean))].sort((a, b) => (b === firstWaba) - (a === firstWaba));
       const sections = accounts.length > 1
         ? [...accounts.map((w) => ({ w, ts: list.filter((t) => t.wabaId === w) })), { w: '', ts: list.filter((t) => !accounts.includes(t.wabaId)) }].filter((x) => x.ts.length)
         : [{ w: null, ts: list }];
@@ -755,12 +762,19 @@
       };
       $('#tpGrid', body).innerHTML = list.length ? sections.map((sec) => `<section class="tp-group">${head(sec)}<div class="tp-cards">${sec.ts.map(card).join('')}</div></section>`).join('') : `<div class="tp-none">${emptyState({ icon: 'search', title: 'No templates match', text: 'Try another word or filter.', actions: '<button class="btn" data-tp-clear>Clear filters</button>' })}</div>`;
       LA.hydrate($('#tpGrid', body));
-      $('#tpUse', body).disabled = !pick || Boolean(block(state.templates.find((t) => t.id === pick) || {}));
+      $('#tpUse', body).disabled = multi ? false : !pick || Boolean(block(state.templates.find((t) => t.id === pick) || {}));
     };
     draw();
     const use = () => {
+      if (multi) { onUse(state.templates.filter((t) => picks.has(t.id) && only(t)).map((t) => t.id)); return close(); }
       if (!pick) return;
-      if (!onUse(pick)) closeModal();
+      if (!onUse(pick)) close();
+    };
+    const choose = (c) => {
+      if (multi) { picks.has(c.dataset.id) ? picks.delete(c.dataset.id) : picks.add(c.dataset.id); c.classList.toggle('on', picks.has(c.dataset.id)); c.setAttribute('aria-selected', String(picks.has(c.dataset.id))); $('#tpCount', body).textContent = $('#tpCount', body).textContent.replace(/· \d+ selected$/, `· ${picks.size} selected`); return; }
+      pick = c.dataset.id;
+      $$('.tp-card', body).forEach((x) => { x.classList.toggle('on', x === c); x.setAttribute('aria-selected', String(x === c)); });
+      $('#tpUse', body).disabled = false;
     };
     $('#tpQ', body).oninput = (e) => { TP.q = e.target.value; draw(); };
     $('#tpCat', body).onchange = (e) => { TP.cat = e.target.value; draw(); };
@@ -771,14 +785,12 @@
       if (e.target.closest('[data-tp-clear]')) { Object.assign(TP, { q: '', cat: '', status: 'ready', num: '' }); $('#tpQ', body).value = ''; return draw(); }
       const c = e.target.closest('.tp-card');
       if (!c || c.classList.contains('off')) return;
-      pick = c.dataset.id;
-      $$('.tp-card', body).forEach((x) => { x.classList.toggle('on', x === c); x.setAttribute('aria-selected', String(x === c)); });
-      $('#tpUse', body).disabled = false;
+      choose(c);
     });
-    $('#tpGrid', body).addEventListener('dblclick', (e) => { const c = e.target.closest('.tp-card:not(.off)'); if (c) { pick = c.dataset.id; use(); } });
-    $('#tpGrid', body).addEventListener('keydown', (e) => { const c = e.target.closest('.tp-card:not(.off)'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick = c.dataset.id; use(); } });
-    $('#tpCancel', body).onclick = closeModal;
-    $('#tpManage', body).onclick = () => { closeModal(); showTab('templates'); };
+    $('#tpGrid', body).addEventListener('dblclick', (e) => { const c = e.target.closest('.tp-card:not(.off)'); if (c && !multi) { pick = c.dataset.id; use(); } });
+    $('#tpGrid', body).addEventListener('keydown', (e) => { const c = e.target.closest('.tp-card:not(.off)'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); if (multi) choose(c); else { pick = c.dataset.id; use(); } } });
+    $('#tpCancel', body).onclick = close;
+    $('#tpManage', body).onclick = () => { close(); if (layer) closeModal(); showTab('templates'); };
     $('#tpUse', body).onclick = use;
     // the chosen one in view; otherwise the search
     requestAnimationFrame(() => { const on = $('.tp-card.on', body); if (on) on.scrollIntoView({ block: 'nearest' }); else $('#tpQ', body).focus(); });
