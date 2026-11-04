@@ -136,7 +136,7 @@
     const code = errCode(err);
     if (!code) return err ? `<span class="ct-errtxt" title="${esc(err)}">Not delivered</span>` : '';
     const e = window.MetaErrors?.byCode[code];
-    return `<span class="ct-errline">${e ? esc(e.title) + ' ' : ''}<code class="cd-ecode" tabindex="0" data-ecode="${esc(code)}">${esc(code)}</code></span>`;
+    return `<span class="ct-errline">${e ? `<span class="ct-errline-t">${esc(e.title)}</span>` : ''}<code class="cd-ecode" tabindex="0" data-ecode="${esc(code)}">${esc(code)}</code></span>`;
   };
   // Not delivered in any campaign (not only the latest)
   const failedIn = (c) => (c.campaigns || []).filter((x) => x.status === 'failed');
@@ -627,7 +627,7 @@
       ${lead.summary || lead.need || lead.budget || lead.timeline ? `<div class="ct-leadbox"><div class="pc-label">From the lead assistant</div>
         ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}
         <dl>${[['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>` : ''}
-      ${c.campaigns?.length ? `<div class="ct-psec"><div class="field-label">Campaigns <span class="opt">${c.campaigns.length}${failedIn(c).length ? ` · ${failedIn(c).length} not delivered` : ''}</span></div><ul class="ct-camps">${[...c.campaigns].reverse().map((x) => `<li class="${x.status === 'failed' ? 'bad' : ''}"><span><b>${esc(x.name || 'Campaign')}</b><small>${esc([senderName(x.senderId), x.at && relTime(x.at)].filter(Boolean).join(' · '))}</small>${x.error ? `<small class="ct-camp-err">${errChip(x.error)}</small>` : ''}</span><span class="pill ${x.status === 'failed' ? 'failed' : x.status === 'read' ? 'read' : x.status === 'delivered' ? 'delivered' : 'sent'}">${esc(DELIVERY[x.status] || x.status)}</span></li>`).join('')}</ul></div>` : ''}
+      ${campaignsHtml(c)}
       <div class="ct-psec"><div class="field-label">Details</div><dl class="ct-pdl">${details.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>
       <label class="ct-psec ct-pnotes"><span class="field-label">Notes</span><textarea id="ctPNotes" rows="3" placeholder="Anything to remember about them">${esc(c.notes || '')}</textarea></label>`;
     Orb.hydrate(panel);
@@ -684,10 +684,33 @@
     });
   }
 
+  // The contact panel's Campaigns: a quiet timeline, newest first, in WhatsApp's own marks (one grey tick sent, two
+  // delivered, two blue read, a red ! not delivered). A summary line on top; the latest few, then "Show all". A name the
+  // app made ("template — 26/10/2026, 11:38 AM") shows without its date, which the row already gives.
+  const CAMP_SHOW = 4;
+  const campName = (n) => String(n || 'Campaign').replace(/\s+—\s+\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}.*$/, '');
+  function campaignsHtml(c) {
+    const list = [...(c.campaigns || [])].reverse();
+    if (!list.length) return '';
+    const n = (st) => list.filter((x) => x.status === st).length;
+    const sum = [['read', 'read'], ['delivered', 'delivered'], ['sent', 'sent'], ['failed', 'not delivered']].filter(([st]) => n(st)).map(([st, w]) => `<span class="ctl-sum-i ${st}">${waMark(st)}${n(st)} ${w}</span>`).join('');
+    const all = Boolean(CT.campsAll?.has(c.id));
+    const shown = all ? list : list.slice(0, CAMP_SHOW);
+    const row = (x) => `<li class="ctl-row ${esc(x.status)}" title="${esc(`${x.name || 'Campaign'}\n${DELIVERY[x.status] || x.status}${x.at ? ' · ' + new Date(x.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''}`)}">
+        <span class="ctl-mark">${waMark(x.status)}</span>
+        <div class="ctl-body"><div class="ctl-top"><b>${esc(campName(x.name))}</b><time>${esc(x.at ? relTime(x.at) : '')}</time></div>
+        <div class="ctl-sub">${esc(senderName(x.senderId))} · <span class="ctl-st">${esc(DELIVERY[x.status] || x.status)}</span></div>
+        ${x.error ? `<div class="ctl-err">${errChip(x.error)}</div>` : ''}</div></li>`;
+    return `<div class="ct-psec"><div class="field-label ctl-h">Campaigns <span class="opt">${list.length}</span></div>
+      <div class="ctl-sum">${sum}</div>
+      <ol class="ctl">${shown.map(row).join('')}</ol>
+      ${list.length > CAMP_SHOW ? `<button type="button" class="ctl-more" data-camps-all>${all ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}</div>`;
+  }
+
   // Tags dropdown (the contact panel): a search box with + beside it, then every tag with a tick box; several can be
   // ticked, each change saves at once. + (or Enter on a name that isn't a tag yet) makes that tag and puts it on them.
-  function tagPicker(c, anchor) {
-    const sel = new Set(c.tags);
+  function tagPicker(c, anchor, { set = null, onChange = null } = {}) {
+    const sel = set || new Set(c?.tags || []);
     const r = anchor.getBoundingClientRect();
     const pop = Sheet.Menu.panel(r.left, r.bottom + 6, `<div class="ptm">
       <div class="ptm-top"><div class="search-wrap" data-icon="search" data-icon-size="14"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" placeholder="Search or name a new tag" aria-label="Search tags" /></div>
@@ -695,7 +718,7 @@
       <div class="ptm-list" role="listbox" aria-multiselectable="true"></div></div>`);
     LA.hydrate(pop);
     const input = $('input', pop), list = $('.ptm-list', pop);
-    const save = () => patch(c, { tags: [...sel] });
+    const save = () => (onChange ? onChange(sel) : patch(c, { tags: [...sel] }));
     const draw = () => {
       const q = input.value.trim().toLowerCase();
       const shown = CT.tags.filter((t) => !q || t.name.toLowerCase().includes(q));
@@ -750,6 +773,7 @@
       const r = stBtn.getBoundingClientRect();
       return Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(STATUS).map(([k, v]) => ({ label: v.label, checked: c.status === k, pre: `<span class="mi-ic"><i class="ct-lab-dot st-${k}"></i></span>`, action: () => { if (k !== c.status) patch(c, { status: k }); } })));
     }
+    if (e.target.closest('[data-camps-all]')) { CT.campsAll ||= new Set(); CT.campsAll.has(c.id) ? CT.campsAll.delete(c.id) : CT.campsAll.add(c.id); return renderPanel(); }
     const rm = e.target.closest('[data-ptag-rm]');
     if (rm) return patch(c, { tags: c.tags.filter((x) => x !== rm.dataset.ptagRm) });
     const tm = e.target.closest('[data-ptag-menu]');
@@ -881,8 +905,8 @@
         </div>
 
         <div class="cte-sec">
-          <div class="cte-label">Tags</div>
-          <div class="ct-pick cte-tags" id="ctPick">${CT.tags.map((t) => `<button type="button" class="ct-tag tag-${esc(t.color)} ${tags.has(t.id) ? 'active' : ''}" data-pick="${t.id}"><i></i>${esc(t.name)}</button>`).join('') || '<span class="sub">No tags yet. Create one on the Contacts page.</span>'}</div>
+          <div class="cte-label cte-label-row">Tags<button type="button" class="cte-tag-add" id="ctTagAdd" title="Add or remove tags" aria-label="Add or remove tags" aria-haspopup="dialog">${icon('plus', 15)}</button></div>
+          <div class="ct-ptags cte-tags" id="ctPick"></div>
         </div>
 
         <div class="cte-sec">
@@ -899,22 +923,20 @@
 
         <div class="modal-actions cte-actions">
           ${c ? `<button type="button" class="btn quiet danger" id="ctDel" style="margin-right:auto">Delete</button>` : ''}
-          ${chatKey && !opts.inChat ? `<button type="button" class="btn quiet" id="ctChat" data-icon="message-circle">Open chat</button>` : ''}
           <button type="button" class="btn quiet" id="ctCancel">Cancel</button>
           <button class="btn primary">${c ? 'Save' : 'Add contact'}</button>
         </div>
       </form>`);
     LA.hydrate(body);
-    $('#ctPick', body).addEventListener('click', (e) => {
-      const b = e.target.closest('[data-pick]');
-      if (!b) return;
-      tags.has(b.dataset.pick) ? tags.delete(b.dataset.pick) : tags.add(b.dataset.pick);
-      b.classList.toggle('active');
-    });
+    const drawPick = () => {
+      $('#ctPick', body).innerHTML = [...tags].map(tagById).filter(Boolean).map((t) => `<span class="tag-chip tag-${esc(t.color)} ct-ptag">${esc(t.name)}<button type="button" data-pick-rm="${esc(t.id)}" aria-label="Remove ${esc(t.name)}" title="Remove">${icon('x', 11)}</button></span>`).join('') || '<span class="ct-ptags-none">No tags</span>';
+    };
+    drawPick();
+    $('#ctPick', body).addEventListener('click', (e) => { const b = e.target.closest('[data-pick-rm]'); if (b) { tags.delete(b.dataset.pickRm); drawPick(); } });
+    $('#ctTagAdd', body).addEventListener('click', (e) => { e.stopPropagation(); tagPicker(c, e.currentTarget, { set: tags, onChange: drawPick }); });
     $('#ctCancel', body).onclick = closeModal;
     $('#modal .modal-box').classList.add('cte-box');
     if (!c) $('.cte-name', body).focus();
-    if (chatKey && !opts.inChat) $('#ctChat', body).onclick = () => { closeModal(); showTab('inbox'); window.Inbox?.open(chatKey); };
     if (c) $('#ctDel', body).onclick = async () => {
       closeModal();
       if (!(await confirmDialog({ title: 'Delete this contact?', message: 'Their chats and campaign history stay.', confirmText: 'Delete', danger: true }))) return;

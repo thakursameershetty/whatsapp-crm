@@ -2214,6 +2214,10 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .ct-ptag button { display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: none; color: inherit; opacity: 0.6; cursor: pointer; }
 .ct-ptag button:hover { opacity: 1; background: color-mix(in srgb, currentColor 15%, transparent); }
 .ct-ptags-h { margin-bottom: 8px; }
+/* The Edit contact window's Tags title, with + on its right (the tag dropdown) */
+.cte-label-row { display: flex; align-items: center; justify-content: space-between; }
+.cte-tag-add { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; }
+.cte-tag-add:hover, .cte-tag-add:focus-visible { background: var(--sunk); color: var(--text); outline: 0; }
 .ct-ptag-edit { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; } /* Tags' Edit, on the title's line */
 .ct-ptag-edit:hover, .ct-ptag-edit:focus-visible { background: var(--sunk); color: var(--text); outline: 0; }
 .ct-ptags-none { font-size: 13px; color: var(--faint); }
@@ -2236,9 +2240,41 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .ptm-new { display: flex; align-items: center; gap: 8px; margin-top: 2px; padding: 8px; border: 0; border-radius: 8px; background: none; color: var(--info); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
 .ptm-new:hover { background: var(--info-soft); }
 .ptm-none { margin: 4px 8px; font-size: 12.5px; color: var(--muted); }
+/* The contact panel's Campaigns timeline: a summary line, then a row per campaign on a thin line with its WhatsApp
+   mark (sent ✓, delivered ✓✓, read blue ✓✓, not delivered !) */
+.ctl-sum { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: -2px 0 10px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ctl-sum-i { display: inline-flex; align-items: center; gap: 4px; }
+.ctl-sum-i.failed { color: var(--danger); }
+.ctl { list-style: none; margin: 0; padding: 0; position: relative; }
+.ctl-row { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 7px 6px 7px 0; border-radius: 10px; }
+.ctl-row:hover { background: var(--sunk); }
+.ctl-mark { position: relative; z-index: 1; display: grid; place-items: center; flex: none; width: 22px; height: 22px; margin-top: 1px; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1.5px var(--hair); }
+.ctl-row.read .ctl-mark { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--tick-read) 45%, transparent); }
+.ctl-row.failed .ctl-mark { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--danger) 45%, transparent); }
+.ctl-mark .wa-mk { width: auto; }
+.ctl-body { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.ctl-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ctl-top b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.ctl-top time { flex: none; font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+.ctl-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctl-row.read .ctl-st { color: var(--tick-read); } .ctl-row.failed .ctl-st { color: var(--danger); }
+.ctl-err { margin-top: 3px; font-size: 12px; }
+.ctl-err .ct-errline { display: flex; justify-content: space-between; flex-wrap: nowrap; width: 100%; }
+.ctl-err .ct-errline-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctl-more { margin: 6px 0 0 32px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--info); cursor: pointer; }
+.ctl-more:hover { text-decoration: underline; }
 /* Meta errors in Contacts: the short title and the code chip (hovering it explains the error) */
 .ct-errline { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; color: var(--danger); font-weight: 500; overflow-wrap: normal; }
 .ct-errline .cd-ecode { flex: none; white-space: nowrap; overflow-wrap: normal; word-break: normal; } /* the code never splits; only the title wraps */
+/* In the contact panel's Campaigns list: the reason on the left, its code at the right end of the same line */
+/* (the row as a grid: name and pill on the first line, the lines under it full width, so the code reaches the right edge) */
+ul.ct-camps > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; row-gap: 1px; align-items: start; }
+ul.ct-camps > li > span:first-child { display: contents; }
+ul.ct-camps > li > span:first-child > b { grid-column: 1; grid-row: 1; }
+ul.ct-camps > li > .pill { grid-column: 2; grid-row: 1; }
+ul.ct-camps > li > span:first-child > small { grid-column: 1 / -1; }
+.ct-camps .ct-errline { display: flex; justify-content: space-between; flex-wrap: nowrap; width: 100%; }
+.ct-camps .ct-errline-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ct-errline .cd-ecode, .chx-err .cd-ecode { cursor: help; }
 /* The Chat window's cards (the template window): how the latest send went */
 .chx-line { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--muted); }

@@ -794,17 +794,28 @@
     $('#tpGrid', body).addEventListener('click', (e) => {
       const hd = e.target.closest('.tp-num-sec > .tpl-num-h');
       if (hd) {
-        const sec = hd.parentElement, cards = sec.querySelector('.tp-cards'), open = !sec.classList.contains('open');
-        open ? openW.add(sec.dataset.w) : openW.delete(sec.dataset.w);
-        sec.classList.toggle('open', open);
-        hd.setAttribute('aria-expanded', open);
-        sec.__anim?.cancel();
-        if (open) cards.hidden = false;
-        if (Motion.reduce()) { cards.hidden = !open; return; }
-        const h = cards.scrollHeight;
-        cards.style.overflow = 'hidden';
-        sec.__anim = cards.animate(open ? [{ height: '0px', opacity: 0 }, { height: h + 'px', opacity: 1 }] : [{ height: h + 'px', opacity: 1 }, { height: '0px', opacity: 0 }], { duration: Math.min(380, 200 + h / 10), easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
-        sec.__anim.onfinish = () => { cards.style.overflow = ''; if (!open) cards.hidden = true; sec.__anim = null; };
+        // One number open at a time: opening one closes the rest. Those above it close at once, with the list scrolled
+        // to match, so the header you clicked stays where it is; those below slide shut.
+        const sec = hd.parentElement, open = !sec.classList.contains('open'), grid = $('#tpGrid', body);
+        const setOpen = (x, on, animate) => {
+          const cards = x.querySelector('.tp-cards'), h0 = x.querySelector('.tpl-num-h');
+          on ? openW.add(x.dataset.w) : openW.delete(x.dataset.w);
+          x.classList.toggle('open', on);
+          h0.setAttribute('aria-expanded', on);
+          x.__anim?.cancel();
+          if (on) cards.hidden = false;
+          if (!animate || Motion.reduce()) { cards.hidden = !on; cards.style.overflow = ''; return; }
+          const h = cards.scrollHeight;
+          cards.style.overflow = 'hidden';
+          x.__anim = cards.animate(on ? [{ height: '0px', opacity: 0 }, { height: h + 'px', opacity: 1 }] : [{ height: h + 'px', opacity: 1 }, { height: '0px', opacity: 0 }], { duration: Math.min(380, 200 + h / 10), easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+          x.__anim.onfinish = () => { cards.style.overflow = ''; if (!on) cards.hidden = true; x.__anim = null; };
+        };
+        if (open) {
+          const before = hd.getBoundingClientRect().top;
+          for (const o of grid.querySelectorAll('.tp-num-sec.open')) if (o !== sec) setOpen(o, false, Boolean(sec.compareDocumentPosition(o) & Node.DOCUMENT_POSITION_FOLLOWING));
+          grid.scrollTop += hd.getBoundingClientRect().top - before;
+        }
+        setOpen(sec, open, true);
         return;
       }
       if (e.target.closest('[data-tp-clear]')) { Object.assign(TP, { q: '', cat: '', status: 'ready', num: '' }); $('#tpQ', body).value = ''; return draw(); }
