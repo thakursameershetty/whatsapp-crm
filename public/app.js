@@ -1582,84 +1582,110 @@ function tplEditBlock(t) {
 function templateEditor(t = null) {
   const live = !state.settings.demoMode;
   const spec = tplSpec(t);
+  const original = tplSpec(t).header.format; // an edit keeps its current sample unless a new one is chosen
   const accounts = [...new Map(state.senders.filter((x) => x.wabaId && x.hasToken).map((x) => [x.wabaId, x])).values()];
+  const HEADERS = [['NONE', 'None', 'ban', 'Just the message'], ['TEXT', 'Text', 'type', 'A bold title line'], ['IMAGE', 'Image', 'image', 'JPG or PNG · 5 MB'], ['VIDEO', 'Video', 'video', 'MP4 · 16 MB'], ['DOCUMENT', 'PDF', 'file-text', 'PDF · 15 MB']];
+  const CATS = [['MARKETING', 'Marketing', 'sparkles', 'Offers, launches, events, news and anything that promotes'], ['UTILITY', 'Utility', 'circle-check', 'Updates on something they asked for: orders, bookings, account alerts']];
+  const card = (n, title, extra, inner) => `<section class="te-card"><div class="te-card-h"><span class="te-step">${n}</span><b>${title}</b>${extra}</div>${inner}</section>`;
   const body = openModal(t ? `Edit ${t.name}` : 'New template', `
     <form id="teForm" class="te" novalidate>
       <div class="te-form">
-        <div class="te-row">
-          <label class="te-name"><span>Name${t ? '' : '<span class="te-req">required</span>'}</span><input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="e.g. webinar_invite" maxlength="60" autocomplete="off">${t ? '' : '<span class="te-hint" id="teNameHint">Lowercase letters, numbers and underscores. Suggested from your message if left empty.</span>'}</label>
-          <label>Language<select name="language" ${t ? 'disabled' : ''}>${TPL_LANGS.map(([v, l]) => `<option value="${v}" ${v === spec.language ? 'selected' : ''}>${l}</option>`).join('')}${TPL_LANGS.some(([v]) => v === spec.language) ? '' : `<option value="${esc(spec.language)}" selected>${esc(spec.language)}</option>`}</select></label>
-        </div>
-        <div class="te-row">
-          <div class="te-field"><span class="field-label">Category</span><div class="seg te-seg" data-seg="category">${[['MARKETING', 'Marketing', 'Offers, events, news'], ['UTILITY', 'Utility', 'Updates on something they did']].map(([v, l, d]) => `<button type="button" data-v="${v}" class="${spec.category === v ? 'active' : ''}" title="${d}">${l}</button>`).join('')}</div></div>
-          ${live && !t && accounts.length > 1 ? `<label>Business Account<select name="senderId">${accounts.map((x) => `<option value="${x.id}">${esc(x.verifiedName || x.label)}</option>`).join('')}</select></label>` : ''}
-        </div>
-
-        <section class="te-sec">
-          <div class="te-sec-h"><b>Header</b><span class="opt">optional</span></div>
-          <div class="seg te-seg" data-seg="header">${[['NONE', 'None'], ['TEXT', 'Text'], ['IMAGE', 'Image'], ['VIDEO', 'Video'], ['DOCUMENT', 'PDF']].map(([v, l]) => `<button type="button" data-v="${v}" class="${spec.header.format === v ? 'active' : ''}">${l}</button>`).join('')}</div>
-          <div id="teHeaderBox"></div>
-        </section>
-
-        <section class="te-sec">
-          <div class="te-sec-h"><b>Message</b><span class="te-count" id="teBodyCount"></span></div>
-          <div class="te-tools">
-            <button type="button" data-wrap="*" title="Bold"><b>B</b></button><button type="button" data-wrap="_" title="Italic"><i>I</i></button><button type="button" data-wrap="~" title="Strikethrough"><s>S</s></button><button type="button" data-wrap="\`\`\`" title="Monospace"><code>&lt;/&gt;</code></button>
-            <button type="button" class="te-addvar" data-addvar title="Add a variable: a value filled in for each person when sending">${icon('plus', 13)}Variable</button>
+        ${card(1, 'Basics', '', `
+          <div class="te-row">
+            <label class="te-name"><span>Name${t ? '' : '<span class="te-req">required</span>'}</span><input name="name" ${t ? 'readonly' : ''} value="${esc(spec.name)}" placeholder="e.g. webinar_invite" maxlength="60" autocomplete="off">${t ? '' : '<span class="te-hint" id="teNameHint">Lowercase letters, numbers and underscores. Suggested from your message if left empty.</span>'}</label>
+            <label>Language<select name="language" ${t ? 'disabled' : ''}>${TPL_LANGS.map(([v, l]) => `<option value="${v}" ${v === spec.language ? 'selected' : ''}>${l}</option>`).join('')}${TPL_LANGS.some(([v]) => v === spec.language) ? '' : `<option value="${esc(spec.language)}" selected>${esc(spec.language)}</option>`}</select></label>
           </div>
-          <textarea name="bodyText" rows="8" maxlength="1024" placeholder="Hi {{1}}, your order {{2}} is on its way. Track it here: {{3}}">${esc(spec.body.text)}</textarea>
-          <div id="teSamples" class="te-samples"></div>
-        </section>
+          <div class="te-field"><span class="field-label">Category</span>
+            <div class="te-cats" role="radiogroup" aria-label="Category">${CATS.map(([v, l, ic, d]) => `<button type="button" role="radio" class="te-cat${spec.category === v ? ' on' : ''}" aria-checked="${spec.category === v}" data-cat="${v}"><span class="te-cat-ic">${icon(ic, 16)}</span><span><b>${l}</b><small>${d}</small></span></button>`).join('')}</div>
+            <span class="te-hint">Meta checks the category when it reviews: a Utility template that promotes anything is moved to Marketing.</span>
+          </div>
+          ${live && !t && accounts.length > 1 ? `<label class="te-acct">Business Account<select name="senderId">${accounts.map((x) => `<option value="${x.id}">${esc(x.verifiedName || x.label)}</option>`).join('')}</select></label>` : ''}`)}
 
-        <section class="te-sec">
-          <div class="te-sec-h"><b>Footer</b><span class="opt">optional</span><span class="te-count" id="teFooterCount"></span></div>
-          <input name="footer" maxlength="60" value="${esc(spec.footer)}" placeholder="Reply STOP to stop these messages">
-        </section>
+        ${card(2, 'Header', '<span class="opt">optional</span>', `
+          <div class="te-hdrs" role="radiogroup" aria-label="Header">${HEADERS.map(([v, l, ic, d]) => `<button type="button" role="radio" class="te-hdr${spec.header.format === v ? ' on' : ''}" aria-checked="${spec.header.format === v}" data-hfmt="${v}" title="${d}">${icon(ic, 18)}<b>${l}</b><small>${d}</small></button>`).join('')}</div>
+          <div id="teHeaderBox"></div>
+          <input type="file" hidden id="teFile">`)}
 
-        <section class="te-sec">
-          <div class="te-sec-h"><b>Buttons</b><span class="opt">optional, up to 10</span></div>
+        ${card(3, 'Message', '<span class="te-req">required</span><span class="te-count" id="teBodyCount"></span>', `
+          <div class="te-editor">
+            <div class="te-tools">
+              <button type="button" data-wrap="*" title="Bold"><b>B</b></button><button type="button" data-wrap="_" title="Italic"><i>I</i></button><button type="button" data-wrap="~" title="Strikethrough"><s>S</s></button><button type="button" data-wrap="\`\`\`" title="Monospace"><code>&lt;/&gt;</code></button>
+              <button type="button" class="te-addvar" data-addvar title="Add a variable: a value filled in for each person when sending">${icon('plus', 13)}Variable</button>
+            </div>
+            <textarea name="bodyText" rows="7" maxlength="1024" placeholder="Hi {{1}}, your order {{2}} is on its way. Track it here: {{3}}">${esc(spec.body.text)}</textarea>
+          </div>
+          <div id="teSamples" class="te-samples"></div>`)}
+
+        ${card(4, 'Footer', '<span class="opt">optional</span><span class="te-count" id="teFooterCount"></span>', `
+          <input name="footer" maxlength="60" value="${esc(spec.footer)}" placeholder="Reply STOP to stop these messages">`)}
+
+        ${card(5, 'Buttons', '<span class="opt">optional, up to 10</span>', `
           <div id="teButtons" class="te-buttons"></div>
-          <div class="te-addbtns"><button type="button" class="btn sm" data-addbtn="QUICK_REPLY">${icon('reply', 14)}Quick reply</button><button type="button" class="btn sm" data-addbtn="URL">${icon('external-link', 14)}Website</button><button type="button" class="btn sm" data-addbtn="PHONE_NUMBER">${icon('phone', 14)}Call</button></div>
-        </section>
-        <div class="sf-status hidden" id="teStatus" role="status" aria-live="polite"></div>
+          <div class="te-addbtns"><button type="button" class="btn sm" data-addbtn="QUICK_REPLY">${icon('reply', 14)}Quick reply</button><button type="button" class="btn sm" data-addbtn="URL">${icon('external-link', 14)}Website</button><button type="button" class="btn sm" data-addbtn="PHONE_NUMBER">${icon('phone', 14)}Call</button></div>`)}
       </div>
       <aside class="te-preview">
-        <span class="te-cap">Preview with the sample values</span>
-        <div class="te-chat"><div class="bubble" id="tePreview"></div></div>
+        <div class="te-phone">
+          <div class="te-phone-bar"><span class="te-phone-av">${icon('smartphone', 14)}</span><span><b>Preview</b><small>As customers see it, with your sample values</small></span></div>
+          <div class="te-chat" id="teChat"><div class="bubble" id="tePreview"></div></div>
+        </div>
         <p class="sub">${live ? 'Meta reviews every new or edited template, usually within minutes and at most a day. Its status updates here by itself.' : 'Demo mode: the template is saved here for practice and nothing goes to Meta.'}</p>
       </aside>
-      <div class="modal-actions te-actions">
+      <div class="te-actions">
+        <div class="sf-status hidden" id="teStatus" role="status" aria-live="polite"></div>
         <button type="button" class="btn quiet" onclick="closeModal()">Cancel</button>
-        <button class="btn primary">${t ? 'Save changes' : live ? 'Submit for review' : 'Save template'}</button>
+        <button class="btn primary">${icon('send', 15)}${t ? 'Save changes' : live ? 'Submit for review' : 'Save template'}</button>
       </div>
     </form>`);
   $('#modal .modal-box').classList.add('te-box');
-  const form = $('#teForm', body), ta = $('[name=bodyText]', form);
+  const form = $('#teForm', body), ta = $('[name=bodyText]', form), fileIn = $('#teFile', form);
   const status = $('#teStatus', body);
   const show = (kind, html) => { status.className = 'sf-status ' + kind; status.innerHTML = html; };
 
   // --- Header ---
   const MEDIA_ACCEPT = { IMAGE: 'image/jpeg,image/png', VIDEO: 'video/mp4', DOCUMENT: 'application/pdf' };
   const MEDIA_MAX = { IMAGE: 5, VIDEO: 16, DOCUMENT: 15 };
+  const kindOf = (f) => (f === 'DOCUMENT' ? 'PDF' : String(f).toLowerCase());
+  const formatFor = (mime) => Object.keys(MEDIA_ACCEPT).find((k) => MEDIA_ACCEPT[k].split(',').includes(mime));
+  const size = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+  const clearFile = () => { const h = spec.header; if (h.preview) URL.revokeObjectURL(h.preview); h.file = null; h.preview = ''; fileIn.value = ''; };
+  const setFormat = (f) => {
+    if (f === spec.header.format) return;
+    if (spec.header.file) clearFile();
+    spec.header.format = f;
+    $$('[data-hfmt]', form).forEach((b) => { b.classList.toggle('on', b.dataset.hfmt === f); b.setAttribute('aria-checked', String(b.dataset.hfmt === f)); });
+    renderHeader();
+    renderPreview();
+  };
+  // A sample file: from the picker, or dropped on the header box or the preview (which also picks the header type).
+  const takeFile = (f) => {
+    if (!f) return;
+    const fmt = formatFor(f.type);
+    if (!fmt) return toast('Use a JPG or PNG image, an MP4 video or a PDF', 'error');
+    if (MEDIA_ACCEPT[spec.header.format] && fmt !== spec.header.format) return toast(`This header is a${spec.header.format === 'IMAGE' ? 'n' : ''} ${kindOf(spec.header.format)}: pick a ${kindOf(spec.header.format)} file, or change the header type`, 'error');
+    if (f.size > MEDIA_MAX[fmt] * 1048576) return toast(`WhatsApp accepts header ${kindOf(fmt)}s up to ${MEDIA_MAX[fmt]} MB`, 'error');
+    if (spec.header.format !== fmt) setFormat(fmt);
+    clearFile();
+    spec.header.file = f;
+    spec.header.preview = URL.createObjectURL(f);
+    renderHeader();
+    renderPreview();
+  };
+  const pick = () => { const f = spec.header.format; if (!MEDIA_ACCEPT[f]) return; fileIn.accept = MEDIA_ACCEPT[f]; fileIn.click(); };
+  fileIn.addEventListener('change', () => takeFile(fileIn.files?.[0]));
   const renderHeader = () => {
     const h = spec.header, box = $('#teHeaderBox', body);
     if (h.format === 'TEXT') {
-      box.innerHTML = `<input name="headerText" maxlength="60" value="${esc(h.text)}" placeholder="Your order is on its way" autocomplete="off">
-        ${tplVarNums(h.text).length ? `<label class="te-sample">Sample for {{1}}<input name="headerSample" value="${esc(h.sample)}" placeholder="What {{1}} could be"></label>` : ''}`;
+      box.innerHTML = `<div class="te-inline"><input name="headerText" maxlength="60" value="${esc(h.text)}" placeholder="Your order is on its way" autocomplete="off"><span class="te-count in">${h.text.length} / 60</span></div>
+        <span class="te-hint">Up to 60 characters. One variable at most, like {{1}}.</span>
+        ${tplVarNums(h.text).length ? `<label class="te-sample"><code>{{1}}</code><input name="headerSample" value="${esc(h.sample)}" placeholder="What {{1}} could be"></label>` : ''}`;
     } else if (MEDIA_ACCEPT[h.format]) {
-      const kind = h.format === 'DOCUMENT' ? 'PDF' : h.format.toLowerCase();
-      box.innerHTML = `<div class="te-media"><label class="btn sm">${icon('upload', 14)}${h.file ? 'Replace' : 'Upload'} sample ${kind}<input type="file" hidden accept="${MEDIA_ACCEPT[h.format]}" id="teHeaderFile"></label>
-        <span class="sub">${h.file ? esc(h.file.name) : t && tplSpec(t).header.format === h.format ? 'Keeping the current sample' : `For Meta's review only. The real ${kind} is chosen when sending.`}</span></div>`;
-      $('#teHeaderFile', box).addEventListener('change', (e) => {
-        const f = e.target.files?.[0];
-        if (!f) return;
-        if (f.size > MEDIA_MAX[h.format] * 1048576) return toast(`WhatsApp accepts header ${kind}s up to ${MEDIA_MAX[h.format]} MB`, 'error');
-        if (h.preview) URL.revokeObjectURL(h.preview);
-        h.file = f;
-        h.preview = h.format === 'VIDEO' ? '' : URL.createObjectURL(f); // images and PDFs show in the preview
-        renderHeader();
-        renderPreview();
-      });
+      const kind = kindOf(h.format), keeping = t && original === h.format && !h.file;
+      const thumb = h.file ? (h.format === 'IMAGE' ? `<img src="${esc(h.preview)}" alt="">` : h.format === 'VIDEO' ? `<video src="${esc(h.preview)}" muted playsinline></video>` : icon('file-text', 22)) : '';
+      box.innerHTML = h.file
+        ? `<div class="te-file"><span class="te-file-th ${h.format.toLowerCase()}">${thumb}</span><span class="te-file-t"><b title="${esc(h.file.name)}">${esc(h.file.name)}</b><small>${size(h.file.size)} · sample for Meta's review</small></span>
+            <button type="button" class="btn sm" data-pick>${icon('refresh-cw', 13)}Replace</button><button type="button" class="icon-btn" data-unfile title="Remove" aria-label="Remove the sample">${icon('x', 15)}</button></div>`
+        : `<button type="button" class="te-drop" data-pick>${icon('cloud-upload', 22)}<b>${keeping ? `Keeping the current sample ${kind}` : `Drop a sample ${kind} here, or <u>browse</u>`}</b>
+            <small>${keeping ? 'Click to replace it.' : `${HEADERS.find((x) => x[0] === h.format)[3]}. For Meta's review only: you choose the real ${kind} for each campaign.`}</small></button>`;
     } else box.innerHTML = '';
   };
 
@@ -1667,7 +1693,7 @@ function templateEditor(t = null) {
   const renderSamples = () => {
     const nums = tplVarNums(spec.body.text);
     const box = $('#teSamples', body);
-    box.innerHTML = nums.length ? `<span class="te-cap">Samples for Meta's review <span class="opt">shown in the preview, never sent</span></span>` + nums.map((n) => `<label class="te-sample"><code>{{${n}}}</code><input data-sample="${n - 1}" value="${esc(spec.body.samples[n - 1] || '')}" placeholder="${n === 1 ? 'e.g. Rahul' : 'e.g. a real-looking value'}"></label>`).join('') : '';
+    box.innerHTML = nums.length ? `<span class="te-cap">Sample values <span class="opt">for Meta's review and the preview, never sent</span></span>` + nums.map((n) => `<label class="te-sample"><code>{{${n}}}</code><input data-sample="${n - 1}" value="${esc(spec.body.samples[n - 1] || '')}" placeholder="${n === 1 ? 'e.g. Rahul' : 'e.g. a real-looking value'}"></label>`).join('') : '';
   };
 
   // --- Buttons ---
@@ -1699,28 +1725,47 @@ function templateEditor(t = null) {
     return { components: comps };
   };
   const renderPreview = () => {
-    const values = {};
+    const values = {}, h = spec.header;
     tplVarNums(spec.body.text).forEach((n) => { if (spec.body.samples[n - 1]) values[`body.${n}`] = spec.body.samples[n - 1]; });
-    if (spec.header.sample) values['header.1'] = spec.header.sample;
-    if (spec.header.preview) values['header.media'] = spec.header.preview;
-    if (spec.header.format === 'DOCUMENT' && spec.header.file) values['header.filename'] = spec.header.file.name;
-    $('#tePreview', body).innerHTML = spec.body.text.trim() || spec.header.format !== 'NONE' || spec.buttons.length ? bubbleHtml(asTemplate(), values) : '<span class="te-empty">Your message appears here as you write it.</span>';
+    if (h.sample) values['header.1'] = h.sample;
+    if (h.preview && h.format !== 'VIDEO') values['header.media'] = h.preview;
+    if (h.format === 'DOCUMENT' && h.file) values['header.filename'] = h.file.name;
+    const pv = $('#tePreview', body);
+    const time = `<div class="te-time">${esc(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</div>`;
+    pv.innerHTML = spec.body.text.trim() || h.format !== 'NONE' || spec.buttons.length ? bubbleHtml(asTemplate(), values, false, time) : '<span class="te-empty">Your message appears here as you write it.</span>';
+    // The media spot: the chosen video plays here; with no file yet it's a button to add one (or drop one on it).
+    const spot = pv.querySelector('.media:not(.media-doc)');
+    if (spot && MEDIA_ACCEPT[h.format]) {
+      const kind = kindOf(h.format), keeping = t && original === h.format && !h.file;
+      spot.outerHTML = h.format === 'VIDEO' && h.preview
+        ? `<video class="media-img te-pv-video" src="${esc(h.preview)}" muted playsinline controls></video>`
+        : `<button type="button" class="media te-pv-drop" data-pick title="${keeping ? 'Replace the sample' : `Add a sample ${kind}`}">${icon(h.format === 'IMAGE' ? 'image' : h.format === 'VIDEO' ? 'video' : 'file-text', 22)}<b>${keeping ? `Current sample ${kind}` : `Add a sample ${kind}`}</b><small>${keeping ? 'Click to replace' : 'Click or drop a file here'}</small></button>`;
+    }
     const n = spec.body.text.length;
     $('#teBodyCount', body).textContent = `${n} / 1024`;
     $('#teBodyCount', body).classList.toggle('warn', n > 1000);
     $('#teFooterCount', body).textContent = spec.footer ? `${spec.footer.length} / 60` : '';
   };
 
+  // Drag a file over the header box or the preview: it lights up; drop to use it.
+  for (const zone of [$('#teHeaderBox', body), $('#teChat', body)]) {
+    zone.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); zone.classList.add('te-over'); } });
+    zone.addEventListener('dragleave', (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('te-over'); });
+    zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('te-over'); takeFile(e.dataTransfer?.files?.[0]); });
+  }
+
   // --- Events ---
   form.addEventListener('click', (e) => {
-    const seg = e.target.closest('[data-seg] button');
-    if (seg) {
-      const which = seg.parentElement.dataset.seg;
-      seg.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === seg));
-      if (which === 'category') spec.category = seg.dataset.v;
-      else { spec.header.format = seg.dataset.v; renderHeader(); renderPreview(); }
+    const cat = e.target.closest('[data-cat]');
+    if (cat) {
+      spec.category = cat.dataset.cat;
+      $$('[data-cat]', form).forEach((b) => { b.classList.toggle('on', b === cat); b.setAttribute('aria-checked', String(b === cat)); });
       return;
     }
+    const hf = e.target.closest('[data-hfmt]');
+    if (hf) { setFormat(hf.dataset.hfmt); if (hf.dataset.hfmt === 'TEXT') $('[name=headerText]', body)?.focus(); return; }
+    if (e.target.closest('[data-pick]')) return pick();
+    if (e.target.closest('[data-unfile]')) { clearFile(); renderHeader(); renderPreview(); return; }
     const wrap = e.target.closest('[data-wrap]');
     if (wrap) {
       const m = wrap.dataset.wrap, [a, z] = [ta.selectionStart, ta.selectionEnd];
@@ -1757,6 +1802,7 @@ function templateEditor(t = null) {
     if (el.name === 'name') { const v = el.value.toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, ''); if (v !== el.value) el.value = v; spec.name = v; el.dataset.suggested = ''; el.classList.toggle('bad', false); }
     else if (el.name === 'bodyText') {
       spec.body.text = el.value;
+      el.classList.remove('bad');
       // No name typed yet: suggest one from the message's first words (it stays editable).
       const nameEl = $('[name=name]', form);
       if (!t && (!nameEl.value || nameEl.dataset.suggested)) {
@@ -1764,7 +1810,11 @@ function templateEditor(t = null) {
         nameEl.value = sug; spec.name = sug; nameEl.dataset.suggested = sug ? '1' : ''; nameEl.classList.remove('bad');
       } if (tplVarNums(el.value).join() !== $$('[data-sample]', body).map((x) => Number(x.dataset.sample) + 1).join()) renderSamples(); }
     else if (el.name === 'footer') spec.footer = el.value;
-    else if (el.name === 'headerText') { spec.header.text = el.value; if (Boolean(tplVarNums(el.value).length) !== Boolean($('[name=headerSample]', body))) { renderHeader(); $('[name=headerText]', body).focus(); } }
+    else if (el.name === 'headerText') {
+      spec.header.text = el.value;
+      const cnt = $('.te-count.in', body); if (cnt) cnt.textContent = `${el.value.length} / 60`;
+      if (Boolean(tplVarNums(el.value).length) !== Boolean($('[name=headerSample]', body))) { const pos = el.selectionStart; renderHeader(); const x = $('[name=headerText]', body); x.focus(); x.setSelectionRange(pos, pos); }
+    }
     else if (el.name === 'headerSample') spec.header.sample = el.value;
     else if (el.dataset.sample != null) { spec.body.samples[Number(el.dataset.sample)] = el.value; el.classList.toggle('bad', Boolean(linkProblem(el.value))); el.title = linkProblem(el.value) ? `This ${linkProblem(el.value)}. Write the full link, e.g. https://example.com` : ''; }
     else if (el.dataset.bf) { const b = spec.buttons[Number(el.closest('.te-btn').dataset.i)]; b[el.dataset.bf] = el.value; if (el.dataset.bf === 'url') { const bad = el.value.trim() && linkProblem(el.value, true); el.classList.toggle('bad', Boolean(bad)); el.title = bad ? 'Write the full link, starting with https://' : ''; } }
@@ -1773,14 +1823,14 @@ function templateEditor(t = null) {
   form.addEventListener('change', (e) => { if (e.target.name === 'language') spec.language = e.target.value; });
 
   const fileData = (f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = no; r.readAsDataURL(f); });
+  // Points at what's missing: scrolls to it, outlines it, and says so beside the buttons.
+  const missing = (el, msg) => { el?.classList.add('bad'); el?.scrollIntoView({ block: 'center', behavior: 'smooth' }); el?.focus?.({ preventScroll: true }); show('bad', msg); };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    if (!t && !spec.name.trim()) {
-      const n = $('[name=name]', form);
-      n.classList.add('bad'); n.scrollIntoView({ block: 'center', behavior: 'smooth' }); n.focus({ preventScroll: true });
-      show('bad', 'Give the template a name, e.g. webinar_invite');
-      return;
-    }
+    if (!t && !spec.name.trim()) return missing($('[name=name]', form), 'Give the template a name, e.g. webinar_invite');
+    const h = spec.header;
+    if (MEDIA_ACCEPT[h.format] && !h.file && !(t && original === h.format)) { const d = $('.te-drop', body); missing(d, `Add a sample ${kindOf(h.format)} for the header: Meta needs it to review the template`); return; }
+    if (!spec.body.text.trim()) return missing(ta, 'Write the message');
     const btn = $('.te-actions .btn.primary', body);
     guard(async () => {
       if (t && String(t.status).toUpperCase() === 'APPROVED' && live && t.metaId) {
@@ -1788,7 +1838,6 @@ function templateEditor(t = null) {
         if (!ok) return;
       }
       show('busy', `<span class="sf-spin"></span>${live && (!t || t.metaId) ? 'Sending to Meta…' : 'Saving…'}`);
-      const h = spec.header;
       const payload = {
         name: spec.name, language: $('[name=language]', form).value, category: spec.category, senderId: $('[name=senderId]', form)?.value,
         header: { format: h.format, text: h.text, sample: h.sample, file: h.file ? { mime: h.file.type, data: await fileData(h.file) } : null },

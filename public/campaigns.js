@@ -318,14 +318,13 @@
       </div>`;
     }
     const hourOf = (c) => new Date(dayOf(c)).getHours();
-    const hrs = cs.map(hourOf);
-    const from = Math.min(9, ...hrs), to = Math.max(18, ...hrs);
+    const from = 0, to = 23; // the whole day; the timeline scrolls, and opens at the first campaign
     const nowH = k === today ? new Date().getHours() : -1;
     const fmtH = (h) => new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: 'numeric' });
     let rows = '';
     for (let h = from; h <= to; h++) {
       const at = cs.filter((c) => hourOf(c) === h);
-      rows += `<div class="cd-hour ${at.length ? 'has' : ''} ${h === nowH ? 'now' : ''}"><span class="cd-hour-l">${esc(fmtH(h))}</span><div class="cd-hour-items">${at.map((c) => {
+      rows += `<div class="cd-hour ${at.length ? 'has' : ''} ${h === nowH ? 'now' : ''}" data-h="${h}"><span class="cd-hour-l">${esc(fmtH(h))}</span><div class="cd-hour-items">${at.map((c) => {
         const s = c.stats || {}, del = deliveredOf(s);
         const note = live(c) ? 'Sending now' : c.status === 'scheduled' ? 'Scheduled' : del ? `${pctOf(s.read || 0, del)}% read · ${pctOf(del, sentOf(s) + (s.failed || 0))}% delivered` : (STATUS_LABEL[c.status] || c.status);
         return `<button type="button" class="cd-ev ${c.status}${c.test ? ' is-test' : ''}" data-day-open="${c.id}" style="--c:${colorOf(c)}">${miniFolder(c)}<span class="cd-ev-main"><b>${esc(displayName(c))}</b><small>${esc(c.templateName || '')} · ${c.total.toLocaleString()} recipient${c.total === 1 ? '' : 's'}</small></span><span class="cd-ev-side"><time>${esc(new Date(dayOf(c)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time><small>${c.test ? 'Test · ' : ''}${esc(note)}</small></span></button>`;
@@ -377,6 +376,16 @@
       <div class="card cdp-card">${dayBody(k, cs)}</div>`;
     LA.hydrate(el);
     if (fresh) Motion.enter(el);
+    const tl = el.querySelector('.cd-day-tl');
+    if (tl && el.dataset.scrolled !== k) {
+      el.dataset.scrolled = k; // once per day shown: a refresh while you look (live sends) keeps your place
+      const first = cs.length ? Math.min(...cs.map((c) => new Date(dayOf(c)).getHours())) : -1;
+      const h = first >= 0 ? first : k === today ? new Date().getHours() : 9;
+      const row = tl.querySelector(`[data-h="${Math.max(0, h - 1)}"]`);
+      if (tl.scrollHeight > tl.clientHeight + 1) tl.scrollTop = row ? row.offsetTop : 0; // (the timeline is the rows' offset parent)
+      else if (row && fresh) scrollTo({ top: row.getBoundingClientRect().top + scrollY - 80, behavior: 'instant' }); // phones: the page scrolls
+    } else if (tl && CP.dayTlScroll != null) tl.scrollTop = CP.dayTlScroll;
+    tl?.addEventListener('scroll', () => { CP.dayTlScroll = tl.scrollTop; }, { passive: true });
   }
   // The week around the day (Sunday to Saturday, like the calendar): click a day to go to it, ‹ › for the weeks either
   // side. A dot per campaign that day (up to three), from the counts the server sends for every day.
