@@ -688,23 +688,63 @@
   // delivered, two blue read, a red ! not delivered). A summary line on top; the latest few, then "Show all". A name the
   // app made ("template — 26/10/2026, 11:38 AM") shows without its date, which the row already gives.
   const CAMP_SHOW = 4;
+  // A campaign row → the chat with the number that sent it, once they've written back to that number (until then there's
+  // no conversation: WhatsApp only allows templates there)
+  async function openCampChat(c, senderId, fromWindow = false) {
+    const r = await guard(() => api('/contacts/' + encodeURIComponent(c.id) + '/threads'));
+    const t = r?.threads.find((x) => x.senderId === senderId);
+    if (!r) return;
+    if (!t?.replied) return toast(`${nameOf(c)} hasn't replied to ${senderName(senderId)} yet, so there's no chat to open. Until they write back, WhatsApp only lets you send them a template.`, 'error');
+    if (fromWindow) closeModal();
+    showTab('inbox');
+    window.Inbox?.open(t.key);
+  }
   const campName = (n) => String(n || 'Campaign').replace(/\s+—\s+\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}.*$/, '');
+  // A campaign's folder, in its colour from the Campaigns page (colorIndex: its place by creation date, from the server)
+  const campFolder = (x) => `<span class="cp-ficon ctl-folder" style="--c:${x.colorIndex >= 0 && window.folderColorAt ? window.folderColorAt(x.colorIndex) : 'oklch(var(--fl) var(--fc) 250)'}" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span>`;
+  // One campaign row (the panel's list and the All campaigns window): its folder; the name and when; the number and how
+  // it went, with WhatsApp's mark; for a failed one, the reason and its code
+  const campRow = (x) => `<li class="ctl-row ${esc(x.status)}" data-camp-sender="${esc(x.senderId || '')}" role="button" tabindex="0" title="${esc(`${x.name || 'Campaign'}\n${DELIVERY[x.status] || x.status}${x.at ? ' · ' + new Date(x.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''}\nClick to open the chat with ${senderName(x.senderId)}`)}">
+      ${campFolder(x)}
+      <div class="ctl-body"><div class="ctl-top"><b>${esc(campName(x.name))}</b><time>${esc(x.at ? relTime(x.at) : '')}</time></div>
+      <div class="ctl-sub"><span class="ctl-sub-l">${esc(senderName(x.senderId))} · <span class="ctl-st">${waMark(x.status)}${esc(DELIVERY[x.status] || x.status)}</span></span>${x.error ? (errCode(x.error) ? `<code class="cd-ecode ctl-code" tabindex="0" data-ecode="${esc(errCode(x.error))}">${esc(errCode(x.error))}</code>` : `<span class="ctl-code ctl-code-txt" title="${esc(x.error)}">error</span>`) : ''}</div></div></li>`;
+  const campSummary = (list) => {
+    const n = (st) => list.filter((x) => x.status === st).length;
+    return [['read', 'read'], ['delivered', 'delivered'], ['sent', 'sent'], ['failed', 'not delivered']].filter(([st]) => n(st)).map(([st, w]) => `<span class="ctl-sum-i ${st}">${waMark(st)}${n(st).toLocaleString()} ${w}</span>`).join('');
+  };
   function campaignsHtml(c) {
     const list = [...(c.campaigns || [])].reverse();
     if (!list.length) return '';
-    const n = (st) => list.filter((x) => x.status === st).length;
-    const sum = [['read', 'read'], ['delivered', 'delivered'], ['sent', 'sent'], ['failed', 'not delivered']].filter(([st]) => n(st)).map(([st, w]) => `<span class="ctl-sum-i ${st}">${waMark(st)}${n(st)} ${w}</span>`).join('');
-    const all = Boolean(CT.campsAll?.has(c.id));
-    const shown = all ? list : list.slice(0, CAMP_SHOW);
-    const row = (x) => `<li class="ctl-row ${esc(x.status)}" title="${esc(`${x.name || 'Campaign'}\n${DELIVERY[x.status] || x.status}${x.at ? ' · ' + new Date(x.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : ''}`)}">
-        <span class="ctl-mark">${waMark(x.status)}</span>
-        <div class="ctl-body"><div class="ctl-top"><b>${esc(campName(x.name))}</b><time>${esc(x.at ? relTime(x.at) : '')}</time></div>
-        <div class="ctl-sub">${esc(senderName(x.senderId))} · <span class="ctl-st">${esc(DELIVERY[x.status] || x.status)}</span></div>
-        ${x.error ? `<div class="ctl-err">${errChip(x.error)}</div>` : ''}</div></li>`;
     return `<div class="ct-psec"><div class="field-label ctl-h">Campaigns <span class="opt">${list.length}</span></div>
-      <div class="ctl-sum">${sum}</div>
-      <ol class="ctl">${shown.map(row).join('')}</ol>
-      ${list.length > CAMP_SHOW ? `<button type="button" class="ctl-more" data-camps-all>${all ? 'Show fewer' : `Show all ${list.length}`}</button>` : ''}</div>`;
+      <div class="ctl-sum">${campSummary(list)}</div>
+      <ol class="ctl">${list.slice(0, CAMP_SHOW).map(campRow).join('')}</ol>
+      ${list.length > CAMP_SHOW ? `<button type="button" class="ctl-more" data-camps-all>Show all ${list.length.toLocaleString()} campaigns</button>` : ''}</div>`;
+  }
+  // Show all: every campaign that messaged them, in a window: search, a filter by how it went, and the same rows
+  // (a row opens that number's chat)
+  function campaignsWindow(c) {
+    const list = [...(c.campaigns || [])].reverse();
+    let q = '', st = '';
+    const body = openModal(`Campaigns · ${nameOf(c)}`, `<div class="ctw">
+      <div class="ctw-bar"><div class="search-wrap" data-icon="search" data-icon-size="14"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="ctwQ" placeholder="Search campaigns or numbers" /></div>
+        <div class="seg ctw-seg" id="ctwSt" role="radiogroup" aria-label="How it went"></div></div>
+      <div class="ctw-sum ctl-sum">${campSummary(list)}</div>
+      <ol class="ctl ctw-list" id="ctwList"></ol></div>`);
+    $('#modal .modal-box').classList.add('wide', 'ctw-box');
+    LA.hydrate(body);
+    const STS = [['', 'All'], ['read', 'Read'], ['delivered', 'Delivered'], ['sent', 'Sent'], ['failed', 'Not delivered']].filter(([k]) => !k || list.some((x) => x.status === k));
+    const draw = () => {
+      $('#ctwSt', body).innerHTML = STS.map(([k, label]) => `<button type="button" data-st="${k}" class="${st === k ? 'active' : ''}" role="radio" aria-checked="${st === k}">${k ? waMark(k) : ''}${label}<span class="ctw-n">${(k ? list.filter((x) => x.status === k).length : list.length).toLocaleString()}</span></button>`).join('');
+      const qq = q.trim().toLowerCase();
+      const shown = list.filter((x) => (!st || x.status === st) && (!qq || [x.name, senderName(x.senderId), x.error].some((v) => String(v || '').toLowerCase().includes(qq))));
+      $('#ctwList', body).innerHTML = shown.map(campRow).join('') || '<p class="ctw-none">No campaigns match.</p>';
+    };
+    draw();
+    $('#ctwQ', body).addEventListener('input', (e) => { q = e.target.value; draw(); });
+    $('#ctwSt', body).addEventListener('click', (e) => { const b = e.target.closest('[data-st]'); if (b) { st = b.dataset.st; draw(); } });
+    $('#ctwList', body).addEventListener('click', (e) => { const r = e.target.closest('[data-camp-sender]'); if (r && !e.target.closest('[data-ecode]')) openCampChat(c, r.dataset.campSender, true); });
+    $('#ctwList', body).addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[data-camp-sender]')) { e.preventDefault(); e.target.click(); } });
+    $('#ctwQ', body).focus();
   }
 
   // Tags dropdown (the contact panel): a search box with + beside it, then every tag with a tick box; several can be
@@ -773,7 +813,9 @@
       const r = stBtn.getBoundingClientRect();
       return Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(STATUS).map(([k, v]) => ({ label: v.label, checked: c.status === k, pre: `<span class="mi-ic"><i class="ct-lab-dot st-${k}"></i></span>`, action: () => { if (k !== c.status) patch(c, { status: k }); } })));
     }
-    if (e.target.closest('[data-camps-all]')) { CT.campsAll ||= new Set(); CT.campsAll.has(c.id) ? CT.campsAll.delete(c.id) : CT.campsAll.add(c.id); return renderPanel(); }
+    const campRow = e.target.closest('[data-camp-sender]');
+    if (campRow && !e.target.closest('[data-ecode]')) return openCampChat(c, campRow.dataset.campSender);
+    if (e.target.closest('[data-camps-all]')) return campaignsWindow(c);
     const rm = e.target.closest('[data-ptag-rm]');
     if (rm) return patch(c, { tags: c.tags.filter((x) => x !== rm.dataset.ptagRm) });
     const tm = e.target.closest('[data-ptag-menu]');
@@ -795,6 +837,7 @@
     const c = CT.cache.get(CT.openId);
     if (c && e.target.id === 'ctPNotes' && e.target.value !== (c.notes || '')) patch(c, { notes: e.target.value }, 'Notes saved');
   });
+  $('#ctPanel').addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[data-camp-sender]')) { e.preventDefault(); e.target.click(); } });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !CT.openId || $('#tab-contacts').classList.contains('hidden') || !$('#modal').classList.contains('hidden')) return;
     if (e.target.closest?.('input, textarea, select')) return;

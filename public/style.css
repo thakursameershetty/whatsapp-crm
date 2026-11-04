@@ -2246,23 +2246,41 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .ctl-sum-i { display: inline-flex; align-items: center; gap: 4px; }
 .ctl-sum-i.failed { color: var(--danger); }
 .ctl { list-style: none; margin: 0; padding: 0; position: relative; }
-.ctl-row { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 7px 6px 7px 0; border-radius: 10px; }
-.ctl-row:hover { background: var(--sunk); }
-.ctl-mark { position: relative; z-index: 1; display: grid; place-items: center; flex: none; width: 22px; height: 22px; margin-top: 1px; border-radius: 50%; background: var(--surface); box-shadow: 0 0 0 1.5px var(--hair); }
-.ctl-row.read .ctl-mark { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--tick-read) 45%, transparent); }
-.ctl-row.failed .ctl-mark { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--danger) 45%, transparent); }
-.ctl-mark .wa-mk { width: auto; }
+.ctl { margin: 0 -10px; } /* rows reach a little past the column, so their padding keeps the text lined up with the title */
+.ctl-row { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 9px 10px; border-radius: 12px; cursor: pointer; outline: 0; transition: background-color 0.12s; }
+.ctl-row + .ctl-row { margin-top: 2px; }
+.ctl-row:hover, .ctl-row:focus-visible { background: var(--sunk); }
+.ctl-row:focus-visible { box-shadow: 0 0 0 2px var(--ring, var(--accent)); }
+.ctl-folder { margin-top: 2px; }
+.ctl-st { display: inline-flex; align-items: center; gap: 3px; }
+.ctl-st .wa-mk { width: auto; }
 .ctl-body { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .ctl-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .ctl-top b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
 .ctl-top time { flex: none; font-size: 11.5px; color: var(--faint); white-space: nowrap; }
-.ctl-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctl-sub { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); }
+.ctl-sub-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a failed campaign's Meta error code: small, under the time (hovering it explains it) */
+.ctl-code { flex: none; padding: 0 5px; border-radius: 5px; background: var(--danger-soft); color: var(--danger); font: 600 10.5px/17px ui-monospace, Menlo, monospace; white-space: nowrap; }
+.ctl-code-txt { font-family: inherit; cursor: help; }
 .ctl-row.read .ctl-st { color: var(--tick-read); } .ctl-row.failed .ctl-st { color: var(--danger); }
 .ctl-err { margin-top: 3px; font-size: 12px; }
 .ctl-err .ct-errline { display: flex; justify-content: space-between; flex-wrap: nowrap; width: 100%; }
 .ctl-err .ct-errline-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ctl-more { margin: 6px 0 0 32px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--info); cursor: pointer; }
+.ctl-more { margin: 8px 0 0 46px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--info); cursor: pointer; }
 .ctl-more:hover { text-decoration: underline; }
+/* All campaigns window: search and a filter by how it went, a summary, and the same rows as the panel */
+.modal-box.ctw-box { width: min(760px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.modal-box.ctw-box #modalBody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ctw { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ctw-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+.ctw-bar .search-wrap { flex: 1 1 220px; min-width: 0; }
+.ctw-bar .search { width: 100%; height: 36px; margin: 0; }
+.ctw-seg button { display: inline-flex; align-items: center; gap: 5px; }
+.ctw-seg .wa-mk { width: auto; }
+.ctw-n { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.ctw-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; margin: 0 -10px; padding: 2px 0 8px; }
+.ctw-none { margin: 20px 10px; color: var(--muted); }
 /* Meta errors in Contacts: the short title and the code chip (hovering it explains the error) */
 .ct-errline { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; color: var(--danger); font-weight: 500; overflow-wrap: normal; }
 .ct-errline .cd-ecode { flex: none; white-space: nowrap; overflow-wrap: normal; word-break: normal; } /* the code never splits; only the title wraps */

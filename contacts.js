@@ -250,20 +250,26 @@ module.exports = function mountContacts(app, ctx) {
     };
   }
 
+  // A contact as sent to the page: each campaign in its history carries colorIndex, the campaign's place by creation date,
+  // which picks its folder colour (the same as on the Campaigns page). Not stored: worked out per request.
+  const campOrder = () => new Map([...(db.campaigns || [])].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).map((x, i) => [x.id, i]));
+  const withColors = (list, order = campOrder()) => list.map((c) => (c.campaigns?.length ? { ...c, campaigns: c.campaigns.map((x) => ({ ...x, colorIndex: order.get(x.id) ?? -1 })) } : c));
+
   app.get('/api/contacts', (req, res) => {
     if (req.query.phones) return res.json({ phones: db.contacts.map((c) => c.phone) }); // the import's "new or already here"
     if (req.query.page == null) return res.json({ contacts: db.contacts, tags: db.tags, counts: tagCounts(), statuses: STATUSES });
-    res.json({ ...queryContacts(req.query), tags: db.tags, counts: tagCounts(), statuses: STATUSES });
+    const r = queryContacts(req.query);
+    res.json({ ...r, contacts: withColors(r.contacts), tags: db.tags, counts: tagCounts(), statuses: STATUSES });
   });
   // One contact (opening it from the Inbox, or one not on the page shown), and several (a selection across pages)
   app.get('/api/contacts/:id', wrap((req, res) => {
     const c = db.contacts.find((x) => x.id === req.params.id);
     if (!c) throw fail('Contact not found', 404);
-    res.json(c);
+    res.json(withColors([c])[0]);
   }));
   app.post('/api/contacts/by-ids', wrap((req, res) => {
     const ids = new Set(Array.isArray(req.body.ids) ? req.body.ids : []);
-    res.json({ contacts: db.contacts.filter((c) => ids.has(c.id)) });
+    res.json({ contacts: withColors(db.contacts.filter((c) => ids.has(c.id))) });
   }));
 
   app.post('/api/contacts', wrap((req, res) => {
