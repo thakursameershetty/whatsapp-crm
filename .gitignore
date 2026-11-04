@@ -4,3 +4,5 @@ data/
 .DS_Store
 sample-excel sheets/
 *.log
+exports/
+public/Audio.mp3

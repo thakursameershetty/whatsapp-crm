@@ -460,10 +460,11 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
   res.sendStatus(200);
   for (const entry of req.body?.entry || []) {
     for (const change of entry.changes || []) {
-      if (change.field === 'message_template_status_update') {
+      if (change.field === 'message_template_status_update' || change.field === 'template_category_update') {
         // No phone number here: the entry is the Business Account.
         const ws = tenants.allWorkspaces().find((w) => w.db.senders.some((x) => x.wabaId === String(entry.id)) || w.db.templates.some((x) => x.metaId === String(change.value?.message_template_id)));
-        if (ws) tenants.forWorkspace(ws, () => handleTemplateStatus(String(entry.id), change.value || {}));
+        const handle = change.field === 'template_category_update' ? handleTemplateCategory : handleTemplateStatus;
+        if (ws) tenants.forWorkspace(ws, () => handle(String(entry.id), change.value || {}));
         continue;
       }
       const ws = tenants.byPhoneNumberId(change.value?.metadata?.phone_number_id);
@@ -1074,12 +1075,18 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
   const errors = [];
   for (const [wabaId, sender] of accounts) {
     try {
-      let next = `${wabaId}/message_templates?fields=name,language,status,category,components,parameter_format,rejected_reason&limit=100`;
+      const fields = 'name,language,status,category,components,parameter_format,rejected_reason';
+      let next = `${wabaId}/message_templates?fields=${fields},previous_category&limit=100`;
       while (next) {
-        const page = await graph(sender, next);
+        // previous_category says Meta re-categorised it; if Meta ever refuses that field, sync without it.
+        const page = await graph(sender, next).catch((e) => {
+          if (!/previous_category/i.test(e.message || '') || !next.includes(',previous_category')) throw e;
+          next = next.replace(',previous_category', '');
+          return graph(sender, next);
+        });
         for (const t of page.data || []) {
           const existing = db.templates.find((x) => x.source === 'synced' && x.wabaId === wabaId && x.name === t.name && x.language === t.language);
-          const data = { name: t.name, language: t.language, category: t.category, status: t.status, rejectedReason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : '', components: t.components, parameterFormat: t.parameter_format || 'POSITIONAL', source: 'synced', wabaId, metaId: t.id, updatedAt: new Date().toISOString() };
+          const data = { name: t.name, language: t.language, category: t.category, categoryChangedFrom: categoryChangedFrom(existing, t.category, t.previous_category), status: t.status, rejectedReason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : '', components: t.components, parameterFormat: t.parameter_format || 'POSITIONAL', source: 'synced', wabaId, metaId: t.id, updatedAt: new Date().toISOString() };
           if (existing) Object.assign(existing, data);
           else db.templates.push({ id: id(), ...data });
           synced++;
@@ -1093,6 +1100,16 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
   save();
   res.json({ synced, errors, templates: db.templates.map(publicTemplate) });
 }));
+
+// The category the template had before Meta moved it (e.g. picked Utility, Meta made it Marketing), or ''.
+// What was picked here wins: if it matches Meta's category now, the change was the user's own edit.
+function categoryChangedFrom(existing, category, previous) {
+  const now = String(category || '').toUpperCase();
+  const picked = String(existing?.requestedCategory || '').toUpperCase();
+  if (picked) return picked !== now ? picked : '';
+  const prev = String(previous || '').toUpperCase();
+  return prev && prev !== now ? prev : '';
+}
 
 // --- Creating and editing templates in Meta --------------------------------
 // The editor sends a plain description ({ name, language, category, header, body, footer, buttons }); this turns
@@ -1237,7 +1254,7 @@ app.post('/api/templates/meta', wrap(async (req, res) => {
   if (db.templates.some((x) => x.wabaId === s.wabaId && x.name === name && x.language === language)) throw fail('A template with this name and language already exists. Pick another name, or edit that one.');
   const components = templateComponents(spec, { handle: await headerHandle(s, spec), linkBase: await linkBaseFor(req, spec) });
   const r = await graph(s, `${encodeURIComponent(s.wabaId)}/message_templates`, { method: 'POST', body: JSON.stringify({ name, language, category, components }) });
-  const t = { id: id(), name, language, category: r.category || category, status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, linkDefaults: components.linkDefaults, submittedAt: now, updatedAt: now };
+  const t = { id: id(), name, language, category: r.category || category, requestedCategory: category, categoryChangedFrom: categoryChangedFrom({ requestedCategory: category }, r.category || category), status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, linkDefaults: components.linkDefaults, submittedAt: now, updatedAt: now };
   db.templates.push(t);
   save();
   res.json(publicTemplate(t));
@@ -1263,7 +1280,7 @@ app.put('/api/templates/:id/meta', wrap(async (req, res) => {
   const components = templateComponents(spec, { handle: await headerHandle(s, spec, t), linkBase: await linkBaseFor(req, spec) });
   await graph(s, encodeURIComponent(t.metaId), { method: 'POST', body: JSON.stringify({ components, ...(category !== t.category ? { category } : {}) }) });
   const now = new Date().toISOString();
-  Object.assign(t, { components, linkDefaults: components.linkDefaults, category, status: 'PENDING', rejectedReason: '', editedAt: now, updatedAt: now });
+  Object.assign(t, { components, linkDefaults: components.linkDefaults, category, requestedCategory: category, categoryChangedFrom: '', status: 'PENDING', rejectedReason: '', editedAt: now, updatedAt: now });
   save();
   res.json(publicTemplate(t));
 }));
@@ -1280,6 +1297,28 @@ function handleTemplateStatus(wabaId, v) {
   t.updatedAt = new Date().toISOString();
   save();
   if (TEMPLATE_EVENT_TEXT[event]) notes?.add({ kind: event === 'APPROVED' || event === 'REINSTATED' ? 'template_approved' : 'template_problem', title: `Template ${t.name} was ${TEMPLATE_EVENT_TEXT[event]}`, body: t.rejectedReason ? `Meta's reason: ${t.rejectedReason.toLowerCase().replace(/_/g, ' ')}` : event === 'APPROVED' ? 'It can be used for sending now.' : '', link: { tab: 'templates', id: t.id } });
+  broadcast({ kind: 'templates' });
+}
+
+// Meta re-categorising a template (field template_category_update). With new_category the change has happened;
+// with only correct_category Meta is giving notice that it will change.
+function handleTemplateCategory(wabaId, v) {
+  const t = db.templates.find((x) => x.metaId === String(v.message_template_id)) ||
+    db.templates.find((x) => x.wabaId === wabaId && x.name === v.message_template_name && x.language === v.message_template_language);
+  if (!t) return;
+  const label = (c) => String(c || '').toLowerCase();
+  const from = String(v.previous_category || t.category || '').toUpperCase();
+  const to = String(v.new_category || '').toUpperCase();
+  if (to) {
+    if (to === String(t.category).toUpperCase() && t.categoryChangedFrom) return; // already known (a repeat)
+    t.category = to;
+    t.categoryChangedFrom = categoryChangedFrom(t, to, from);
+    t.updatedAt = new Date().toISOString();
+    save();
+    notes?.add({ kind: 'template_problem', title: `Meta changed ${t.name} from ${label(from)} to ${label(to)}`, body: `It's now charged and treated as a ${label(to)} message. If you think that's wrong, request a review in WhatsApp Manager → Business Support Home.`, link: { tab: 'templates', id: t.id } });
+  } else if (v.correct_category) {
+    notes?.add({ kind: 'template_problem', title: `Meta will change ${t.name} to ${label(v.correct_category)}`, body: `Meta says it doesn't fit ${label(from)}. If you think that's wrong, request a review in WhatsApp Manager → Business Support Home.`, link: { tab: 'templates', id: t.id } });
+  }
   broadcast({ kind: 'templates' });
 }
 

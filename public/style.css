@@ -3877,6 +3877,7 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .te-actions { grid-column: 1 / -1; }
 .tpl-reason { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--danger-soft); color: var(--danger); font-size: 12.5px; }
 .tpl-reason svg { flex: none; margin-top: 1px; }
+.tpl-reason.warn { background: var(--warn-soft); color: var(--warn); }
 @media (max-width: 860px) { .te { grid-template-columns: 1fr; } .te-preview { position: static; } .te-row { grid-template-columns: 1fr; } .te-btn { grid-template-columns: 1fr 28px; } .te-btn > * { grid-column: 1 !important; } .te-btn .te-btn-x { grid-column: 2 !important; } }
 .te-hint { font-size: 12px; color: var(--muted); }
 .te-empty { color: var(--muted); font-size: 13px; }
