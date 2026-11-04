@@ -4048,6 +4048,10 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .tpl-num-h.other .tpl-num-stats { margin-left: auto; }
 .tpl-num-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 /* Collapsible sections: the header opens and closes its templates (grid rows 0fr ↔ 1fr animates the height) */
+/* While its templates scroll by, a number's header stays pinned just under the page's title bar, until the next
+   number's section pushes it away (sticky inside its own section). */
+#templateList .tpl-num-h { position: sticky; top: calc(var(--stick-top) + var(--head-h, 0px) - 1px); z-index: 20; }
+#templateList .tpl-group { scroll-margin-top: calc(var(--stick-top) + var(--head-h, 0px)); }
 .tpl-num-h[data-toggle] { cursor: pointer; user-select: none; transition: box-shadow 0.2s, background-color 0.2s; }
 .tpl-num-h[data-toggle]:hover { box-shadow: var(--sh-raised, var(--sh-card)); }
 .tpl-num-h[data-toggle]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

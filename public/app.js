@@ -1606,7 +1606,10 @@ document.addEventListener('click', (e) => {
   const head = e.target.closest?.('#templateList .tpl-num-h[data-toggle]');
   if (!head) return;
   const sec = head.closest('.tpl-group'), open = !sec.classList.contains('open'), set = tplOpen();
+  // closing a section whose header is pinned (scrolled into its templates): bring the section back to the top
+  const pinned = sec.getBoundingClientRect().top < head.getBoundingClientRect().top - 1;
   sec.classList.toggle('open', open);
+  if (!open && pinned) sec.scrollIntoView({ block: 'start', behavior: Motion.reduce() ? 'auto' : 'smooth' });
   head.setAttribute('aria-expanded', open);
   open ? set.add(sec.dataset.tg) : set.delete(sec.dataset.tg);
   try { localStorage.setItem('tplOpen', JSON.stringify([...set])); } catch {}
