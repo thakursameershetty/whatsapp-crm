@@ -2214,6 +2214,14 @@ function markStuck() {
     });
     head.classList.toggle('merged', any);
   }
+  // Contacts (table view): the column headings pinned under the title bar join it the same way.
+  if (state.tab === 'contacts' && head) {
+    const sel = parseFloat(getComputedStyle(tab).getPropertyValue('--ct-sel-h')) || 0; // the pinned selection bar, when shown
+    const edge = top + head.getBoundingClientRect().height + sel, thead = tab.querySelector('#ctHeadWrap');
+    const on = Boolean(thead && thead.offsetParent && thead.getBoundingClientRect().top <= edge + 0.5 && thead.parentElement.getBoundingClientRect().top < edge - 0.5);
+    thead?.classList.toggle('pinned', on);
+    head.classList.toggle('merged', on);
+  }
 }
 addEventListener('scroll', markStuck, { passive: true });
 

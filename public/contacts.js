@@ -3,8 +3,12 @@
 // Uses helpers from app.js and send.js (SendPage.readWorkbook / toTable / openContacts).
 
 (function () {
-  const CT = { contacts: [], tags: [], counts: {}, q: '', tag: '', status: '', flag: '', num: '', source: '', page: 0, selected: new Set(), chats: new Map(), loaded: false };
-  const PAGE = 100;
+  // The list comes from the server one page at a time (search, filters and sorting happen there). CT.contacts: the
+  // page shown; CT.cache: every contact fetched so far, by id (the panel and editor can show one from another page).
+  const PER_OPTS = [25, 50, 100, 200, 0]; // as on Campaigns; 0 = show all
+  const perPref = () => { try { const v = localStorage.getItem('ctPer'); return v != null && PER_OPTS.includes(Number(v)) ? Number(v) : 100; } catch { return 100; } };
+  // fs: the Filters panel's picks, one set per section (any of a section's picks; every section with picks must match)
+  const CT = { contacts: [], cache: new Map(), total: 0, all: 0, pages: 1, per: perPref(), facets: {}, facetTotals: {}, tags: [], counts: {}, q: '', fs: { stage: new Set(), delivery: new Set(), num: new Set(), tag: new Set(), source: new Set() }, page: 0, selected: new Set(), chats: new Map(), loaded: false };
   const STATUS = {
     new: { label: 'New', cls: '' },
     interested: { label: 'Interested', cls: 'sent' },
@@ -17,30 +21,38 @@
   const fmtPhone = (p) => { const m = /^91(\d{5})(\d{5})$/.exec(p); return m ? `+91 ${m[1]} ${m[2]}` : '+' + p; };
   const tagChip = (t, extra = '') => `<span class="tag-chip tag-${esc(t.color)}" title="${esc(t.name)}" ${extra}>${esc(t.name)}</span>`;
 
+  // The current search, sort, filters and page as the API's query
+  function listQuery(extra = {}) {
+    const p = new URLSearchParams({ page: CT.page, per: CT.per, sort: CT.sort.key, dir: CT.sort.dir, ...(CT.q ? { q: CT.q } : {}) });
+    for (const [sec, set] of Object.entries(CT.fs)) if (set.size) p.set(sec, [...set].join(','));
+    for (const [k, v] of Object.entries(extra)) p.set(k, v);
+    return p.toString();
+  }
+  let loadSeq = 0;
   async function load() {
-    const [r, inbox] = await Promise.all([api('/contacts'), api('/inbox').catch(() => ({ conversations: [] }))]);
-    Object.assign(CT, { contacts: r.contacts, tags: r.tags, counts: r.counts, loaded: true });
+    const seq = ++loadSeq;
+    const [r, inbox] = await Promise.all([api('/contacts?' + listQuery()), CT.chatsLoaded ? null : api('/inbox').catch(() => ({ conversations: [] }))]);
+    if (seq !== loadSeq) return false; // a newer request (typing, another filter) has taken over
+    Object.assign(CT, { contacts: r.contacts, tags: r.tags, counts: r.counts, total: r.total, all: r.all, opted: r.opted, untagged: r.untagged, pages: r.pages, page: r.page, facets: r.facets, facetTotals: r.facetTotals, loaded: true });
+    for (const c of r.contacts) CT.cache.set(c.id, c);
     state.contactTags = r.tags;
-    CT.chats = new Map(inbox.conversations.map((c) => [c.wa, c.key]));
-    for (const id of [...CT.selected]) if (!CT.contacts.some((c) => c.id === id)) CT.selected.delete(id);
+    if (inbox) { CT.chats = new Map(inbox.conversations.map((c) => [c.wa, c.key])); CT.chatsLoaded = true; }
+    return true;
+  }
+  // A new page of results (after a search, filter, sort or page change), then draw it
+  async function reload() { if (await guard(load)) render(); }
+  // A contact by id: from the page or the cache, else from the server
+  async function getContact(id) {
+    if (CT.cache.has(id)) return CT.cache.get(id);
+    const c = await api('/contacts/' + encodeURIComponent(id)).catch(() => null);
+    if (c) CT.cache.set(c.id, c);
+    return c;
   }
 
   // --- List ---------------------------------------------------------------
 
-  function filtered() {
-    const q = CT.q.toLowerCase();
-    return CT.contacts
-      .filter((c) => {
-        if (CT.tag === 'none' ? c.tags.length : CT.tag && !c.tags.includes(CT.tag)) return false;
-        if (CT.status && (c.optOut || c.status !== CT.status)) return false;
-        if (CT.flag === 'optout' ? !c.optOut : CT.flag === 'undelivered' ? !everFailed(c) : CT.flag === 'delivered' && !everDelivered(c)) return false;
-        if (CT.num && (CT.num === 'none' ? c.via : c.via !== CT.num)) return false;
-        if (CT.source && (c.source || 'manual') !== CT.source) return false;
-        if (q && ![c.name, c.phone, fmtPhone(c.phone), c.email, c.company, c.lead?.summary].some((v) => String(v || '').toLowerCase().includes(q))) return false;
-        return true;
-      })
-      .sort(compare);
-  }
+  // The page shown (already searched, filtered and sorted by the server)
+  function filtered() { return CT.contacts; }
 
   // --- Sorting -------------------------------------------------------------------
   // key → [label, default direction, value(c)]. Contacts with no value (no tag, no company,
@@ -63,7 +75,7 @@
     try { localStorage.setItem('ctSort', `${key}:${CT.sort.dir}`); } catch {}
     CT.page = 0;
     CT.enter = true;
-    render();
+    reload();
   }
   function compare(a, b) {
     const val = SORTS[CT.sort.key][2];
@@ -97,7 +109,8 @@
     }
   }
 
-  const viewPref = () => { try { return localStorage.getItem('ctView') || 'cards'; } catch { return 'cards'; } };
+  // Opens as the list (table); a choice made since the list became the default is remembered (ctView2).
+  const viewPref = () => { try { return localStorage.getItem('ctView2') || 'table'; } catch { return 'table'; } };
   CT.view = viewPref();
   CT.openId = null;
 
@@ -126,27 +139,108 @@
   const undelivered = (c) => { const f = failedIn(c); return everFailed(c) ? ` <span class="pill failed" title="${esc(`Not delivered: ${(f.length ? f.map((x) => x.name) : [c.delivery?.campaign || 'a campaign']).join(', ')}`)}">Not delivered${f.length > 1 ? ` ×${f.length}` : ''}</span>` : ''; };
   const statusPill = (c) => (c.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS[c.status]?.cls || ''}">${esc(STATUS[c.status]?.label || c.status)}</span>`) + (c.phoneProblem ? ` <span class="pill failed" title="${esc(c.phoneProblem)}">Fix number</span>` : '') + undelivered(c);
   const letterOf = (c) => { const ch = (c.name || '').trim()[0]?.toUpperCase() || '#'; return /[A-Z]/.test(ch) ? ch : '#'; };
-  // The labels sidebar (like a phone's or Google's address book): All, then Stages and Delivery, each
-  // with its count. One pick per section (they combine: e.g. Interested + one number); picking the chosen one again
-  // clears it, and All contacts clears everything.
   const senderName = (id) => state.senders.find((s) => s.id === id)?.label || 'A removed number';
-  function labelsHtml() {
-    const n = (fn) => CT.contacts.filter(fn).length.toLocaleString();
-    const item = (sec, k, label, count, lead = '', extra = '') => {
-      const on = (sec === 'all' ? !(CT.status || CT.flag) : CT[sec] === k);
-      return `<button type="button" class="ct-lab ${on ? 'active' : ''}" data-sec="${sec}" data-k="${esc(k)}" aria-pressed="${on}" ${extra}>${lead}<span class="ct-lab-t">${esc(label)}</span><b>${count}</b></button>`;
-    };
-    const head = (t) => `<div class="ct-lab-h">${t}</div>`;
+  // --- Filters (the panel opened by the Filters button) ------------------------------------------
+  // Sections and what each option matches. Within a section: any of the picks; across sections: all of them.
+  const SOURCES = [['manual', 'Added by you'], ['import', 'Imported'], ['inbox', 'Messaged you first'], ['campaign', 'From campaigns']];
+  const FILTERS = {
+    stage: { title: 'Stage', match: (c, k) => !c.optOut && c.status === k },
+    delivery: { title: 'Delivery', match: (c, k) => (k === 'delivered' ? everDelivered(c) : k === 'undelivered' ? everFailed(c) : c.optOut) },
+    num: { title: 'Added by number', match: (c, k) => (c.via || 'none') === k },
+    tag: { title: 'Tags', match: (c, k) => (k === 'none' ? !c.tags.length : c.tags.includes(k)) },
+    source: { title: 'Who added them', match: (c, k) => (c.source || 'manual') === k },
+  };
+  // A contact passes when every section with picks matches (skip: leave one section out, for that section's counts)
+  const passes = (c, skip = '') => Object.entries(CT.fs).every(([sec, set]) => sec === skip || !set.size || [...set].some((k) => FILTERS[sec].match(c, k)));
+  const filterCount = () => Object.values(CT.fs).reduce((n, set) => n + set.size, 0);
+  const clearFilters = () => Object.values(CT.fs).forEach((set) => set.clear());
+  // The options of each section, as [key, label, leading html, hover text]
+  function filterOptions() {
     const dot = (cls) => `<i class="ct-lab-dot ${cls}"></i>`;
-    return [
-      item('all', '', 'All contacts', n(() => true), `<span class="ct-lab-ic">${icon('users', 15)}</span>`),
-      head('Stages'),
-      ...Object.entries(STATUS).map(([k, v]) => item('status', k, v.label, n((c) => !c.optOut && c.status === k), dot('st-' + k))),
-      head('Delivery'),
-      item('flag', 'delivered', 'Delivered', n(everDelivered), dot('st-won'), 'title="Delivered in at least one campaign (someone can also be in Not delivered, for another campaign)"'),
-      item('flag', 'undelivered', 'Not delivered', n(everFailed), dot('st-bad'), 'title="Not delivered in at least one campaign (someone can also be in Delivered, for another campaign)"'),
-      item('flag', 'optout', 'Opted out', n((c) => c.optOut), dot('st-optout')),
-    ].join('');
+    const gone = Object.keys(CT.facets.num || {}).filter((v) => v !== 'none' && !state.senders.some((x) => x.id === v));
+    return {
+      stage: Object.entries(STATUS).map(([k, v]) => [k, v.label, dot('st-' + k)]),
+      delivery: [['delivered', 'Delivered', dot('st-won'), 'Delivered in at least one campaign'], ['undelivered', 'Not delivered', dot('st-bad'), 'Not delivered in at least one campaign'], ['optout', 'Opted out', dot('st-optout')]],
+      num: state.senders.length ? [...state.senders.map((x) => [x.id, x.label, `<span class="fpx-ph">${senderPhotoHtml(x)}</span>`, x.displayPhone]), ...gone.map((v) => [v, senderName(v), `<span class="fpx-ic">${icon('phone', 14)}</span>`]), ['none', 'By hand or import', `<span class="fpx-ic">${icon('upload', 14)}</span>`]] : [],
+      tag: [...CT.tags.map((t) => [t.id, t.name, `<i class="ct-dot tag-${esc(t.color)}"></i>`]), ...(CT.tags.length ? [['none', 'No tag', dot('')]] : [])],
+      source: SOURCES.map(([k, l]) => [k, l, `<span class="fpx-ic">${icon(k === 'import' ? 'upload' : k === 'inbox' ? 'message-circle' : k === 'campaign' ? 'send' : 'user', 14)}</span>`]),
+    };
+  }
+  const optLabel = (sec, k) => filterOptions()[sec].find(([x]) => x === k)?.[1] || k;
+
+  // The Filters button (with how many are on) and, under the toolbar, the active filters as chips with the result
+  // count and Select all.
+  function renderFilterBar(list) {
+    renderNumBtn();
+    const n = filterCount();
+    const b = $('#ctFilterBtn');
+    b.innerHTML = `${icon('sliders-horizontal', 16)}${n ? `<b class="ct-fbadge">${n}</b>` : ''}`; // just the icon (and how many are on)
+    b.classList.toggle('on', n > 0);
+    b.setAttribute('aria-label', n ? `Filters, ${n} on` : 'Filters');
+    b.title = n ? `Filters (${n} on)` : 'Filters: stage, delivery, number, tag or who added them';
+    const bar = $('#ctActive');
+    const all = CT.total > 0 && CT.selected.size >= CT.total && list.every((c) => CT.selected.has(c.id));
+    const chips = Object.entries(CT.fs).flatMap(([sec, set]) => [...set].map((k) => `<span class="ct-chip"><span class="ct-chip-s">${esc(FILTERS[sec].title)}:</span>${esc(optLabel(sec, k))}<button type="button" data-unf="${sec}" data-k="${esc(k)}" aria-label="Remove ${esc(optLabel(sec, k))}">${icon('x', 12)}</button></span>`));
+    const shown = n || CT.q ? `${CT.total.toLocaleString()} of ${CT.all.toLocaleString()}` : `${CT.all.toLocaleString()} contact${CT.all === 1 ? '' : 's'}`;
+    bar.classList.toggle('hidden', !n);
+    bar.innerHTML = n ? `${chips.join('')}<button type="button" class="ct-clear" data-unf="all">Clear all</button><span class="ct-count">${shown}</span>` : '';
+    if ($('#ctFilters') && !$('#ctFilters').classList.contains('hidden')) drawFilters(); // e.g. a tag added from the panel
+  }
+
+  // The panel: slides over the page from the right. Picks apply at once (the list behind updates); each option shows
+  // how many contacts it would give with the other sections' picks.
+  function openFilters() {
+    let el = $('#ctFilters');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'ctFilters';
+      el.className = 'ct-fpanel-wrap hidden';
+      el.innerHTML = '<div class="ct-fpanel" role="dialog" aria-modal="true" aria-label="Filters"></div>';
+      document.body.append(el);
+      el.addEventListener('click', (e) => {
+        if (e.target === el || e.target.closest('[data-fclose]')) return closeFilters();
+        if (e.target.closest('[data-fclear]')) { clearFilters(); return applyFilters(); }
+        const one = e.target.closest('[data-fclearsec]'); // just this section
+        if (one) { CT.fs[one.dataset.fclearsec].clear(); return applyFilters(); }
+        const newTag = e.target.closest('[data-fnewtag]');
+        if (newTag) return tagModal(null);
+        const editTag = e.target.closest('[data-fedit]');
+        if (editTag) { e.preventDefault(); return tagModal(tagById(editTag.dataset.fedit)); }
+      });
+      el.addEventListener('change', (e) => {
+        const cb = e.target.closest('input[data-fsec]');
+        if (!cb) return;
+        const set = CT.fs[cb.dataset.fsec];
+        cb.checked ? set.add(cb.value) : set.delete(cb.value);
+        applyFilters();
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !el.classList.contains('hidden') && $('#modal').classList.contains('hidden')) { e.stopPropagation(); closeFilters(); } }, true);
+    }
+    drawFilters();
+    el.classList.remove('hidden', 'closing');
+    requestAnimationFrame(() => el.querySelector('input, button')?.focus({ preventScroll: true }));
+  }
+  function closeFilters() { const el = $('#ctFilters'); if (el) hideOverlay(el); $('#ctFilterBtn').focus({ preventScroll: true }); }
+  function applyFilters() { CT.page = 0; CT.enter = true; reload(); }
+  function drawFilters() {
+    const box = $('#ctFilters .ct-fpanel');
+    if (!box) return;
+    const opts = filterOptions();
+    const results = CT.total;
+    const sec = (key) => {
+      if (!opts[key].length && key !== 'tag') return '';
+      const rows = opts[key].map(([k, label, lead, tip]) => {
+        const n = CT.facets[key]?.[k] || 0;
+        const on = CT.fs[key].has(k);
+        return `<label class="fpx-opt ${on ? 'on' : ''} ${!n && !on ? 'zero' : ''}" ${tip ? `title="${esc(tip)}"` : ''}><input type="checkbox" class="cb" data-fsec="${key}" value="${esc(k)}" ${on ? 'checked' : ''} />${lead}<span class="fpx-t">${esc(label)}</span>${key === 'tag' && k !== 'none' ? `<button type="button" class="fpx-edit" data-fedit="${esc(k)}" title="Edit tag" aria-label="Edit ${esc(label)}">${icon('square-pen', 13)}</button>` : ''}<b>${n.toLocaleString()}</b></label>`;
+      }).join('');
+      return `<section class="fpx-sec"><div class="fpx-h"><span>${FILTERS[key].title}</span>${CT.fs[key].size ? `<span class="fpx-n">${CT.fs[key].size}</span><button type="button" class="fpx-clr" data-fclearsec="${key}" title="Clear ${esc(FILTERS[key].title)}">Clear</button>` : ''}${key === 'tag' ? '<button type="button" class="fpx-add" data-fnewtag>+ New tag</button>' : ''}</div>${rows || '<p class="fpx-none">No tags yet.</p>'}</section>`;
+    };
+    const keep = box.querySelector('.fpx-body')?.scrollTop || 0;
+    box.innerHTML = `<header class="fpx-head"><h2>Filters</h2><button type="button" class="icon-btn" data-fclose aria-label="Close">${icon('x', 18)}</button></header>
+      <div class="fpx-body">${['stage', 'delivery', 'num', 'tag', 'source'].map(sec).join('')}</div>
+      <footer class="fpx-foot"><button type="button" class="btn quiet" data-fclear ${filterCount() ? '' : 'disabled'}>Clear all</button><button type="button" class="btn primary" data-fclose>Show ${results.toLocaleString()} contact${results === 1 ? '' : 's'}</button></footer>`;
+    box.querySelector('.fpx-body').scrollTop = keep;
   }
 
   // How a contact got here: you added it, it was imported, or it was added automatically when the person messaged
@@ -154,32 +248,36 @@
   const aiFilled = (c) => Boolean(c.lead?.updatedAt);
 
   function render() {
-    let list = filtered();
-    // The grid reads like a phone's address book, A to Z; the table puts recent activity first.
-    const pages = Math.max(1, Math.ceil(list.length / PAGE));
-    CT.page = Math.min(CT.page, pages - 1);
-    const slice = list.slice(CT.page * PAGE, CT.page * PAGE + PAGE);
+    const list = filtered(), slice = list, pages = CT.pages;
     CT.slice = slice;
-    const opted = CT.contacts.filter((c) => c.optOut).length;
-    $('#ctSub').textContent = `Everyone you message, with tags. ${CT.contacts.length.toLocaleString()} contact${CT.contacts.length === 1 ? '' : 's'}${opted ? ` · ${opted} opted out` : ''}`;
+    const opted = CT.opted || 0;
+    // "Contacts (2,218)": the whole book, rolling like the Campaigns numbers when contacts are added or removed
+    $('#ctTotal').classList.toggle('hidden', !CT.loaded);
+    rollNum($('#ctTotalN'), CT.all);
+    $('#ctSub').textContent = `Everyone you message, with tags. ${CT.all.toLocaleString()} contact${CT.all === 1 ? '' : 's'}${opted ? ` · ${opted} opted out` : ''}`;
 
-    $('#ctStats').innerHTML = labelsHtml();
-    renderNumBtn();
 
-    const untagged = CT.contacts.filter((c) => !c.tags.length).length;
-    CT.untagged = untagged;
-    renderTagBtn();
+    renderFilterBar(list);
 
     // Patched, not replaced, so the switcher's thumb slides between Cards and Table.
-    Motion.patch($('#ctView'), [['cards', 'Cards', 'layout-grid'], ['table', 'Table', 'list']].map(([k, label, ic]) =>
+    Motion.patch($('#ctView'), [['table', 'List', 'list'], ['cards', 'Cards', 'layout-grid']].map(([k, label, ic]) =>
       `<button data-view="${k}" class="${CT.view === k ? 'active' : ''}" title="${label}" aria-label="${label}" aria-checked="${CT.view === k}" role="radio">${icon(ic, 15)}</button>`).join(''));
 
-    const empty = CT.contacts.length
-      ? emptyState({ icon: 'search', title: 'No contacts match', text: 'Try another search, tag, status or Added by.', actions: '<button class="btn" data-empty="clear">Clear filters</button>' })
+    const empty = CT.all
+      ? emptyState({ icon: 'search', title: 'No contacts match', text: 'Try another search, or change the filters.', actions: '<button class="btn" data-empty="clear">Clear filters</button>' })
       : emptyState({ icon: 'users', title: 'No contacts yet', text: 'Import a spreadsheet or add someone by hand. People who message you on WhatsApp appear here too.', actions: '<button class="btn" data-empty="import" data-icon="upload">Import</button><button class="btn primary" data-empty="add" data-icon="plus">Add contact</button>' });
     const box = $('#ctList');
     box.innerHTML = CT.view === 'cards' ? gridHtml(slice, empty) : tableHtml(slice, empty);
     box.classList.toggle('ct-scroll-grid', CT.view === 'cards');
+    requestAnimationFrame(() => window.markStuck?.()); // the table's headings join the pinned header (app.js)
+    const hs = $('#ctHScroll'), hd = $('#ctHeadScroll');
+    if (hs && hd) {
+      hs.scrollLeft = CT.hx || 0;
+      hd.scrollLeft = hs.scrollLeft;
+      hs.addEventListener('scroll', () => { hd.scrollLeft = CT.hx = hs.scrollLeft; }, { passive: true });
+      // a sideways swipe over the headings scrolls the rows (the headings' strip has no scrollbar of its own)
+      hd.addEventListener('wheel', (e) => { if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { hs.scrollLeft += e.deltaX; e.preventDefault(); } }, { passive: false });
+    }
     // After a filter or search, the results fade up in a quick stagger.
     if (CT.enter && !Motion.reduce()) {
       box.classList.remove('ct-enter');
@@ -191,25 +289,31 @@
     CT.enter = false;
     placeAz();
 
-    $('#ctFoot').innerHTML = list.length > PAGE
-      ? `<span>${(CT.page * PAGE + 1).toLocaleString()}–${Math.min(list.length, CT.page * PAGE + PAGE).toLocaleString()} of ${list.length.toLocaleString()}</span>
-         <div class="seg"><button data-page="-1" ${CT.page ? '' : 'disabled'}>‹</button><span>Page ${CT.page + 1} / ${pages}</span><button data-page="1" ${CT.page < pages - 1 ? '' : 'disabled'}>›</button></div>`
-      : `<span>${list.length.toLocaleString()} shown</span>`;
+    // Pages, as on Campaigns: "101–200 of 2,218" and ← Page 2 of 23 → (only when there's more than one page); how many a
+    // page shows is chosen in the toolbar.
+    const from = CT.per ? CT.page * CT.per : 0;
+    $('#ctFoot').classList.toggle('hidden', pages <= 1);
+    $('#ctFoot').innerHTML = pages > 1 ? `<div class="cp-pager ct-pager">
+        <span>${(from + 1).toLocaleString()}–${(from + list.length).toLocaleString()} of ${CT.total.toLocaleString()}</span>
+        <div class="seg"><button type="button" data-page="-1" ${CT.page ? '' : 'disabled'} aria-label="Previous page">${icon('arrow-left', 14)}</button><span>Page ${CT.page + 1} of ${pages}</span><button type="button" data-page="1" ${CT.page < pages - 1 ? '' : 'disabled'} aria-label="Next page">${icon('arrow-right', 14)}</button></div>
+      </div>` : '';
+    $('#ctPer').innerHTML = PER_OPTS.map((n) => `<option value="${n}" ${n === CT.per ? 'selected' : ''}>${n ? `${n} / page` : 'Show all'}</option>`).join('');
     renderSelection(list);
-    renderSelectAll(list);
     renderSortMenu();
     renderPanel();
-    drawSourceBtn();
     LA.hydrate($('#tab-contacts'));
     Orb.hydrate($('#tab-contacts'));
   }
 
   function tableHtml(slice, empty) {
     const allOn = slice.length && slice.every((c) => CT.selected.has(c.id));
-    return `<table class="data-table ct-table"><thead><tr class="heads"><th class="sel"><input type="checkbox" class="cb" id="ctAll" ${allOn ? 'checked' : ''} aria-label="Select all shown" /></th>${[['name', 'Name', ''], ['company', 'Company', 'ct-c-co'], ['tags', 'Tags', ''], ['status', 'Status', ''], ['lead', 'Lead', 'ct-c-lead'], ['message', 'Last message', 'ct-c-last']].map(([k, label, cls]) => {
+    // Two tables with the same fixed column widths: the headings in their own pinned strip, the rows in a box that
+    // scrolls sideways (a sideways-scrolling box can't pin a heading to the page). The strip follows the rows' scroll.
+    const cols = `<colgroup>${[48, 250, 190, 240, 170, 280, 140].map((w) => `<col style="width:${w}px">`).join('')}</colgroup>`;
+    return `<div class="ct-thead-wrap" id="ctHeadWrap"><div class="ct-thead-scroll" id="ctHeadScroll"><table class="data-table ct-table ct-cols">${cols}<thead><tr class="heads"><th class="sel"><input type="checkbox" class="cb" id="ctAll" ${allOn ? 'checked' : ''} aria-label="Select all shown" /></th>${[['name', 'Name', ''], ['company', 'Company', 'ct-c-co'], ['tags', 'Tags', ''], ['status', 'Status', ''], ['lead', 'Lead', 'ct-c-lead'], ['message', 'Last message', 'ct-c-last']].map(([k, label, cls]) => {
       const on = CT.sort.key === k;
       return `<th class="${cls} ct-sortable ${on ? 'on' : ''}" aria-sort="${on ? (CT.sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"><button type="button" data-sort="${k}" title="Sort by ${label.toLowerCase()}">${label}<i class="ct-arrow ${on ? CT.sort.dir : ''}" aria-hidden="true"></i></button></th>`;
-    }).join('')}</tr></thead><tbody>
+    }).join('')}</tr></thead></table></div></div><div class="ct-hscroll" id="ctHScroll"><table class="data-table ct-table ct-cols">${cols}<tbody>
       ${slice.length
         ? slice.map((c, i) => `<tr data-id="${c.id}" style="--vt:ct-${c.id};--i:${i}" class="${CT.selected.has(c.id) ? 'selected' : ''} ${c.optOut ? 'ct-opted' : ''} ${CT.openId === c.id ? 'open' : ''}">
           <td class="sel"><input type="checkbox" class="cb" ${CT.selected.has(c.id) ? 'checked' : ''} aria-label="Select ${esc(nameOf(c))}" /></td>
@@ -220,7 +324,7 @@
           <td class="ct-lead ct-c-lead" title="${esc(c.lead?.summary || '')}">${esc(c.lead?.summary || '')}</td>
           <td class="muted ct-c-last">${c.lastMessageAt ? relTime(c.lastMessageAt) : '—'}</td>
         </tr>`).join('')
-        : `<tr><td colspan="7" class="ct-empty">${empty}</td></tr>`}</tbody></table>`;
+        : `<tr><td colspan="7" class="ct-empty">${empty}</td></tr>`}</tbody></table></div>`;
   }
 
   // Phone-style address book: letter sections, round avatars, and an A–Z rail to jump.
@@ -251,7 +355,8 @@
     bar.classList.toggle('hidden', !n);
     if (!n) return;
     const shown = list.filter((c) => CT.selected.has(c.id)).length;
-    bar.innerHTML = `<b>${n.toLocaleString()} selected</b>${shown < n ? ` <span class="muted">(${n - shown} not shown)</span>` : ''}
+    const everyone = CT.total > 0 && n >= CT.total;
+    bar.innerHTML = `<b>${n.toLocaleString()} selected</b>${shown < n ? ` <span class="muted">(${(n - shown).toLocaleString()} on other pages or filtered out)</span>` : ''}${!everyone && CT.total > list.filter((c) => CT.selected.has(c.id)).length ? ` <button type="button" class="ct-selall-link" data-selall>Select all ${CT.total.toLocaleString()}</button>` : ''}
       <span class="ct-sel-actions">
         <button class="btn sm" data-act="tag" data-icon="plus" data-icon-size="13">Add tag</button>
         <button class="btn sm" data-act="untag">Remove tag</button>
@@ -281,24 +386,43 @@
     Sheet.Menu.open(r.left, r.bottom + 6, SORT_OPTS.map((o) => (o === '-' ? '-' : { label: o[1], checked: o[0] === cur, action: () => { const [k, d] = o[0].split(':'); setSort(k, d); } })));
   });
 
-  // "Select all" in the toolbar: everyone the current search, tag and status show (every page).
-  function renderSelectAll(list) {
-    const btn = $('#ctSelAll');
-    const on = list.filter((c) => CT.selected.has(c.id)).length;
-    const all = list.length > 0 && on === list.length;
-    btn.classList.toggle('hidden', !list.length);
-    const cb = $('input', btn);
-    cb.checked = all;
-    cb.indeterminate = on > 0 && !all;
-    $('span', btn).textContent = all ? `All selected (${list.length.toLocaleString()})` : `Select all (${list.length.toLocaleString()})`;
-    btn.title = all ? 'Clear the selection' : `Select all ${list.length.toLocaleString()} shown`;
-    btn.setAttribute('aria-pressed', String(all));
+  // "Select all" (in the bar under the toolbar): everyone the current search and filters show (every page).
+  $('#ctActive').addEventListener('click', (e) => {
+    const un = e.target.closest('[data-unf]');
+    if (un) { if (un.dataset.unf === 'all') clearFilters(); else CT.fs[un.dataset.unf].delete(un.dataset.k); return applyFilters(); }
+    if (!e.target.closest('[data-selall]')) return;
+    const all = CT.total > 0 && CT.selected.size >= CT.total && CT.contacts.every((c) => CT.selected.has(c.id));
+    if (all) { CT.selected.clear(); return render(); }
+    guard(async () => { const r = await api('/contacts?' + listQuery({ ids: 1, per: 10 })); r.ids.forEach((id) => CT.selected.add(id)); render(); });
+  });
+  $('#ctFilterBtn').addEventListener('click', openFilters);
+  // The selection bar's height (with its gap), for the table headings that pin below it (0 while it's hidden)
+  new ResizeObserver(() => {
+    const bar = $('#ctSel');
+    $('#tab-contacts').style.setProperty('--ct-sel-h', bar.classList.contains('hidden') ? '0px' : bar.getBoundingClientRect().height + 10 + 'px');
+    window.markStuck?.();
+  }).observe($('#ctSel'));
+
+  // "Added by" in the toolbar: a quick way to the Filters panel's "Added by number" section (the same choice, kept in
+  // sync both ways). Picking here shows one number; several picked in the panel read "2 numbers" here.
+  function renderNumBtn() {
+    const b = $('#ctNumBtn'), set = CT.fs.num;
+    b.classList.toggle('hidden', !state.senders.length);
+    const one = set.size === 1 ? [...set][0] : '';
+    const s = one && one !== 'none' ? state.senders.find((x) => x.id === one) : null;
+    const label = !set.size ? 'Added by anyone' : set.size > 1 ? `${set.size} numbers` : one === 'none' ? 'By hand or import' : s ? s.label : senderName(one);
+    b.innerHTML = `${s ? `<span class="ct-numbtn-ph">${senderPhotoHtml(s)}</span>` : icon(one === 'none' ? 'upload' : 'phone', 14)}<span>${esc(label)}</span>${icon('chevron-down', 14)}`;
+    b.classList.toggle('on', set.size > 0);
   }
-  $('#ctSelAll').addEventListener('click', () => {
-    const list = filtered();
-    const all = list.length && list.every((c) => CT.selected.has(c.id));
-    list.forEach((c) => (all ? CT.selected.delete(c.id) : CT.selected.add(c.id)));
-    render();
+  $('#ctNumBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect(), set = CT.fs.num;
+    const pick = (k) => { set.clear(); if (k) set.add(k); applyFilters(); };
+    Sheet.Menu.open(r.left, r.bottom + 6, [
+      { label: 'Added by anyone', kbd: (CT.facetTotals.num || 0).toLocaleString(), checked: !set.size, pre: `<span class="mi-ic">${icon('users', 15)}</span>`, action: () => pick('') },
+      '-',
+      ...filterOptions().num.map(([k, label, lead]) => ({ label, kbd: (CT.facets.num?.[k] || 0).toLocaleString(), checked: set.has(k), pre: `<span class="mi-ph">${lead}</span>`, action: () => pick(k) })),
+    ]);
   });
 
   function toggleSelect(id) { CT.selected.has(id) ? CT.selected.delete(id) : CT.selected.add(id); render(); }
@@ -312,93 +436,21 @@
   }
 
   let searchT;
-  // "Added by" lives in a filter button inside the search box (like the Numbers page's quality filter).
-  const SOURCES = [['', 'Added by anyone'], ['manual', 'Added by you'], ['import', 'Imported'], ['inbox', 'Auto-added'], ['campaign', 'From campaigns']];
-  function drawSourceBtn() {
-    const b = $('#ctSourceBtn');
-    const label = SOURCES.find(([k]) => k === CT.source)?.[1];
-    b.classList.toggle('on', Boolean(CT.source));
-    b.innerHTML = `${icon('sliders-horizontal', 15)}${CT.source ? `<span class="num-filter-lbl">${esc(label)}</span>` : ''}`;
-    b.title = CT.source ? `Showing: ${label}. Click to change.` : 'Filter by who added them';
-  }
-  $('#ctSourceBtn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const r = e.currentTarget.getBoundingClientRect();
-    const n = (k) => CT.contacts.filter((c) => !k || (c.source || 'manual') === k).length;
-    Sheet.Menu.open(r.right - 210, r.bottom + 6, SOURCES.flatMap(([k, l], i) => [
-      ...(i === 1 ? ['-'] : []),
-      { label: l, kbd: n(k).toLocaleString(), checked: CT.source === k, action: () => { CT.source = k; CT.page = 0; CT.enter = true; render(); } },
-    ]));
-  });
-  $('#ctSearch').addEventListener('input', (e) => { clearTimeout(searchT); searchT = setTimeout(() => { CT.q = e.target.value.trim(); CT.page = 0; CT.enter = true; render(); }, 120); });
-  $('#ctStats').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-sec]');
-    if (!b) return;
-    const { sec, k } = b.dataset;
-    if (sec === 'all') Object.assign(CT, { status: '', flag: '' }); // the toolbar's Tags and Added by keep their choices
-    else CT[sec] = CT[sec] === k ? '' : k;
-    CT.page = 0; CT.enter = true; render();
-  });
+  $('#ctSearch').addEventListener('input', (e) => { clearTimeout(searchT); searchT = setTimeout(() => { CT.q = e.target.value.trim(); CT.page = 0; CT.enter = true; reload(); }, 200); });
   $('#ctView').addEventListener('click', (e) => {
     const b = e.target.closest('[data-view]');
     if (!b || b.dataset.view === CT.view) return;
-    try { localStorage.setItem('ctView', b.dataset.view); } catch {}
+    try { localStorage.setItem('ctView2', b.dataset.view); } catch {}
     morph(() => { CT.view = b.dataset.view; render(); });
   });
-  // Tags: a dropdown (so the toolbar fits in the one-line header). Each tag with its colour and count, "No tag",
-  // then New tag, and Edit for the tag you're filtering by (rename, recolour or delete).
-  function renderTagBtn() {
-    const b = $('#ctTagBtn');
-    const t = CT.tag && CT.tag !== 'none' ? tagById(CT.tag) : null;
-    const label = t ? t.name : CT.tag === 'none' ? 'No tag' : 'All tags';
-    b.innerHTML = `${t ? `<i class="ct-dot tag-${esc(t.color)}"></i>` : icon('tag', 14)}<span>${esc(label)}</span>${icon('chevron-down', 14)}`;
-    b.classList.toggle('on', Boolean(CT.tag));
-  }
-  // Added by: which of your numbers brought each contact in (a campaign's sender, or the number they first wrote to),
-  // as a dropdown beside the tags. Each number with its WhatsApp photo and count; "By hand or import" for the rest.
-  function numChoices() {
-    const n = (fn) => CT.contacts.filter(fn).length;
-    const gone = [...new Set(CT.contacts.map((c) => c.via).filter((v) => v && !state.senders.some((s) => s.id === v)))];
-    return [
-      ...state.senders.map((s) => ({ k: s.id, label: s.label, sub: s.displayPhone || '', pre: senderPhotoHtml(s), count: n((c) => c.via === s.id) })),
-      ...gone.map((v) => ({ k: v, label: senderName(v), pre: icon('phone', 15), count: n((c) => c.via === v) })),
-      { k: 'none', label: 'By hand or import', pre: icon('upload', 15), count: n((c) => !c.via) },
-    ];
-  }
-  function renderNumBtn() {
-    const b = $('#ctNumBtn');
-    b.classList.toggle('hidden', !state.senders.length);
-    const s = CT.num && CT.num !== 'none' ? state.senders.find((x) => x.id === CT.num) : null;
-    const label = !CT.num ? 'Added by anyone' : CT.num === 'none' ? 'By hand or import' : s ? s.label : senderName(CT.num);
-    b.innerHTML = `${s ? `<span class="ct-numbtn-ph">${senderPhotoHtml(s)}</span>` : icon(CT.num === 'none' ? 'upload' : 'phone', 14)}<span>${esc(label)}</span>${icon('chevron-down', 14)}`;
-    b.classList.toggle('on', Boolean(CT.num));
-  }
-  $('#ctNumBtn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const r = e.currentTarget.getBoundingClientRect();
-    const pick = (k) => { if (k === CT.num) return; CT.num = k; CT.page = 0; CT.enter = true; render(); };
-    Sheet.Menu.open(r.left, r.bottom + 6, [
-      { label: 'Added by anyone', kbd: CT.contacts.length.toLocaleString(), checked: !CT.num, pre: `<span class="mi-ic">${icon('users', 15)}</span>`, action: () => pick('') },
-      '-',
-      ...numChoices().map((x) => ({ label: x.label, kbd: x.count.toLocaleString(), checked: CT.num === x.k, pre: `<span class="mi-ph">${x.pre}</span>`, action: () => pick(x.k) })),
-    ]);
-  });
-  const pickTag = (k) => { if (k === CT.tag) return; CT.tag = k; CT.page = 0; CT.enter = true; render(); };
-  $('#ctTagBtn').addEventListener('click', (e) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const cur = CT.tag && CT.tag !== 'none' ? tagById(CT.tag) : null;
-    Sheet.Menu.open(r.left, r.bottom + 6, [
-      { label: 'All tags', checked: !CT.tag, kbd: CT.contacts.length.toLocaleString(), action: () => pickTag('') },
-      ...CT.tags.map((t) => ({ label: t.name, pre: `<i class="ct-dot tag-${esc(t.color)}"></i>`, checked: CT.tag === t.id, kbd: (CT.counts[t.id] || 0).toLocaleString(), action: () => pickTag(t.id) })),
-      CT.untagged && CT.tags.length ? { label: 'No tag', checked: CT.tag === 'none', kbd: CT.untagged.toLocaleString(), action: () => pickTag('none') } : null,
-      '-',
-      { label: 'New tag…', checked: false, action: () => tagModal(null) },
-      cur ? { label: `Edit “${cur.name}”…`, checked: false, action: () => tagModal(cur) } : null,
-    ]);
+  $('#ctPer').addEventListener('change', (e) => {
+    CT.per = Number(e.target.value);
+    try { localStorage.setItem('ctPer', CT.per); } catch {}
+    CT.page = 0; CT.enter = true; reload();
   });
   $('#ctFoot').addEventListener('click', (e) => {
     const b = e.target.closest('[data-page]');
-    if (b) { CT.page += Number(b.dataset.page); CT.enter = true; render(); toListTop(); }
+    if (b && !b.disabled) { CT.page += Number(b.dataset.page); CT.enter = true; reload().then(toListTop); }
   });
   $('#ctList').addEventListener('click', (e) => {
     if (e.target.id === 'ctAll') {
@@ -407,7 +459,7 @@
       return render();
     }
     const emptyAct = e.target.closest('[data-empty]')?.dataset.empty;
-    if (emptyAct === 'clear') { CT.q = ''; CT.tag = ''; CT.status = ''; CT.flag = ''; CT.num = ''; CT.source = ''; $('#ctSearch').value = ''; CT.enter = true; return render(); }
+    if (emptyAct === 'clear') { CT.q = ''; clearFilters(); $('#ctSearch').value = ''; CT.enter = true; return render(); }
     if (emptyAct === 'import') return importModal();
     if (emptyAct === 'add') return open(null);
     const sortBtn = e.target.closest('[data-sort]');
@@ -533,7 +585,7 @@
 
   function renderPanel() {
     const panel = $('#ctPanel');
-    const c = CT.openId && CT.contacts.find((x) => x.id === CT.openId);
+    const c = CT.openId && CT.cache.get(CT.openId);
     if (!c) CT.openId = null;
     panel.classList.toggle('hidden', !c);
     $('#ctLayout').classList.toggle('has-panel', Boolean(c));
@@ -550,13 +602,13 @@
       </div>
       <div class="ct-pacts">
         <button type="button" class="ct-pact" data-pact="send" ${c.optOut ? 'disabled title="Opted out"' : ''}>${icon('send', 17)}<span>Message</span></button>
-        <button type="button" class="ct-pact" data-pact="chat" ${chatKey ? '' : 'disabled title="No chat yet"'}>${icon('message-circle', 17)}<span>Chat</span></button>
+        <button type="button" class="ct-pact" data-pact="chat" title="Their chats, by number">${icon('message-circle', 17)}<span>Chat</span></button>
         <button type="button" class="ct-pact" data-pact="edit">${icon('square-pen', 17)}<span>Edit</span></button>
         <button type="button" class="ct-pact" data-pact="delete">${icon('delete', 17)}<span>Delete</span></button>
       </div>
       <div class="ct-psec">
         <div class="field-label">Status</div>
-        <div class="ct-pstatus">${Object.entries(STATUS).map(([k, v]) => `<button type="button" class="ct-tag ${c.status === k ? 'active' : ''}" data-set-status="${k}">${v.label}</button>`).join('')}</div>
+        <button type="button" class="ct-pst-btn" data-pstatus-menu aria-haspopup="menu" title="Change their stage"><i class="ct-lab-dot st-${esc(c.status)}"></i><span>${esc(STATUS[c.status]?.label || c.status)}</span>${icon('chevron-down', 14)}</button>
         <label class="ct-poptout"><span>Opted out <span class="opt">never message them</span></span>${toggleHtml({ checked: c.optOut, attrs: 'id="ctPOpt"', size: 'sm' })}</label>
       </div>
       <div class="ct-psec">
@@ -572,16 +624,65 @@
     Orb.hydrate(panel);
   }
 
+  // Chat: a large window with each of our numbers that messaged them, and the templates each one sent (preview,
+  // campaign, how it went). A template opens that number's chat, but only once they've written back to that number:
+  // until then there's no conversation (WhatsApp lets you send them only templates), so those are faded and say why.
+  const DELIV = { sent: 'Sent', delivered: 'Delivered', read: 'Read', failed: 'Not delivered', pending: 'Waiting' };
+  async function chatWindow(c) {
+    const body = openModal(`Chats with ${nameOf(c)}`, `<div class="chw" id="chw"><p class="chw-load">${icon('message-circle', 18)}Loading their chats…</p></div>`);
+    $('#modal .modal-box').classList.add('wide', 'chw-box');
+    const r = await api('/contacts/' + encodeURIComponent(c.id) + '/threads').catch((e) => ({ error: e.message }));
+    const box = $('#chw', body);
+    if (!box) return; // closed meanwhile
+    if (r.error) { box.innerHTML = `<p class="chw-load">${esc(r.error)}</p>`; return; }
+    if (!r.threads.length) { box.innerHTML = emptyState({ icon: 'message-circle', title: 'No chats yet', text: `None of your numbers has messaged ${nameOf(c)} yet, and they haven't written to you.` }); return; }
+    const sender = (id) => state.senders.find((s) => s.id === id);
+    const why = (s) => `${nameOf(c)} hasn't replied to ${s ? s.label : 'this number'} yet, so there's no chat to open. Until they write back, WhatsApp only lets you send them a template.`;
+    box.innerHTML = r.threads.map((t) => {
+      const s = sender(t.senderId);
+      const head = `<header class="chw-h">${s ? senderPhotoHtml(s) : `<span class="chw-ic">${icon('phone', 16)}</span>`}
+        <div class="chw-who"><b>${esc(s?.label || 'A removed number')}</b><span>${esc(s?.displayPhone || '')}</span></div>
+        ${t.replied ? `<span class="pill delivered" title="Their last message: ${esc(new Date(t.lastInAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }))}">Replied · ${esc(relTime(t.lastInAt))}</span>` : '<span class="pill">No reply yet</span>'}
+        ${t.replied ? `<button type="button" class="btn sm" data-chw-open="${esc(t.key)}">${icon('message-circle', 14)}Open chat</button>` : ''}</header>`;
+      const card = (x) => {
+        const tpl = state.templates.find((y) => y.id === x.templateId);
+        return `<button type="button" class="chw-card ${t.replied ? '' : 'off'}" data-chw-open="${t.replied ? esc(t.key) : ''}" ${t.replied ? 'title="Open this chat"' : `data-why="${esc(why(s))}" aria-disabled="true"`}>
+          <div class="chw-meta"><b>${esc(x.templateName || 'Template')}</b><span class="pill ${esc(x.status === 'failed' ? 'failed' : x.status || '')}">${esc(DELIV[x.status] || x.status || '')}</span></div>
+          <small>${esc([x.campaign ? 'Campaign · ' + x.campaign : 'Sent from the Inbox', x.at && relTime(x.at)].filter(Boolean).join(' · '))}</small>
+          ${x.error ? `<small class="chw-err">${esc(x.error)}</small>` : ''}
+          <div class="tpl-chat chw-prev"><div class="bubble">${tpl ? bubbleHtml(tpl, x.values || {}, true) : `<span class="muted">${esc(x.templateName || 'Template')} (removed)</span>`}</div></div>
+        </button>`;
+      };
+      return `<section class="chw-sec ${t.replied ? '' : 'off'}">${head}${t.sends.length ? `<div class="chw-cards">${t.sends.map(card).join('')}</div>` : '<p class="chw-none">They wrote to this number first: no templates sent from it.</p>'}</section>`;
+    }).join('');
+    LA.hydrate(box);
+    box.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-chw-open]');
+      if (!el) return;
+      if (!el.dataset.chwOpen) return toast(el.dataset.why || 'They haven\'t replied from this number yet', 'error');
+      closeModal();
+      showTab('inbox');
+      window.Inbox?.open(el.dataset.chwOpen);
+    });
+  }
+
   async function patch(c, body, msg) {
     await guard(async () => { await api('/contacts/' + c.id, { method: 'PUT', body }); await refresh(); if (msg) toast(msg); });
   }
 
   $('#ctPanel').addEventListener('click', async (e) => {
-    const c = CT.contacts.find((x) => x.id === CT.openId);
+    const c = CT.cache.get(CT.openId);
     if (!c) return;
     if (e.target.closest('#ctPClose')) return closePanel();
     const st = e.target.closest('[data-set-status]');
     if (st && st.dataset.setStatus !== c.status) return patch(c, { status: st.dataset.setStatus });
+    // Stage: a dropdown (each stage with its colour; the current one ticked)
+    const stBtn = e.target.closest('[data-pstatus-menu]');
+    if (stBtn) {
+      e.stopPropagation();
+      const r = stBtn.getBoundingClientRect();
+      return Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(STATUS).map(([k, v]) => ({ label: v.label, checked: c.status === k, pre: `<span class="mi-ic"><i class="ct-lab-dot st-${k}"></i></span>`, action: () => { if (k !== c.status) patch(c, { status: k }); } })));
+    }
     const tg = e.target.closest('[data-ptag]');
     if (tg) {
       if (tg.dataset.ptag === '+') return tagModal(null, (t) => patch(c, { tags: [...c.tags, t.id] }));
@@ -590,7 +691,7 @@
     }
     const act = e.target.closest('[data-pact]')?.dataset.pact;
     if (act === 'send') return SendPage.openContacts([c], nameOf(c));
-    if (act === 'chat') { showTab('inbox'); return window.Inbox?.open(CT.chats.get(c.phone)); }
+    if (act === 'chat') return chatWindow(c);
     if (act === 'edit') return open(c.id);
     if (act === 'delete') {
       if (!(await confirmDialog({ title: 'Delete this contact?', message: 'Their chats and campaign history stay.', confirmText: 'Delete', danger: true }))) return;
@@ -598,11 +699,11 @@
     }
   });
   $('#ctPanel').addEventListener('change', (e) => {
-    const c = CT.contacts.find((x) => x.id === CT.openId);
+    const c = CT.cache.get(CT.openId);
     if (c && e.target.id === 'ctPOpt') patch(c, { optOut: e.target.checked }, e.target.checked ? 'Opted out: they won’t be messaged' : 'They can be messaged again');
   });
   $('#ctPanel').addEventListener('focusout', (e) => {
-    const c = CT.contacts.find((x) => x.id === CT.openId);
+    const c = CT.cache.get(CT.openId);
     if (c && e.target.id === 'ctPNotes' && e.target.value !== (c.notes || '')) patch(c, { notes: e.target.value }, 'Notes saved');
   });
   document.addEventListener('keydown', (e) => {
@@ -612,13 +713,14 @@
   });
 
   $('#ctSel').addEventListener('click', async (e) => {
+    if (e.target.closest('[data-selall]')) return guard(async () => { const r = await api('/contacts?' + listQuery({ ids: 1, per: 10 })); r.ids.forEach((id) => CT.selected.add(id)); render(); });
     const b = e.target.closest('[data-act]');
     if (!b) return;
     const ids = [...CT.selected];
     const act = b.dataset.act;
     if (act === 'clear') { CT.selected.clear(); return render(); }
     if (act === 'send') {
-      const list = CT.contacts.filter((c) => CT.selected.has(c.id) && !c.optOut);
+      const list = (await guard(() => api('/contacts/by-ids', { method: 'POST', body: { ids } })))?.contacts.filter((c) => !c.optOut) || [];
       if (!list.length) return toast('Everyone selected has opted out', 'error');
       return SendPage.openContacts(list, `${list.length} selected contacts`);
     }
@@ -643,7 +745,7 @@
     });
   }
 
-  async function refresh() { await load(); render(); }
+  async function refresh() { if (await load()) render(); }
 
   // --- Tags ------------------------------------------------------------------
 
@@ -668,7 +770,7 @@
       closeModal();
       const ok = await confirmDialog({ title: `Delete “${esc(t.name)}”?`, message: `It's removed from ${(CT.counts[t.id] || 0).toLocaleString()} contact(s). The contacts stay.`, confirmText: 'Delete', danger: true });
       if (!ok) return;
-      await guard(async () => { await api('/tags/' + t.id, { method: 'DELETE' }); if (CT.tag === t.id) CT.tag = ''; await refresh(); });
+      await guard(async () => { await api('/tags/' + t.id, { method: 'DELETE' }); CT.fs.tag.delete(t.id); await refresh(); });
     };
   }
 
@@ -676,8 +778,8 @@
 
   // opts.onSaved: called after the form saves or deletes (e.g. the Inbox's Contact info refreshing itself).
   function open(contactId, opts = {}) {
-    const c = contactId ? CT.contacts.find((x) => x.id === contactId) : null;
-    if (contactId && !c) return toast('Contact not found', 'error');
+    const c = contactId ? CT.cache.get(contactId) : null;
+    if (contactId && !c) return getContact(contactId).then((x) => (x ? open(contactId, opts) : toast('Contact not found', 'error')));
     const chatKey = c && CT.chats.get(c.phone);
     const tags = new Set(c?.tags || []);
     const lead = c?.lead || {};
@@ -687,8 +789,10 @@
     const ORG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>';
     const row = (ico, input, label) => `<label class="cte-row"><span class="cte-ico" title="${label}">${ico}</span>${input}</label>`;
     const status = c?.status || 'new';
-    const body = openModal(c ? 'Edit contact' : 'Add contact', `
+    const body = openModal(c ? 'Edit contact' : 'Add contact(s)', `
       <form id="ctForm" class="cte">
+        ${c ? '' : `<button type="button" class="cte-imp" data-cte-import>${icon('upload', 18)}<span><b>Adding many?</b><small>Import them from an Excel or CSV sheet: every sheet, merged by phone number.</small></span><span class="cte-imp-go">Import${icon('arrow-right', 15)}</span></button>
+        <div class="cte-or"><span>or add one</span></div>`}
         <div class="cte-head">
           ${c ? avatar(c, 'xl') : `<span class="ct-av xl cte-av-new">${icon('user', 26)}</span>`}
           <div class="cte-id">
@@ -751,6 +855,7 @@
       if (!(await confirmDialog({ title: 'Delete this contact?', message: 'Their chats and campaign history stay.', confirmText: 'Delete', danger: true }))) return;
       await guard(async () => { await api('/contacts/delete', { method: 'POST', body: { ids: [c.id] } }); await refresh(); opts.onSaved?.(); });
     };
+    $('[data-cte-import]', body)?.addEventListener('click', () => importModal()); // Add contact(s): the sheet import, from the same window
     $('#ctForm', body).addEventListener('submit', (e) => {
       e.preventDefault();
       const d = Object.fromEntries(new FormData(e.target));
@@ -789,7 +894,8 @@
       <div class="modal-actions"><span class="ci-summary" id="ciSummary"></span><button class="btn quiet" id="ciCancel">Cancel</button><button class="btn primary" id="ciGo" disabled>Import</button></div>`);
     body.closest('.modal-box').classList.add('ci-box');
 
-    const existing = new Set(CT.contacts.map((c) => c.phone));
+    let existing = new Set();
+    api('/contacts?phones=1').then((r) => { existing = new Set(r.phones); }).catch(() => {});
     const sheetRows = (s) => (s.fix && s.groups.length ? realignShiftedRows(s.headers, s.rows, s.groups) : { headers: s.headers, rows: s.rows });
     // Everything that would be imported, merged by phone.
     function collect() {
@@ -893,13 +999,12 @@
       toast(`Imported: ${r.added.toLocaleString()} new, ${r.updated.toLocaleString()} updated${r.invalid ? `, ${r.invalid} skipped` : ''}`);
     }, e.currentTarget);
   }
-  $('#ctImport').addEventListener('click', importModal);
   $('#ctAdd').addEventListener('click', () => open(null));
 
   // --- Export -------------------------------------------------------------------------
 
-  function exportRows() {
-    const list = CT.selected.size ? CT.contacts.filter((c) => CT.selected.has(c.id)) : filtered();
+  async function exportRows() {
+    const list = CT.selected.size ? (await api('/contacts/by-ids', { method: 'POST', body: { ids: [...CT.selected] } })).contacts : (await api('/contacts?' + listQuery({ per: 0, page: 0 }))).contacts;
     const extras = [...new Set(list.flatMap((c) => Object.keys(c.extra || {})))];
     const head = ['name', 'phone', 'email', 'company', 'tags', 'status', 'opted_out', 'lead_summary', 'need', 'budget', 'timeline', 'notes', 'last_message', ...extras];
     const rows = list.map((c) => [c.name, '+' + c.phone, c.email, c.company, c.tags.map((t) => tagById(t)?.name).filter(Boolean).join(', '), c.optOut ? 'opted out' : STATUS[c.status]?.label || c.status, c.optOut ? 'yes' : 'no', c.lead?.summary, c.lead?.need, c.lead?.budget, c.lead?.timeline, c.notes, c.lastMessageAt || '', ...extras.map((k) => c.extra?.[k] ?? '')]);
@@ -914,17 +1019,17 @@
   }
   $('#ctExport').addEventListener('click', (e) => {
     const r = e.currentTarget.getBoundingClientRect();
-    const label = CT.selected.size ? `${CT.selected.size} selected` : CT.tag || CT.status || CT.q ? 'the filtered list' : 'everyone';
+    const label = CT.selected.size ? `${CT.selected.size} selected` : filterCount() || CT.q ? 'the filtered list' : 'everyone';
     const date = new Date().toISOString().slice(0, 10);
     Sheet.Menu.open(r.left, r.bottom + 4, [
-      { label: `CSV · ${label}`, action: () => {
-        const { head, rows } = exportRows();
+      { label: `CSV · ${label}`, action: () => guard(async () => {
+        const { head, rows } = await exportRows();
         const q = (v) => (/[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
         download(new Blob(['﻿' + [head, ...rows].map((r) => r.map(q).join(',')).join('\n')], { type: 'text/csv' }), `contacts-${date}.csv`);
-      } },
+      }) },
       { label: `Excel · ${label}`, action: () => guard(async () => {
         const XLSX = await loadXlsxLib();
-        const { head, rows } = exportRows();
+        const { head, rows } = await exportRows();
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows]), 'Contacts');
         XLSX.writeFile(wb, `contacts-${date}.xlsx`);
@@ -939,7 +1044,7 @@
       render();
     },
     open: async (id, opts) => { if (!CT.loaded) await load(); open(id, opts); },
-    byPhone: (phone) => CT.contacts.find((c) => c.phone === phone),
+    byPhone: (phone) => [...CT.cache.values()].find((c) => c.phone === phone),
     tags: () => CT.tags,
     refresh: () => (CT.loaded ? refresh() : load()),
   };

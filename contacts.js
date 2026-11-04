@@ -178,7 +178,93 @@ module.exports = function mountContacts(app, ctx) {
 
   // --- Routes ----------------------------------------------------------------
 
-  app.get('/api/contacts', (req, res) => res.json({ contacts: db.contacts, tags: db.tags, counts: tagCounts(), statuses: STATUSES }));
+  // --- The Contacts page, one page at a time --------------------------------------------------------------
+  // GET /api/contacts?page=0&per=100 with q (search), sort + dir, and the Filters panel's picks as comma lists: stage,
+  // delivery (delivered | undelivered | optout), num (a number's id, or none), tag (a tag id, or none), source. Within a
+  // list: any of them; across lists: all. Returns that page, how many match, and per filter section how many each option
+  // would give with the other sections' picks (facets). ids=1 adds every matching id (Select all). Without page, the
+  // whole book as before (the Send page uses that).
+  const everFailed = (c) => (c.campaigns || []).some((x) => x.status === 'failed') || c.delivery?.status === 'failed';
+  const everDelivered = (c) => (c.campaigns || []).some((x) => x.status === 'delivered' || x.status === 'read') || ['delivered', 'read'].includes(c.delivery?.status);
+  const MATCH = {
+    stage: (c, k) => !c.optOut && c.status === k,
+    delivery: (c, k) => (k === 'delivered' ? everDelivered(c) : k === 'undelivered' ? everFailed(c) : k === 'optout' && Boolean(c.optOut)),
+    num: (c, k) => (c.via || 'none') === k,
+    tag: (c, k) => (k === 'none' ? !c.tags.length : c.tags.includes(k)),
+    source: (c, k) => (c.source || 'manual') === k,
+  };
+  const fmtPhone = (p) => { const m = /^91(\d{5})(\d{5})$/.exec(p); return m ? `+91 ${m[1]} ${m[2]}` : '+' + p; };
+  const RANK = { new: 0, interested: 1, qualified: 2, won: 3, lost: 4 };
+  const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+  function queryContacts(qs) {
+    const listOf = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const fs = Object.fromEntries(Object.keys(MATCH).map((k) => [k, new Set(listOf(qs[k]))]));
+    const q = String(qs.q || '').trim().toLowerCase(), qd = q.replace(/\D/g, '');
+    const inSearch = (c) => !q || [c.name, c.email, c.company, c.lead?.summary, fmtPhone(c.phone)].some((v) => String(v || '').toLowerCase().includes(q)) || (qd.length >= 3 && c.phone.includes(qd));
+    const passes = (c, skip) => Object.entries(fs).every(([sec, set]) => sec === skip || !set.size || [...set].some((k) => MATCH[sec](c, k)));
+    const searched = db.contacts.filter(inSearch);
+    const matching = searched.filter((c) => passes(c));
+    // How many each option would give, with the other sections' picks
+    const facets = {}, facetTotals = {};
+    for (const sec of Object.keys(MATCH)) {
+      const base = searched.filter((c) => passes(c, sec)), n = {};
+      const bump = (k) => { n[k] = (n[k] || 0) + 1; };
+      for (const c of base) {
+        if (sec === 'stage') { if (!c.optOut) bump(c.status); }
+        else if (sec === 'delivery') { if (everDelivered(c)) bump('delivered'); if (everFailed(c)) bump('undelivered'); if (c.optOut) bump('optout'); }
+        else if (sec === 'num') bump(c.via || 'none');
+        else if (sec === 'tag') { if (!c.tags.length) bump('none'); else c.tags.forEach(bump); }
+        else bump(c.source || 'manual');
+      }
+      facets[sec] = n;
+      facetTotals[sec] = base.length;
+    }
+    // Sorting, as the page always did: contacts with no value for it (no name, company, tag…) last, either way
+    const tagName = new Map(db.tags.map((t) => [t.id, t.name]));
+    const SORTS = {
+      name: (c) => { const n = (c.name || '').trim(); return n && /[a-z]/i.test(n[0]) ? n : ''; },
+      added: (c) => c.createdAt || '',
+      message: (c) => c.lastMessageAt || '',
+      status: (c) => (c.optOut ? 5 : RANK[c.status] ?? 0),
+      tags: (c) => c.tags.map((t) => tagName.get(t)).filter(Boolean).sort((a, b) => a.localeCompare(b))[0] || '',
+      lead: (c) => (c.lead?.summary ? c.lead.updatedAt || '1' : ''),
+      company: (c) => (c.company || '').trim(),
+    };
+    const key = SORTS[qs.sort] ? qs.sort : 'name', dir = qs.dir === 'desc' ? -1 : 1;
+    const val = new Map(matching.map((c) => [c, SORTS[key](c)]));
+    const nameOf = (c) => c.name || fmtPhone(c.phone);
+    const blank = (v) => v === '' || v == null;
+    matching.sort((a, b) => {
+      const x = val.get(a), y = val.get(b);
+      if (blank(x) !== blank(y)) return blank(x) ? 1 : -1;
+      return dir * (typeof x === 'number' ? x - y : collator.compare(String(x), String(y))) || collator.compare(nameOf(a), nameOf(b));
+    });
+    const per = String(qs.per) === '0' ? 0 : Math.min(500, Math.max(10, Math.round(Number(qs.per)) || 100)); // 0 = all
+    const pages = per ? Math.max(1, Math.ceil(matching.length / per)) : 1;
+    const page = Math.min(Math.max(0, Math.round(Number(qs.page)) || 0), pages - 1);
+    return {
+      contacts: per ? matching.slice(page * per, page * per + per) : matching,
+      total: matching.length, page, per, pages, facets, facetTotals,
+      all: db.contacts.length, opted: db.contacts.filter((c) => c.optOut).length, untagged: db.contacts.filter((c) => !c.tags.length).length,
+      ...(qs.ids ? { ids: matching.map((c) => c.id) } : {}),
+    };
+  }
+
+  app.get('/api/contacts', (req, res) => {
+    if (req.query.phones) return res.json({ phones: db.contacts.map((c) => c.phone) }); // the import's "new or already here"
+    if (req.query.page == null) return res.json({ contacts: db.contacts, tags: db.tags, counts: tagCounts(), statuses: STATUSES });
+    res.json({ ...queryContacts(req.query), tags: db.tags, counts: tagCounts(), statuses: STATUSES });
+  });
+  // One contact (opening it from the Inbox, or one not on the page shown), and several (a selection across pages)
+  app.get('/api/contacts/:id', wrap((req, res) => {
+    const c = db.contacts.find((x) => x.id === req.params.id);
+    if (!c) throw fail('Contact not found', 404);
+    res.json(c);
+  }));
+  app.post('/api/contacts/by-ids', wrap((req, res) => {
+    const ids = new Set(Array.isArray(req.body.ids) ? req.body.ids : []);
+    res.json({ contacts: db.contacts.filter((c) => ids.has(c.id)) });
+  }));
 
   app.post('/api/contacts', wrap((req, res) => {
     const phoneErr = phoneInputError(req.body.phone);

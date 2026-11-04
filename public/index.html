@@ -292,29 +292,27 @@
     <section id="tab-contacts" class="tab hidden">
       <div class="section-head has-tools">
         <div>
-          <h1>Contacts</h1>
+          <h1>Contacts <span class="ct-total hidden" id="ctTotal" aria-live="polite">(<span class="ct-total-n" id="ctTotalN"></span>)</span></h1>
           <p class="sub" id="ctSub">Everyone you message, with tags.</p>
         </div>
         <div class="in-head ct-bar">
-        <div class="search-wrap has-filter" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="ctSearch"
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="ctSearch"
             placeholder="Search contacts" title="Search by name, phone, email or company"
-            aria-label="Search contacts" /><button type="button" class="num-filter" id="ctSourceBtn" aria-haspopup="menu" title="Filter by who added them"></button></div>
-        <button type="button" class="ct-sortbtn ct-tagbtn" id="ctTagBtn" aria-haspopup="menu" title="Filter by tag"></button>
+            aria-label="Search contacts" /></div>
+        <button type="button" class="ct-sortbtn ct-filterbtn" id="ctFilterBtn" aria-haspopup="dialog" aria-controls="ctFilters" title="Filter by stage, delivery, number, tag or who added them"></button>
         <button type="button" class="ct-sortbtn ct-numbtn hidden" id="ctNumBtn" aria-haspopup="menu" title="Filter by the number that added them"></button>
         <button type="button" class="ct-sortbtn" id="ctSortBtn" aria-haspopup="menu"></button>
-        <button type="button" class="btn quiet ct-selall" id="ctSelAll"><input type="checkbox" class="cb" tabindex="-1"
-            aria-hidden="true" /><span>Select all</span></button>
+        <select id="ctPer" aria-label="Contacts per page" title="How many contacts a page shows"></select>
         <div class="seg seg-icons ct-view" id="ctView" role="radiogroup" aria-label="View"></div>
+        <button type="button" class="ct-sortbtn ct-filterbtn" id="ctExport" data-icon="download" data-icon-size="16" title="Export to CSV or Excel" aria-label="Export" aria-haspopup="menu"></button>
       </div>
         <div class="row tight">
-          <button class="btn quiet" id="ctExport" data-icon="download">Export</button>
-          <button class="btn" id="ctImport" data-icon="upload">Import</button>
-          <button class="btn primary" id="ctAdd" data-icon="plus">Add contact</button>
+          <button class="btn primary" id="ctAdd" data-icon="plus" title="Add one contact, or import many from a spreadsheet">Add contact(s)</button>
         </div>
       </div>
+      <div class="ct-active hidden" id="ctActive" aria-live="polite"></div>
       <div class="ct-sel hidden" id="ctSel"></div>
-      <div class="ct-layout has-labels" id="ctLayout">
-        <nav class="ct-labels" id="ctStats" aria-label="Filter contacts"></nav>
+      <div class="ct-layout" id="ctLayout">
         <div class="card ct-card">
           <div class="ct-scroll" id="ctList" data-skel="person:12"></div>
           <div class="ct-foot" id="ctFoot"></div>

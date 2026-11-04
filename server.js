@@ -1950,6 +1950,32 @@ app.get('/api/events', (req, res) => {
   req.on('close', () => listeners.delete(res));
 });
 
+// A contact's chats, per number of ours: every template sent to them from it (by a campaign or from the Inbox) with how
+// it went, and whether they've written back to that number (only then is there a conversation to open). For the
+// contact panel's Chat window. Numbers they replied to come first, most recent reply first.
+app.get('/api/contacts/:id/threads', wrap((req, res) => {
+  const c = db.contacts.find((x) => x.id === req.params.id);
+  if (!c) throw fail('Contact not found', 404);
+  const wa = c.phone, by = new Map();
+  const get = (sid) => by.get(sid) || by.set(sid, { senderId: sid, key: chatKey(sid, wa), sends: [], replied: false, lastInAt: null }).get(sid);
+  for (const camp of db.campaigns) {
+    if (camp.demo && !db.settings.demoMode) continue;
+    for (const r of camp.recipients) {
+      if (r.phone !== wa || !(r.sentAt || r.failedAt)) continue;
+      get(r.senderId).sends.push({ campaign: camp.name, campaignId: camp.id, templateId: camp.templateId, templateName: camp.templateName, values: r.values || {}, status: r.status, error: r.error || '', at: r.readAt || r.deliveredAt || r.sentAt || r.failedAt });
+    }
+  }
+  for (const m of inboxMessages()) {
+    if (m.wa !== wa) continue;
+    const t = get(m.senderId);
+    if (m.dir === 'in') { t.replied = true; if (!t.lastInAt || m.ts > t.lastInAt) t.lastInAt = m.ts; }
+    else if (m.type === 'template' && m.campaign !== 'Test send') t.sends.push({ campaign: '', templateId: m.templateId, templateName: m.templateName, values: m.values || {}, status: m.status, error: m.error || '', at: m.ts });
+  }
+  const threads = [...by.values()].map((t) => ({ ...t, sends: t.sends.sort((a, b) => String(b.at).localeCompare(String(a.at))) }));
+  threads.sort((a, b) => (b.replied - a.replied) || String(b.lastInAt || '').localeCompare(String(a.lastInAt || '')));
+  res.json({ threads });
+}));
+
 app.get('/api/inbox', (req, res) => {
   const byKey = new Map();
   for (const m of inboxMessages()) (byKey.get(m.key) || byKey.set(m.key, []).get(m.key)).push(m);
