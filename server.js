@@ -1041,7 +1041,7 @@ app.post('/api/templates', wrap((req, res) => {
   const buttons = (urlButtons || []).filter((b) => b.text && b.url).map((b) => ({ type: 'URL', text: b.text, url: b.url }));
   if (buttons.length) components.push({ type: 'BUTTONS', buttons });
   const named = /{{\s*[a-z_][\w]*\s*}}/i.test(JSON.stringify(components).replace(/{{\s*\d+\s*}}/g, ''));
-  const t = { id: id(), name: name.trim(), language: language.trim(), category: category || 'MARKETING', status: 'MANUAL', source: 'manual', parameterFormat: named ? 'NAMED' : 'POSITIONAL', components, updatedAt: new Date().toISOString() };
+  const t = { id: id(), name: name.trim(), language: language.trim(), category: category || 'MARKETING', status: 'MANUAL', source: 'manual', parameterFormat: named ? 'NAMED' : 'POSITIONAL', components, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   db.templates.push(t);
   save();
   res.json(publicTemplate(t));
@@ -1087,8 +1087,10 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
         for (const t of page.data || []) {
           const existing = db.templates.find((x) => x.source === 'synced' && x.wabaId === wabaId && x.name === t.name && x.language === t.language);
           const data = { name: t.name, language: t.language, category: t.category, categoryChangedFrom: categoryChangedFrom(existing, t.category, t.previous_category), status: t.status, rejectedReason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : '', components: t.components, parameterFormat: t.parameter_format || 'POSITIONAL', source: 'synced', wabaId, metaId: t.id, updatedAt: new Date().toISOString() };
-          if (existing) Object.assign(existing, data);
-          else db.templates.push({ id: id(), ...data });
+          // Meta doesn't say when a template was made or approved, so both are noted as this app sees them happen.
+          const approvedNow = t.status === 'APPROVED' && (!existing || existing.status !== 'APPROVED');
+          if (existing) Object.assign(existing, data, approvedNow && existing.status ? { approvedAt: data.updatedAt } : {});
+          else db.templates.push({ id: id(), ...data, firstSeenAt: data.updatedAt });
           synced++;
         }
         next = page.paging?.next ? page.paging.next.replace(/^https:\/\/graph\.facebook\.com\/v[\d.]+\//, '') : null;
@@ -1253,7 +1255,7 @@ app.post('/api/templates/meta', wrap(async (req, res) => {
     // Demo: nothing goes to Meta; the template is kept here as if approved, for practice sends.
     const components = templateComponents(spec, { handle: 'demo', linkBase: await linkBaseFor(req, spec) });
     if (db.templates.some((x) => x.name === name && x.language === language)) throw fail('A template with this name and language already exists');
-    const t = { id: id(), name, language, category, status: 'MANUAL', source: 'manual', parameterFormat: 'POSITIONAL', components, linkDefaults: components.linkDefaults, updatedAt: now };
+    const t = { id: id(), name, language, category, status: 'MANUAL', source: 'manual', parameterFormat: 'POSITIONAL', components, linkDefaults: components.linkDefaults, createdAt: now, updatedAt: now };
     db.templates.push(t);
     save();
     return res.json(publicTemplate(t));
@@ -1262,7 +1264,7 @@ app.post('/api/templates/meta', wrap(async (req, res) => {
   if (db.templates.some((x) => x.wabaId === s.wabaId && x.name === name && x.language === language)) throw fail('A template with this name and language already exists. Pick another name, or edit that one.');
   const components = templateComponents(spec, { handle: await headerHandle(s, spec), linkBase: await linkBaseFor(req, spec) });
   const r = await graph(s, `${encodeURIComponent(s.wabaId)}/message_templates`, { method: 'POST', body: JSON.stringify({ name, language, category, components }) });
-  const t = { id: id(), name, language, category: r.category || category, requestedCategory: category, categoryChangedFrom: categoryChangedFrom({ requestedCategory: category }, r.category || category), status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, linkDefaults: components.linkDefaults, submittedAt: now, updatedAt: now };
+  const t = { id: id(), name, language, category: r.category || category, requestedCategory: category, categoryChangedFrom: categoryChangedFrom({ requestedCategory: category }, r.category || category), status: r.status || 'PENDING', rejectedReason: '', components, parameterFormat: 'POSITIONAL', source: 'synced', wabaId: s.wabaId, metaId: r.id, linkDefaults: components.linkDefaults, createdAt: now, submittedAt: now, updatedAt: now };
   db.templates.push(t);
   save();
   res.json(publicTemplate(t));
@@ -1289,6 +1291,7 @@ app.put('/api/templates/:id/meta', wrap(async (req, res) => {
   await graph(s, encodeURIComponent(t.metaId), { method: 'POST', body: JSON.stringify({ components, ...(category !== t.category ? { category } : {}) }) });
   const now = new Date().toISOString();
   Object.assign(t, { components, linkDefaults: components.linkDefaults, category, requestedCategory: category, categoryChangedFrom: '', status: 'PENDING', rejectedReason: '', editedAt: now, updatedAt: now });
+  delete t.approvedAt; // set again when Meta approves the edit
   save();
   res.json(publicTemplate(t));
 }));
@@ -1303,6 +1306,7 @@ function handleTemplateStatus(wabaId, v) {
   t.status = event === 'REINSTATED' ? 'APPROVED' : event;
   t.rejectedReason = event === 'REJECTED' && v.reason && v.reason !== 'NONE' ? String(v.reason) : '';
   t.updatedAt = new Date().toISOString();
+  if (event === 'APPROVED') t.approvedAt = t.updatedAt;
   save();
   if (TEMPLATE_EVENT_TEXT[event]) notes?.add({ kind: event === 'APPROVED' || event === 'REINSTATED' ? 'template_approved' : 'template_problem', title: `Template ${t.name} was ${TEMPLATE_EVENT_TEXT[event]}`, body: t.rejectedReason ? `Meta's reason: ${t.rejectedReason.toLowerCase().replace(/_/g, ' ')}` : event === 'APPROVED' ? 'It can be used for sending now.' : '', link: { tab: 'templates', id: t.id } });
   broadcast({ kind: 'templates' });
@@ -2649,6 +2653,19 @@ app.post('/api/admin/workspaces/:id/credits', wrap((req, res) => {
   res.json(tenants.forWorkspace(ws, () => { credits.addPack({ ...req.body, by: req.user.email }); return credits.summary(); }));
 }));
 const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast });
+// Templates saved before their dates were kept: created = when it was sent to Meta from here, approved = the
+// latest "was approved" notification about it. Templates made in WhatsApp Manager have neither until they change.
+for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
+  let n = 0;
+  for (const t of db.templates) {
+    if (!t.createdAt && t.submittedAt) { t.createdAt = t.submittedAt; n++; }
+    if (!t.approvedAt && String(t.status).toUpperCase() === 'APPROVED') {
+      const note = (db.notifications || []).filter((x) => x.kind === 'template_approved' && x.link?.id === t.id && / was approved$/.test(x.title)).sort((a, b) => String(b.ts).localeCompare(String(a.ts)))[0];
+      if (note) { t.approvedAt = note.ts; n++; }
+    }
+  }
+  if (n) save();
+});
 // Clean numbers saved by older versions with today's rules; ones that still aren't valid are flagged in Contacts.
 for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
   const r = contactsApi.recheckPhones();

@@ -505,6 +505,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 24px 28px 40px; } /* wide eno
 .li-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
 .li-head h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; }
 .li-meta { color: var(--muted); font-size: 12.5px; }
+.tpl-dates { margin-top: 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
 
 table:not(.data-table):not(.sg) { width: 100%; border-collapse: collapse; font-size: 13px; }
 table:not(.data-table):not(.sg) th, table:not(.data-table):not(.sg) td { text-align: left; padding: 9px 12px; white-space: nowrap; box-shadow: inset 0 -1px 0 var(--hair); }
@@ -6478,3 +6479,7 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
 /* Labels in the template editor take one fixed-height line, pill or not, so fields side by side line up. */
 .te .te-lbl, .te .te-field > .field-label, .te .te-acct > .field-label { display: flex; align-items: center; gap: 8px; min-height: 22px; margin: 0; line-height: 1; }
 .te .te-lbl .te-req { margin: 0; vertical-align: 0; line-height: 1.5; }
+/* The global field rule (input:not(…):not(…) gives every input a 6px top margin) is more specific than
+   ".te-card input", so it won for text inputs but not for selects: the Name box sat 6px below Language.
+   Matched specificity here; the label's grid gap does the spacing. */
+.te input:not([type="checkbox"]):not([type="file"]), .te select, .te textarea { margin: 0; }

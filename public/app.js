@@ -1404,6 +1404,17 @@ window.templateSenders = (t, list = state.senders) => list.filter((s) => canSend
 const accountLabel = (wabaId) => state.senders.filter((s) => s.wabaId === wabaId).map((s) => s.label).join(', ');
 window.accountLabel = accountLabel;
 state.tplSender = '';
+// "Created 4 Nov 2026, 3:12 pm · Approved 4 Nov 2026, 5:40 pm". Templates made in WhatsApp Manager show when they
+// were first synced here instead, since Meta doesn't share when they were made.
+const tplWhen = (d) => new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+function tplDates(t) {
+  const parts = [];
+  if (t.createdAt) parts.push(`Created ${tplWhen(t.createdAt)}`);
+  else if (t.firstSeenAt) parts.push(`Synced ${tplWhen(t.firstSeenAt)}`);
+  if (t.approvedAt) parts.push(`Approved ${tplWhen(t.approvedAt)}`);
+  return parts.length ? `<div class="li-meta tpl-dates">${parts.map(esc).join(' · ')}</div>` : '';
+}
+
 function renderTemplates() {
   renderPlaybooks(); // its cards count the templates each playbook answers
   const list = $('#templateList');
@@ -1428,6 +1439,11 @@ function renderTemplates() {
   const shown = byNumber.filter((t) => (!state.tplCat || catLabel(t.category) === state.tplCat)
     && (!state.tplStatus || String(t.status).toUpperCase() === state.tplStatus)
     && (!q || text(t).includes(q)));
+  // Newest first: when it was made here (or first synced), else approved. Templates with no date go last, newest
+  // Meta ID first (Meta's IDs grow over time).
+  const when = (t) => Date.parse(t.createdAt || t.firstSeenAt || t.approvedAt || '') || 0;
+  const metaNum = (t) => (/^\d+$/.test(t.metaId || '') ? BigInt(t.metaId) : 0n);
+  shown.sort((a, b) => when(b) - when(a) || (metaNum(b) > metaNum(a) ? 1 : metaNum(b) < metaNum(a) ? -1 : 0) || a.name.localeCompare(b.name));
   const filtering = q || state.tplCat || state.tplStatus;
   if (!state.templates.length) {
     list.innerHTML = emptyState({
@@ -1447,6 +1463,7 @@ function renderTemplates() {
         <span class="tpl-head-r">${t.categoryChangedFrom ? `<span class="cat-flag" tabindex="0" aria-label="Category changed by Meta" data-tip="${esc(`Submitted as ${catLabel(t.categoryChangedFrom)}, but Meta changed it to ${catLabel(t.category)}. It's charged and treated as a ${(t.category || '').toLowerCase()} message. Think that's wrong? Request a review in WhatsApp Manager → Business Support Home.`)}">${icon('triangle-alert', 16)}</span>` : ''}<span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span></span>
       </div>
       <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
+      ${tplDates(t)}
       ${t.rejectedReason ? `<div class="tpl-reason">${icon('badge-alert', 14)}<span>Meta's reason: ${esc(t.rejectedReason.toLowerCase().replace(/_/g, ' '))}. Edit it and submit again.</span></div>` : ''}
       <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
       ${t.variables.length ? `<div class="var-chips">${[...new Set(t.variables.map((v) => (v.media ? v.media + ' URL' : `{{${v.name}}}`)))].map((label) => `<span class="var-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}
