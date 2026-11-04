@@ -6281,3 +6281,36 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
   .cdp-card .cd-hour { grid-template-columns: 48px minmax(0, 1fr); gap: 10px; }
   .cdp-card .cd-ev-side { max-width: 40%; }
 }
+/* The day page fills the screen: header, week strip, then the day's card taking the rest (hours share the height). */
+#campaignDay:not(.hidden) { display: flex; flex-direction: column; min-height: calc(100dvh - 64px); }
+#campaignDay .cdp-card { flex: 1; display: flex; flex-direction: column; }
+#campaignDay .cdp-card .cd-day-tl { flex: 1; display: flex; flex-direction: column; }
+#campaignDay .cdp-card .cd-hour { flex: 1 0 44px; }
+#campaignDay .cdp-card .cd-day-empty { flex: 1; justify-content: center; }
+/* the week strip */
+.cdp-week { display: flex; align-items: stretch; gap: 6px; margin: 0 0 12px; padding: 8px; }
+.cdp-wk { flex: none; display: grid; place-items: center; width: 40px; border: 0; border-radius: 12px; background: none; color: var(--muted); cursor: pointer; transition: background-color 0.15s, color 0.15s; }
+.cdp-wk:hover { background: var(--sunk); color: var(--text); }
+.cdp-days { position: relative; flex: 1; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; padding-top: 20px; }
+.cdp-range { position: absolute; top: 0; left: 50%; translate: -50% 0; font-size: 11.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.cdp-d { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding: 8px 4px 7px; border: 0; border-radius: 12px; background: none; color: var(--text); font: inherit; cursor: pointer; transition: background-color 0.15s, color 0.15s, box-shadow 0.15s; }
+.cdp-d small { font-size: 11.5px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.cdp-d b { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.cdp-d.past:not(.on) b { color: var(--muted); }
+.cdp-d:hover { background: var(--sunk); }
+.cdp-d:focus-visible, .cdp-wk:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--ring); }
+.cdp-d.today b { color: var(--danger); }
+.cdp-d.on { background: var(--text); color: var(--surface); }
+.cdp-d.on small, .cdp-d.on.today b, .cdp-d.on b { color: var(--surface); }
+.cdp-dots { display: flex; align-items: center; justify-content: center; gap: 3px; height: 6px; }
+.cdp-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--info); }
+.cdp-dots em { font-style: normal; font-size: 10px; font-weight: 700; line-height: 1; color: var(--info); }
+.cdp-d.on .cdp-dots i { background: var(--surface); }
+.cdp-d.on .cdp-dots em { color: var(--surface); }
+@media (max-width: 700px) {
+  .cdp-week { padding: 6px; gap: 2px; }
+  .cdp-wk { width: 28px; }
+  .cdp-days { gap: 2px; }
+  .cdp-d b { font-size: 15px; }
+  .cdp-d small { font-size: 10px; letter-spacing: 0; }
+}

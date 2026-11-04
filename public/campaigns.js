@@ -346,10 +346,10 @@
   }
   // show day k (its month's campaigns first, if the calendar was on another month)
   function gotoDay(k) {
-    const fresh = CP.day !== k;
+    const first = !CP.day;
     CP.day = k;
     CP.view = 'calendar';
-    if (fresh) scrollTo(0, 0);
+    if (first) scrollTo(0, 0);
     if (!sameMonth(CP.calMonth, monthOfKey(k)) || !CP.res) { CP.calMonth = monthOfKey(k); return load().catch((err) => toast(err.message, 'error')); }
     renderDay();
   }
@@ -358,7 +358,7 @@
     if (!k || !el) return;
     const cs = dayCampaigns(k), today = DateFilter.keyOf(new Date()), past = k < today;
     $('#campaignList').classList.add('hidden');
-    const fresh = el.classList.contains('hidden') || el.dataset.day !== k;
+    const fresh = el.classList.contains('hidden');
     el.classList.remove('hidden');
     el.dataset.day = k;
     const nLive = cs.filter(live).length, sch = cs.filter((c) => c.status === 'scheduled').length;
@@ -368,14 +368,37 @@
         <div class="cd-title">
           <div class="cd-name"><button type="button" class="icon-btn cd-back" data-dayp="back" title="Back to the calendar" aria-label="Back to the calendar">${icon('arrow-left', 22)}</button><div><h1>${esc(dayTitle(k))}</h1><p class="sub">${esc(sub)}</p></div></div>
           <div class="cd-actions cdp-tools">
-            <div class="cdp-nav"><button type="button" class="dt-nav" data-dayn="-1" aria-label="Previous day" title="Previous day">‹</button><button type="button" class="btn sm quiet" data-dayn="0" ${k === today ? 'disabled' : ''}>Today</button><button type="button" class="dt-nav" data-dayn="1" aria-label="Next day" title="Next day">›</button></div>
+            ${k === today ? '' : `<button type="button" class="btn quiet" data-dayn="0">${icon('calendar-days', 15)}Today</button>`}
             ${past ? '' : `<button type="button" class="btn primary" data-day-schedule="${k}">${icon(cs.length ? 'plus' : 'clock', 15)}${cs.length ? 'Schedule another' : 'Schedule a campaign'}</button>`}
           </div>
         </div>
       </div>
+      ${weekStrip(k)}
       <div class="card cdp-card">${dayBody(k, cs)}</div>`;
     LA.hydrate(el);
     if (fresh) Motion.enter(el);
+  }
+  // The week around the day (Sunday to Saturday, like the calendar): click a day to go to it, ‹ › for the weeks either
+  // side. A dot per campaign that day (up to three), from the counts the server sends for every day.
+  function weekStrip(k) {
+    const d = fromKey(k), start = new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay());
+    const today = DateFilter.keyOf(new Date()), counts = CP.res?.days || {};
+    const days = [...Array(7)].map((_, i) => {
+      const x = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i), key = DateFilter.keyOf(x), n = counts[key] || 0;
+      return `<button type="button" class="cdp-d${key === k ? ' on' : ''}${key === today ? ' today' : ''}${key < today ? ' past' : ''}" data-dayk="${key}" aria-current="${key === k ? 'date' : 'false'}" title="${esc(x.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }))}${n ? ` · ${n} campaign${n === 1 ? '' : 's'}` : ''}">
+        <small>${esc(x.toLocaleDateString(undefined, { weekday: 'short' }))}</small><b>${x.getDate()}</b>
+        <span class="cdp-dots">${n ? [...Array(Math.min(n, 3))].map(() => '<i></i>').join('') + (n > 3 ? '<em>+</em>' : '') : ''}</span>
+      </button>`;
+    }).join('');
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    const range = start.getMonth() === end.getMonth()
+      ? start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+      : `${start.toLocaleDateString(undefined, { month: 'short' })} – ${end.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}`;
+    return `<div class="card cdp-week" role="group" aria-label="Days of the week">
+      <button type="button" class="cdp-wk" data-dayn="-7" aria-label="Previous week" title="Previous week">${icon('arrow-left', 16)}</button>
+      <div class="cdp-days"><span class="cdp-range">${esc(range)}</span>${days}</div>
+      <button type="button" class="cdp-wk" data-dayn="7" aria-label="Next week" title="Next week">${icon('arrow-right', 16)}</button>
+    </div>`;
   }
   function dayBack() {
     if (CP.dayPushed && history.state?.day) { history.back(); return; }
@@ -397,23 +420,32 @@
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#campaignDay')) return;
     if (e.target.closest('[data-dayp="back"]')) return dayBack();
+    const pick = e.target.closest('[data-dayk]');
+    if (pick) return stepDay(pick.dataset.dayk);
     const n = e.target.closest('[data-dayn]');
-    if (n && CP.day) {
-      const d = fromKey(CP.day);
-      if (Number(n.dataset.dayn)) d.setDate(d.getDate() + Number(n.dataset.dayn));
-      const next = Number(n.dataset.dayn) ? DateFilter.keyOf(d) : DateFilter.keyOf(new Date());
-      if (CP.dayPushed && history.state?.day) history.replaceState({ tab: 'campaigns', day: next }, '', dayUrl(next));
-      return gotoDay(next);
-    }
+    if (n && CP.day) return stepDay(Number(n.dataset.dayn));
     const ev = e.target.closest('[data-day-open]');
     if (ev) return open(ev.dataset.dayOpen);
     const sch = e.target.closest('[data-day-schedule]');
     if (sch) return window.scheduleOn?.(sch.dataset.daySchedule);
     if (e.target.closest('[data-day-new]')) showTab('send');
   });
+  // to a day: a key like 2026-11-05, a number of days from this one, or 0 for today (the address follows, no new history)
+  function stepDay(to) {
+    let next;
+    if (typeof to === 'string') next = to;
+    else if (!to) next = DateFilter.keyOf(new Date());
+    else { const d = fromKey(CP.day); d.setDate(d.getDate() + to); next = DateFilter.keyOf(d); }
+    if (next === CP.day) return;
+    if (history.state?.day) history.replaceState({ tab: 'campaigns', day: next }, '', dayUrl(next));
+    else if (location.search.includes('day=')) history.replaceState(history.state, '', dayUrl(next));
+    gotoDay(next);
+  }
   addEventListener('keydown', (e) => {
-    if (!CP.day || CP.detail || state.tab !== 'campaigns' || e.target.closest('input, textarea, select, [contenteditable]') || $('#modal:not(.hidden)')) return;
+    if (!CP.day || CP.detail || state.tab !== 'campaigns' || e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.('input, textarea, select, [contenteditable]') || $('#modal:not(.hidden)')) return;
     if (e.key === 'Escape') dayBack();
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); stepDay((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 7 : 1)); }
+    else if (e.key === 't' || e.key === 'T') stepDay(0);
   });
 
   // Folders ↔ rows: each campaign keeps a view-transition name in both views, so the browser
