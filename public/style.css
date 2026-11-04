@@ -4028,8 +4028,8 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 @keyframes tpl-sync-in { from { opacity: 0; transform: translateY(-4px); } }
 #templateList.tpl-syncing { opacity: 0.5; pointer-events: none; transition: opacity 0.2s; }
 @media (prefers-reduced-motion: reduce) { #syncTemplates.syncing svg, .tpl-sync-bar i { animation-duration: 3s; } }
-.tpl-group.open + .tpl-group, .tpl-group + .tpl-group.open { margin-top: 14px; }
-.tpl-group { display: grid; gap: 14px; }
+/* The space between a number's header and its templates is part of the body, so it opens and closes with it */
+.tpl-group { display: grid; gap: 0; }
 .tpl-group-empty { margin: 0; }
 /* A number's header above its templates: the WhatsApp profile (photo, name, number, quality, limit) and template counts */
 .tpl-num-h { display: flex; align-items: center; justify-content: space-between; gap: 14px 24px; flex-wrap: wrap; padding: 14px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--sh-card); }
@@ -4073,12 +4073,8 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .tpl-num-chev { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--sunk); color: var(--muted); transition: rotate 0.25s var(--ease-out), background-color 0.15s; }
 .tpl-num-h[data-toggle]:hover .tpl-num-chev { background: var(--hair); color: var(--text); }
 .tpl-group.open .tpl-num-chev { rotate: 180deg; }
-/* Opening: the cards fade and slide in (cheap: no height animation, which re-lays out every card each frame) */
-.tpl-group:not(.open) { gap: 0; }
-.tpl-group-body > .cards { padding-top: 2px; }
-.tpl-group.just-opened .tpl-group-body { animation: tpl-open 0.28s var(--ease-out); }
-@keyframes tpl-open { from { opacity: 0; transform: translateY(-6px); } }
-@media (prefers-reduced-motion: reduce) { .tpl-group.just-opened .tpl-group-body { animation: none; } }
+.tpl-group-body { padding: 0; } /* a grid item: its own block context, so the margins below stay inside it */
+.tpl-group-body > .cards, .tpl-group .tpl-group-body > .tpl-group-empty { margin: 16px 0 4px; }
 .tng-stat { display: inline-flex; align-items: baseline; gap: 4px; padding: 4px 10px; border-radius: 99px; background: var(--sunk); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .tng-stat b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
 

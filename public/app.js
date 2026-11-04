@@ -1531,7 +1531,7 @@ addEventListener('resize', () => { clearTimeout(tipLongTemplateNames.t); tipLong
 // Checked again on hover too: a list drawn while the tab was hidden had no widths to measure.
 document.addEventListener('pointerover', (e) => { const h = e.target.closest?.('#templateList .tpl-title'); if (h) tipLongTemplateNames(h); });
 
-let tplJustOpened = ''; // the section just opened by a click: its cards fade in
+const tplBodies = new Map(); // section id → its cards' HTML (drawn when the section opens)
 function renderTemplates() {
   renderPlaybooks(); // its cards count the templates each playbook answers
   requestAnimationFrame(() => tipLongTemplateNames());
@@ -1603,30 +1603,57 @@ function renderTemplates() {
   // Collapsible: with several numbers they start closed (a list of numbers to open); with one, open. What's opened or
   // closed is remembered; a search or filter opens every section with a match.
   const solo = groups.length < 2;
+  tplBodies.clear();
   list.innerHTML = groups.map(({ w, ts }) => {
     const id = w || 'other', open = solo || filtering || tplOpen().has(id);
-    return `<section class="tpl-group${open ? ' open' : ''}${id === tplJustOpened ? ' just-opened' : ''}" data-tg="${esc(id)}">${tplGroupHead(w, ts, pick, solo)}
-      ${open ? `<div class="tpl-group-body">${ts.length ? `<div class="cards">${ts.map(card).join('')}</div>` : `<p class="sub tpl-group-empty">No templates for this number yet. Create one, or click Sync from Meta.</p>`}</div>` : ''}
+    const inner = () => (ts.length ? `<div class="cards">${ts.map(card).join('')}</div>` : `<p class="sub tpl-group-empty">No templates for this number yet. Create one, or click Sync from Meta.</p>`);
+    tplBodies.set(id, inner);
+    return `<section class="tpl-group${open ? ' open' : ''}" data-tg="${esc(id)}">${tplGroupHead(w, ts, pick, solo)}
+      ${open ? `<div class="tpl-group-body">${inner()}</div>` : ''}
     </section>`;
   }).join('');
-  tplJustOpened = '';
   bindTplWheel(list);
   requestAnimationFrame(markStuck);
 }
 const tplOpen = () => { try { return new Set(JSON.parse(localStorage.getItem('tplOpen') || '[]')); } catch { return new Set(); } };
+// Opening or closing touches only that section (nothing else is redrawn, so the other numbers and the header stay put):
+// its templates grow in from nothing or shrink away, height and fade together.
 document.addEventListener('click', (e) => {
   const head = e.target.closest?.('#templateList .tpl-num-h[data-toggle]');
   if (!head) return;
-  const sec = head.closest('.tpl-group'), open = !sec.classList.contains('open'), set = tplOpen();
-  // closing a section whose header is pinned (scrolled into its templates): bring the section back to the top
-  const pinned = sec.getBoundingClientRect().top < head.getBoundingClientRect().top - 1;
-  open ? set.add(sec.dataset.tg) : set.delete(sec.dataset.tg);
+  const sec = head.closest('.tpl-group'), id = sec.dataset.tg, open = !sec.classList.contains('open'), set = tplOpen();
+  open ? set.add(id) : set.delete(id);
   try { localStorage.setItem('tplOpen', JSON.stringify([...set])); } catch {}
-  if (open) tplJustOpened = sec.dataset.tg;
-  renderTemplates(); // draws the opened section's cards (closed ones aren't drawn at all)
-  const again = $(`#templateList .tpl-group[data-tg="${CSS.escape(sec.dataset.tg)}"]`);
-  if (!open && pinned && again) again.scrollIntoView({ block: 'start', behavior: Motion.reduce() ? 'auto' : 'smooth' });
-  $('.tpl-num-h[data-toggle]', again || document)?.focus({ preventScroll: true });
+  head.setAttribute('aria-expanded', open);
+  sec.__anim?.cancel();
+  let body = sec.querySelector(':scope > .tpl-group-body');
+  const still = Motion.reduce();
+  if (open) {
+    sec.classList.add('open');
+    if (!body) {
+      body = Object.assign(document.createElement('div'), { className: 'tpl-group-body', innerHTML: (tplBodies.get(id) || (() => ''))() });
+      sec.append(body);
+      LA.hydrate(body);
+      bindTplWheel(body);
+      requestAnimationFrame(() => tipLongTemplateNames());
+    }
+    if (!still) {
+      const h = body.offsetHeight;
+      body.style.overflow = 'hidden';
+      sec.__anim = body.animate([{ height: '0px', opacity: 0 }, { height: h + 'px', opacity: 1 }], { duration: Math.min(420, 220 + h / 8), easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+      sec.__anim.onfinish = sec.__anim.oncancel = () => { body.style.overflow = ''; sec.__anim = null; markStuck(); };
+    }
+  } else {
+    // its header pinned (scrolled into its templates): first bring the section's top back under the title bar
+    if (sec.getBoundingClientRect().top < head.getBoundingClientRect().top - 1) sec.scrollIntoView({ block: 'start', behavior: 'instant' });
+    const done = () => { body?.remove(); sec.classList.remove('open'); sec.__anim = null; markStuck(); };
+    if (!body || still) return done();
+    const h = body.offsetHeight;
+    body.style.overflow = 'hidden';
+    sec.__anim = body.animate([{ height: h + 'px', opacity: 1 }, { height: '0px', opacity: 0 }], { duration: Math.min(360, 200 + h / 10), easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' });
+    sec.__anim.onfinish = done;
+  }
+  markStuck();
 });
 document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('#templateList .tpl-num-h[data-toggle]')) { e.preventDefault(); e.target.click(); } });
 
