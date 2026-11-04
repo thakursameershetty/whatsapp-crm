@@ -1495,20 +1495,28 @@ function scrollPageFrom(el, e) {
   page ||= document.scrollingElement;
   page.scrollBy({ top: e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * page.clientHeight : e.deltaY, behavior: 'instant' });
 }
+// (Performance: the page-wide listener is passive, so it never makes the browser wait before scrolling; only the
+// message boxes themselves, which are bound in renderTemplates, have a listener that can stop a scroll.)
 document.addEventListener('wheel', (e) => {
-  if (e.ctrlKey || !e.deltaY) return;
-  const t = performance.now(), fresh = t - tplWheel.at > 200;
+  if (e.__tplBox) return; // a message box already handled it
+  const t = performance.now();
+  if (t - tplWheel.at > 200) Object.assign(tplWheel, { box: null, moved: false }); // a gesture that starts on the page
   tplWheel.at = t;
-  let box = e.target.closest?.('#templateList .tpl-chat, #templateList .var-chips');
-  if (box && box.scrollHeight <= box.clientHeight) box = null; // nothing to scroll in it
+}, { passive: true });
+function tplBoxWheel(e) {
+  if (e.ctrlKey || !e.deltaY) return;
+  e.__tplBox = true;
+  const box = e.currentTarget, t = performance.now(), fresh = t - tplWheel.at > 200;
+  tplWheel.at = t;
+  if (box.scrollHeight <= box.clientHeight) { if (fresh) Object.assign(tplWheel, { box: null, moved: false }); return; } // nothing to scroll in it
   if (fresh) Object.assign(tplWheel, { box, moved: false });
-  if (!box) return;
   if (box !== tplWheel.box) { e.preventDefault(); scrollPageFrom(box, e); return; } // the page's gesture carries on
   const atEnd = e.deltaY > 0 ? box.scrollTop + box.clientHeight >= box.scrollHeight - 1 : box.scrollTop <= 0;
   if (!atEnd) { tplWheel.moved = true; return; } // the box scrolls
   e.preventDefault(); // at its end: stop here if this gesture scrolled the box, else move the page
   if (!tplWheel.moved) scrollPageFrom(box, e);
-}, { passive: false });
+}
+const bindTplWheel = (root) => root.querySelectorAll('.tpl-chat, .var-chips').forEach((b) => { if (!b.__wheel) { b.__wheel = true; b.addEventListener('wheel', tplBoxWheel, { passive: false }); } });
 
 // Long template names end in "…" on one line; those get the full name in a tooltip (hover or keyboard focus).
 function tipLongTemplateNames(only) {
@@ -1523,6 +1531,7 @@ addEventListener('resize', () => { clearTimeout(tipLongTemplateNames.t); tipLong
 // Checked again on hover too: a list drawn while the tab was hidden had no widths to measure.
 document.addEventListener('pointerover', (e) => { const h = e.target.closest?.('#templateList .tpl-title'); if (h) tipLongTemplateNames(h); });
 
+let tplJustOpened = ''; // the section just opened by a click: its cards fade in
 function renderTemplates() {
   renderPlaybooks(); // its cards count the templates each playbook answers
   requestAnimationFrame(() => tipLongTemplateNames());
@@ -1585,7 +1594,7 @@ function renderTemplates() {
   // One section per WhatsApp Business Account, headed by its number(s) as WhatsApp shows them: profile photo, name,
   // number, Meta's quality rating and limit, and how its templates stand. Picking a number shows just its section.
   const accounts = pick ? [pick.wabaId] : [...new Set(nums.map((x) => x.wabaId))];
-  if (!accounts.length) { list.className = 'cards'; list.innerHTML = shown.map(card).join(''); return; }
+  if (!accounts.length) { list.className = 'cards'; list.innerHTML = shown.map(card).join(''); bindTplWheel(list); return; }
   const groups = accounts.map((w) => ({ w, ts: shown.filter((t) => t.wabaId === w) })).filter((g) => !filtering || g.ts.length);
   const other = pick ? [] : shown.filter((t) => !accounts.includes(t.wabaId));
   if (other.length) groups.push({ w: '', ts: other });
@@ -1596,10 +1605,12 @@ function renderTemplates() {
   const solo = groups.length < 2;
   list.innerHTML = groups.map(({ w, ts }) => {
     const id = w || 'other', open = solo || filtering || tplOpen().has(id);
-    return `<section class="tpl-group${open ? ' open' : ''}" data-tg="${esc(id)}">${tplGroupHead(w, ts, pick, solo)}
-      <div class="tpl-group-body"><div class="tpl-group-in">${ts.length ? `<div class="cards">${ts.map(card).join('')}</div>` : `<p class="sub tpl-group-empty">No templates for this number yet. Create one, or click Sync from Meta.</p>`}</div></div>
+    return `<section class="tpl-group${open ? ' open' : ''}${id === tplJustOpened ? ' just-opened' : ''}" data-tg="${esc(id)}">${tplGroupHead(w, ts, pick, solo)}
+      ${open ? `<div class="tpl-group-body">${ts.length ? `<div class="cards">${ts.map(card).join('')}</div>` : `<p class="sub tpl-group-empty">No templates for this number yet. Create one, or click Sync from Meta.</p>`}</div>` : ''}
     </section>`;
   }).join('');
+  tplJustOpened = '';
+  bindTplWheel(list);
 }
 const tplOpen = () => { try { return new Set(JSON.parse(localStorage.getItem('tplOpen') || '[]')); } catch { return new Set(); } };
 document.addEventListener('click', (e) => {
@@ -1608,11 +1619,13 @@ document.addEventListener('click', (e) => {
   const sec = head.closest('.tpl-group'), open = !sec.classList.contains('open'), set = tplOpen();
   // closing a section whose header is pinned (scrolled into its templates): bring the section back to the top
   const pinned = sec.getBoundingClientRect().top < head.getBoundingClientRect().top - 1;
-  sec.classList.toggle('open', open);
-  if (!open && pinned) sec.scrollIntoView({ block: 'start', behavior: Motion.reduce() ? 'auto' : 'smooth' });
-  head.setAttribute('aria-expanded', open);
   open ? set.add(sec.dataset.tg) : set.delete(sec.dataset.tg);
   try { localStorage.setItem('tplOpen', JSON.stringify([...set])); } catch {}
+  if (open) tplJustOpened = sec.dataset.tg;
+  renderTemplates(); // draws the opened section's cards (closed ones aren't drawn at all)
+  const again = $(`#templateList .tpl-group[data-tg="${CSS.escape(sec.dataset.tg)}"]`);
+  if (!open && pinned && again) again.scrollIntoView({ block: 'start', behavior: Motion.reduce() ? 'auto' : 'smooth' });
+  $('.tpl-num-h[data-toggle]', again || document)?.focus({ preventScroll: true });
 });
 document.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('#templateList .tpl-num-h[data-toggle]')) { e.preventDefault(); e.target.click(); } });
 
@@ -1657,7 +1670,7 @@ $('#senderList').addEventListener('click', (e) => {
   state.numQ = ''; state.numQuality = ''; $('#numSearch').value = '';
   renderSenders();
 });
-$('#tplSearch').addEventListener('input', (e) => { state.tplQ = e.target.value; renderTemplates(); });
+$('#tplSearch').addEventListener('input', (e) => { state.tplQ = e.target.value; clearTimeout(renderTemplates.q); renderTemplates.q = setTimeout(renderTemplates, 140); });
 $('#tplStatus').addEventListener('change', (e) => { state.tplStatus = e.target.value; renderTemplates(); });
 $('#tplCat').addEventListener('change', (e) => { state.tplCat = e.target.value; renderTemplates(); });
 $('#templateList').addEventListener('click', (e) => {

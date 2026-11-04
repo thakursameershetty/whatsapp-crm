@@ -4058,13 +4058,12 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .tpl-num-chev { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--sunk); color: var(--muted); transition: rotate 0.25s var(--ease-out), background-color 0.15s; }
 .tpl-num-h[data-toggle]:hover .tpl-num-chev { background: var(--hair); color: var(--text); }
 .tpl-group.open .tpl-num-chev { rotate: 180deg; }
-.tpl-group-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.3s var(--ease-out); }
-.tpl-group.open .tpl-group-body { grid-template-rows: 1fr; }
-.tpl-group-in { min-height: 0; overflow: hidden; }
-.tpl-group.open .tpl-group-in { overflow: visible; animation: tpl-in-clip 0.3s; }
-@keyframes tpl-in-clip { from, to { overflow: hidden; } }
+/* Opening: the cards fade and slide in (cheap: no height animation, which re-lays out every card each frame) */
 .tpl-group:not(.open) { gap: 0; }
-.tpl-group-in > .cards { padding-top: 2px; }
+.tpl-group-body > .cards { padding-top: 2px; }
+.tpl-group.just-opened .tpl-group-body { animation: tpl-open 0.28s var(--ease-out); }
+@keyframes tpl-open { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .tpl-group.just-opened .tpl-group-body { animation: none; } }
 .tng-stat { display: inline-flex; align-items: baseline; gap: 4px; padding: 4px 10px; border-radius: 99px; background: var(--sunk); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .tng-stat b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
 
