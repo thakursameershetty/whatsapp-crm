@@ -1032,13 +1032,16 @@ function renderSenders() {
     )
     .join('');
   Motion.values(list);
-  // Numbers whose photo hasn't been read yet: ask Meta once, quietly.
+  askPhotos();
+}
+// Numbers whose photo hasn't been read yet: ask Meta once, quietly (Numbers and Templates pages show them).
+const photoAsked = new Set();
+function askPhotos() {
   if (!state.settings.demoMode) for (const s of state.senders) if (s.hasToken && !s.photoCheckedAt && !photoAsked.has(s.id)) {
     photoAsked.add(s.id);
     api(`/senders/${s.id}/photo/refresh`, { method: 'POST' }).then((x) => { if (x.photoUrl) loadSenders(); }).catch(() => {});
   }
 }
-const photoAsked = new Set();
 
 const senderPhotoHtml = (s) => `<span class="sender-photo">${s?.photoUrl ? `<img src="${esc(s.photoUrl)}" alt="" onerror="this.remove()">` : ''}<b>${esc((s?.label || '?').trim().charAt(0).toUpperCase())}</b></span>`;
 // The profile photo editor: its own popup above Edit number. It opens on the number's current photo;
@@ -1552,23 +1555,36 @@ function renderTemplates() {
       </div>
     </div>`;
   // All numbers, with numbers in different Business Accounts: one titled section per account.
-  const accounts = [...new Set(nums.map((x) => x.wabaId))];
-  if (pick || accounts.length < 2) { list.className = 'cards'; list.innerHTML = shown.map(card).join(''); return; }
+  // One section per WhatsApp Business Account, headed by its number(s) as WhatsApp shows them: profile photo, name,
+  // number, Meta's quality rating and limit, and how its templates stand. Picking a number shows just its section.
+  const accounts = pick ? [pick.wabaId] : [...new Set(nums.map((x) => x.wabaId))];
+  if (!accounts.length) { list.className = 'cards'; list.innerHTML = shown.map(card).join(''); return; }
   const groups = accounts.map((w) => ({ w, ts: shown.filter((t) => t.wabaId === w) })).filter((g) => !filtering || g.ts.length);
-  const other = shown.filter((t) => !accounts.includes(t.wabaId));
+  const other = pick ? [] : shown.filter((t) => !accounts.includes(t.wabaId));
   if (other.length) groups.push({ w: '', ts: other });
+  askPhotos();
   list.className = 'tpl-groups';
-  list.innerHTML = groups.map(({ w, ts }) => {
-    const ss = state.senders.filter((x) => w && x.wabaId === w);
-    return `<section class="tpl-group">
-      <div class="tpl-group-h">
-        <span class="tpl-group-ic">${icon(w ? 'phone' : 'file-text', 15)}</span>
-        <div><b>${w ? esc(ss.map((x) => x.label).join(', ')) : 'Other templates'}</b><span>${w ? esc(ss.map((x) => x.displayPhone).filter(Boolean).join(', ')) : 'Not tied to one of your numbers'}</span></div>
-        <span class="tpl-group-n">${ts.length} template${ts.length === 1 ? '' : 's'}</span>
-      </div>
+  list.innerHTML = groups.map(({ w, ts }) => `<section class="tpl-group">${tplGroupHead(w, ts, pick)}
       ${ts.length ? `<div class="cards">${ts.map(card).join('')}</div>` : `<p class="sub tpl-group-empty">No templates for this number yet. Create one, or click Sync from Meta.</p>`}
-    </section>`;
-  }).join('');
+    </section>`).join('');
+}
+
+function tplGroupHead(w, ts, pick) {
+  const n = (st) => ts.filter((t) => String(t.status).toUpperCase() === st).length;
+  const stats = [[ts.length, ts.length === 1 ? 'template' : 'templates', ''], [n('APPROVED'), 'approved', 'good'], [n('PENDING'), 'in review', 'warn'], [n('REJECTED'), 'rejected', 'bad'], [n('PAUSED') + n('DISABLED'), 'paused', 'bad']]
+    .filter(([c], i) => i === 0 || c).map(([c, word, cls]) => `<span class="tng-stat ${cls}"><b>${c}</b> ${word}</span>`).join('');
+  if (!w) return `<header class="tpl-num-h other"><span class="tpl-num-ic">${icon('file-text', 18)}</span><div class="tpl-num-main"><b>Other templates</b><span class="tpl-num-sub">Not tied to one of your numbers</span></div><div class="tpl-num-stats">${stats}</div></header>`;
+  const ss = pick ? [pick] : state.senders.filter((x) => x.wabaId === w);
+  const one = (s) => {
+    const q = QUALITY[s.qualityRating];
+    const bits = [s.displayPhone && `<span class="tpl-num-phone">${esc(s.displayPhone)}</span>`,
+      `<span class="tpl-num-q" title="Meta quality rating"><i class="q-dot ${esc(q ? s.qualityRating : 'none')}"></i>${q ? `Quality ${esc(q.label.toLowerCase())}` : 'Not rated yet'}</span>`,
+      s.messagingLimit && `<span title="Meta's messaging limit">${esc(tierText(s.messagingLimit))}</span>`].filter(Boolean);
+    return `<div class="tpl-num-one">${senderPhotoHtml(s)}<div class="tpl-num-main">
+        <b>${esc(s.label)}${s.verifiedName && s.verifiedName !== s.label ? `<small> · ${esc(s.verifiedName)}</small>` : ''}${s.enabled === false ? ' <span class="pill">off</span>' : ''}</b>
+        <span class="tpl-num-sub">${bits.join('<i class="tpl-num-sep">·</i>')}</span></div></div>`;
+  };
+  return `<header class="tpl-num-h"><div class="tpl-num-list">${ss.map(one).join('')}</div><div class="tpl-num-stats">${stats}</div></header>`;
 }
 
 $('#tplSender').addEventListener('change', (e) => { state.tplSender = e.target.value; renderTemplates(); });
