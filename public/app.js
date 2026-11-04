@@ -1446,8 +1446,7 @@ function renderTemplates() {
         <h3>${esc(t.name)}</h3>
         <span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span>
       </div>
-      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
-      ${t.categoryChangedFrom ? `<div class="tpl-reason warn">${icon('badge-alert', 14)}<span>Submitted as ${esc(catLabel(t.categoryChangedFrom))}, but Meta changed it to ${esc(catLabel(t.category))}. It's charged and treated as a ${esc((t.category || '').toLowerCase())} message. Think that's wrong? Request a review in WhatsApp Manager → Business Support Home.</span></div>` : ''}
+      <div class="li-meta">${esc(t.language)} · ${esc((t.category || '').toLowerCase())}${t.categoryChangedFrom ? `<span class="cat-flag" tabindex="0" aria-label="Category changed by Meta" data-tip="${esc(`Submitted as ${catLabel(t.categoryChangedFrom)}, but Meta changed it to ${catLabel(t.category)}. It's charged and treated as a ${(t.category || '').toLowerCase()} message. Think that's wrong? Request a review in WhatsApp Manager → Business Support Home.`)}">${icon('badge-alert', 13)}</span>` : ''} · ${t.source === 'synced' ? 'in Meta' : 'demo only'}</div>
       ${t.rejectedReason ? `<div class="tpl-reason">${icon('badge-alert', 14)}<span>Meta's reason: ${esc(t.rejectedReason.toLowerCase().replace(/_/g, ' '))}. Edit it and submit again.</span></div>` : ''}
       <div class="tpl-chat"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
       ${t.variables.length ? `<div class="var-chips">${[...new Set(t.variables.map((v) => (v.media ? v.media + ' URL' : `{{${v.name}}}`)))].map((label) => `<span class="var-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="var-chips"><span class="li-meta">No variables, same message for everyone</span></div>'}

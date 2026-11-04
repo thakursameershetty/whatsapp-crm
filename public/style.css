@@ -705,19 +705,20 @@ html:has(.modal:not(.hidden)) { overflow: hidden; }
 .btn.is-off { color: var(--faint); cursor: not-allowed; box-shadow: none; background: var(--sunk); }
 .btn.is-off:hover:not(:disabled) { transform: none; box-shadow: none; }
 .btn.is-off svg.la, .btn.is-off svg.la * { animation: none !important; }
-.btn[data-tip]::before, .btn[data-tip]::after {
+.btn[data-tip]::before, .btn[data-tip]::after, .cat-flag[data-tip]::before, .cat-flag[data-tip]::after {
   position: absolute; left: 14px; z-index: 20; pointer-events: none;
   opacity: 0; transform: translateY(4px); transition: opacity 0.16s, transform 0.16s var(--ease-out);
 }
-.btn[data-tip]::after {
+.btn[data-tip]::after, .cat-flag[data-tip]::after {
   content: attr(data-tip); left: 0; bottom: calc(100% + 9px);
   width: max-content; max-width: 230px; padding: 8px 11px; border-radius: 9px;
   background: #1c1f22; color: #fff; font: 500 12.5px/1.45 Inter, sans-serif; white-space: normal; text-align: left;
   box-shadow: 0 8px 24px rgba(16, 24, 32, 0.22);
 }
-.btn[data-tip]::before { content: ''; bottom: calc(100% + 4px); width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
+.btn[data-tip]::before, .cat-flag[data-tip]::before { content: ''; bottom: calc(100% + 4px); width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
 .btn[data-tip]:hover::before, .btn[data-tip]:hover::after, .btn[data-tip]:focus-visible::before, .btn[data-tip]:focus-visible::after,
-.btn[data-tip].tip-show::before, .btn[data-tip].tip-show::after { opacity: 1; transform: none; }
+.btn[data-tip].tip-show::before, .btn[data-tip].tip-show::after,
+.cat-flag[data-tip]:hover::before, .cat-flag[data-tip]:hover::after, .cat-flag[data-tip]:focus-visible::before, .cat-flag[data-tip]:focus-visible::after { opacity: 1; transform: none; }
 /* .tip-end: for buttons at the right edge (like Find in the number form), the tooltip lines up with the button's right side. */
 .btn[data-tip].tip-end::after { left: auto; right: 0; }
 .btn[data-tip].tip-end::before { left: auto; right: 14px; }
@@ -3877,7 +3878,8 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .te-actions { grid-column: 1 / -1; }
 .tpl-reason { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: var(--danger-soft); color: var(--danger); font-size: 12.5px; }
 .tpl-reason svg { flex: none; margin-top: 1px; }
-.tpl-reason.warn { background: var(--warn-soft); color: var(--warn); }
+.cat-flag { position: relative; display: inline-flex; vertical-align: -2px; margin-left: 4px; color: var(--warn); cursor: help; border-radius: 50%; outline: none; }
+.cat-flag:focus-visible { box-shadow: 0 0 0 2px var(--warn-soft); }
 @media (max-width: 860px) { .te { grid-template-columns: 1fr; } .te-preview { position: static; } .te-row { grid-template-columns: 1fr; } .te-btn { grid-template-columns: 1fr 28px; } .te-btn > * { grid-column: 1 !important; } .te-btn .te-btn-x { grid-column: 2 !important; } }
 .te-hint { font-size: 12px; color: var(--muted); }
 .te-empty { color: var(--muted); font-size: 13px; }
@@ -6216,3 +6218,6 @@ html.vt-day::view-transition-old(root), html.vt-day::view-transition-new(root) {
 #ctLayout .ct-card.fill-empty .ct-scroll > .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 /* A chart with nothing to show: no grid lines or axis numbers behind the note */
 .chart-is-empty svg.d3chart g.grid, .chart-is-empty svg.d3chart g.yticks, .chart-is-empty svg.d3chart g.xlabels { opacity: 0; transition: opacity 0.2s; }
+/* The category-changed flag sits mid-line: centre its tooltip arrow on the icon, and let the bubble run right. */
+.cat-flag[data-tip]::before { left: 2px; }
+.cat-flag[data-tip]::after { left: -10px; max-width: 260px; }
