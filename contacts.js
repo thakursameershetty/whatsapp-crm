@@ -58,6 +58,24 @@ module.exports = function mountContacts(app, ctx) {
 
   const isOptedOut = (phone) => Boolean(byPhone(phone)?.optOut);
 
+  // Numbers saved by older versions (which allowed 8–9 digits, without a country code) are cleaned again with
+  // today's rules. One that still isn't a valid number, or that now matches another contact, is kept as it is and
+  // marked with `phoneProblem` so it shows up in Contacts to fix; nothing is deleted or merged. Safe to run on every start.
+  function recheckPhones() {
+    let fixed = 0, flagged = 0;
+    for (const c of db.contacts || []) {
+      const p = normalizePhone(c.phone);
+      let problem = '';
+      if (!p) problem = 'This number is too short or too long for WhatsApp. Add the country code or correct it.';
+      else if (p !== c.phone && byPhone(p)) problem = `Another contact already has +${p}. Check which one is right.`;
+      else if (p !== c.phone) { c.phone = p; c.updatedAt = now(); fixed++; }
+      if (problem) { if (c.phoneProblem !== problem) { c.phoneProblem = problem; flagged++; } }
+      else if (c.phoneProblem) delete c.phoneProblem;
+    }
+    if (fixed || flagged) save();
+    return { fixed, flagged, problems: (db.contacts || []).filter((c) => c.phoneProblem).length };
+  }
+
   // Someone messaged one of our numbers: make sure they're in Contacts, and honour STOP at once.
   function onInbound(wa, { name, text, ts } = {}) {
     const phone = normalizePhone(wa) || wa;
@@ -134,6 +152,7 @@ module.exports = function mountContacts(app, ctx) {
       const phone = normalizePhone(req.body.phone);
       if (phone !== c.phone && byPhone(phone)) throw fail('Another contact already has that number');
       c.phone = phone;
+      delete c.phoneProblem;
     }
     // Here blank means "clear it": this is the edit form, not a merge.
     for (const k of ['name', 'email', 'company', 'notes']) if (k in req.body) c[k] = clean(req.body[k], k === 'notes' ? 4000 : 200);
@@ -222,5 +241,5 @@ module.exports = function mountContacts(app, ctx) {
     res.json({ ok: true });
   }));
 
-  return { byPhone, upsert, onInbound, applyLead, setLead, isOptedOut, listByTags, ensureTags, STATUSES, notify: (key) => broadcast({ kind: 'contact', key }) };
+  return { byPhone, upsert, onInbound, applyLead, setLead, isOptedOut, listByTags, ensureTags, recheckPhones, STATUSES, notify: (key) => broadcast({ kind: 'contact', key }) };
 };

@@ -113,7 +113,7 @@
       : '';
     return `<span class="ct-av ${cls}" style="--av:var(--file-${(h % 6) + 1})">${text}${ai}</span>`;
   }
-  const statusPill = (c) => (c.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS[c.status]?.cls || ''}">${esc(STATUS[c.status]?.label || c.status)}</span>`);
+  const statusPill = (c) => (c.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS[c.status]?.cls || ''}">${esc(STATUS[c.status]?.label || c.status)}</span>`) + (c.phoneProblem ? ` <span class="pill failed" title="${esc(c.phoneProblem)}">Fix number</span>` : '');
   const letterOf = (c) => { const ch = (c.name || '').trim()[0]?.toUpperCase() || '#'; return /[A-Z]/.test(ch) ? ch : '#'; };
   const STATS = [['', 'All', () => true], ...Object.entries(STATUS).map(([k, v]) => [k, v.label, (c) => !c.optOut && c.status === k]), ['optout', 'Opted out', (c) => c.optOut]];
 
@@ -477,7 +477,7 @@
     if (!c) return;
     const chatKey = CT.chats.get(c.phone);
     const lead = c.lead || {};
-    const details = [['Phone', fmtPhone(c.phone)], ['Email', c.email], ['Company', c.company], ['Last message', c.lastMessageAt && relTime(c.lastMessageAt)], ['Added', c.createdAt && `${new Date(c.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}${c.source ? ` · ${c.source === 'inbox' ? 'automatically, when they messaged you' : c.source === 'import' ? 'imported' : 'by you'}` : ''}`], ['Details', aiFilled(c) && `filled in by the AI assistant · ${relTime(c.lead.updatedAt)}`], ...Object.entries(c.extra || {})].filter(([, v]) => v);
+    const details = [['Phone', fmtPhone(c.phone) + (c.phoneProblem ? ` · ${c.phoneProblem}` : '')], ['Email', c.email], ['Company', c.company], ['Last message', c.lastMessageAt && relTime(c.lastMessageAt)], ['Added', c.createdAt && `${new Date(c.createdAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}${c.source ? ` · ${c.source === 'inbox' ? 'automatically, when they messaged you' : c.source === 'import' ? 'imported' : 'by you'}` : ''}`], ['Details', aiFilled(c) && `filled in by the AI assistant · ${relTime(c.lead.updatedAt)}`], ...Object.entries(c.extra || {})].filter(([, v]) => v);
     panel.innerHTML = `
       <button type="button" class="ct-pclose" id="ctPClose" title="Close" aria-label="Close">${icon('x', 16)}</button>
       <div class="ct-phead">

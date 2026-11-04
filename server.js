@@ -2641,6 +2641,11 @@ app.post('/api/admin/workspaces/:id/credits', wrap((req, res) => {
   res.json(tenants.forWorkspace(ws, () => { credits.addPack({ ...req.body, by: req.user.email }); return credits.summary(); }));
 }));
 const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast });
+// Clean numbers saved by older versions with today's rules; ones that still aren't valid are flagged in Contacts.
+for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
+  const r = contactsApi.recheckPhones();
+  if (r.fixed || r.flagged) console.log(`Contacts in ${ws.meta.name}: ${r.fixed} number(s) cleaned, ${r.flagged} newly flagged (${r.problems} need fixing).`);
+});
 const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts) });
 
 // --- AI assistant -------------------------------------------------------------
