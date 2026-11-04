@@ -90,9 +90,12 @@ module.exports = function mountContacts(app, ctx) {
   }
 
   // What the lead assistant learned about this person.
-  function applyLead(phone, lead = {}) {
+  function applyLead(phone, lead = {}, { stage = true } = {}) {
     const { contact } = upsert(phone, { name: lead.name, email: lead.email, company: lead.company }, { source: 'inbox' });
     const status = { not_interested: 'lost' }[lead.status] || lead.status;
+    // The assistant's own view of the stage, kept even when a person has set it, so "Let the AI decide" can go back to it.
+    if (STATUSES.includes(status) && status !== 'won') contact.aiStatus = status;
+    if (!stage) { contact.updatedAt = now(); return contact; }
     // A human's "won" stands; the assistant can move a lead along but not undo that. And once a person has set the
     // stage (any stage, from the Inbox or Contacts), it stands: the assistant keeps its notes up to date but can't
     // move it until "Let the AI decide" hands it back.
@@ -111,7 +114,11 @@ module.exports = function mountContacts(app, ctx) {
   // change, or null to let the assistant decide again. A deal marked won stays won.
   function setLead(phone, qualified, by = '') {
     const { contact } = upsert(phone, {}, { source: 'inbox' });
-    if (qualified === null) delete contact.leadLock;
+    if (qualified === null) {
+      // Back to the assistant: its last view of the stage, if it has one (a deal marked won stays won).
+      delete contact.leadLock;
+      if (contact.aiStatus && contact.status !== 'won') contact.status = contact.aiStatus;
+    }
     else {
       if (qualified && contact.status !== 'won') contact.status = 'qualified';
       if (!qualified && contact.status === 'qualified') contact.status = 'interested';

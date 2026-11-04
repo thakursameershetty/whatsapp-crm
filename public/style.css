@@ -6261,3 +6261,23 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
 .stg-opt.on { background: color-mix(in srgb, var(--danger) 7%, var(--surface)); }
 .stg-opt.on .stg-opt-ic { background: var(--danger-soft); color: var(--danger); }
 .stg-opt.on .stg-opt-t b { color: var(--danger); }
+/* (The header's title is plain text, so the chip is its only element: push it right itself.) Buttons keep to one line. */
+.ibi-card-h .stg-src { margin-left: auto; }
+.stg-lost, .stg-ai { flex: none; width: auto; white-space: nowrap; }
+.stg-opt-t small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Campaigns → a calendar day as its own page (#campaignDay): the campaign page's header, then the day hour by hour. */
+.cdp-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cdp-nav { display: flex; align-items: center; gap: 4px; padding: 3px; border-radius: 12px; background: var(--sunk); }
+.cdp-nav .btn[disabled] { opacity: 0.45; }
+.cdp-card { padding: 10px 20px 16px; }
+.cdp-card .cd-day-tl { max-height: none; overflow: visible; margin: 0; padding: 0; }
+.cdp-card .cd-hour { grid-template-columns: 72px minmax(0, 1fr); gap: 16px; min-height: 44px; }
+.cdp-card .cd-hour-l { padding-top: 12px; }
+.cdp-card .cd-hour-items { padding: 8px 0; gap: 8px; }
+.cdp-card .cd-ev { padding: 12px 16px; }
+.cdp-card .cd-day-empty { padding: 56px 16px 48px; }
+@media (max-width: 700px) {
+  .cdp-card { padding: 6px 12px 12px; }
+  .cdp-card .cd-hour { grid-template-columns: 48px minmax(0, 1fr); gap: 10px; }
+  .cdp-card .cd-ev-side { max-width: 40%; }
+}

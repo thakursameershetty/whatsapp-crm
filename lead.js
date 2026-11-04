@@ -417,12 +417,13 @@ Draft the next reply to the customer's latest message(s).`;
     if (!LEAD_KEYS.some((k) => String(lead[k] ?? '').trim())) throw fail('The AI didn’t return a summary. Try again.');
     const ch = (db.chats[key] ||= {});
     ch.lead = { ...Object.fromEntries(LEAD_KEYS.filter((k) => String(lead[k] ?? '').trim()).map((k) => [k, String(lead[k]).trim().slice(0, 600)])), updatedAt: new Date().toISOString() };
-    const { status, ...notesOnly } = lead; // notes only: the stage isn't changed by a summary
-    contacts.applyLead(contact?.phone || wa, notesOnly);
+    // A summary leaves the stage alone, but notes the AI's view of it. With { stage: true } ("Let the AI decide" when
+    // the AI hadn't judged it yet) it sets the stage too, unless a person has set it since.
+    contacts.applyLead(contact?.phone || wa, lead, { stage: req.body?.stage === true });
     if (cfg.platform) credits?.charge(credits.AI_RATE, credits.keys.assistant());
     save();
     broadcast({ kind: 'draft', key });
-    res.json({ lead: chatLead(key, contacts.byPhone(wa)) });
+    res.json({ lead: chatLead(key, contacts.byPhone(wa)), contact: contacts.byPhone(wa) });
   }));
 
   // A person picks the playbook for this chat (or hands the choice back: id null).

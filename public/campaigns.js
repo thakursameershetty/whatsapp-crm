@@ -106,8 +106,8 @@
   async function load() {
     if (!(await fetchList())) return;
     if (CP.detail) return open(CP.detail);
-    renderList();
-    prefetchOther();
+    if (CP.day) renderDay();
+    else { renderList(); prefetchOther(); }
     stop();
     if (CP.res.live || CP.res.scheduled) pollTimer = setTimeout(() => load().catch(() => {}), CP.res.live ? 2000 : 15000);
   }
@@ -298,21 +298,19 @@
     // "+N more", or anywhere on a day that isn't a campaign: that day, hour by hour
     const more = e.target.closest('#campaignList [data-calday]');
     const cell = more ? more.closest('.cp-cal-day') : !e.target.closest('[data-open]') && e.target.closest('#campaignList .cp-cal-day[data-day]');
-    if (cell) openDay(cell.dataset.day, cell);
+    if (cell) openDay(cell.dataset.day);
   });
 
   // ── A day of the calendar: every campaign that day by the hour (sent, sending or scheduled), morphing out of its
   // cell. ‹ › go to the days around it; an empty day offers to schedule one.
   const dayKeyOf = (c) => DateFilter.keyOf(new Date(dayOf(c)));
   const fromKey = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
-  function dayHtml(k) {
-    const cs = (CP.res?.items || []).filter((c) => dayKeyOf(c) === k).sort((a, b) => String(dayOf(a)).localeCompare(String(dayOf(b))));
-    const d = fromKey(k), today = DateFilter.keyOf(new Date()), past = k < today;
-    const title = d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
-    const nav = `<div class="cd-day-nav"><button type="button" class="dt-nav" data-dayn="-1" aria-label="Previous day">‹</button><button type="button" class="dt-nav" data-dayn="1" aria-label="Next day">›</button></div>`;
-    const headTxt = `<div class="cd-day-head"><div><b>${esc(title)}</b><small>${k === today ? 'Today · ' : ''}${cs.length ? `${cs.length} campaign${cs.length === 1 ? '' : 's'}` : 'No campaigns'}</small></div>${nav}</div>`;
+  const dayCampaigns = (k) => (CP.res?.items || []).filter((c) => dayKeyOf(c) === k).sort((a, b) => String(dayOf(a)).localeCompare(String(dayOf(b))));
+  const dayTitle = (k) => { const d = fromKey(k); return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }); };
+  function dayBody(k, cs) {
+    const today = DateFilter.keyOf(new Date()), past = k < today;
     if (!cs.length) {
-      return headTxt + `<div class="cd-day-empty">
+      return `<div class="cd-day-empty">
         <span class="cd-day-art" aria-hidden="true"><svg viewBox="0 0 96 96"><rect class="a1" x="14" y="20" width="68" height="62" rx="14"/><rect class="a2" x="14" y="20" width="68" height="18" rx="9"/><path class="a3" d="M32 12v14M64 12v14"/><circle class="a4" cx="48" cy="60" r="12"/><path class="a5" d="M48 54v6l4 3"/></svg></span>
         <b>${past ? 'Nothing was sent this day' : 'Nothing scheduled yet'}</b>
         <p>${past ? 'No campaigns went out on this day.' : 'Pick contacts and a template, and it goes out at the time you choose.'}</p>
@@ -333,60 +331,90 @@
         return `<button type="button" class="cd-ev ${c.status}${c.test ? ' is-test' : ''}" data-day-open="${c.id}" style="--c:${colorOf(c)}">${miniFolder(c)}<span class="cd-ev-main"><b>${esc(displayName(c))}</b><small>${esc(c.templateName || '')} · ${c.total.toLocaleString()} recipient${c.total === 1 ? '' : 's'}</small></span><span class="cd-ev-side"><time>${esc(new Date(dayOf(c)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))}</time><small>${c.test ? 'Test · ' : ''}${esc(note)}</small></span></button>`;
       }).join('')}</div></div>`;
     }
-    return headTxt + `<div class="cd-day-tl">${rows}</div>${past ? '' : `<div class="cd-day-foot"><button type="button" class="btn" data-day-schedule="${k}">${icon('plus', 15)}Schedule another</button></div>`}`;
+    return `<div class="cd-day-tl">${rows}</div>`;
   }
-  // the morph: the cell and the window share a view-transition name for the change
-  const vtSwap = (fromEl, swap, getTo) => {
-    if (!document.startViewTransition || Motion.reduce() || !fromEl) return swap();
-    fromEl.style.viewTransitionName = 'cp-day';
-    document.documentElement.classList.add('vt-day');
-    const vt = document.startViewTransition(() => { fromEl.style.viewTransitionName = ''; swap(); const to = getTo(); if (to) to.style.viewTransitionName = 'cp-day'; });
-    vt.finished.finally(() => { document.documentElement.classList.remove('vt-day'); const to = getTo(); if (to) to.style.viewTransitionName = ''; });
-  };
-  function openDay(k, cell) {
-    let day = k;
-    const box = () => $('#modal .modal-box');
-    const draw = () => {
-      const body = $('#modalBody');
-      body.innerHTML = dayHtml(day);
-      LA.hydrate(body);
-      const d = fromKey(day);
-      $('#modalTitle').textContent = d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
-    };
-    // closing morphs back into the day's cell (when it's on screen)
-    const back = () => {
-      const target = $(`#campaignList .cp-cal-day[data-day="${day}"]`);
-      const m = $('#modal');
-      if (!document.startViewTransition || Motion.reduce() || !target) return hideOverlay(m);
-      box().style.viewTransitionName = 'cp-day';
-      document.documentElement.classList.add('vt-day');
-      const vt = document.startViewTransition(() => { box().style.viewTransitionName = ''; m.classList.add('hidden'); target.style.viewTransitionName = 'cp-day'; });
-      vt.finished.finally(() => { document.documentElement.classList.remove('vt-day'); target.style.viewTransitionName = ''; });
-    };
-    vtSwap(cell, () => {
-      openModal('Day', '');
-      box().classList.add('cd-day-box');
-      draw();
-      setModalBack(back);
-    }, box);
-    $('#modalBody').onclick = (e) => {
-      const n = e.target.closest('[data-dayn]');
-      if (n) {
-        const d = fromKey(day); d.setDate(d.getDate() + Number(n.dataset.dayn));
-        const next = DateFilter.keyOf(d), sameMonth = next.slice(0, 7) === day.slice(0, 7);
-        day = next;
-        if (sameMonth) return draw();
-        // another month: its campaigns first (the calendar behind follows)
-        CP.calMonth = new Date(d.getFullYear(), d.getMonth(), 1);
-        return load().then(draw).catch((err) => toast(err.message, 'error'));
-      }
-      const ev = e.target.closest('[data-day-open]');
-      if (ev) { setModalBack(null); hideOverlay($('#modal')); return open(ev.dataset.dayOpen); }
-      const sch = e.target.closest('[data-day-schedule]');
-      if (sch) { setModalBack(null); hideOverlay($('#modal')); return window.scheduleOn?.(sch.dataset.daySchedule); }
-      if (e.target.closest('[data-day-new]')) { setModalBack(null); hideOverlay($('#modal')); showTab('send'); }
-    };
+
+  // ── A day as its own page (/campaigns?day=2026-11-04): every campaign that day by the hour. Back (the page's or
+  // the browser's) returns to the calendar where it was; ‹ › and Today move between days without adding history.
+  const dayUrl = (k) => `/campaigns?day=${encodeURIComponent(k)}`;
+  const monthOfKey = (k) => { const d = fromKey(k); return new Date(d.getFullYear(), d.getMonth(), 1); };
+  const sameMonth = (a, b) => a && b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+  function openDay(k, { push = true } = {}) {
+    if (!CP.day && !$('#campaignList').classList.contains('hidden')) CP.calScroll = scrollY;
+    if (push && state.tab === 'campaigns' && !history.state?.day) { history.pushState({ tab: 'campaigns', day: k }, '', dayUrl(k)); CP.dayPushed = true; }
+    gotoDay(k);
   }
+  // show day k (its month's campaigns first, if the calendar was on another month)
+  function gotoDay(k) {
+    const fresh = CP.day !== k;
+    CP.day = k;
+    CP.view = 'calendar';
+    if (fresh) scrollTo(0, 0);
+    if (!sameMonth(CP.calMonth, monthOfKey(k)) || !CP.res) { CP.calMonth = monthOfKey(k); return load().catch((err) => toast(err.message, 'error')); }
+    renderDay();
+  }
+  function renderDay() {
+    const k = CP.day, el = $('#campaignDay');
+    if (!k || !el) return;
+    const cs = dayCampaigns(k), today = DateFilter.keyOf(new Date()), past = k < today;
+    $('#campaignList').classList.add('hidden');
+    const fresh = el.classList.contains('hidden') || el.dataset.day !== k;
+    el.classList.remove('hidden');
+    el.dataset.day = k;
+    const nLive = cs.filter(live).length, sch = cs.filter((c) => c.status === 'scheduled').length;
+    const sub = [k === today ? 'Today' : '', cs.length ? `${cs.length} campaign${cs.length === 1 ? '' : 's'}` : 'No campaigns', sch ? `${sch} scheduled` : '', nLive ? `${nLive} sending` : ''].filter(Boolean).join(' · ');
+    el.innerHTML = `
+      <div class="cd-head cdp-head">
+        <div class="cd-title">
+          <div class="cd-name"><button type="button" class="icon-btn cd-back" data-dayp="back" title="Back to the calendar" aria-label="Back to the calendar">${icon('arrow-left', 22)}</button><div><h1>${esc(dayTitle(k))}</h1><p class="sub">${esc(sub)}</p></div></div>
+          <div class="cd-actions cdp-tools">
+            <div class="cdp-nav"><button type="button" class="dt-nav" data-dayn="-1" aria-label="Previous day" title="Previous day">‹</button><button type="button" class="btn sm quiet" data-dayn="0" ${k === today ? 'disabled' : ''}>Today</button><button type="button" class="dt-nav" data-dayn="1" aria-label="Next day" title="Next day">›</button></div>
+            ${past ? '' : `<button type="button" class="btn primary" data-day-schedule="${k}">${icon(cs.length ? 'plus' : 'clock', 15)}${cs.length ? 'Schedule another' : 'Schedule a campaign'}</button>`}
+          </div>
+        </div>
+      </div>
+      <div class="card cdp-card">${dayBody(k, cs)}</div>`;
+    LA.hydrate(el);
+    if (fresh) Motion.enter(el);
+  }
+  function dayBack() {
+    if (CP.dayPushed && history.state?.day) { history.back(); return; }
+    closeDay();
+  }
+  function closeDay() {
+    const k = CP.day, y = CP.calScroll;
+    CP.day = null;
+    CP.dayPushed = false;
+    $('#campaignDay').classList.add('hidden');
+    load().then(() => {
+      requestAnimationFrame(() => {
+        if (y != null) scrollTo({ top: y, behavior: 'instant' });
+        const cell = $(`#campaignList .cp-cal-day[data-day="${k}"]`);
+        if (cell) { cell.classList.remove('cp-back-hl'); void cell.offsetWidth; cell.classList.add('cp-back-hl'); }
+      });
+    }).catch((e) => toast(e.message, 'error'));
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#campaignDay')) return;
+    if (e.target.closest('[data-dayp="back"]')) return dayBack();
+    const n = e.target.closest('[data-dayn]');
+    if (n && CP.day) {
+      const d = fromKey(CP.day);
+      if (Number(n.dataset.dayn)) d.setDate(d.getDate() + Number(n.dataset.dayn));
+      const next = Number(n.dataset.dayn) ? DateFilter.keyOf(d) : DateFilter.keyOf(new Date());
+      if (CP.dayPushed && history.state?.day) history.replaceState({ tab: 'campaigns', day: next }, '', dayUrl(next));
+      return gotoDay(next);
+    }
+    const ev = e.target.closest('[data-day-open]');
+    if (ev) return open(ev.dataset.dayOpen);
+    const sch = e.target.closest('[data-day-schedule]');
+    if (sch) return window.scheduleOn?.(sch.dataset.daySchedule);
+    if (e.target.closest('[data-day-new]')) showTab('send');
+  });
+  addEventListener('keydown', (e) => {
+    if (!CP.day || CP.detail || state.tab !== 'campaigns' || e.target.closest('input, textarea, select, [contenteditable]') || $('#modal:not(.hidden)')) return;
+    if (e.key === 'Escape') dayBack();
+  });
 
   // Folders ↔ rows: each campaign keeps a view-transition name in both views, so the browser
   // morphs every folder into its row and back. Without support (or with reduced motion) it just swaps.
@@ -584,7 +612,8 @@
   // Back (the page's or the browser's) returns to the same spot in the list, with that campaign briefly highlighted.
   async function open(cid) {
     stop();
-    if (!CP.detail && !$('#campaignList').classList.contains('hidden')) {
+    const fromDay = CP.day && !$('#campaignDay').classList.contains('hidden');
+    if (!CP.detail && (fromDay || !$('#campaignList').classList.contains('hidden'))) {
       CP.listScroll = scrollY;
       CP.lastOpened = cid;
       if (state.tab === 'campaigns' && !history.state?.cid) { history.pushState({ tab: 'campaigns', cid }, '', `/campaigns?c=${encodeURIComponent(cid)}`); CP.pushed = true; }
@@ -603,6 +632,7 @@
     const el = $('#campaignDetail');
     const fresh = el.dataset.cid !== cid || el.classList.contains('hidden');
     $('#campaignList').classList.add('hidden');
+    $('#campaignDay').classList.add('hidden');
     el.classList.remove('hidden');
     if (fresh) {
       scrollTo(0, 0);
@@ -652,16 +682,20 @@
       if (y == null) return;
       requestAnimationFrame(() => {
         scrollTo({ top: y, behavior: 'instant' });
-        const card = $(`#campaignList [data-open="${CSS.escape(cid || '')}"]`);
+        const card = $(`#${CP.day ? 'campaignDay' : 'campaignList'} [data-${CP.day ? 'day-' : ''}open="${CSS.escape(cid || '')}"]`);
         if (card) { card.classList.remove('cp-back-hl'); void card.offsetWidth; card.classList.add('cp-back-hl'); }
       });
     }).catch((e) => toast(e.message, 'error'));
   }
   addEventListener('popstate', () => {
     if (state.tab !== 'campaigns') return;
-    const cid = history.state?.cid || new URLSearchParams(location.search).get('c');
-    if (!cid && CP.detail) closeDetail();
+    const q = new URLSearchParams(location.search);
+    const cid = history.state?.cid || q.get('c');
+    const day = history.state?.day || q.get('day');
+    if (!cid && CP.detail) { if (day && day !== CP.day) CP.day = day; closeDetail(); }
     else if (cid && CP.detail !== cid) open(cid);
+    else if (!cid && !day && CP.day) closeDay();
+    else if (!cid && day && CP.day !== day) gotoDay(day);
   });
 
   function renderHead(c) {
@@ -1226,7 +1260,10 @@
   window.loadCampaigns = () => {
     const fromUrl = new URLSearchParams(location.search).get('c');
     if (fromUrl && !CP.detail && location.pathname === '/campaigns') CP.detail = fromUrl;
+    const dayFromUrl = new URLSearchParams(location.search).get('day');
+    if (!fromUrl && /^\d{4}-\d{2}-\d{2}$/.test(dayFromUrl || '') && !CP.day && location.pathname === '/campaigns') { CP.day = dayFromUrl; CP.view = 'calendar'; CP.calMonth = monthOfKey(dayFromUrl); }
     if (!CP.detail) $('#campaignDetail').classList.add('hidden');
+    if (!CP.day) $('#campaignDay').classList.add('hidden');
     return load().catch((e) => toast(e.message, 'error'));
   };
   window.openCampaign = (cid) => open(cid);

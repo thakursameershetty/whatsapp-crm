@@ -767,10 +767,10 @@
     return `<div class="stg${lost ? ' is-lost' : ''}${ct.optOut ? ' is-out' : ''}">
       <div class="stg-track" role="radiogroup" aria-label="Stage">${steps}</div>
       <div class="stg-foot">
-        <button type="button" role="radio" aria-checked="${lost}" class="stg-lost${lost ? ' on' : ''}" data-info-status="lost" title="${lost ? 'Click a step above to bring them back' : 'They’re not interested'}">${icon('x', 13)}${lost ? 'Not interested' : 'Mark not interested'}</button>
-        ${lock ? `<button type="button" class="stg-ai" data-info-ai title="Hand the stage back to the AI">${icon('refresh-cw', 12)}Let the AI decide</button>` : ''}
+        <button type="button" role="radio" aria-checked="${lost}" class="stg-lost${lost ? ' on' : ''}" data-info-status="lost" title="${lost ? 'Click a step above to bring them back' : 'They’re not interested'}">${icon('x', 13)}Not interested</button>
+        ${lock ? `<button type="button" class="stg-ai" data-info-ai title="Hand the stage back to the AI">${icon('refresh-cw', 12)}Let AI decide</button>` : ''}
       </div>
-      <label class="stg-opt${ct.optOut ? ' on' : ''}"><span class="stg-opt-ic">${icon(ct.optOut ? 'badge-alert' : 'bell', 15)}</span><span class="stg-opt-t"><b>${ct.optOut ? 'Opted out' : 'Can be messaged'}</b><small>${ct.optOut ? 'They won’t get campaigns, templates or AI replies' : 'Switch on if they asked you to stop'}</small></span>${toggleHtml({ checked: ct.optOut, attrs: 'data-info-optout aria-label="Opted out"', size: 'sm' })}</label>
+      <label class="stg-opt${ct.optOut ? ' on' : ''}"><span class="stg-opt-ic">${icon(ct.optOut ? 'badge-alert' : 'bell', 15)}</span><span class="stg-opt-t"><b>${ct.optOut ? 'Opted out' : 'Can be messaged'}</b><small>${ct.optOut ? 'No campaigns or replies' : 'Turn on if they asked to stop'}</small></span>${toggleHtml({ checked: ct.optOut, attrs: 'data-info-optout aria-label="Opted out"', size: 'sm' })}</label>
     </div>`;
   }
   // Save one change to the contact. It shows at once (header pill, phone sheet and this panel) and is put back if the
@@ -803,16 +803,28 @@
   async function letAiDecide() {
     const ct = ib.thread?.contact, key = ib.key;
     if (!ct?.leadLock) return;
-    const before = ct.leadLock;
+    const before = { leadLock: ct.leadLock, status: ct.status };
     delete ct.leadLock;
+    if (ct.aiStatus && ct.status !== 'won') ct.status = ct.aiStatus; // the AI's last view of it, straight away
     redrawContact();
+    let r;
     try {
-      const r = await api(`/inbox/${enc(key)}/lead`, { method: 'POST', body: { qualified: null } });
-      if (ib.key === key && ib.thread?.contact) { ib.thread.contact = r.contact; redrawContact(); }
-      toast('The AI decides the stage again');
+      r = await api(`/inbox/${enc(key)}/lead`, { method: 'POST', body: { qualified: null } });
     } catch (err) {
-      if (ib.key === key && ib.thread?.contact) { ib.thread.contact.leadLock = before; redrawContact(); }
-      toast(err.message, 'error');
+      if (ib.key === key && ib.thread?.contact) { Object.assign(ib.thread.contact, before); redrawContact(); }
+      return toast(err.message, 'error');
+    }
+    if (ib.key === key && ib.thread?.contact) { ib.thread.contact = r.contact; redrawContact(); }
+    if (r.contact?.aiStatus) return toast(`The AI decides the stage again: ${STATUS_LABEL[r.contact.status] || r.contact.status}`);
+    // The AI hasn't judged this chat yet: have it read the chat now and set the stage.
+    if (!ib.thread?.messages?.some((m) => m.dir === 'in')) return toast('The AI decides the stage again once they write');
+    toast('The AI is reading the chat to set the stage…');
+    try {
+      const s = await api(`/inbox/${enc(key)}/summarize`, { method: 'POST', body: { stage: true } });
+      if (ib.key === key && ib.thread?.contact && s.contact) { Object.assign(ib.thread.contact, s.contact); if (s.lead) ib.thread.chatLead = s.lead; redrawContact(); }
+      toast(`The AI set the stage: ${STATUS_LABEL[s.contact?.status] || 'done'}`);
+    } catch (err) {
+      toast(`The AI decides the stage again on their next message (${err.message})`, 'error'); // the hand-back itself worked
     }
   }
   function addContact() {
