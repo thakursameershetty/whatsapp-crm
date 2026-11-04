@@ -1113,7 +1113,7 @@
     el.addEventListener('click', (ev) => { const a = ev.target.closest('[data-ecopen]'); if (a) { ev.preventDefault(); closeErrPop(); window.MetaErrors?.open(a.dataset.ecopen); } });
     errPop = { el, code: codeEl };
   }
-  const codeAt = (t) => t.closest?.('#cdFail [data-ecode]');
+  const codeAt = (t) => t.closest?.('[data-ecode]'); // anywhere an error code chip is shown (campaign details, Contacts)
   document.addEventListener('mouseover', (ev) => { const c = codeAt(ev.target); if (c) { clearTimeout(errHide); showErrPop(c); } });
   document.addEventListener('mouseout', (ev) => { if (codeAt(ev.target) && errPop) errHide = setTimeout(closeErrPop, 200); });
   document.addEventListener('focusin', (ev) => { const c = codeAt(ev.target); if (c) showErrPop(c); });

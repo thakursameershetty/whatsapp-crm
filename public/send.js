@@ -703,8 +703,11 @@
   // this one's place (so this one doesn't close under it).
   // multi: pick several (selectedIds; onUse gets the list); only(t): which templates are offered at all; stacked: open
   // over the current popup instead of replacing it (the playbook editor).
-  function templatePicker({ selected = '', block = tplSendBlock, nums = state.senders.filter((x) => x.enabled), firstWaba = '', title = 'Choose a template', useText = 'Use this template', onUse, multi = false, selectedIds = [], only = () => true, stacked = false }) {
+  // extra(t): more lines on a card (e.g. how it was delivered); valuesOf(t): the values its preview shows; statusFilter:
+  // false hides the status filter and shows every template (the unavailable ones greyed, with why).
+  function templatePicker({ selected = '', block = tplSendBlock, nums = state.senders.filter((x) => x.enabled), firstWaba = '', title = 'Choose a template', useText = 'Use this template', onUse, multi = false, selectedIds = [], only = () => true, stacked = false, extra = null, valuesOf = null, statusFilter = true }) {
     let pick = selected;
+    let openW = null; // which numbers' sections are open (set on the first draw)
     const picks = new Set(selectedIds);
     const isOn = (id) => (multi ? picks.has(id) : id === pick);
     const html = `
@@ -723,18 +726,19 @@
     const close = layer ? layer.close : closeModal;
     LA.hydrate(body);
     $('#tpQ', body).value = TP.q;
+    if (!statusFilter) $('#tpStatus', body).remove();
     const shown = () => {
       const q = TP.q.trim().toLowerCase();
       const n = nums.length > 1 && state.senders.find((x) => x.id === TP.num); // (no number filter shown: none applies)
       return state.templates.filter((t) => only(t) && (!TP.cat || catLabel(t.category) === TP.cat)
-        && (TP.status === 'ready' ? !block(t) : !TP.status || String(t.status).toUpperCase() === TP.status)
+        && (!statusFilter || (TP.status === 'ready' ? !block(t) : !TP.status || String(t.status).toUpperCase() === TP.status))
         && (!n || templateSenders(t, [n]).length)
         && (!q || [t.name, t.language, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase().includes(q))).sort(TP_SORTS[TP.sort][1]);
     };
     const draw = () => {
       const cats = [...new Set(state.templates.filter(only).map((t) => catLabel(t.category)))].sort();
       $('#tpCat', body).innerHTML = `<option value="">All categories</option>${cats.map((c) => `<option ${c === TP.cat ? 'selected' : ''}>${esc(c)}</option>`).join('')}`;
-      $('#tpStatus', body).value = TP.status;
+      if ($('#tpStatus', body)) $('#tpStatus', body).value = TP.status;
       if ($('#tpNum', body)) $('#tpNum', body).value = TP.num;
       $('#tpSort', body).innerHTML = `${icon('arrow-up-down', 14)}<span>${TP_SORTS[TP.sort][0]}</span>${icon('chevron-down', 14)}`;
       const list = shown();
@@ -745,7 +749,8 @@
         return `<div class="tp-card ${isOn(t.id) ? 'on' : ''} ${why ? 'off' : ''} ${multi ? 'multi' : ''}" data-id="${t.id}" role="option" aria-selected="${isOn(t.id)}" tabindex="${why ? -1 : 0}" ${why ? `title="${esc(why)}"` : ''}>
           <div class="tp-card-head">${multi ? `<span class="np-check">${TICK_SVG}</span>` : ''}<b title="${esc(t.name)}">${esc(t.name)}</b><span class="pill ${esc(st)}">${esc(TPL_STATUS[st] || t.status || '')}</span></div>
           <div class="tp-card-meta">${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())} · ${t.variables.length ? `${t.variables.length} variable${t.variables.length > 1 ? 's' : ''}` : 'no variables'}</div>
-          <div class="tpl-chat tp-prev"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>
+          ${extra ? extra(t) : ''}
+          <div class="tpl-chat tp-prev"><div class="bubble">${bubbleHtml(t, valuesOf ? valuesOf(t) || {} : {}, true)}</div></div>
           ${why ? `<div class="tp-why">${icon('badge-alert', 13)}<span>${esc(why)}</span></div>` : ''}
         </div>`;
       };
@@ -755,12 +760,17 @@
       const sections = accounts.length > 1
         ? [...accounts.map((w) => ({ w, ts: list.filter((t) => t.wabaId === w) })), { w: '', ts: list.filter((t) => !accounts.includes(t.wabaId)) }].filter((x) => x.ts.length)
         : [{ w: null, ts: list }];
-      const head = ({ w, ts }) => {
-        if (w === null) return '';
-        const ss = state.senders.filter((x) => w && x.wabaId === w);
-        return `<div class="tp-sec">${ss.length ? `<span class="tp-sec-faces">${ss.slice(0, 3).map((x) => senderPhotoHtml(x)).join('')}</span>` : `<span class="tp-sec-ic">${icon('file-text', 15)}</span>`}<div><b>${w ? esc(ss.map((x) => x.label).join(', ')) : 'Other templates'}</b><small>${w ? esc(ss.map((x) => x.displayPhone).filter(Boolean).join(', ')) : 'Not tied to one of your numbers'}</small></div><span class="tp-sec-n">${ts.length} template${ts.length === 1 ? '' : 's'}</span></div>`;
-      };
-      $('#tpGrid', body).innerHTML = list.length ? sections.map((sec) => `<section class="tp-group">${head(sec)}<div class="tp-cards">${sec.ts.map(card).join('')}</div></section>`).join('') : `<div class="tp-none">${emptyState({ icon: 'search', title: 'No templates match', text: 'Try another word or filter.', actions: '<button class="btn" data-tp-clear>Clear filters</button>' })}</div>`;
+      // Each number as on the Templates page: its profile header (photo, name, number, quality, how many templates, arrow),
+      // collapsible. The number you're sending from (or the first) starts open; a search or filter opens every number
+      // with a match. (tplGroupHead is the Templates page's own header, from app.js.)
+      const filtering = Boolean(TP.q.trim() || TP.cat || TP.num || (TP.status && TP.status !== 'ready'));
+      if (!openW) openW = new Set([sections[0]?.w ?? '']);
+      $('#tpGrid', body).innerHTML = list.length ? sections.map((sec) => {
+        if (sec.w === null) return `<section class="tp-group"><div class="tp-cards">${sec.ts.map(card).join('')}</div></section>`;
+        const open = filtering || openW.has(sec.w);
+        const head = tplGroupHead(sec.w, sec.ts, null, false).replace(/aria-expanded="[^"]*"/, `aria-expanded="${open}"`);
+        return `<section class="tp-group tpl-group tp-num-sec ${open ? 'open' : ''}" data-w="${esc(sec.w)}">${head}<div class="tp-cards"${open ? '' : ' hidden'}>${sec.ts.map(card).join('')}</div></section>`;
+      }).join('') : `<div class="tp-none">${emptyState({ icon: 'search', title: 'No templates match', text: 'Try another word or filter.', actions: '<button class="btn" data-tp-clear>Clear filters</button>' })}</div>`;
       LA.hydrate($('#tpGrid', body));
       $('#tpUse', body).disabled = multi ? false : !pick || Boolean(block(state.templates.find((t) => t.id === pick) || {}));
     };
@@ -778,17 +788,33 @@
     };
     $('#tpQ', body).oninput = (e) => { TP.q = e.target.value; draw(); };
     $('#tpCat', body).onchange = (e) => { TP.cat = e.target.value; draw(); };
-    $('#tpStatus', body).onchange = (e) => { TP.status = e.target.value; draw(); };
+    if ($('#tpStatus', body)) $('#tpStatus', body).onchange = (e) => { TP.status = e.target.value; draw(); };
     if ($('#tpNum', body)) $('#tpNum', body).onchange = (e) => { TP.num = e.target.value; draw(); };
     $('#tpSort', body).onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); Sheet.Menu.open(r.left, r.bottom + 6, Object.entries(TP_SORTS).map(([k, [label]]) => ({ label, checked: k === TP.sort, action: () => { TP.sort = k; draw(); } }))); };
     $('#tpGrid', body).addEventListener('click', (e) => {
+      const hd = e.target.closest('.tp-num-sec > .tpl-num-h');
+      if (hd) {
+        const sec = hd.parentElement, cards = sec.querySelector('.tp-cards'), open = !sec.classList.contains('open');
+        open ? openW.add(sec.dataset.w) : openW.delete(sec.dataset.w);
+        sec.classList.toggle('open', open);
+        hd.setAttribute('aria-expanded', open);
+        sec.__anim?.cancel();
+        if (open) cards.hidden = false;
+        if (Motion.reduce()) { cards.hidden = !open; return; }
+        const h = cards.scrollHeight;
+        cards.style.overflow = 'hidden';
+        sec.__anim = cards.animate(open ? [{ height: '0px', opacity: 0 }, { height: h + 'px', opacity: 1 }] : [{ height: h + 'px', opacity: 1 }, { height: '0px', opacity: 0 }], { duration: Math.min(380, 200 + h / 10), easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+        sec.__anim.onfinish = () => { cards.style.overflow = ''; if (!open) cards.hidden = true; sec.__anim = null; };
+        return;
+      }
       if (e.target.closest('[data-tp-clear]')) { Object.assign(TP, { q: '', cat: '', status: 'ready', num: '' }); $('#tpQ', body).value = ''; return draw(); }
       const c = e.target.closest('.tp-card');
-      if (!c || c.classList.contains('off')) return;
+      if (c?.classList.contains('off')) return c.title && toast(c.title, 'error'); // greyed: say why
+      if (!c) return;
       choose(c);
     });
     $('#tpGrid', body).addEventListener('dblclick', (e) => { const c = e.target.closest('.tp-card:not(.off)'); if (c && !multi) { pick = c.dataset.id; use(); } });
-    $('#tpGrid', body).addEventListener('keydown', (e) => { const c = e.target.closest('.tp-card:not(.off)'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); if (multi) choose(c); else { pick = c.dataset.id; use(); } } });
+    $('#tpGrid', body).addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.tp-num-sec > .tpl-num-h')) { e.preventDefault(); return e.target.click(); } const c = e.target.closest('.tp-card:not(.off)'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); if (multi) choose(c); else { pick = c.dataset.id; use(); } } });
     $('#tpCancel', body).onclick = close;
     $('#tpManage', body).onclick = () => { close(); if (layer) closeModal(); showTab('templates'); };
     $('#tpUse', body).onclick = use;

@@ -2170,33 +2170,52 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .fpx-foot { display: flex; gap: 10px; padding: 12px 16px 16px; box-shadow: 0 -1px 0 var(--hair); }
 .fpx-foot .btn.primary { flex: 1; justify-content: center; }
 @media (prefers-reduced-motion: reduce) { .ct-fpanel, .ct-fpanel-wrap.closing .ct-fpanel { animation: none; } }
-/* The contact panel's Chat window: a section per number (photo, name, replied or not, Open chat) with the templates it
-   sent them as cards. A number they never replied to is faded; pointing at its cards says why it can't be opened. */
+/* The contact panel's Chat window: a collapsible section per number (photo, name, replied or not, how many templates,
+   Open chat, arrow), and its templates as same-size cards whose message scrolls inside the card. A number they never
+   replied to is faded; pointing at its cards says why it can't be opened. */
 .modal-box.chw-box { width: min(1100px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
 .modal-box.chw-box #modalBody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-.chw { display: grid; gap: 22px; padding-bottom: 6px; }
+.chw { display: grid; gap: 12px; padding: 6px 10px 24px; margin: -6px -10px 0; } /* room inside the scrolling body for the open section's shadow (it clips at its edges); the margin keeps the content where it was */
 .chw-load { display: flex; align-items: center; gap: 8px; margin: 20px 0; color: var(--muted); }
-.chw-h { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 10px 0; background: var(--surface); }
-.chw-h .sender-photo { width: 40px; height: 40px; font-size: 16px; }
-.chw-ic { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--sunk); color: var(--muted); flex: none; }
+.chw-sec { border-radius: 14px; background: var(--field); box-shadow: var(--sh-sunk); }
+.chw-sec.open { background: var(--surface); box-shadow: var(--sh-card); }
+.chw-h { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: inherit; cursor: pointer; user-select: none; outline: 0; }
+.chw-h:focus-visible { box-shadow: 0 0 0 2px var(--ring, var(--accent)); }
+.chw-h .sender-photo { width: 38px; height: 38px; font-size: 15px; }
+.chw-ic { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--sunk); color: var(--muted); flex: none; }
 .chw-who { display: grid; min-width: 0; flex: 1; }
-.chw-who b { font-size: 15px; } .chw-who span { font-size: 12.5px; color: var(--muted); }
-.chw-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-.chw-card { position: relative; display: flex; flex-direction: column; gap: 4px; min-height: 0; padding: 12px; border: 0; border-radius: 14px; background: var(--field); box-shadow: var(--sh-sunk); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background-color 0.15s, box-shadow 0.15s, transform 0.2s var(--ease-out); }
+.chw-who b { font-size: 14.5px; } .chw-who span { font-size: 12.5px; color: var(--muted); }
+.chw-n { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.chw-chev { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: var(--muted); transition: rotate 0.25s var(--ease-out), background-color 0.15s; }
+.chw-h:hover .chw-chev { background: var(--sunk); color: var(--text); }
+.chw-sec.open .chw-chev { rotate: 180deg; }
+.chw-body { padding: 0 14px 14px; }
+.chw-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; align-items: start; }
+.chw-card { position: relative; display: flex; flex-direction: column; gap: 4px; height: 300px; padding: 12px; border: 0; border-radius: 12px; background: var(--field); box-shadow: var(--sh-sunk); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background-color 0.15s, box-shadow 0.15s; }
 .chw-card:not(.off):hover, .chw-card:not(.off):focus-visible { background: var(--surface); box-shadow: 0 0 0 2px var(--text), var(--sh-raised); outline: 0; }
 .chw-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chw-meta b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
 .chw-meta .pill { flex: none; height: 20px; font-size: 10.5px; }
-.chw-card small { font-size: 12px; color: var(--muted); }
-.chw-card .chw-err { color: var(--danger); overflow-wrap: anywhere; }
-.chw-prev { margin: 6px 0 0; max-height: 220px; overflow: hidden; pointer-events: none; }
+.chw-card small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chw-card .chw-err { color: var(--danger); }
+/* the message: fills the rest of the card and scrolls inside it */
+.chw-prev { flex: 1 1 auto; min-height: 0; margin: 6px 0 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.chw-gone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; padding: 14px; border-radius: 10px; background: var(--sunk); color: var(--muted); font-size: 12.5px; text-align: center; }
 .chw-none { margin: 0; font-size: 13px; color: var(--muted); }
 /* never replied: faded, and the reason shows over the card while pointing at it */
-.chw-sec.off .chw-h { opacity: 0.75; }
+.chw-sec.off .chw-who, .chw-sec.off .chw-h > .sender-photo { opacity: 0.7; }
 .chw-card.off { cursor: not-allowed; opacity: 0.55; }
 .chw-card.off:hover, .chw-card.off:focus-visible { opacity: 1; outline: 0; }
-.chw-card.off::after { content: attr(data-why); position: absolute; inset: 0; display: grid; place-items: center; padding: 18px; border-radius: 14px; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(3px); color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.45; text-align: center; opacity: 0; transition: opacity 0.15s; }
+.chw-card.off::after { content: attr(data-why); position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; padding: 18px; border-radius: 12px; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(3px); color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.45; text-align: center; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
 .chw-card.off:hover::after, .chw-card.off:focus-visible::after { opacity: 1; }
+/* Meta errors in Contacts: the short title and the code chip (hovering it explains the error) */
+.ct-errline { display: inline-flex; align-items: center; gap: 6px; color: var(--danger); font-weight: 500; }
+.ct-errline .cd-ecode, .chx-err .cd-ecode { cursor: help; }
+/* The Chat window's cards (the template window): how the latest send went */
+.chx-line { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--muted); }
+.chx-line .pill { flex: none; height: 19px; font-size: 10.5px; }
+.chx-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chx-err { font-size: 12px; }
 /* A contact's campaigns (newest first), the undelivered ones marked */
 .ct-camps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 260px; overflow-y: auto; scrollbar-width: thin; }
 .ct-camps li { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--sunk); }
@@ -5364,7 +5383,7 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .cx-num { display: inline-flex; font-size: 34px; line-height: 1.15; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; overflow: hidden; }
 .cx-d { display: inline-block; }
 /* Contacts (2,218): the total beside the title, quieter than the title; its digits roll like the Campaigns numbers */
-.ct-total { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ct-total { font-size: 0.78em; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* a digit that changed rises (or drops) a hair out of a 2px blur and lands a touch past its mark */
 .cx-d.up { animation: cx-in-up 0.5s cubic-bezier(0.34, 1.45, 0.64, 1) both; }
 .cx-d.down { animation: cx-in-down 0.5s cubic-bezier(0.34, 1.45, 0.64, 1) both; }
@@ -6022,6 +6041,10 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 .section-head > .in-head .ct-sortbtn:hover { background: var(--field); color: var(--text); }
 .section-head > .in-head .ct-sortbtn.on { background: var(--surface); box-shadow: var(--sh-raised); }
 .section-head > .in-head .ct-sortbtn span { font-weight: 500; }
+/* Icon-only toolbar buttons (Contacts' Filters and Export): the icon in the text colour like the other buttons' labels,
+   not faded like a dropdown's chevron (their only icon is also their last), and centred in a square */
+.section-head > .in-head .ct-filterbtn { width: 36px; min-width: 36px; padding: 0; justify-content: center; color: var(--text); }
+.section-head > .in-head .ct-filterbtn svg:last-child { opacity: 1; }
 .section-head > .in-head .seg { height: 36px; align-items: center; }
 .section-head > .in-head label.inline { margin: 0; }
 
@@ -6396,6 +6419,13 @@ html.is-scrolling { scrollbar-color: var(--scroll-thumb) transparent; }
 .tp-grid { display: block; grid-auto-rows: auto; }
 .tp-group + .tp-group { margin-top: 18px; }
 .tp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: 300px; gap: 14px; }
+/* The template window's numbers, as on the Templates page: the same profile header, collapsible; an open number's
+   header stays at the top of the list while its templates scroll */
+.tp-num-sec + .tp-num-sec { margin-top: 10px; }
+.tp-num-sec > .tpl-num-h { position: sticky; top: 0; z-index: 2; padding: 10px 14px; box-shadow: var(--sh-card); }
+.tp-num-sec > .tpl-num-h .sender-photo { width: 38px; height: 38px; font-size: 15px; }
+.tp-num-sec > .tp-cards { padding-top: 12px; }
+.tp-num-sec > .tp-cards[hidden] { display: none; } /* (.tp-cards sets display: grid, which would beat the hidden attribute) */
 .tp-sec { position: sticky; top: -4px; z-index: 2; display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding: 8px 4px; background: var(--surface); }
 .tp-sec > div { display: flex; flex-direction: column; min-width: 0; }
 .tp-sec b { font-size: 13.5px; font-weight: 650; }

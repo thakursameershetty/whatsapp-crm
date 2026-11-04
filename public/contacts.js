@@ -130,6 +130,14 @@
   }
   // How their latest campaign message went (contact.delivery, kept by the server).
   const DELIVERY = { sent: 'Sent', delivered: 'Delivered', read: 'Read', failed: 'Not delivered' };
+  // A Meta error as its code chip (hover or focus: the dark card explaining it, from the Error codes list)
+  const errCode = (err) => { const t = String(err || ''); return (t.match(/^(\d{1,6}):/) || t.match(/\(#(\d+)\)/) || t.match(/\b(1\d{5})\b/) || [])[1] || ''; };
+  const errChip = (err) => {
+    const code = errCode(err);
+    if (!code) return err ? `<span class="ct-errtxt" title="${esc(err)}">Not delivered</span>` : '';
+    const e = window.MetaErrors?.byCode[code];
+    return `<span class="ct-errline">${e ? esc(e.title) + ' ' : ''}<code class="cd-ecode" tabindex="0" data-ecode="${esc(code)}">${esc(code)}</code></span>`;
+  };
   // Not delivered in any campaign (not only the latest)
   const failedIn = (c) => (c.campaigns || []).filter((x) => x.status === 'failed');
   const everFailed = (c) => failedIn(c).length > 0 || c.delivery?.status === 'failed';
@@ -618,51 +626,60 @@
       ${lead.summary || lead.need || lead.budget || lead.timeline ? `<div class="ct-leadbox"><div class="pc-label">From the lead assistant</div>
         ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}
         <dl>${[['Need', lead.need], ['Budget', lead.budget], ['Timeline', lead.timeline]].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>` : ''}
-      ${c.campaigns?.length ? `<div class="ct-psec"><div class="field-label">Campaigns <span class="opt">${c.campaigns.length}${failedIn(c).length ? ` · ${failedIn(c).length} not delivered` : ''}</span></div><ul class="ct-camps">${[...c.campaigns].reverse().map((x) => `<li class="${x.status === 'failed' ? 'bad' : ''}"><span><b>${esc(x.name || 'Campaign')}</b><small>${esc([senderName(x.senderId), x.at && relTime(x.at)].filter(Boolean).join(' · '))}</small>${x.error ? `<small class="ct-camp-err">${esc(x.error)}</small>` : ''}</span><span class="pill ${x.status === 'failed' ? 'failed' : x.status === 'read' ? 'read' : x.status === 'delivered' ? 'delivered' : 'sent'}">${esc(DELIVERY[x.status] || x.status)}</span></li>`).join('')}</ul></div>` : ''}
+      ${c.campaigns?.length ? `<div class="ct-psec"><div class="field-label">Campaigns <span class="opt">${c.campaigns.length}${failedIn(c).length ? ` · ${failedIn(c).length} not delivered` : ''}</span></div><ul class="ct-camps">${[...c.campaigns].reverse().map((x) => `<li class="${x.status === 'failed' ? 'bad' : ''}"><span><b>${esc(x.name || 'Campaign')}</b><small>${esc([senderName(x.senderId), x.at && relTime(x.at)].filter(Boolean).join(' · '))}</small>${x.error ? `<small class="ct-camp-err">${errChip(x.error)}</small>` : ''}</span><span class="pill ${x.status === 'failed' ? 'failed' : x.status === 'read' ? 'read' : x.status === 'delivered' ? 'delivered' : 'sent'}">${esc(DELIVERY[x.status] || x.status)}</span></li>`).join('')}</ul></div>` : ''}
       <div class="ct-psec"><div class="field-label">Details</div><dl class="ct-pdl">${details.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div>
       <label class="ct-psec ct-pnotes"><span class="field-label">Notes</span><textarea id="ctPNotes" rows="3" placeholder="Anything to remember about them">${esc(c.notes || '')}</textarea></label>`;
     Orb.hydrate(panel);
   }
 
-  // Chat: a large window with each of our numbers that messaged them, and the templates each one sent (preview,
-  // campaign, how it went). A template opens that number's chat, but only once they've written back to that number:
-  // until then there's no conversation (WhatsApp lets you send them only templates), so those are faded and say why.
+  // Chat: the template window (the one the Inbox opens to send a template), showing only the templates this contact was
+  // sent, grouped by number. Each card says how it went (and the error code, explained on hover); picking one opens the
+  // chat with the number that sent it. A number they never replied to has no chat yet (until they write back, WhatsApp
+  // allows only templates there), so its templates are greyed with that reason.
   const DELIV = { sent: 'Sent', delivered: 'Delivered', read: 'Read', failed: 'Not delivered', pending: 'Waiting' };
   async function chatWindow(c) {
-    const body = openModal(`Chats with ${nameOf(c)}`, `<div class="chw" id="chw"><p class="chw-load">${icon('message-circle', 18)}Loading their chats…</p></div>`);
-    $('#modal .modal-box').classList.add('wide', 'chw-box');
-    const r = await api('/contacts/' + encodeURIComponent(c.id) + '/threads').catch((e) => ({ error: e.message }));
-    const box = $('#chw', body);
-    if (!box) return; // closed meanwhile
-    if (r.error) { box.innerHTML = `<p class="chw-load">${esc(r.error)}</p>`; return; }
-    if (!r.threads.length) { box.innerHTML = emptyState({ icon: 'message-circle', title: 'No chats yet', text: `None of your numbers has messaged ${nameOf(c)} yet, and they haven't written to you.` }); return; }
+    const r = await guard(() => api('/contacts/' + encodeURIComponent(c.id) + '/threads'));
+    if (!r) return;
+    if (!r.threads.length) return toast(`None of your numbers has messaged ${nameOf(c)} yet, and they haven't written to you`, 'error');
+    // each template: its sends (newest first), with the number that sent it and whether they replied there
+    const sends = new Map();
+    for (const t of r.threads) for (const x of t.sends) (sends.get(x.templateId) || sends.set(x.templateId, []).get(x.templateId)).push({ ...x, senderId: t.senderId, key: t.key, replied: t.replied, lastInAt: t.lastInAt });
+    for (const list of sends.values()) list.sort((a, b) => String(b.at).localeCompare(String(a.at)));
     const sender = (id) => state.senders.find((s) => s.id === id);
-    const why = (s) => `${nameOf(c)} hasn't replied to ${s ? s.label : 'this number'} yet, so there's no chat to open. Until they write back, WhatsApp only lets you send them a template.`;
-    box.innerHTML = r.threads.map((t) => {
-      const s = sender(t.senderId);
-      const head = `<header class="chw-h">${s ? senderPhotoHtml(s) : `<span class="chw-ic">${icon('phone', 16)}</span>`}
-        <div class="chw-who"><b>${esc(s?.label || 'A removed number')}</b><span>${esc(s?.displayPhone || '')}</span></div>
-        ${t.replied ? `<span class="pill delivered" title="Their last message: ${esc(new Date(t.lastInAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }))}">Replied · ${esc(relTime(t.lastInAt))}</span>` : '<span class="pill">No reply yet</span>'}
-        ${t.replied ? `<button type="button" class="btn sm" data-chw-open="${esc(t.key)}">${icon('message-circle', 14)}Open chat</button>` : ''}</header>`;
-      const card = (x) => {
-        const tpl = state.templates.find((y) => y.id === x.templateId);
-        return `<button type="button" class="chw-card ${t.replied ? '' : 'off'}" data-chw-open="${t.replied ? esc(t.key) : ''}" ${t.replied ? 'title="Open this chat"' : `data-why="${esc(why(s))}" aria-disabled="true"`}>
-          <div class="chw-meta"><b>${esc(x.templateName || 'Template')}</b><span class="pill ${esc(x.status === 'failed' ? 'failed' : x.status || '')}">${esc(DELIV[x.status] || x.status || '')}</span></div>
-          <small>${esc([x.campaign ? 'Campaign · ' + x.campaign : 'Sent from the Inbox', x.at && relTime(x.at)].filter(Boolean).join(' · '))}</small>
-          ${x.error ? `<small class="chw-err">${esc(x.error)}</small>` : ''}
-          <div class="tpl-chat chw-prev"><div class="bubble">${tpl ? bubbleHtml(tpl, x.values || {}, true) : `<span class="muted">${esc(x.templateName || 'Template')} (removed)</span>`}</div></div>
-        </button>`;
-      };
-      return `<section class="chw-sec ${t.replied ? '' : 'off'}">${head}${t.sends.length ? `<div class="chw-cards">${t.sends.map(card).join('')}</div>` : '<p class="chw-none">They wrote to this number first: no templates sent from it.</p>'}</section>`;
-    }).join('');
-    LA.hydrate(box);
-    box.addEventListener('click', (e) => {
-      const el = e.target.closest('[data-chw-open]');
-      if (!el) return;
-      if (!el.dataset.chwOpen) return toast(el.dataset.why || 'They haven\'t replied from this number yet', 'error');
-      closeModal();
-      showTab('inbox');
-      window.Inbox?.open(el.dataset.chwOpen);
+    const openable = (id) => (sends.get(id) || []).filter((x) => x.replied).sort((a, b) => String(b.lastInAt).localeCompare(String(a.lastInAt)))[0];
+    const replied = r.threads.find((t) => t.replied);
+    if (!sends.size) { // they wrote in, but nothing was sent to them as a template: straight to that chat
+      if (replied) { showTab('inbox'); return window.Inbox?.open(replied.key); }
+      return toast(`No templates were sent to ${nameOf(c)} yet`, 'error');
+    }
+    window.TemplatePicker?.({
+      title: `Chats with ${nameOf(c)}`,
+      useText: 'Open chat',
+      statusFilter: false,
+      only: (t) => sends.has(t.id),
+      nums: r.threads.map((t) => sender(t.senderId)).filter(Boolean),
+      firstWaba: sender((replied || r.threads[0]).senderId)?.wabaId || '',
+      selected: replied ? [...sends.keys()].find((id) => openable(id)?.key === replied.key) || '' : '',
+      block: (t) => {
+        if (openable(t.id)) return null;
+        const s = sender(sends.get(t.id)?.[0]?.senderId);
+        return `${nameOf(c)} hasn't replied to ${s ? s.label : 'this number'} yet, so there's no chat to open. Until they write back, WhatsApp only lets you send them a template.`;
+      },
+      valuesOf: (t) => sends.get(t.id)?.[0]?.values,
+      extra: (t) => {
+        const list = sends.get(t.id) || [], x = list[0];
+        if (!x) return '';
+        const s = sender(x.senderId);
+        return `<div class="chx-line"><span class="pill ${esc(x.status === 'failed' ? 'failed' : x.status || '')}">${esc(DELIV[x.status] || x.status || '')}</span><span class="chx-sub">${esc([s?.label, x.campaign || 'From the Inbox', x.at && relTime(x.at)].filter(Boolean).join(' · '))}${list.length > 1 ? ` · sent ${list.length}×` : ''}</span></div>${x.error ? `<div class="chx-err">${errChip(x.error)}</div>` : ''}`;
+      },
+      onUse: (id) => {
+        const x = openable(id);
+        if (!x) return false;
+        closeModal();
+        showTab('inbox');
+        window.Inbox?.open(x.key);
+        return true;
+      },
     });
   }
 
