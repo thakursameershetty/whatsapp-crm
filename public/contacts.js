@@ -33,7 +33,7 @@
       .filter((c) => {
         if (CT.tag === 'none' ? c.tags.length : CT.tag && !c.tags.includes(CT.tag)) return false;
         if (CT.status && (c.optOut || c.status !== CT.status)) return false;
-        if (CT.flag === 'optout' ? !c.optOut : CT.flag === 'undelivered' && !everFailed(c)) return false;
+        if (CT.flag === 'optout' ? !c.optOut : CT.flag === 'undelivered' ? !everFailed(c) : CT.flag === 'delivered' && !everDelivered(c)) return false;
         if (CT.num && (CT.num === 'none' ? c.via : c.via !== CT.num)) return false;
         if (CT.source && (c.source || 'manual') !== CT.source) return false;
         if (q && ![c.name, c.phone, fmtPhone(c.phone), c.email, c.company, c.lead?.summary].some((v) => String(v || '').toLowerCase().includes(q))) return false;
@@ -120,6 +120,8 @@
   // Not delivered in any campaign (not only the latest)
   const failedIn = (c) => (c.campaigns || []).filter((x) => x.status === 'failed');
   const everFailed = (c) => failedIn(c).length > 0 || c.delivery?.status === 'failed';
+  // Reached: delivered (or read) in at least one campaign
+  const everDelivered = (c) => (c.campaigns || []).some((x) => x.status === 'delivered' || x.status === 'read') || ['delivered', 'read'].includes(c.delivery?.status);
   const deliveryText = (c) => (c.delivery ? `${c.delivery.campaign || 'A campaign'} · ${DELIVERY[c.delivery.status] || c.delivery.status}${c.delivery.error ? ` (${c.delivery.error})` : ''}${c.delivery.at ? ` · ${relTime(c.delivery.at)}` : ''}` : '');
   const undelivered = (c) => { const f = failedIn(c); return everFailed(c) ? ` <span class="pill failed" title="${esc(`Not delivered: ${(f.length ? f.map((x) => x.name) : [c.delivery?.campaign || 'a campaign']).join(', ')}`)}">Not delivered${f.length > 1 ? ` ×${f.length}` : ''}</span>` : ''; };
   const statusPill = (c) => (c.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS[c.status]?.cls || ''}">${esc(STATUS[c.status]?.label || c.status)}</span>`) + (c.phoneProblem ? ` <span class="pill failed" title="${esc(c.phoneProblem)}">Fix number</span>` : '') + undelivered(c);
@@ -141,7 +143,8 @@
       head('Stages'),
       ...Object.entries(STATUS).map(([k, v]) => item('status', k, v.label, n((c) => !c.optOut && c.status === k), dot('st-' + k))),
       head('Delivery'),
-      item('flag', 'undelivered', 'Not delivered', n(everFailed), dot('st-bad'), 'title="Not delivered in at least one campaign"'),
+      item('flag', 'delivered', 'Delivered', n(everDelivered), dot('st-won'), 'title="Delivered in at least one campaign (someone can also be in Not delivered, for another campaign)"'),
+      item('flag', 'undelivered', 'Not delivered', n(everFailed), dot('st-bad'), 'title="Not delivered in at least one campaign (someone can also be in Delivered, for another campaign)"'),
       item('flag', 'optout', 'Opted out', n((c) => c.optOut), dot('st-optout')),
     ].join('');
   }

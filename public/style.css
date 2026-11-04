@@ -2084,6 +2084,18 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 /* section titles become a thin divider between the groups (the first one, before Stages, isn't needed) */
 .ct-lab-h { flex: none; width: 1px; height: 20px; margin: 0 4px; background: var(--hair); font-size: 0; overflow: hidden; }
 .ct-lab:first-child + .ct-lab-h { display: none; }
+/* Wide screens: the same tabs stood on end in a slim strip to the left of the contacts, each turned 90° to read
+   bottom-to-top like a book's spine (All contacts at the top). Pinned under the page header while the list scrolls.
+   Narrow screens keep the row above. */
+@media (min-width: 901px) {
+  .ct-layout.has-labels { grid-template-columns: 46px minmax(0, 1fr); }
+  .ct-layout.has-labels.has-panel { grid-template-columns: 46px minmax(0, 1fr) 360px; }
+  .ct-labels { grid-column: auto; position: sticky; top: calc(var(--stick-top) + var(--head-h, 0px) + 8px); max-height: calc(100vh - var(--stick-top) - var(--head-h, 0px) - 24px);
+    flex-direction: column; align-items: center; gap: 4px; overflow-x: visible; overflow-y: auto; padding: 2px 2px 12px; margin: 0; }
+  .ct-lab { writing-mode: vertical-rl; transform: rotate(180deg); height: auto; width: 32px; padding: 9px 0 8px; gap: 6px; font-size: 12.5px; justify-content: flex-start; }
+  .ct-lab .ct-lab-ic { transform: rotate(90deg); } /* undo the sideways text turn: the people icon stays upright */
+  .ct-lab-h { width: 18px; height: 1px; margin: 3px 0; }
+}
 .ct-lab-dot { flex: none; width: 7px; height: 7px; margin: 0 1px; border-radius: 50%; background: var(--faint); }
 .ct-lab-dot.st-interested { background: var(--info); } .ct-lab-dot.st-qualified { background: var(--violet); } .ct-lab-dot.st-won { background: var(--good, #1f9d55); }
 .ct-lab-dot.st-lost { background: var(--muted); } .ct-lab-dot.st-optout { background: var(--muted); } .ct-lab-dot.st-bad { background: var(--danger); }
@@ -2144,8 +2156,8 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .ct-person .ct-av { margin-bottom: 6px; }
 .ct-person b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
 .ct-psub { max-width: 100%; min-height: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--muted); }
-.ct-pmeta { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
-.ct-pmeta .pill { height: 19px; font-size: 10.5px; padding: 0 7px; }
+.ct-pmeta { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px; max-width: 100%; margin-top: 6px; }
+.ct-pmeta .pill { height: 19px; font-size: 10.5px; padding: 0 7px; white-space: nowrap; flex: none; } /* never broken mid-label: a second one drops to the next line */
 .ct-pmeta i { width: 8px; height: 8px; border-radius: 50%; background: var(--tag); }
 .ct-person.ct-opted b, .ct-person.ct-opted .ct-av { opacity: 0.55; }
 .ct-pcheck { position: absolute; top: 9px; left: 10px; opacity: 0; transition: opacity 0.12s; margin: 0; }
