@@ -621,8 +621,8 @@
         <label class="ct-poptout"><span>Opted out <span class="opt">never message them</span></span>${toggleHtml({ checked: c.optOut, attrs: 'id="ctPOpt"', size: 'sm' })}</label>
       </div>
       <div class="ct-psec">
-        <div class="field-label">Tags</div>
-        <div class="ct-ptags">${c.tags.map(tagById).filter(Boolean).map((t) => `<span class="tag-chip tag-${esc(t.color)} ct-ptag">${esc(t.name)}<button type="button" data-ptag-rm="${esc(t.id)}" aria-label="Remove ${esc(t.name)}" title="Remove">${icon('x', 11)}</button></span>`).join('')}<button type="button" class="ct-ptag-btn" data-ptag-menu aria-haspopup="dialog">${icon('tag', 14)}<span>${c.tags.length ? 'Tags' : 'Add tags'}</span>${icon('chevron-down', 14)}</button></div>
+        <div class="ct-pstrow ct-ptags-h"><span class="field-label">Tags</span><button type="button" class="ct-ptag-edit" data-ptag-menu aria-haspopup="dialog" title="Add or remove tags">${icon('square-pen', 14)}<span>Edit</span></button></div>
+        <div class="ct-ptags">${c.tags.map(tagById).filter(Boolean).map((t) => `<span class="tag-chip tag-${esc(t.color)} ct-ptag">${esc(t.name)}<button type="button" data-ptag-rm="${esc(t.id)}" aria-label="Remove ${esc(t.name)}" title="Remove">${icon('x', 11)}</button></span>`).join('')}${c.tags.length ? '' : '<span class="ct-ptags-none">No tags</span>'}</div>
       </div>
       ${lead.summary || lead.need || lead.budget || lead.timeline ? `<div class="ct-leadbox"><div class="pc-label">From the lead assistant</div>
         ${lead.summary ? `<p>${esc(lead.summary)}</p>` : ''}

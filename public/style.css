@@ -2213,6 +2213,10 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .ct-ptag { display: inline-flex; align-items: center; gap: 2px; padding-right: 3px; }
 .ct-ptag button { display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: none; color: inherit; opacity: 0.6; cursor: pointer; }
 .ct-ptag button:hover { opacity: 1; background: color-mix(in srgb, currentColor 15%, transparent); }
+.ct-ptags-h { margin-bottom: 8px; }
+.ct-ptag-edit { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; } /* Tags' Edit, on the title's line */
+.ct-ptag-edit:hover, .ct-ptag-edit:focus-visible { background: var(--sunk); color: var(--text); outline: 0; }
+.ct-ptags-none { font-size: 13px; color: var(--faint); }
 .ct-ptag-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 10px; border: 0; border-radius: 9px; background: var(--field); box-shadow: var(--sh-sunk); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .ct-ptag-btn:hover, .ct-ptag-btn:focus-visible { background: var(--surface); box-shadow: var(--sh-raised); outline: 0; }
 .ct-ptag-btn > svg { color: var(--muted); }
