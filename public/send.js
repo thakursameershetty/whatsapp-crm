@@ -684,7 +684,7 @@
   function renderTplPickBtn() {
     const t = currentTemplate(), b = $('#tplPickBtn');
     b.innerHTML = t
-      ? `${icon('file-text', 16)}<span class="tp-btn-main"><b>${esc(t.name)}</b><small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}${t.variables.length ? ` · ${t.variables.length} variable${t.variables.length > 1 ? 's' : ''}` : ''}</small></span><span class="tp-btn-act">Change</span>`
+      ? `${icon('file-text', 16)}<span class="tp-btn-main"><b title="${esc(t.name)}">${esc(t.name)}</b><small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}${t.variables.length ? ` · ${t.variables.length} variable${t.variables.length > 1 ? 's' : ''}` : ''}</small></span><span class="tp-btn-act">Change</span>`
       : `${icon('file-text', 16)}<span class="tp-btn-main"><b>${state.templates.length ? 'Choose a template' : 'No templates yet'}</b><small>${state.templates.length ? `${state.templates.filter((x) => !tplSendBlock(x)).length} ready to send` : 'Add one under Templates'}</small></span>${icon('chevron-down', 15)}`;
     b.classList.toggle('empty', !t);
   }

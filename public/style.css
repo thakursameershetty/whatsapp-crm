@@ -6470,7 +6470,7 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
 .te-warns:empty { display: none; }
 .te-warn { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--danger-soft); color: var(--danger); font-size: 12.5px; line-height: 1.45; }
 .te-warn svg { flex: none; margin-top: 2px; }
-.it-tpl-l { display: grid; gap: 6px; margin-bottom: 14px; }
+.it-tpl-l { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 14px; min-width: 0; } /* minmax(0…): a long template name ends in "…" instead of widening the window */
 /* Template card head: the category-changed warning sits just left of the status pill; its tooltip opens below,
    lined up with the card's right side (it's near the edge). */
 /* Template name: one line ending in "…", so the status pill and warning icon stay put; the full name shows on hover. */

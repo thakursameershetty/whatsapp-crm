@@ -1592,7 +1592,7 @@
     const preview = () => {
       const t = tpl();
       $('#itChange', body).innerHTML = t
-        ? `${icon('file-text', 16)}<span class="tp-btn-main"><b>${esc(t.name)}</b><small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}${t.variables.length ? ` · ${t.variables.length} variable${t.variables.length > 1 ? 's' : ''}` : ' · no variables'}</small></span><span class="tp-btn-act">Change</span>`
+        ? `${icon('file-text', 16)}<span class="tp-btn-main"><b title="${esc(t.name)}">${esc(t.name)}</b><small>${esc(t.language)} · ${esc(catLabel(t.category).toLowerCase())}${t.variables.length ? ` · ${t.variables.length} variable${t.variables.length > 1 ? 's' : ''}` : ' · no variables'}</small></span><span class="tp-btn-act">Change</span>`
         : `${icon('file-text', 16)}<span class="tp-btn-main"><b>Choose a template</b></span>${icon('chevron-down', 15)}`;
       $('#itPrev', body).innerHTML = t ? bubbleHtml(t, values) : '<span class="muted">Pick a template to see the message here.</span>';
     };

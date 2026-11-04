@@ -1422,6 +1422,11 @@ function tplDates(t) {
 function tplSamples(t) {
   const values = Object.fromEntries(t.variables.filter((v) => v.example).map((v) => [v.key, v.example]));
   if (t.headerSample) values['header.media'] = location.origin + t.headerSample;
+  else { // no saved copy (yet): Meta's own sample link, which works until Meta expires it
+    const h = (t.components || []).find((c) => String(c.type).toUpperCase() === 'HEADER');
+    const link = h?.example?.header_handle?.[0];
+    if (/^https:\/\//.test(link || '')) { values['header.media'] = link; if (h.format === 'DOCUMENT') values['header.filename'] = 'Sample document.pdf'; }
+  }
   return values;
 }
 

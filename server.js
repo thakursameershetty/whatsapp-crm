@@ -1271,21 +1271,25 @@ function sampleAfterEdit(spec, t) {
 // Sync: download the sample Meta shows for each image/video/document template that has no saved copy yet (or whose
 // sample changed in Meta). Failures are skipped quietly; the card keeps its placeholder.
 async function fetchMetaSamples(list) {
+  const tally = { saved: 0, failed: [] };
   for (const t of list) {
     const h = (t.components || []).find((c) => String(c.type).toUpperCase() === 'HEADER');
     const from = h?.example?.header_handle?.[0];
-    if (!SAMPLE_MIME[h?.format] || !/^https:\/\//.test(from || '')) continue;
+    if (!SAMPLE_MIME[h?.format]) continue;
+    if (!/^https:\/\//.test(from || '')) { if (!sampleFileOk(t.headerSample)) tally.failed.push(`${t.name}: Meta gave no sample link (${String(from || 'none').slice(0, 40)})`); continue; }
     if (sampleFileOk(t.headerSample) && (!t.headerSampleFrom || t.headerSampleFrom === from)) continue;
     try {
-      const r = await fetch(from, { signal: AbortSignal.timeout(15000) });
-      if (!r.ok) continue;
+      const r = await fetch(from, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SendON template preview)', Accept: '*/*' } });
+      if (!r.ok) { tally.failed.push(`${t.name}: HTTP ${r.status}`); continue; }
       const buf = Buffer.from(await r.arrayBuffer());
-      if (!buf.length || buf.length > 16 * 1024 * 1024) continue;
+      if (!buf.length || buf.length > 16 * 1024 * 1024) { tally.failed.push(`${t.name}: ${buf.length} bytes`); continue; }
       const mime = String(r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
       t.headerSample = keepSample(buf, mime, h.format, t.headerSample?.split('/')[3] ? decodeURIComponent(t.headerSample.split('/')[3]) : '');
       t.headerSampleFrom = from;
-    } catch {}
+      tally.saved++;
+    } catch (e) { tally.failed.push(`${t.name}: ${e.message}`); }
   }
+  if (tally.saved || tally.failed.length) console.log(`Template samples: ${tally.saved} saved${tally.failed.length ? `; not saved: ${tally.failed.join('; ')}` : ''}`);
 }
 
 async function headerHandle(s, spec, t) {
