@@ -11,8 +11,10 @@ const LIVE = /^(on|true|1|yes)$/i.test(String(process.env.PRICING || '').trim())
 //     its credits back (Meta doesn't charge for those either), so a retry never costs twice;
 //   - WhatsApp numbers: the biggest pack a workspace has (unexpired) sets how many it may connect: the ₹10,000 pack 1,
 //     the ₹20,000 pack 3, the ₹25,000 pack no limit; before any pack, 1 (to set up before buying);
-//   - SendON's AI (only when the workspace uses our AI, not its own key): 1 for each Assistant answer, each reply the
-//     AI sends by itself, and each AI-written reply a person sends unchanged. Drafting and summaries are free.
+//   - AI, on our key or the workspace's own: 1 for each Assistant answer, each reply the
+//     AI sends by itself, and each AI-written reply a person sends unchanged; an Assistant answer that builds a campaign
+//     plan (it reads the file, the templates and the numbers, and checks every row) is PLAN_RATE instead. Approving the
+//     plan doesn't use AI, so it's only the messages' own credits. Drafts are free; a notes summary is 1.
 // Replies typed by a person in the Inbox are free. Demo mode never uses credits.
 //
 // The log (db.credits.ledger) keeps one running line per thing (a campaign, a day of Inbox templates, a day of AI
@@ -25,6 +27,7 @@ const PACKS = {
 };
 const RATES = { MARKETING: 2, UTILITY: 1, AUTHENTICATION: 1 };
 const AI_RATE = 1;
+const PLAN_RATE = 3; // an Assistant answer that prepares a campaign plan
 // Numbers allowed by the biggest unexpired pack (custom packs count by their size): [at least this many credits, numbers].
 const NUMBER_TIERS = [[30000, null], [22000, 3], [0, 1]];
 const PACK_MONTHS = 12;
@@ -158,7 +161,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
       balance: balance(),
       packs: b.packs.slice().reverse().slice(0, 20).map(({ id: pid, name, credits, left, price, addedAt, expiresAt }) => ({ id: pid, name, credits, left, price, addedAt, expiresAt, expired: !valid({ expiresAt }) })),
       ledger: b.ledger.slice(0, 60).map(({ id: lid, kind, what, used, refunded, count, at }) => ({ id: lid, kind, what, used, refunded, count, at })),
-      rates: { marketing: RATES.MARKETING, utility: RATES.UTILITY, authentication: RATES.AUTHENTICATION, ai: AI_RATE },
+      rates: { marketing: RATES.MARKETING, utility: RATES.UTILITY, authentication: RATES.AUTHENTICATION, ai: AI_RATE, plan: PLAN_RATE },
       packOptions: Object.entries(PACKS).map(([k, v]) => ({ id: k, ...v })),
       months: PACK_MONTHS,
       numberLimit: numberLimit(),
@@ -174,6 +177,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     inboxTemplate: () => ({ key: 'it:' + day(), what: `Inbox templates, ${day()}` }),
     aiReply: () => ({ key: 'ai:' + day(), what: `AI replies, ${day()}` }),
     assistant: () => ({ key: 'as:' + day(), what: `Assistant answers, ${day()}` }),
+    assistantPlan: () => ({ key: 'ap:' + day(), what: `Assistant campaign plans, ${day()}` }),
   };
 
   // Adding a number past the plan's limit: why not, and which pack allows more.
@@ -184,7 +188,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     throw fail(`Your credits include ${lim} WhatsApp number${lim === 1 ? '' : 's'}, and this workspace has ${numbersUsed()}. ${more} Settings → Credits.`, 402);
   }
 
-  return { on, enough, balance, charge, refund, addPack, summary, keys, rateFor, AI_RATE, numberLimit, checkNumberLimit };
+  return { on, enough, balance, charge, refund, addPack, summary, keys, rateFor, AI_RATE, PLAN_RATE, numberLimit, checkNumberLimit };
 }
 
-module.exports = { mount, balanceOf, rateFor, PACKS, RATES, AI_RATE, LIVE };
+module.exports = { mount, balanceOf, rateFor, PACKS, RATES, AI_RATE, PLAN_RATE, LIVE };

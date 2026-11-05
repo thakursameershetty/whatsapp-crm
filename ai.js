@@ -1393,6 +1393,12 @@ module.exports = function mountAi(app, ctx) {
           continue;
         }
         if (u.name === 'propose_campaign') {
+          const cr = ctx.credits;
+          if (cr && !cr.enough(cr.PLAN_RATE)) {
+            emit({ type: 'step', id: stepId, status: 'done', detail: 'Not enough credits' });
+            result(u, `Not enough credits to prepare a campaign plan: a plan uses ${cr.PLAN_RATE} credits and this workspace has ${cr.balance()}. Tell the person that, and that they can add credits in Settings → Credits. Don't try again in this turn.`, true);
+            continue;
+          }
           const { problems, plan } = buildPlan(session, input);
           if (problems) {
             emit({ type: 'step', id: stepId, status: 'done', detail: `${problems.length} thing${problems.length > 1 ? 's' : ''} to fix` });
@@ -1403,6 +1409,7 @@ module.exports = function mountAi(app, ctx) {
           plans.set(plan.id, plan);
           session.planIds.push(plan.id);
           emit({ type: 'step', id: stepId, status: 'done', detail: `${plan.counts.recipients.toLocaleString()} recipients` });
+          session.turnPlanned = true; // this answer is charged as a plan (credits.js PLAN_RATE)
           pause = { kind: 'plan', toolUseId: u.id, toolName: u.name, planId: plan.id };
           emit({ type: 'plan', plan: publicPlan(plan) });
           continue;
@@ -1688,8 +1695,8 @@ module.exports = function mountAi(app, ctx) {
       if (session.busy) throw fail('Wait for the current reply to finish', 409);
       if (!String(req.body.text || '').trim() && req.body.answer == null && !(Array.isArray(req.body.refs) && req.body.refs.length)) throw fail('Type a message');
       providerFor(session); // fail fast, before streaming, when no key is set or the provider changed
-      // An answer from our AI (not the workspace's own key) uses 1 credit (credits.js).
-      if (aiConfig().platform && !ctx.credits?.enough(ctx.credits.AI_RATE)) throw fail('Out of credits: each Assistant answer uses 1 credit. Add credits in Settings → Credits.', 402);
+      // Every Assistant answer uses 1 credit, or PLAN_RATE when it prepares a campaign plan, whichever key answers it (credits.js).
+      if (!ctx.credits?.enough(ctx.credits.AI_RATE)) throw fail('Out of credits: each Assistant answer uses 1 credit. Add credits in Settings → Credits.', 402);
     } catch (e) {
       return res.status(e.httpStatus || 400).json({ error: e.message });
     }
@@ -1723,6 +1730,7 @@ module.exports = function mountAi(app, ctx) {
     const emit = (ev) => { record(ev); res.write(JSON.stringify(ev) + '\n'); };
     emit({ type: 'session', sessionId: session.id });
     let answered = false;
+    session.turnPlanned = false;
     try {
       await turn(session, req.body, emit);
       answered = true;
@@ -1734,7 +1742,12 @@ module.exports = function mountAi(app, ctx) {
       session.updatedAt = Date.now();
       chat.updatedAt = new Date().toISOString();
       storeHistory(chat, session);
-      if (answered && aiConfig().platform) ctx.credits?.charge(ctx.credits.AI_RATE, ctx.credits.keys.assistant());
+      if (answered && ctx.credits) {
+        const cr = ctx.credits;
+        // A plan was checked for enough credits before it was made; if it still can't be taken (spent meanwhile), take
+        // what an ordinary answer costs rather than nothing.
+        if (!session.turnPlanned || cr.charge(cr.PLAN_RATE, cr.keys.assistantPlan()) === false) cr.charge(cr.AI_RATE, cr.keys.assistant());
+      }
       save();
       emit({ type: 'done' });
       res.end();

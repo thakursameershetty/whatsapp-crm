@@ -687,8 +687,8 @@ tenants.mountAccountApi(app, { wrap, fail });
 const AI_PROVIDERS = ['gemini', 'claude'];
 const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 // Our keys (the server's environment) serve the original workspace, and any workspace on the credits plan that has AI
-// switched on: that one pays credits for it (credits.js). Everyone else brings their own key, and a workspace's own key
-// always wins (and then the AI costs no credits). platform = this answer comes from our key.
+// switched on. Everyone else brings their own key, and a workspace's own key always wins. AI answers use credits
+// either way (credits.js). platform = this answer comes from our key.
 const platformAi = () => tenants.isLegacy() || (require('./credits').LIVE && tenants.meta()?.billing === 'credits' && tenants.aiAllowed());
 function aiConfig() {
   const env = platformAi() ? process.env : {};
@@ -2357,9 +2357,9 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
   const { text, replyTo, templateId, values = {} } = req.body;
 
   if (templateId) return res.json(await sendInboxTemplate(key, templateId, values));
-  // Sending the AI's suggested reply as it is (written by our AI): 1 credit. Typed or edited by a person: free.
+  // Sending the AI's suggested reply as it is (written by the AI, on any key): 1 credit. Typed or edited by a person: free.
   const draft = db.chats[key]?.ai?.draft;
-  const aiWritten = draft && String(text || '').trim() === String(draft.text || '').trim() && aiConfig().platform;
+  const aiWritten = draft && String(text || '').trim() === String(draft.text || '').trim();
   const ch = aiWritten ? credits.charge(credits.AI_RATE, credits.keys.aiReply()) : null;
   if (ch === false) throw fail('Out of credits: sending the AI’s suggested reply uses 1 credit. Add credits in Settings → Credits, or edit the reply and send it as your own.', 402);
   try { res.json(await sendInboxText(key, text, { replyTo, ...(ch ? { credit: ch } : {}) })); } catch (e) { credits.refund(ch); throw e; }

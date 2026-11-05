@@ -329,8 +329,8 @@ Draft the next reply to the customer's latest message(s).`;
       const blocker = !ai.draft ? 'off'
         : send ? (r.handover?.needed ? 'needs a person' : updated?.optOut ? 'opted out' : null)
         : !manual && pb.auto && autoOn() ? autoSendBlocker(key, { handover: r.handover?.needed, contact: updated, lastIn }) : 'off';
-      // Sent by our AI: 1 credit (credits.js). Out of credits: the draft stays for a person to send.
-      const ch = !blocker && cfg.platform ? credits?.charge(credits.AI_RATE, credits.keys.aiReply()) : null;
+      // Sent by the AI (ours or the workspace's own key): 1 credit (credits.js). Out of credits: the draft stays for a person to send.
+      const ch = !blocker ? credits?.charge(credits.AI_RATE, credits.keys.aiReply()) : null;
       if (ch === false) ai.error = 'Out of credits, so the AI didn’t send this reply. It’s ready below for you to send, or add credits in Settings → Credits.';
       else if (!blocker) {
         const text = ai.draft.text;
@@ -449,7 +449,7 @@ Draft the next reply to the customer's latest message(s).`;
     if (!thread(key).some((m) => m.dir === 'in')) throw fail('They haven’t written anything to summarise yet');
     const cfg = aiConfig();
     if (!cfg.key) throw fail('Add an AI key in Settings → AI assistant first', 412);
-    if (cfg.platform && !credits?.enough(credits.AI_RATE)) throw fail('Out of credits: a summary uses 1 credit. Add credits in Settings → Credits.', 402);
+    if (!credits?.enough(credits.AI_RATE)) throw fail('Out of credits: a summary uses 1 credit. Add credits in Settings → Credits.', 402);
     const contact = contacts.byPhone(wa);
     const model = cfg.provider === 'gemini' ? geminiProvider(cfg.key, cfg.geminiModel, id, { system: SYSTEM, tools: TOOLS }) : claudeProvider(cfg.key, { system: SYSTEM, tools: TOOLS });
     const history = [];
@@ -464,7 +464,7 @@ Draft the next reply to the customer's latest message(s).`;
     // A summary leaves the stage alone, but notes the AI's view of it. With { stage: true } ("Let the AI decide" when
     // the AI hadn't judged it yet) it sets the stage too, unless a person has set it since.
     contacts.applyLead(contact?.phone || wa, lead, { stage: req.body?.stage === true });
-    if (cfg.platform) credits?.charge(credits.AI_RATE, credits.keys.assistant());
+    credits?.charge(credits.AI_RATE, credits.keys.assistant());
     save();
     broadcast({ kind: 'draft', key });
     res.json({ lead: chatLead(key, contacts.byPhone(wa)), contact: contacts.byPhone(wa) });

@@ -48,18 +48,19 @@ window.Credits = (() => {
       <div class="cr-top">
         <div class="cr-bal ${low}">
           <b>${fmt(d.balance)}</b>
-          <span>${low === 'out' ? 'No credits left: campaigns, template messages and SendON’s AI are on hold' : 'credits left'}${next ? ` · ${fmt(next.left)} expire ${day(next.expiresAt)}` : ''}</span>
+          <span>${low === 'out' ? 'No credits left: campaigns, template messages and AI are on hold' : 'credits left'}${next ? ` · ${fmt(next.left)} expire ${day(next.expiresAt)}` : ''}</span>
           ${d.demo ? '<span class="cr-demo">Demo mode is on: nothing uses credits</span>' : ''}
         </div>
         <dl class="cr-rates">
           <div><dt>Marketing template message</dt><dd>${d.rates.marketing} credits</dd></div>
           <div><dt>Utility template message</dt><dd>${d.rates.utility} credit</dd></div>
           <div><dt>AI reply sent, or an Assistant answer</dt><dd>${d.rates.ai} credit</dd></div>
+          <div><dt>Assistant answer that prepares a campaign plan</dt><dd>${d.rates.plan ?? 3} credits</dd></div>
           <div><dt>Replies you type in the Inbox</dt><dd>Free</dd></div>
           <div class="cr-nums"><dt>WhatsApp numbers on your plan</dt><dd>${d.numberLimit == null ? `${fmt(d.numbersUsed)} connected · no limit` : `${fmt(d.numbersUsed)} of ${fmt(d.numberLimit)}`}</dd></div>
         </dl>
       </div>
-      <p class="sub cr-note">Messages that fail give their credits back. Credits from a pack last ${d.months} months. These are SendON’s charges: Meta bills its own per-message fee to your WhatsApp Business Account separately. AI uses credits only with SendON’s AI; with your own AI key it’s free.</p>
+      <p class="sub cr-note">Messages that fail give their credits back. Credits from a pack last ${d.months} months. These are SendON’s charges: Meta bills its own per-message fee to your WhatsApp Business Account separately. AI uses credits whether it runs on SendON’s AI or your own AI key.</p>
       <div class="field-label">Recent activity</div>
       <div class="cr-log">${d.ledger.length ? d.ledger.slice(0, 12).map(row).join('') : '<p class="sub">Nothing yet.</p>'}</div>`;
     LA.hydrate(card);
