@@ -1164,12 +1164,22 @@
     el.classList.toggle('hidden', !c);
     if (!c) return;
     const t = state.templates.find((x) => x.id === c.templateId);
-    const ai = state.me?.ai ? (c.ai?.on ? (c.ai.auto ? 'AI replies on its own' : 'AI drafts replies') : 'No AI replies') : '';
+    const ai = state.me?.ai ? (c.ai?.on ? (c.ai.auto ? ['on', 'Replies on its own'] : ['on', 'Drafts for review']) : ['', 'Off']) : null;
     const from = state.senders.filter((x) => state.selectedSenders.has(x.id));
     const fromText = from.length === 1 ? from[0].verifiedName || from[0].label : from.length ? `${from.length} numbers` : 'No number';
-    el.innerHTML = `<div class="sp-camp-main"><span class="sp-camp-k">Campaign · draft</span><b title="${esc(c.name)}">${esc(c.name)}</b>${c.description ? `<span class="sp-camp-desc" title="${esc(c.description)}">${esc(c.description)}</span>` : ''}
-        <small><span>${icon('file-text', 13)}${esc(t?.name || c.templateName || 'No template')}</span><span title="${esc(from.map((x) => `${x.label} ${x.displayPhone || ''}`).join(', '))}">${icon('phone', 13)}${esc(fromText)}</span>${ai ? `<span>${icon('sparkles', 13)}${esc(ai)}</span>` : ''}</small></div>
-      <button type="button" class="btn sm" id="spCampEdit">${icon('settings', 14)}Edit</button>`;
+    const tpl = t?.name || c.templateName || 'No template';
+    const fact = (k, v, tip = v, cls = '') => `<div><dt>${k}</dt><dd class="${cls}" title="${esc(tip)}">${esc(v)}</dd></div>`;
+    el.innerHTML = `
+      <div class="sp-camp-head">
+        <b class="sp-camp-name" title="${esc(c.name)}">${esc(c.name)}</b><span class="pill draft">Draft</span>
+        <button type="button" class="btn sm quiet sp-camp-edit" id="spCampEdit" title="Name, template, numbers and AI replies">Edit</button>
+      </div>
+      ${c.description ? `<p class="sp-camp-desc" title="${esc(c.description)}">${esc(c.description)}</p>` : ''}
+      <dl class="sp-camp-facts">
+        ${fact('Template', tpl)}
+        ${fact('From', fromText, from.map((x) => `${x.verifiedName || x.label} ${x.displayPhone || ''}`).join(', ') || fromText)}
+        ${ai ? fact('AI replies', ai[1], ai[1], ai[0]) : ''}
+      </dl>`;
   }
   $('#spCamp')?.addEventListener('click', (e) => {
     if (!e.target.closest('#spCampEdit') || !SP.campaign) return;

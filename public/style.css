@@ -1549,7 +1549,9 @@ body.assistant-open main { padding-bottom: 0; }
 .sp-meta { font-size: 12.5px; color: var(--muted); }
 .sp-meta .ok { color: var(--good-text); }
 .sp-meta .bad { color: var(--danger); font-weight: 500; }
-.sp-tools { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+/* Title and the Message panel button on the first line; the sheet tools on their own line below */
+.sp-tools { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; flex: 1 0 100%; }
+.sp-bar > .sp-panel-btn { flex: none; align-self: center; }
 .tool {
   display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 0; border-radius: 8px;
   background: none; color: var(--muted); font: 500 13px Inter, sans-serif; cursor: pointer; white-space: nowrap;
@@ -3007,7 +3009,7 @@ button.fp-hint:hover { filter: brightness(0.96); }
 .fp-hint svg.la { margin: 0; flex: none; }
 
 /* Send page: Message button always available; panel split into Compose / Preview */
-#spTools.no-data > :not(#spPanelBtn):not(#spTestWrap) { display: none; }
+#spTools.no-data > :not(#spTestWrap) { display: none; }
 .sp-panel { display: flex; flex-direction: column; padding-top: 0; }
 .sp-panel-head { position: sticky; top: 0; z-index: 2; padding: 14px 0 10px; background: var(--surface); box-shadow: 0 1px 0 var(--hair); }
 .sp-pane-seg { display: flex; width: 100%; }
@@ -6954,13 +6956,19 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
 .cs-del { margin-right: auto; }
 
 .sp-back { flex: none; }
-.sp-camp { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 12px 14px; border-radius: var(--r-md); background: var(--field); box-shadow: var(--sh-sunk); }
+/* The campaign at the top of Setup: its name with Draft and Edit, then three plain label / value lines */
+.sp-camp { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; padding: 14px 16px; border-radius: var(--r-md); background: var(--surface); box-shadow: inset 0 0 0 1px var(--hair); }
 .sp-camp.hidden { display: none; }
-.sp-camp-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.sp-camp-k { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.sp-camp-main b { font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sp-camp-main small { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
-.sp-camp-main small > span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.sp-camp-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sp-camp-name { min-width: 0; font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-camp-head .pill { flex: none; height: 20px; font-size: 10.5px; }
+.sp-camp-edit { flex: none; margin-left: auto; }
+.sp-camp-desc { margin: -4px 0 0; }
+.sp-camp-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; margin: 0; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12.5px; }
+.sp-camp-facts > div { display: contents; }
+.sp-camp-facts dt { color: var(--muted); }
+.sp-camp-facts dd { margin: 0; color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-camp-facts dd.on::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--good); vertical-align: 1px; }
 .tp-btn[hidden] { display: none; }
 .cs-from-h { margin-top: 8px; }
 .cs-numsel { margin-bottom: 4px; }
