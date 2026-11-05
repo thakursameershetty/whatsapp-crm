@@ -1512,6 +1512,18 @@
     activate(-1);
     Draft.save(); // an empty page deletes the stored draft
   }
+  // The toolbar's Start over: the same clean page, on purpose (asks first; the files on the computer aren't touched).
+  $('#spReset').addEventListener('click', async () => {
+    const n = SP.sheets.length;
+    const ok = await confirmDialog({
+      title: 'Start over?',
+      message: `This closes ${n === 1 ? 'the sheet' : `all ${n} sheets`} and clears the template, campaign name and schedule. Your original files and saved Contacts aren't changed.`,
+      confirmText: 'Start over', danger: true,
+    });
+    if (!ok) return;
+    resetAfterSend();
+    toast('Cleared. Ready for a new campaign');
+  });
 
   // --- Page size ----------------------------------------------------------------------------
 
