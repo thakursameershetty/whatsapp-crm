@@ -7389,7 +7389,6 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .atx-to > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
 .atx-doc { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border-radius: 99px; background: rgba(255, 255, 255, 0.05); font-size: 12.5px; cursor: pointer; user-select: none; }
 .atx-doc[hidden] { display: none; }
-.atx-doc input { width: 15px; height: 15px; margin: 0; accent-color: #21c063; }
 .atx-send { position: relative; flex: none; display: grid; place-items: center; width: 50px; height: 50px; margin-left: auto; border: 0; border-radius: 50%; background: #21c063; color: #0b1a10; cursor: pointer; }
 .atx-send:hover:not(:disabled) { background: #2fd171; }
 .atx-send:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -7427,8 +7426,17 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .atx-sticker span { font-size: 13px; color: rgba(233, 237, 239, 0.6); }
 .atx-sticker .atx-sticker-was { opacity: 0.35; filter: grayscale(1); }
 .atx-chip-stk { object-fit: contain !important; background: #1f2427; }
-.atx-stk[hidden] { display: none; }
 /* Who the dropped files go to, on its own line under the file types. */
 .ib-drop-to { display: inline-flex; align-items: center; gap: 7px; margin-top: 4px; padding: 4px 12px 4px 10px; border-radius: 99px; background: color-mix(in srgb, var(--text) 6%, transparent); font-size: 13px; color: var(--muted); }
 .ib-drop-to .ib-av { width: 22px; height: 22px; font-size: 9.5px; box-shadow: none; }
 .ib-drop-in .ib-drop-to b { font-size: 13px; font-weight: 600; color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The bar's switches are <label>s: undo the app's form-label margin (it lifted them above the recipient chip)
+   and keep them their full width (one was squeezed and cut "Send as sticker" short). */
+.atx-bar label.atx-doc { flex: none; margin: 0; white-space: nowrap; font-weight: 500; line-height: 1; }
+.atx-bar label.atx-doc input { flex: none; margin: 0; }
+.atx-bar .atx-to { flex: 0 1 auto; }
+/* "Send as document" uses the app's own checkbox (input.cb), with the preview's dark colours and a WhatsApp-green tick. */
+.atx { --field: #1f2427; --sh-sunk: inset 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1); --accent-1: #2fd171; --accent-2: #1aa955; --ring: rgba(33, 192, 99, 0.45); }
+.atx-bar label.atx-doc input.cb { width: 18px; height: 18px; }
+.atx-bar label.atx-doc input.cb:focus-visible { box-shadow: var(--sh-sunk), 0 0 0 3px var(--ring); }
+.atx-bar label.atx-doc:hover input.cb:not(:checked) { --field: #272d31; }

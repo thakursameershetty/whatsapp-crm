@@ -2490,8 +2490,7 @@
       </div>
       <div class="atx-bar">
         <span class="atx-to"></span>
-        <label class="atx-doc" title="Send the original file at full quality, as a document"><input type="checkbox" data-as="asdoc"><span>Send as document</span></label>
-        <label class="atx-doc atx-stk" title="Send this picture as a WhatsApp sticker"><input type="checkbox" data-as="assticker"><span>Send as sticker</span></label>
+        <label class="atx-doc" title="Send the original file at full quality, as a document"><input type="checkbox" class="cb" data-as="asdoc"><span>Send as document</span></label>
         <button type="button" class="atx-send" data-as="send" aria-label="Send">${icon('send', 20)}<span class="atx-n"></span></button>
       </div>
       <input type="file" class="atx-more" multiple hidden>`;
@@ -2508,6 +2507,8 @@
       }
       const go = e.target.closest('[data-as-go]');
       if (go) { att.i = Number(go.dataset.asGo); return attDraw(); }
+      const unstk = e.target.closest('[data-as-unstk]');
+      if (unstk) { att.items[att.i].asSticker = false; return attDraw(); }
       const fix = e.target.closest('[data-as-fix]');
       if (fix) { att.items[att.i].asDoc = true; return attDraw(); }
       const a = e.target.closest('[data-as]')?.dataset.as;
@@ -2519,7 +2520,6 @@
     $('.atx-cap', att.el).addEventListener('input', (e) => { att.items[att.i].caption = e.target.value; });
     $('.atx-cap', att.el).addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); attSend(); } });
     $('[data-as="asdoc"]', att.el).addEventListener('change', (e) => { const it = att.items[att.i]; it.asDoc = e.target.checked; if (it.asDoc) it.asSticker = false; attDraw(); });
-    $('[data-as="assticker"]', att.el).addEventListener('change', (e) => toggleSticker(att.items[att.i], e.target.checked));
     document.addEventListener('keydown', (e) => {
       if (!att.el.classList.contains('open')) return;
       if (e.key === 'Escape') { e.stopImmediatePropagation(); attClose(); }
@@ -2571,7 +2571,7 @@
     if (k === 'document' && !DOC_OK.test(it.asDoc && it.original ? it.original.type : it.mime)) notes.push("WhatsApp lists PDF, Word, Excel, PowerPoint and text files for documents, so it may not accept this one. If it doesn't, you'll see why.");
     if (k === 'audio') notes.push('Audio is sent without a caption.');
     if (k === 'sticker' && it.sticker) notes.push(`Made into a 512×512 sticker (${fmtSize(it.sticker.blob.size)}), the size WhatsApp needs. Stickers are sent without a caption.`);
-    if (bad && bad !== 'Making the sticker…') notes.unshift(`<b>${esc(bad)}</b>${['image', 'video', 'audio'].includes(k) ? ' <button type="button" class="atx-fix" data-as-fix>Send as document instead</button>' : ''}`);
+    if (bad && bad !== 'Making the sticker…') notes.unshift(`<b>${esc(bad)}</b>${['image', 'video', 'audio'].includes(k) ? ' <button type="button" class="atx-fix" data-as-fix>Send as document instead</button>' : k === 'sticker' ? ' <button type="button" class="atx-fix" data-as-unstk>Send as a photo instead</button>' : ''}`);
     const note = $('.atx-note', el);
     note.hidden = !notes.length;
     note.classList.toggle('bad', Boolean(bad));
@@ -2596,10 +2596,9 @@
     // Bottom bar: who it's going to; "Send as document" for photos and videos; Send with how many.
     $('.atx-to', el).innerHTML = `<span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span><span>${esc(displayName(c))}</span>`;
     const canDoc = (/^(image|video)\//.test(it.mime) && it.mime !== 'image/gif' && OUT_MEDIA[it.mime.startsWith('video') ? 'video' : 'image'].types.includes(it.mime)) || Boolean(it.original);
-    $('.atx-doc', el).hidden = !canDoc;
+    $('.atx-doc', el).hidden = !canDoc || k === 'sticker';
     $('[data-as="asdoc"]', el).checked = it.asDoc && !it.asSticker;
-    $('.atx-stk', el).hidden = !canSticker(it);
-    $('[data-as="assticker"]', el).checked = Boolean(it.asSticker);
+
     const blocked = att.items.some(problem);
     const send = $('[data-as="send"]', el);
     send.disabled = blocked;
