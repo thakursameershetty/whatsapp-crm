@@ -1029,6 +1029,34 @@ function numStats(s) {
   </div>`;
 }
 
+// A number's display name as Meta sees it (server: readNumberStatus). Not approved = every send fails with 131037.
+const NAME_STATUS = {
+  APPROVED: ['good', 'Approved', 'Meta approved this display name.'],
+  AVAILABLE_WITHOUT_REVIEW: ['good', 'Approved', 'This display name can be used without a review.'],
+  PENDING_REVIEW: ['warn', 'In review at Meta', 'Meta is reviewing the display name. Messages fail (error 131037) until it’s approved, usually within 1–2 days.'],
+  DECLINED: ['bad', 'Rejected', 'Meta rejected the display name. Messages fail (error 131037) until a new name is approved. Change it in WhatsApp Manager → Phone numbers.'],
+  EXPIRED: ['bad', 'Expired', 'The display name’s approval expired. Request it again in WhatsApp Manager → Phone numbers.'],
+  NONE: ['warn', 'Not submitted', 'No display name has been submitted for review yet. Add one in WhatsApp Manager → Phone numbers.'],
+};
+// The number itself, when it isn't simply connected.
+const NUMBER_STATUS = {
+  PENDING: 'Setup not finished', UNVERIFIED: 'Not verified', DISCONNECTED: 'Disconnected', FLAGGED: 'Flagged by Meta',
+  RESTRICTED: 'Restricted by Meta', BANNED: 'Banned by Meta', RATE_LIMITED: 'Rate limited', DELETED: 'Deleted at Meta', MIGRATED: 'Moved to another account',
+};
+const nameBlocked = (s) => ['PENDING_REVIEW', 'DECLINED', 'EXPIRED', 'NONE'].includes(s.nameStatus); // sends from it will fail
+function nameStatusHtml(s) {
+  const n = NAME_STATUS[s.nameStatus];
+  const out = [];
+  if (n) {
+    const tip = n[2] + (s.nameRejection && s.nameStatus === 'DECLINED' ? ` Meta said: ${s.nameRejection}` : '') + (s.statusCheckedAt ? ` (checked ${shortAgo(s.statusCheckedAt)})` : '');
+    out.push(`<dt>Display name</dt><dd title="${esc(tip)}"><span class="tag ${n[0]}">${n[1]}</span>${s.newNameStatus === 'PENDING_REVIEW' && s.nameStatus !== 'PENDING_REVIEW' ? '<span class="tag-note">a new name is in review</span>' : ''}</dd>`);
+  }
+  if (s.numberStatus && s.numberStatus !== 'CONNECTED') {
+    out.push(`<dt>Number status</dt><dd title="Meta reports this number as ${esc(s.numberStatus.toLowerCase().replace(/_/g, ' '))}. Check it in WhatsApp Manager → Phone numbers."><span class="tag ${['PENDING', 'UNVERIFIED', 'RATE_LIMITED'].includes(s.numberStatus) ? 'warn' : 'bad'}">${esc(NUMBER_STATUS[s.numberStatus] || s.numberStatus.toLowerCase().replace(/_/g, ' '))}</span></dd>`);
+  }
+  return out.join('');
+}
+
 function renderSenders() {
   const list = $('#senderList');
   if (!state.senders.length) {
@@ -1068,6 +1096,7 @@ function renderSenders() {
         <dt>Phone number ID</dt><dd>${esc(s.phoneNumberId)}</dd>
         <dt>WABA ID</dt><dd>${esc(s.wabaId || '—')}</dd>
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
+        ${nameStatusHtml(s)}
         ${s.qualityRating ? `<dt>Quality</dt><dd class="dd-pop">${qualityTag(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
         ${numberPlaybooksHtml(s.id)}

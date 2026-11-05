@@ -58,7 +58,7 @@
     if (days === -1) return `Tomorrow ${time}`;
     return t.toLocaleDateString([], { day: 'numeric', month: 'short', ...(t.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
   }
-  const fullDate = (d) => (d ? new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '');
+  const fullDate = (d) => (d ? new Date(d).toLocaleString() : ''); // 05/11/2026, 1:00 pm (dates.js)
   const STATUS_LABEL = { running: 'Sending', queued: 'Starting', scheduled: 'Scheduled', completed: 'Completed', stopped: 'Stopped', cancelled: 'Cancelled' };
 
   // --- List --------------------------------------------------------------------
@@ -693,14 +693,18 @@
     132015: ['The template is paused', false],
     132016: ['The template is disabled', false],
     131042: ['Payment problem on the WhatsApp account', false],
+    131037: ['The number’s display name isn’t approved by Meta yet', false],
     131031: ['The WhatsApp account is locked', false],
     368: ['The number is temporarily blocked by Meta', false],
     190: ['The access token expired: update it under Numbers', false],
   };
   function reasonOf(error = '') {
-    const code = String(error).match(/^(\d{2,6}):/)?.[1];
+    // the code, stored as "131042: …" or as Meta's own "(#131037) …"
+    const code = String(error).match(/^(\d{2,6}):/)?.[1] || String(error).match(/\(#(\d{2,6})\)/)?.[1];
     if (code) {
-      const [label, retry] = REASONS[code] || [String(error).replace(/^\d+:\s*/, ''), true];
+      // our short wording, else the Error codes list's title, else Meta's text without the code
+      const known = window.MetaErrors?.byCode[code];
+      const [label, retry] = REASONS[code] || (known ? [known.title, known.retry !== 'no'] : [String(error).replace(/^\d+:\s*/, '').replace(/\(#\d+\)\s*/, ''), true]);
       return { key: code, code, label, retry };
     }
     const msg = String(error).replace(/^\(demo\)\s*/i, '').replace(/^Simulated failure:\s*/i, '') || 'Unknown error';
@@ -813,7 +817,7 @@
       : c.status === 'scheduled' ? `<button class="btn primary" data-cd="now">${icon('send', 16)}Send now</button>`
       : canResume ? `<button class="btn primary" data-cd="resume">${icon('send', 16)}${c.status === 'cancelled' ? 'Send now' : 'Resume'}</button>` : '';
     const nums = c.senderIds.map((id) => state.senders.find((x) => x.id === id)?.label).filter(Boolean);
-    const when = c.status === 'scheduled' ? `sends ${relTime(c.scheduledAt)} (${fullDate(c.scheduledAt)})` : c.startedAt ? `started ${fullDate(c.startedAt)}${c.finishedAt ? ` · took ${duration(c.startedAt, c.finishedAt)}` : ''}` : `created ${fullDate(c.createdAt)}`;
+    const when = c.status === 'scheduled' ? `sends ${relTime(c.scheduledAt)} (${fullDate(c.scheduledAt)})` : c.startedAt ? `started ${fullDate(c.startedAt)}${c.finishedAt ? ` · took ${c.activeMs != null ? duration(0, c.activeMs) : duration(c.startedAt, c.finishedAt)}` : ''}` : `created ${fullDate(c.createdAt)}`;
     // Why it stopped (auto-pause, or a server restart) and what to do, right under the title.
     const why = c.status === 'stopped' && c.pausedReason ? `<div class="cd-why">${icon('badge-alert', 16)}<div><b>Why it stopped</b><span>${esc(c.pausedReason)}</span></div></div>` : '';
     $('#cdHead').innerHTML = `

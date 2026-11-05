@@ -25,6 +25,8 @@
     ai_qualified: { icon: 'trending-up', tone: 'good' },
     ai_error: { icon: 'badge-alert', tone: 'warn' },
     whats_new: { icon: 'sparkles', tone: 'violet' },
+    number_ok: { icon: 'circle-check', tone: 'good' }, // a number's display name was approved
+    number_problem: { icon: 'badge-alert', tone: 'danger' }, // …or rejected / expired
   };
   const FILTERS = [['all', 'All'], ['unread', 'Unread'], ['messages', 'Messages'], ['campaigns', 'Campaigns'], ['ai', 'AI assistant']];
   // Which new notifications also pop a toast. (Everything lands on the page either way.)

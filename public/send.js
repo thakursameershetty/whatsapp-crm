@@ -1501,7 +1501,10 @@
   // The numbers it sends from, as the confirmation shows them (photo, name, number).
   function fromHtml() {
     const list = state.senders.filter((x) => state.selectedSenders.has(x.id));
-    return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>`;
+    // a number whose display name isn't approved: Meta rejects every message from it (131037), so say so before sending
+    const blocked = state.settings.demoMode ? [] : list.filter(nameBlocked);
+    const warn = blocked.length ? `<p class="cf-warn">${icon('badge-alert', 15)}<span><b>${esc(blocked.map((x) => x.verifiedName || x.label).join(', '))}</b>: display name ${esc(blocked.length === 1 ? NAME_STATUS[blocked[0].nameStatus][1].toLowerCase() : 'not approved')}. Meta will reject these messages (error 131037) until it's approved. See Numbers.</span></p>` : '';
+    return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>${warn}`;
   }
   $('#sendAll').addEventListener('click', (e) => {
     if (e.currentTarget.classList.contains('sp-go-next')) {
@@ -1531,7 +1534,7 @@
       const c = await api('/campaigns', {
         method: 'POST',
         // "Send now" waits 5 seconds on the server, so it can be undone (it still goes if this page is closed)
-        body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, test: $('#spTest').checked, ...(scheduledAt ? {} : { hold: 5 }) },
+        body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, test: $('#spTest').checked, tz: new Date().getTimezoneOffset(), ...(scheduledAt ? {} : { hold: 5 }) },
       });
       SP.sending = true; // (leaving during the undo countdown isn't leaving a draft)
       const undone = !scheduledAt && !(await undoToast({ title: `Sending ${c.total.toLocaleString()} message${c.total === 1 ? '' : 's'}`, msg: t.name }).finally(() => { SP.sending = false; }));

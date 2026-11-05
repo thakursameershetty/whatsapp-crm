@@ -260,6 +260,20 @@ function goCode(value) {
   return code;
 }
 
+// "05/11/2026, 1:00 pm": a moment in the person's own time (the server runs in UTC). tz is the browser's
+// getTimezoneOffset() in minutes; India's when it isn't known (e.g. a campaign the Assistant made).
+function localStamp(tz, d = new Date()) {
+  const off = Number.isFinite(Number(tz)) && tz !== '' && tz != null ? Number(tz) : -330;
+  return new Date(d.getTime() - off * 60000).toLocaleString('en-GB', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+// A failed message's Meta error code, from either way it was stored: "131042: Title" (the status webhook, and sends
+// since this change) or Meta's own "(#131037) text" (sends rejected straight away, before it).
+function errorCodeOf(error) {
+  const t = String(error || '');
+  return t.match(/^(\d{2,6}):/)?.[1] || t.match(/\(#(\d{2,6})\)/)?.[1] || '';
+}
+
 async function graph(sender, pathname, options = {}) {
   const { version, ...fetchOptions } = options; // `version` overrides the configured Graph API version for one call
   const url = `https://graph.facebook.com/${version || db.settings.graphVersion}/${pathname}`;
@@ -317,7 +331,21 @@ let credits = null; // what SendON charges (credits.js), mounted further down
 // Failures that say the list (or the number) is in trouble. Meta's marketing cap (131049) and rate
 // limits are Meta's choice about timing, not bad numbers, so they don't count towards auto-pausing.
 const NOT_LIST_PROBLEMS = /^(131049|130429|131056|4|80007):/;
-const listFailures = (c) => c.recipients.filter((r) => r.status === 'failed' && !NOT_LIST_PROBLEMS.test(String(r.error || ''))).length;
+// Failures that are about the sending number, account or template, not the people: every message fails the same way
+// until it's fixed, so they pause the send quickly, with what to fix (and don't count as a bad list).
+const ACCOUNT_PROBLEMS = {
+  131037: 'this number’s display name isn’t approved by Meta yet. Check its status in WhatsApp Manager → Phone numbers',
+  131042: 'there’s a payment problem on the WhatsApp account. Fix the payment method in Meta Business Settings → Billing',
+  131031: 'the WhatsApp account is locked. Check Account quality in WhatsApp Manager',
+  368: 'Meta has temporarily blocked this number. Check Account quality in WhatsApp Manager',
+  190: 'the number’s access token expired. Paste a new one under Numbers',
+  132001: 'Meta can’t find this template in that language. Check it under Templates',
+  132015: 'Meta has paused this template. Check it under Templates',
+  132016: 'Meta has disabled this template. Choose another one',
+};
+const accountProblem = (r) => (r.status === 'failed' && ACCOUNT_PROBLEMS[errorCodeOf(r.error)] ? errorCodeOf(r.error) : '');
+const listFailures = (c) => c.recipients.filter((r) => r.status === 'failed' && !NOT_LIST_PROBLEMS.test(String(r.error || '')) && !accountProblem(r)).length;
+const accountFailures = (c) => c.recipients.filter(accountProblem).length;
 const attempted = (c) => c.recipients.filter((r) => ['sent', 'delivered', 'read', 'failed'].includes(r.status)).length;
 
 // "It needs N credits (…), and this workspace has M": the reason a send can't start.
@@ -342,8 +370,9 @@ async function runCampaign(campaign) {
   campaign.status = 'running';
   // This run is judged on its own messages: what went wrong before (and was resumed past) doesn't count again.
   delete campaign.pausedReason;
-  const base = { done: attempted(campaign), failed: listFailures(campaign) };
+  const base = { done: attempted(campaign), failed: listFailures(campaign), account: accountFailures(campaign) };
   campaign.startedAt ||= new Date().toISOString();
+  const runFrom = Date.now(); // "took" adds up the time spent sending, not the hours it sat stopped between runs
   save();
   notes?.campaignStarted(campaign);
 
@@ -387,7 +416,8 @@ async function runCampaign(campaign) {
             continue;
           }
           r.status = 'failed';
-          r.error = e.message;
+          // "131037: …", the same shape as failures from the status webhook, so the code is shown and grouped the same way
+          r.error = /^\d{2,6}$/.test(String(e.code ?? '')) ? `${e.code}: ${String(e.message).replace(/^\(#\d+\)\s*/, '')}` : e.message;
           r.failedAt = new Date().toISOString();
           credits.refund(ch); // Meta didn't take it: no charge
           break;
@@ -397,8 +427,15 @@ async function runCampaign(campaign) {
       recount(campaign);
       save();
       // Many failures usually means a bad list or a blocked number: stop before it hurts the number's quality.
-      const done = attempted(campaign) - base.done, bad = listFailures(campaign) - base.failed;
-      if (!campaign.demo && !control.stop && done >= 40 && bad / done > 0.3) {
+      const done = attempted(campaign) - base.done, bad = listFailures(campaign) - base.failed, acct = accountFailures(campaign) - base.account;
+      if (!campaign.demo && !control.stop && acct >= 5 && acct / done > 0.5) {
+        // the same problem with the number or template, again and again: name it, and what fixes it
+        const counts = {};
+        for (const x of campaign.recipients) { const k = accountProblem(x); if (k) counts[k] = (counts[k] || 0) + 1; }
+        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+        control.stop = true;
+        campaign.pausedReason = `Paused automatically: Meta rejected ${acct} of ${done} messages (error ${top}) because ${ACCOUNT_PROBLEMS[top]}. Every message will fail until that's fixed; then press Resume. Your contacts are fine.`;
+      } else if (!campaign.demo && !control.stop && done >= 40 && bad / done > 0.3) {
         control.stop = true;
         campaign.pausedReason = `Paused automatically: ${Math.round((100 * bad) / done)}% of ${done} messages failed because the numbers couldn't receive them (not on WhatsApp, blocked, or wrong). Sending more to a list like this can lower your number's quality rating. Check the failures before sending the rest.`;
       }
@@ -421,6 +458,7 @@ async function runCampaign(campaign) {
   recount(campaign);
   campaign.status = control.stop ? 'stopped' : 'completed';
   campaign.finishedAt = new Date().toISOString();
+  campaign.activeMs = (campaign.activeMs || 0) + (Date.now() - runFrom);
   save();
   notes?.campaignDone(campaign, { stopped: control.stop });
   if (campaign.pausedReason) notes?.add({ kind: 'delivery_failed', title: `“${campaign.name}” was paused`, body: campaign.pausedReason, link: { tab: 'campaigns', id: campaign.id } });
@@ -481,6 +519,23 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
         const ws = tenants.allWorkspaces().find((w) => w.db.senders.some((x) => x.wabaId === String(entry.id)) || w.db.templates.some((x) => x.metaId === String(change.value?.message_template_id)));
         const handle = change.field === 'template_category_update' ? handleTemplateCategory : handleTemplateStatus;
         if (ws) tenants.forWorkspace(ws, () => handle(String(entry.id), change.value || {}));
+        continue;
+      }
+      // Meta decided on a number's display name (subscribe to "phone_number_name_update" in the app's webhook fields).
+      // The entry is the Business Account; the number comes as display_phone_number.
+      if (change.field === 'phone_number_name_update') {
+        const v = change.value || {}, digits = String(v.display_phone_number || '').replace(/\D/g, '');
+        const match = (x) => digits && String(x.displayPhone || '').replace(/\D/g, '') === digits;
+        const ws = tenants.allWorkspaces().find((w) => w.db.senders.some(match));
+        if (ws) tenants.forWorkspace(ws, () => {
+          const s = db.senders.find(match);
+          const st = { APPROVED: 'APPROVED', REJECTED: 'DECLINED', DEFERRED: 'PENDING_REVIEW' }[String(v.decision || '').toUpperCase()];
+          if (!s || !st) return;
+          if (st === 'APPROVED' && v.requested_verified_name) s.verifiedName = v.requested_verified_name;
+          if (v.rejection_reason && st === 'DECLINED') s.nameRejection = String(v.rejection_reason).slice(0, 300);
+          applyNumberStatus(s, { nameStatus: st, newNameStatus: '', statusCheckedAt: new Date().toISOString() });
+          save();
+        });
         continue;
       }
       const ws = tenants.byPhoneNumberId(change.value?.metadata?.phone_number_id);
@@ -792,7 +847,38 @@ async function verifyWithMeta({ phoneNumberId, wabaId, accessToken }) {
   if (!info.display_phone_number) throw fail("That ID isn't a WhatsApp phone number ID. Copy the Phone number ID from Meta → WhatsApp → API Setup.");
   const found = await findWaba(who, phoneNumberId, wabaId, say);
   const messagingLimit = await readMessagingLimit(who, phoneNumberId);
-  return { displayPhone: info.display_phone_number, verifiedName: info.verified_name || '', qualityRating: info.quality_rating, messagingLimit, limitCheckedAt: new Date().toISOString(), ...(found ? { wabaId: found } : {}) };
+  const status = await readNumberStatus(who, phoneNumberId);
+  return { displayPhone: info.display_phone_number, verifiedName: info.verified_name || '', qualityRating: info.quality_rating, messagingLimit, limitCheckedAt: new Date().toISOString(), ...status, ...(found ? { wabaId: found } : {}) };
+}
+
+// Meta's word on a number: is its display name approved (name_status; a requested new name: new_name_status), is the
+// number itself connected (status), and was it verified by code. Unapproved names make every send fail (131037), so the
+// Numbers page and the send confirmation show it. Never fatal: a failed read returns nothing and keeps what was known.
+async function readNumberStatus(who, phoneNumberId) {
+  const id = encodeURIComponent(phoneNumberId);
+  let info = null;
+  try { info = await graph(who, `${id}?fields=status,name_status,new_name_status,code_verification_status`); }
+  catch { try { info = await graph(who, `${id}?fields=status,name_status`); } catch { return {}; } } // (an older API version without some fields)
+  return {
+    numberStatus: String(info.status || ''), nameStatus: String(info.name_status || ''), newNameStatus: String(info.new_name_status || ''),
+    codeVerification: String(info.code_verification_status || ''), statusCheckedAt: new Date().toISOString(),
+  };
+}
+const NAME_WORDS = { APPROVED: 'approved', AVAILABLE_WITHOUT_REVIEW: 'approved', DECLINED: 'rejected', EXPIRED: 'expired', PENDING_REVIEW: 'in review', NONE: 'not submitted' };
+// Save a fresh reading on the number; a display name that changed (approved, rejected…) is also a notification.
+function applyNumberStatus(s, st) {
+  if (!st?.statusCheckedAt) return;
+  const before = s.nameStatus;
+  Object.assign(s, st);
+  if (before && st.nameStatus && before !== st.nameStatus && NAME_WORDS[st.nameStatus] !== NAME_WORDS[before]) {
+    const ok = NAME_WORDS[st.nameStatus] === 'approved';
+    notes?.add({
+      kind: ok ? 'number_ok' : 'number_problem',
+      title: `${s.verifiedName || s.label}: display name ${NAME_WORDS[st.nameStatus] || st.nameStatus.toLowerCase()}`,
+      body: ok ? `Meta approved the display name for ${s.displayPhone || s.label}. It can send messages now.` : `Messages from ${s.displayPhone || s.label} fail (error 131037) until Meta approves its display name. Check it in WhatsApp Manager → Phone numbers.`,
+      link: { tab: 'numbers' },
+    });
+  }
 }
 
 // Meta's messaging limit: unique people a business can message outside the 24h customer service window per
@@ -973,6 +1059,7 @@ app.post('/api/senders/:id/test', wrap(async (req, res) => {
   s.verifiedName = info.verified_name;
   s.qualityRating = info.quality_rating;
   s.messagingLimit = info.messaging_limit = await readMessagingLimit(s, s.phoneNumberId);
+  applyNumberStatus(s, await readNumberStatus(s, s.phoneNumberId));
   s.lastCheckedAt = s.limitCheckedAt = new Date().toISOString();
   await readProfilePhoto(s);
   save();
@@ -1564,7 +1651,7 @@ function createCampaign(body) {
 
   const c = {
     id: draft ? draft.id : id(),
-    name: name || `${template.name} — ${new Date().toLocaleString()}`,
+    name: name || `${template.name} — ${localStamp(body.tz)}`,
     templateId,
     templateName: template.name,
     senderIds: senders.map((s) => s.id),
@@ -1876,7 +1963,7 @@ app.post('/api/campaigns/:id/resume', wrap((req, res) => {
   if (running.has(c.id)) throw fail('Already running');
   // Also retry failures when asked: all of them, or only those with certain error codes / messages.
   const codes = Array.isArray(req.body?.retryReasons) ? new Set(req.body.retryReasons.map(String)) : null;
-  const reasonOf = (r) => String(r.error || '').match(/^(\d{2,6}):/)?.[1] || String(r.error || '');
+  const reasonOf = (r) => errorCodeOf(r.error) || String(r.error || '');
   const retry = req.body?.retryFailed || codes ? c.recipients.filter((r) => r.status === 'failed' && (!codes || codes.has(reasonOf(r)))) : [];
   const tpl = db.templates.find((t) => t.id === c.templateId);
   const toSend = c.recipients.filter((r) => r.status === 'pending' || r.status === 'queued').length + retry.length;
@@ -2535,7 +2622,7 @@ function computeStats(query = {}) {
     if (r.status === 'failed') {
       bucket.failed++;
       // by reason (Meta's error code, or the message when there is none), for the Overview's Failed chart
-      const why = String(r.error || '').match(/^(\d{2,6}):/)?.[1] || (/not on whatsapp/i.test(r.error || '') ? '131026' : 'other');
+      const why = errorCodeOf(r.error) || (/not on whatsapp/i.test(r.error || '') ? '131026' : 'other');
       if (bucket.reasons) bucket.reasons[why] = (bucket.reasons[why] || 0) + 1;
     }
   };
@@ -2628,8 +2715,14 @@ app.get('/api/stats', wrap(async (req, res) => {
   req.query.scope = req.senderScope; // a member limited to some numbers sees stats for those only
   if (!db.settings.demoMode) {
     const stale = db.senders.filter((s) => s.accessToken && !(Date.parse(s.limitCheckedAt) > Date.now() - LIMIT_REFRESH_MS));
-    if (stale.length) {
-      await Promise.all(stale.map(async (s) => { s.messagingLimit = await readMessagingLimit(s, s.phoneNumberId) || s.messagingLimit || ''; s.limitCheckedAt = new Date().toISOString(); }));
+    // the display name and number status too: every 6h, or every 15 min while a name is waiting on Meta
+    const ago = (t) => Date.now() - (Date.parse(t) || 0);
+    const statusStale = db.senders.filter((s) => s.accessToken && (ago(s.statusCheckedAt) > LIMIT_REFRESH_MS || ((s.nameStatus === 'PENDING_REVIEW' || s.newNameStatus === 'PENDING_REVIEW') && ago(s.statusCheckedAt) > 15 * 60000)));
+    if (stale.length || statusStale.length) {
+      await Promise.all([
+        ...stale.map(async (s) => { s.messagingLimit = await readMessagingLimit(s, s.phoneNumberId) || s.messagingLimit || ''; s.limitCheckedAt = new Date().toISOString(); }),
+        ...statusStale.map(async (s) => applyNumberStatus(s, await readNumberStatus(s, s.phoneNumberId))),
+      ]);
       save();
     }
   }
