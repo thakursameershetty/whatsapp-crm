@@ -1828,6 +1828,16 @@ app.delete('/api/drafts/:id', wrap((req, res) => {
   save();
   res.json({ ok: true });
 }));
+// A sent campaign can be renamed (its name is only a label: nothing sent changes).
+app.patch('/api/campaigns/:id/name', wrap((req, res) => {
+  const c = db.campaigns.find((x) => x.id === req.params.id);
+  if (!c) throw fail('Not found', 404);
+  const name = String(req.body?.name || '').trim().slice(0, 120);
+  if (!name) throw fail('Give the campaign a name');
+  c.name = name;
+  save();
+  res.json({ name });
+}));
 // A sent campaign's AI reply settings can still change: replies keep coming after it's sent.
 app.patch('/api/campaigns/:id/ai', wrap((req, res) => {
   const c = db.campaigns.find((x) => x.id === req.params.id);
@@ -2970,6 +2980,41 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
     if (!t.approvedAt && String(t.status).toUpperCase() === 'APPROVED') {
       const note = (db.notifications || []).filter((x) => x.kind === 'template_approved' && x.link?.id === t.id && / was approved$/.test(x.title)).sort((a, b) => String(b.ts).localeCompare(String(a.ts)))[0];
       if (note) { t.approvedAt = note.ts; n++; }
+    }
+  }
+  if (n) save();
+});
+// Campaigns saved by older versions, brought in line with today's (each step only touches what's still old, so it's
+// safe on every start):
+// · auto names "template — 11/5/2026, 5:52:18 AM" were the server's UTC time in US order: now "— 05/11/2026, 11:22 am"
+//   in India's time (when it was created)
+// · "Why it stopped" blamed the list when the failures were the number's or template's (e.g. 131037): now names that
+// · "took" counted the hours it sat stopped between runs: now estimated from when its messages actually went out
+for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
+  let n = 0;
+  const OLD_STAMP = /^(.*) — \d{1,2}\/\d{1,2}\/\d{4}, \d{1,2}:\d{2}:\d{2}[\s ]?(AM|PM)$/;
+  for (const c of db.campaigns) {
+    const m = String(c.name || '').match(OLD_STAMP);
+    if (m && Date.parse(c.createdAt)) { c.name = `${m[1]} — ${localStamp(-330, new Date(c.createdAt))}`; n++; }
+    if (/^Paused automatically: .*couldn't receive them/.test(c.pausedReason || '')) {
+      const counts = {};
+      for (const r of c.recipients) { const k = accountProblem(r); if (k) counts[k] = (counts[k] || 0) + 1; }
+      const acct = Object.values(counts).reduce((a, b) => a + b, 0);
+      if (acct && acct >= listFailures(c)) {
+        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+        c.pausedReason = `Paused automatically: Meta rejected ${acct} messages (error ${top}) because ${ACCOUNT_PROBLEMS[top]}. Every message will fail until that's fixed; then press Resume. Your contacts are fine.`;
+        n++;
+      }
+    }
+    if (c.finishedAt && c.activeMs == null && !c.seed) {
+      // the stretches with messages going out, with gaps of over 5 minutes (stopped, waiting) left out
+      const ts = c.recipients.map((r) => Date.parse(r.sentAt || r.failedAt)).filter(Boolean).sort((a, b) => a - b);
+      if (ts.length) {
+        let ms = 0;
+        for (let i = 1; i < ts.length; i++) { const gap = ts[i] - ts[i - 1]; if (gap < 5 * 60000) ms += gap; }
+        c.activeMs = Math.max(1000, ms);
+        n++;
+      }
     }
   }
   if (n) save();

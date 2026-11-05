@@ -1336,10 +1336,33 @@
     await open(c.id);
   }
 
+  // A sent campaign's name can still change (PATCH /api/campaigns/:id/name).
+  function renameCampaign(c) {
+    const body = openModal('Rename campaign', `
+      <label>Campaign name<input id="rnName" maxlength="120" value="${esc(c.name)}" /></label>
+      <div class="modal-actions"><button class="btn quiet" id="rnCancel">Cancel</button><button class="btn primary" id="rnSave">Save</button></div>`);
+    const input = $('#rnName', body);
+    input.focus();
+    input.select();
+    $('#rnCancel', body).onclick = closeModal;
+    const go = (e) => guard(async () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); throw new Error('Give the campaign a name'); }
+      const r = await api(`/campaigns/${c.id}/name`, { method: 'PATCH', body: { name } });
+      c.name = r.name;
+      closeModal();
+      toast('Campaign renamed');
+      await open(c.id);
+    }, e?.currentTarget || $('#rnSave', body));
+    $('#rnSave', body).onclick = go;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  }
+
   function moreMenu(c, b) {
     const r = b.getBoundingClientRect();
     const running = live(c);
     Sheet.Menu.open(Math.min(r.left, innerWidth - 240), r.bottom + 4, [
+      { label: 'Rename…', action: () => renameCampaign(c) },
       ...(state.me?.ai ? [{ label: c.ai?.on ? 'AI replies: on…' : 'AI replies: off…', action: () => window.CampaignSetup.open({ campaign: c, onSaved: (x) => { c.ai = x.ai; } }) }, '-'] : []),
       { label: 'Export CSV', action: () => { location.href = `/api/campaigns/${c.id}/export.csv`; } },
       // a test send stays listed, but out of the Overview's numbers
