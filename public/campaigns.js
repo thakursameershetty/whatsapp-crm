@@ -585,7 +585,7 @@
       <span class="cp-folder-top"><span class="pill draft">Draft</span>${d.demo ? '<span class="pill demo">demo</span>' : ''}${ai}</span>
       <span class="cp-folder-body">
         <b>${esc(d.name)}</b>
-        <small>${esc(d.templateName || '')} · ${esc(shortDate(d.updatedAt || d.createdAt))}</small>
+        <small>${esc(d.templateName || '')}${d.people ? ` · ${d.people.toLocaleString()} ${d.people === 1 ? 'person' : 'people'}` : ''} · ${esc(shortDate(d.updatedAt || d.createdAt))}</small>
       </span>
       <span class="cf-stats cp-draft-go"><span>${icon('square-pen', 13)}Continue</span><span class="cp-draft-del" data-draft-del="${d.id}" role="button" tabindex="0" title="Delete draft" aria-label="Delete draft">${icon('delete', 14)}</span></span>
     </button>`;

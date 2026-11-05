@@ -561,9 +561,17 @@
     }));
     const many = tables.length > 1;
     const prompt = `Clean up ${many ? `these ${tables.length} sheets and combine them into one` : 'this sheet'} so it's ready to send: keep only real contacts with a valid WhatsApp number, tidy the names and other columns, drop junk rows (titles, notes, test entries, blanks) and merge duplicates. Before you build it, ask me anything you're unsure about, like which column has the numbers or which rows count as valid.`;
-    showTab('assistant');
+    // Remember the campaign (and the sheets sent along), so the Assistant's "Open in Send" comes back to this draft.
+    // Kept for the tab's session too, so it still works after a reload on the Assistant.
+    SP.aiFrom = { cid: SP.campaign?.id || null, keys: list.map(sheetKey) };
+    try { sessionStorage.setItem('aiFrom', JSON.stringify(SP.aiFrom)); } catch { }
+    SP.skipLeave = true; // (going to the Assistant and back isn't leaving the draft: no "save as draft?")
+    try { showTab('assistant'); } finally { SP.skipLeave = false; }
     window.Assistant.attachTables(tables, prompt);
   });
+  const sheetKey = (sh) => `${sh.file || ''}|${sh.name}`;
+  const aiFrom = () => { if (SP.aiFrom) return SP.aiFrom; try { return JSON.parse(sessionStorage.getItem('aiFrom') || 'null'); } catch { return null; } };
+  const forgetAiFrom = () => { SP.aiFrom = null; try { sessionStorage.removeItem('aiFrom'); } catch { } };
 
   $('#spSaveContacts').addEventListener('click', () => {
     const sh = current();
@@ -1515,7 +1523,10 @@
         // "Send now" waits 5 seconds on the server, so it can be undone (it still goes if this page is closed)
         body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, test: $('#spTest').checked, ...(scheduledAt ? {} : { hold: 5 }) },
       });
-      if (!scheduledAt && !(await undoToast({ title: `Sending ${c.total.toLocaleString()} message${c.total === 1 ? '' : 's'}`, msg: t.name }))) {
+      SP.sending = true; // (leaving during the undo countdown isn't leaving a draft)
+      const undone = !scheduledAt && !(await undoToast({ title: `Sending ${c.total.toLocaleString()} message${c.total === 1 ? '' : 's'}`, msg: t.name }).finally(() => { SP.sending = false; }));
+      SP.sending = false;
+      if (undone) {
         try {
           await api(`/campaigns/${c.id}/undo`, { method: 'POST' });
           return toast('Nothing was sent', '', { title: 'Undone', icon: 'undo-2' });
@@ -1535,7 +1546,7 @@
   // draft. The chosen sender numbers stay, since the next campaign usually goes out from the same ones.
   function resetAfterSend({ keepCampaign = false } = {}) {
     const sentId = SP.campaign?.id;
-    if (!keepCampaign) { Draft.flush(); SP.campaign = null; if (sentId) Draft.drop(sentId); }
+    if (!keepCampaign) { Draft.flush(); SP.campaign = null; if (sentId) Draft.drop(sentId); if (aiFrom()?.cid === sentId) forgetAiFrom(); }
     SP.sheets = [];
     SP.mapping = {};
     grid.clearHistory();
@@ -1669,17 +1680,38 @@
     // Write a waiting save now (before switching to another campaign).
     function flush() { clearTimeout(timer); if (pending) write(); }
     const drop = (cid) => tx('readwrite', (st) => st.delete(keyOf(cid))).catch(() => { });
-    // The open campaign's sheets and settings, as it was left in this browser.
-    async function restore() {
+    // What "saved" compares: the people and how they're set up (not when, or which tab is open). The name, template,
+    // numbers and AI settings are saved by Campaign settings, so they never count as unsaved here.
+    // (column widths, wrapping and filters are only how it looks, so they don't count)
+    const sig = (p) => JSON.stringify([
+      (p.sheets || []).map((s) => [s.name, s.headers, s.phoneName || '', s.included !== false, (s.rows || []).map(([c, on, pick]) => [(c || []).map((x) => String(x ?? '')), on ? 1 : 0, pick?.length ? pick : 0])]),
+      p.mapping || {}, p.mode, p.mode === 'schedule' ? p.at : '',
+    ]);
+    let saved = null; // sig of what the server has for this draft (null: nothing saved there yet)
+    // Unsaved: the page differs from the server's copy (or, with none there, has any people on it).
+    const dirty = () => Boolean(SP.campaign) && !SP.sending && !SP.skipLeave && (saved == null ? SP.sheets.length > 0 : sig(pack()) !== saved);
+    // Save as draft: the page to the server, so it's there on any device (PUT /api/drafts/:id/work).
+    async function saveToServer() {
+      if (!SP.campaign) return null;
+      const data = pack();
+      const d = await api(`/drafts/${SP.campaign.id}/work`, { method: 'PUT', body: data });
+      saved = sig(data);
+      Object.assign(SP.campaign, d);
+      return d;
+    }
+    // The open campaign's sheets and settings: the newer of this browser's copy and the server's (work).
+    async function restore(work = null) {
       let d = null;
       ready = true;
       clearTimeout(timer); pending = null; // (an empty page drawn while opening must not overwrite what's stored)
+      saved = work?.v === 1 ? sig(work) : null;
       if (!key()) return false;
       try {
         d = await tx('readonly', (st) => st.get(key()));
         // the old Send page's single draft (from before campaigns were set up first): a new campaign starts empty, so drop it
         if (!d) tx('readwrite', (st) => st.delete(legacyKey())).catch(() => { });
       } catch { /* private window etc.: start fresh */ }
+      if (work?.v === 1 && (!d || d.v !== 1 || !(d.savedAt > work.savedAt))) d = work;
       if (!d || d.v !== 1) return false;
       restoring = true;
       try {
@@ -1700,14 +1732,16 @@
       return SP.sheets.length > 0;
     }
     const clear = () => tx('readwrite', (st) => st.clear()).catch(() => { });
-    return { save, restore, clear, flush, drop };
+    const forget = () => { saved = null; };
+    return { save, restore, clear, flush, drop, dirty, saveToServer, forget };
   })();
   $('#scheduleAt').addEventListener('change', () => Draft.save());
   // Logging out: don't leave anyone's contact lists in this browser.
   document.addEventListener('click', (e) => { if (e.target.closest('a[href="/logout"]')) Draft.clear(); }, true);
 
   // Open the page for a draft campaign: its own sheets and settings (another one's are saved first).
-  async function openDraftPage(d, { show = true } = {}) {
+  async function openDraftPage(full, { show = true } = {}) {
+    const { work = null, ...d } = full; // (the saved sheets are used once, here; the page keeps just the details)
     if (SP.campaign?.id !== d.id) {
       Draft.flush();
       SP.campaign = null; // (so clearing the page doesn't touch the other campaign's saved draft)
@@ -1722,10 +1756,68 @@
       setPane('compose');
       useCampaign(d);
       activate(-1);
-      await Draft.restore();
+      await Draft.restore(work);
     } else useCampaign(d);
     if (show) showTab('send');
   }
+
+  // --- Save as draft ------------------------------------------------------------------------------
+  async function saveDraft() {
+    const d = await Draft.saveToServer();
+    if (d) renderCamp();
+    return d;
+  }
+  $('#spSaveDraft')?.addEventListener('click', (e) => guard(async () => {
+    const d = await saveDraft();
+    if (d) toast(`Saved as a draft${d.people ? ` with ${d.people.toLocaleString()} ${d.people === 1 ? 'person' : 'people'}` : ''} · it's in Campaigns → Drafts`, '', { icon: 'check' });
+  }, e.currentTarget));
+
+  // Leaving with unsaved work (sidebar, a link, Back): save it as a draft, discard it, or stay. Resolves true to leave.
+  function askLeave() {
+    return new Promise((resolve) => {
+      const c = SP.campaign;
+      const onServer = Boolean(c.workAt); // saved before: discarding goes back to that; otherwise the draft goes
+      let people = 0;
+      try { people = recipients().list.length; } catch { }
+      let settled = false;
+      const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+      const body = openModal('Save this campaign as a draft?', `
+        <p class="sub" style="margin-top:0">“${esc(c.name)}” hasn't been sent. ${people ? `Save it with its <b>${people.toLocaleString()} ${people === 1 ? 'person' : 'people'}</b> and` : 'Save it and'} carry on later from <b>Campaigns → Drafts</b>, on any device.</p>
+        <div class="modal-actions">
+          <button class="btn quiet danger" id="lvDiscard" style="margin-right:auto">${onServer ? 'Discard changes' : 'Delete draft'}</button>
+          <button class="btn quiet" id="lvStay">Keep editing</button>
+          <button class="btn primary" id="lvSave">Save draft</button>
+        </div>`);
+      setModalBack(() => { hideOverlay($('#modal')); finish(false); }); // ✕ and Esc: stay
+      $('#lvStay', body).onclick = () => closeModal();
+      $('#lvSave', body).onclick = (e) => guard(async () => {
+        const d = await saveDraft();
+        setModalBack(null);
+        hideOverlay($('#modal'));
+        toast(`Saved as a draft${d?.people ? ` with ${d.people.toLocaleString()} ${d.people === 1 ? 'person' : 'people'}` : ''}`, '', { icon: 'check' });
+        finish(true);
+      }, e.currentTarget);
+      $('#lvDiscard', body).onclick = (e) => guard(async () => {
+        if (!onServer) await api('/drafts/' + c.id, { method: 'DELETE' });
+        Draft.forget();
+        resetAfterSend(); // closes the page and drops this browser's copy (a saved draft keeps its last save)
+        setModalBack(null);
+        hideOverlay($('#modal'));
+        toast(onServer ? 'Changes discarded. The draft keeps its last save' : 'Draft deleted');
+        finish(true);
+      }, e.currentTarget);
+    });
+  }
+
+  // Reload or close the tab with unsaved work: browsers only allow their own "Leave site?" question here (the
+  // browser copy still brings the work back after a reload).
+  let loggingOut = false;
+  document.addEventListener('click', (e) => { if (e.target.closest('a[href="/logout"]')) loggingOut = true; }, true);
+  addEventListener('beforeunload', (e) => {
+    if (loggingOut || state.tab !== 'send' || !Draft.dirty()) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
   // New campaign first, then this (people from Contacts, a sheet the Assistant made): a page always sends one campaign.
   const thenNew = (fn, opts = {}) => window.CampaignSetup.create({ ...opts, then: fn });
 
@@ -1738,6 +1830,8 @@
     },
     openCampaign: openDraftPage,
     campaignId: () => SP.campaign?.id || null,
+    needsSave: () => Draft.dirty(), // (app.js asks before leaving the page)
+    askLeave,
     // A draft was deleted: drop its saved sheets (and leave its page if it's open).
     forgetCampaign(cid) {
       Draft.drop(cid);
@@ -1752,13 +1846,30 @@
     openContacts: (list, label) => thenNew(() => openContacts(list, label)),
     openRecipients,
     // A finished table (e.g. one the Assistant built) as a new tab, with its phone column set.
-    openSheet(name, headers, rows, phoneName) {
-      thenNew(() => {
+    // Made from a draft's Ask AI: it goes back into that draft, and the sheets it was made from are left out (still
+    // there, unticked) so nobody gets the message twice. Otherwise (or that draft was sent or deleted): a new campaign.
+    // Resolves true when it opened the draft (and said so).
+    async openSheet(name, headers, rows, phoneName) {
+      const add = () => {
         const sh = makeSheet({ name, file: '', headers, rows });
         if (phoneName && headers.includes(phoneName)) { sh.phoneName = phoneName; recheck(sh); }
         SP.sheets.push(sh);
         activate(SP.sheets.length - 1);
-      });
+      };
+      const from = aiFrom();
+      if (from?.cid) {
+        try {
+          if (SP.campaign?.id !== from.cid) await openDraftPage(await api('/drafts/' + from.cid), { show: false });
+          let off = 0;
+          for (const sh of SP.sheets) if (sh.included && (from.keys || []).includes(sheetKey(sh))) { sh.included = false; off++; }
+          add();
+          showTab('send');
+          toast(`Added “${name}” to ${SP.campaign.name}${off ? ` · the ${off === 1 ? 'original sheet is' : `${off} original sheets are`} left out (tick ${off === 1 ? 'it' : 'them'} to include)` : ''}`, '', { icon: 'check' });
+          return true;
+        } catch { forgetAiFrom(); } // (sent or deleted since: start a new campaign with it)
+      }
+      thenNew(add);
+      return false;
     },
     loadXlsx: () => loadXlsxLib(),
     show() { fitSend(); renderChrome(); if (current()) grid.focus(); },

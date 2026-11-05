@@ -854,8 +854,7 @@
       const t = await fullSheet(id);
       if (b.dataset.sheetAct === 'view') return viewSheet(t, id);
       if (b.dataset.sheetAct === 'send') {
-        SendPage.openSheet(t.name, t.headers, t.rows, t.phoneColumn);
-        toast(`Opened “${t.name}” on the Send page · ${t.rows.length.toLocaleString()} rows`);
+        if (!(await SendPage.openSheet(t.name, t.headers, t.rows, t.phoneColumn))) toast(`Opened “${t.name}” on the Send page · ${t.rows.length.toLocaleString()} rows`);
       } else if (b.dataset.sheetAct === 'csv') {
         const cell = (v) => (/[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v);
         const csv = [t.headers, ...t.rows].map((r) => r.map((v) => cell(String(v ?? ''))).join(',')).join('\r\n');

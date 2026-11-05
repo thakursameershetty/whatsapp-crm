@@ -148,6 +148,18 @@ $('[data-tab-go]').addEventListener('click', (e) => showTab(e.currentTarget.data
 $('#sidebar').addEventListener('click', (e) => { if (e.target.closest('#acctBtn, [data-goto], a[href]') && matchMedia('(max-width: 900px)').matches) setTimeout(() => setDrawer(false), 0); });
 function showTab(name) {
   if (name === 'assistant' && !state.me?.ai) name = 'overview'; // no AI assistant for this person
+  // Leaving a campaign's Send page with unsaved work: ask to save it as a draft first (send.js askLeave).
+  if (state.tab === 'send' && name !== 'send' && window.SendPage?.needsSave?.()) {
+    const viaBack = showTab.replace; // Back / Forward already changed the address: put it back while asking
+    showTab.replace = false;
+    if (viaBack) history.pushState({ tab: 'send' }, '', '/send?c=' + encodeURIComponent(window.SendPage.campaignId()));
+    window.SendPage.askLeave().then((go) => {
+      if (!go) return;
+      if (viaBack) history.back(); // (popstate then shows the page they were going back to)
+      else showTab(name);
+    });
+    return;
+  }
   // The Send page always sends one campaign (New campaign makes it first); without one, Campaigns.
   if (name === 'send' && !window.SendPage?.campaignId()) name = 'campaigns';
   const navFor = { reports: 'report', send: 'campaigns' }[name] || name; // pages under another one keep its sidebar item lit

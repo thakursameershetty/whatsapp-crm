@@ -1689,7 +1689,33 @@ function draftFields(body, d = {}) {
   d.updatedAt = new Date().toISOString();
   return d;
 }
-app.get('/api/drafts', (req, res) => res.json(db.drafts.filter((d) => Boolean(d.demo) === Boolean(db.settings.demoMode))));
+// A draft without its saved sheets (they can be large): for lists and replies to edits.
+const draftLite = ({ work, ...d }) => d;
+app.get('/api/drafts', (req, res) => res.json(db.drafts.filter((d) => Boolean(d.demo) === Boolean(db.settings.demoMode)).map(draftLite)));
+// Save as draft: the Send page's sheets (rows, ticks, edits), variables and schedule, so the draft opens with its people
+// on any device. The page also keeps a copy in the browser as you work; whichever is newer is used when it's opened.
+const WORK_MAX = 15 * 1024 * 1024;
+app.put('/api/drafts/:id/work', wrap((req, res) => {
+  const d = db.drafts.find((x) => x.id === req.params.id);
+  if (!d) throw fail('This campaign draft was deleted or has been sent', 404);
+  const w = req.body || {};
+  if (!Array.isArray(w.sheets) || w.sheets.length > 50) throw fail('Nothing to save');
+  const strs = (a) => (Array.isArray(a) ? a.map((x) => String(x ?? '')) : []);
+  const sheets = w.sheets.map((sh) => ({
+    name: String(sh?.name || '').slice(0, 200), file: String(sh?.file || '').slice(0, 300), headers: strs(sh?.headers),
+    widths: Array.isArray(sh?.widths) ? sh.widths.map((n) => Number(n) || 0) : [], wraps: Array.isArray(sh?.wraps) ? sh.wraps : [],
+    phoneName: String(sh?.phoneName || ''), included: sh?.included !== false, dirty: Boolean(sh?.dirty),
+    rows: (Array.isArray(sh?.rows) ? sh.rows : []).filter(Array.isArray).map(([cells, on, pick]) => (Array.isArray(pick) && pick.length ? [strs(cells), on ? 1 : 0, pick] : [strs(cells), on ? 1 : 0])),
+    filters: sh?.filters && typeof sh.filters === 'object' ? sh.filters : {},
+  }));
+  const work = { v: 1, savedAt: Number(w.savedAt) || Date.now(), active: Number(w.active) || 0, mapping: w.mapping && typeof w.mapping === 'object' ? w.mapping : {}, sheets, mode: w.mode === 'schedule' ? 'schedule' : 'now', at: String(w.at || '').slice(0, 40) };
+  if (JSON.stringify(work).length > WORK_MAX) throw fail('This draft is too big to save (over 15 MB). Remove some sheets or columns and try again.', 413);
+  d.work = work;
+  d.people = sheets.filter((x) => x.included).reduce((n, x) => n + x.rows.filter((r) => r[1]).length, 0);
+  d.workAt = d.updatedAt = new Date().toISOString();
+  save();
+  res.json(draftLite(d));
+}));
 app.get('/api/drafts/:id', wrap((req, res) => {
   const d = db.drafts.find((x) => x.id === req.params.id);
   if (!d) throw fail(db.campaigns.some((c) => c.id === req.params.id) ? 'This campaign has already been sent' : 'This campaign draft was deleted', 404);
@@ -1708,7 +1734,7 @@ app.patch('/api/drafts/:id', wrap((req, res) => {
   if (!d) throw fail('This campaign draft was deleted or has been sent', 404);
   draftFields(req.body || {}, d);
   save();
-  res.json(d);
+  res.json(draftLite(d));
 }));
 app.delete('/api/drafts/:id', wrap((req, res) => {
   db.drafts = db.drafts.filter((x) => x.id !== req.params.id);
