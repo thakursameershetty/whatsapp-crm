@@ -2060,6 +2060,13 @@ function parseIncoming(m) {
       break;
     case 'contacts':
       out.text = (m.contacts || []).map((c) => [c.name?.formatted_name, ...(c.phones || []).map((p) => p.phone)].filter(Boolean).join(' · ')).join('\n');
+      // Kept whole too, so the inbox can draw a contact card (name, numbers, company, email).
+      out.contacts = (m.contacts || []).map((c) => ({
+        name: c.name?.formatted_name || [c.name?.first_name, c.name?.last_name].filter(Boolean).join(' '),
+        phones: (c.phones || []).map((p) => ({ phone: p.phone || '', wa: p.wa_id || '', type: p.type || '' })),
+        org: c.org?.company || '',
+        email: c.emails?.[0]?.email || '',
+      }));
       break;
     case 'button': // tap on a template's quick-reply button
       out.text = m.button?.text || '';

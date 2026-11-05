@@ -1146,6 +1146,7 @@
       prev = m;
     }
     box.innerHTML = html ? html + '</section>' : '';
+    vnHydrate();
     Orb.hydrate(box);
     ib.seenKey = ib.key;
     if (toBottom || nearBottom) ib.stick = true;
@@ -1175,24 +1176,25 @@
       }
       case 'image':
       case 'sticker':
-        h += `<a class="ib-media ${m.type}" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${m.type}" loading="lazy" onerror="this.parentNode.classList.add('broken')"></a>`;
+        h += `<a class="ib-media ${m.type}" href="${src}" target="_blank" rel="noopener" data-view="${esc(m.media?.id || '')}"><img src="${src}" alt="${m.type}" loading="lazy" onerror="this.parentNode.classList.add('broken')"></a>`;
         break;
       case 'video':
-        h += videoHtml(src, 'ib-media');
+        // A still of the first frame with a play button; clicking opens it in the media viewer.
+        h += `<a class="ib-media ib-vthumb" href="${src}" target="_blank" rel="noopener" data-view="${esc(m.media?.id || '')}"><video src="${src}#t=0.1" preload="metadata" muted playsinline></video><span class="ib-vplay">${PLAY_SVG}</span><span class="ib-vdur">${icon('video', 12)}<span></span></span></a>`;
         break;
       case 'audio':
-        h += `<audio class="ib-audio" controls preload="none" src="${src}"></audio>`;
+        h += m.media?.id ? voiceHtml(m, src) : `<div class="ib-text ib-unsupported">Audio unavailable</div>`;
         break;
-      case 'document': {
-        const name = m.media?.filename || 'Document';
-        h += `<a class="ib-doc" href="${src}?name=${enc(name)}">${icon('file-text', 22)}<span><b>${esc(name)}</b><small>${esc(m.media?.mime || '')}</small></span>${icon('download', 16)}</a>`;
+      case 'document':
+        h += docHtml(m, src);
         break;
-      }
-      case 'location': {
-        const l = m.location || {};
-        h += `<a class="ib-loc" href="https://maps.google.com/?q=${l.lat},${l.lng}" target="_blank" rel="noopener"><span class="ib-loc-pin">${icon('map-pin', 22)}</span><span><b>${esc(l.name || 'Shared location')}</b><small>${esc(l.address || `${l.lat}, ${l.lng}`)}</small></span></a>`;
+      case 'location':
+        h += locHtml(m.location || {});
         break;
-      }
+      case 'contacts':
+        h += vcardsHtml(m);
+        textInside = false;
+        break;
       case 'button':
       case 'interactive':
         h += `<div class="ib-label">${icon('reply', 11)}Tapped a button</div>`;
@@ -1207,6 +1209,552 @@
     if (textInside && m.text) h += `<div class="ib-text">${fmtText(m.text)}<span class="ib-spacer ${m.dir}"></span></div>`;
     return h + `<span class="ib-meta ${m.text || m.type === 'unsupported' ? '' : 'over'}">${meta}</span>`;
   }
+
+  // ---------- Media in the chat: voice notes, documents, locations, contact cards, and the media viewer ----------
+  const MIC_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V5.5a3.5 3.5 0 1 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5zm6-3.5a1 1 0 1 0-2 0 4 4 0 0 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.09A6 6 0 0 0 18 11z"/></svg>';
+  const PAUSE_SVG = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor"/><rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor"/></svg>';
+  const HEADPHONES_SVG = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 0 0-9 9v6.5A2.5 2.5 0 0 0 5.5 21H7a1 1 0 0 0 1-1v-6a1 1 0 0 0-1-1H5v-1a7 7 0 0 1 14 0v1h-2a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1.5a2.5 2.5 0 0 0 2.5-2.5V12a9 9 0 0 0-9-9z"/></svg>';
+  const PIN_SVG = '<svg viewBox="0 0 24 32" width="30" height="40" aria-hidden="true"><path d="M12 0C5.4 0 0 5.3 0 11.9 0 20.8 12 32 12 32s12-11.2 12-20.1C24 5.3 18.6 0 12 0z" fill="#e5483d"/><circle cx="12" cy="11.5" r="4.6" fill="#fff"/></svg>';
+
+  // ----- Voice notes & audio: WhatsApp's player. Their photo with a mic (or headphones for an audio file), play,
+  // a waveform of the real recording you can tap or drag along, and the length. One plays at a time; it keeps
+  // playing while the chat redraws, and the next unplayed voice note plays after it, as on the phone.
+  const VN_BARS = 40;
+  const vn = { id: null, a: null, raf: 0, rate: 1, wave: new Map(), dur: new Map(), busy: new Set(), queue: [], running: 0 };
+  try { vn.rate = Number(localStorage.getItem('ib.vnRate')) || 1; } catch { /* default speed */ }
+  let vnPlayed;
+  try { vnPlayed = new Set(JSON.parse(localStorage.getItem('ib.vnPlayed') || '[]')); } catch { vnPlayed = new Set(); }
+  function markPlayed(id) {
+    if (vnPlayed.has(id)) return;
+    vnPlayed.add(id);
+    try { localStorage.setItem('ib.vnPlayed', JSON.stringify([...vnPlayed].slice(-500))); } catch { /* just this visit */ }
+  }
+  // Until the recording is measured, a steady made-up shape (the same one for the same note).
+  function seededWave(id) {
+    let s = 7;
+    for (const ch of String(id)) s = (s * 31 + ch.charCodeAt(0)) >>> 0;
+    return Array.from({ length: VN_BARS }, () => { s = (s * 1103515245 + 12345) >>> 0; return 0.22 + (((s >>> 16) % 1000) / 1000) * 0.5; });
+  }
+  const isVoice = (m) => Boolean(m.media?.voice) || /ogg|opus/i.test(m.media?.mime || '');
+  function voiceHtml(m, src) {
+    const id = m.media.id, c = current() || {};
+    const heights = vn.wave.get(id) || seededWave(id);
+    const pic = isVoice(m)
+      ? `${m.dir === 'out' ? `<span class="ibv-av">${senderPhotoHtml(state.senders.find((s) => s.id === c.senderId) || {})}</span>` : `<span class="ibv-av ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span>`}<i class="ibv-mic">${MIC_SVG}</i>`
+      : `<span class="ibv-av ibv-file">${HEADPHONES_SVG}</span>`;
+    return `<div class="ib-voice ${vn.wave.has(id) ? '' : 'loading'}" data-voice="${esc(id)}" data-src="${esc(src)}">
+      <span class="ibv-pic">${pic}<button type="button" class="ibv-rate" aria-label="Playback speed">${vn.rate}×</button></span>
+      <button type="button" class="ibv-play" aria-label="Play">${PLAY_SVG}${PAUSE_SVG}</button>
+      <span class="ibv-main"><span class="ibv-wave" role="slider" tabindex="0" aria-label="Position" aria-valuemin="0" aria-valuemax="100">${heights.map((h) => `<i style="height:${Math.round(h * 100)}%"></i>`).join('')}<b class="ibv-dot"></b></span><span class="ibv-time"></span></span>
+    </div>`;
+  }
+  // Brings every player on screen up to date: progress, playing or not, length, played.
+  function vnPaint(id) {
+    if (!id) return;
+    const on = vn.id === id && vn.a ? vn.a : null;
+    const dur = vn.dur.get(id) || (on && Number.isFinite(on.duration) ? on.duration : NaN);
+    const p = on && dur ? Math.min(1, on.currentTime / dur) : 0;
+    const k = Math.round(p * VN_BARS), h = vn.wave.get(id);
+    for (const el of $$(`[data-voice="${CSS.escape(id)}"]`)) {
+      const bars = el.querySelectorAll('.ibv-wave i');
+      if (h && el.classList.contains('loading')) { bars.forEach((b, i) => (b.style.height = `${Math.round(h[i] * 100)}%`)); el.classList.remove('loading'); }
+      bars.forEach((b, i) => b.classList.toggle('on', i < k));
+      const w = el.querySelector('.ibv-wave');
+      w.style.setProperty('--p', p);
+      w.setAttribute('aria-valuenow', Math.round(p * 100));
+      const playing = Boolean(on && !on.paused);
+      el.classList.toggle('active', Boolean(on));
+      el.classList.toggle('playing', playing);
+      el.classList.toggle('played', vnPlayed.has(id));
+      el.querySelector('.ibv-play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+      el.querySelector('.ibv-rate').textContent = `${vn.rate}×`;
+      el.querySelector('.ibv-time').textContent = on && (playing || on.currentTime > 0) ? vidClock(on.currentTime) : vidClock(dur);
+    }
+  }
+  // After each redraw: measure the waveform and length of notes not seen yet, two at a time.
+  function vnHydrate() {
+    for (const el of $$('#ibMsgs [data-voice]')) {
+      const id = el.dataset.voice;
+      if (!vn.wave.has(id) && !vn.busy.has(id)) { vn.busy.add(id); vn.queue.push([id, el.dataset.src]); }
+      vnPaint(id);
+    }
+    while (vn.running < 2 && vn.queue.length) {
+      const [id, src] = vn.queue.shift();
+      vn.running++;
+      vnMeasure(id, src).finally(() => { vn.running--; vnHydrate(); });
+    }
+  }
+  async function vnMeasure(id, src) {
+    try {
+      const r = await fetch(src);
+      if (!r.ok) throw new Error(r.status);
+      const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      const audio = await new Ctx(1, 1, 44100).decodeAudioData(await r.arrayBuffer());
+      const d = audio.getChannelData(0), size = Math.max(1, Math.floor(d.length / VN_BARS)), peaks = [];
+      for (let b = 0; b < VN_BARS; b++) {
+        let sum = 0, n = 0;
+        for (let i = b * size; i < (b + 1) * size && i < d.length; i += 16) { sum += d[i] * d[i]; n++; }
+        peaks.push(Math.sqrt(sum / (n || 1)));
+      }
+      const max = Math.max(...peaks) || 1;
+      vn.wave.set(id, peaks.map((v) => 0.14 + 0.86 * Math.pow(v / max, 0.85)));
+      vn.dur.set(id, audio.duration);
+    } catch {
+      // This browser can't decode it (or it's gone): keep the made-up shape and ask the player for the length.
+      vn.wave.set(id, seededWave(id));
+      await new Promise((done) => {
+        const a = new Audio();
+        a.preload = 'metadata';
+        a.onloadedmetadata = () => { if (Number.isFinite(a.duration)) vn.dur.set(id, a.duration); done(); };
+        a.onerror = done;
+        a.src = src;
+        setTimeout(done, 8000);
+      });
+    }
+    vnPaint(id);
+  }
+  // The player for this note (made the first time it's played or dragged), with every other one stopped.
+  function vnFor(id, src) {
+    if (vn.id === id && vn.a) return vn.a;
+    vnStop();
+    const a = new Audio(src);
+    a.preload = 'auto';
+    a.playbackRate = vn.rate;
+    vn.id = id; vn.a = a;
+    const loop = () => { cancelAnimationFrame(vn.raf); if (vn.a === a && !a.paused) { vnPaint(id); vn.raf = requestAnimationFrame(loop); } };
+    a.addEventListener('play', () => { markPlayed(id); $$('video').forEach((v) => v.pause()); loop(); });
+    a.addEventListener('pause', () => vnPaint(id));
+    a.addEventListener('loadedmetadata', () => { if (Number.isFinite(a.duration) && !vn.dur.has(id)) vn.dur.set(id, a.duration); vnPaint(id); });
+    a.addEventListener('ended', () => vnEnded(id));
+    a.addEventListener('error', () => { if (vn.a !== a) return; toast("This audio couldn't be played here. Try downloading it."); vnStop(); });
+    return a;
+  }
+  function vnStop() {
+    const id = vn.id;
+    if (vn.a) { vn.a.pause(); vn.a.removeAttribute('src'); vn.a.load(); }
+    cancelAnimationFrame(vn.raf);
+    vn.id = null; vn.a = null;
+    vnPaint(id);
+  }
+  function vnEnded(id) {
+    vnStop();
+    // Then the next voice note right after it, if it hasn't been played yet.
+    const msgs = (ib.thread?.messages || []).filter((m) => m.type !== 'reaction');
+    const i = msgs.findIndex((m) => m.media?.id === id), next = msgs[i + 1];
+    if (i >= 0 && next?.type === 'audio' && next.media?.id && !vnPlayed.has(next.media.id)) {
+      const el = $(`[data-voice="${CSS.escape(next.media.id)}"]`);
+      if (el) vnFor(next.media.id, el.dataset.src).play().catch(() => {});
+    }
+  }
+  function vnSeek(el, clientX) {
+    const w = el.querySelector('.ibv-wave').getBoundingClientRect();
+    const p = Math.min(1, Math.max(0, (clientX - w.left) / w.width));
+    const id = el.dataset.voice, a = vnFor(id, el.dataset.src), dur = vn.dur.get(id) || a.duration;
+    if (Number.isFinite(dur) && dur > 0) a.currentTime = p * dur;
+    vnPaint(id);
+  }
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest?.('[data-voice]');
+    if (!el) return;
+    if (e.target.closest('.ibv-play')) {
+      const a = vnFor(el.dataset.voice, el.dataset.src);
+      if (a.paused) a.play().catch(() => {}); else a.pause();
+    } else if (e.target.closest('.ibv-rate')) {
+      vn.rate = vn.rate === 1 ? 1.5 : vn.rate === 1.5 ? 2 : 1;
+      try { localStorage.setItem('ib.vnRate', vn.rate); } catch { /* just this visit */ }
+      if (vn.a) vn.a.playbackRate = vn.rate;
+      vnPaint(el.dataset.voice);
+    }
+  });
+  // Tap or drag along the waveform to move through the note (and don't start a swipe-to-reply).
+  document.addEventListener('pointerdown', (e) => {
+    const wave = e.target.closest?.('.ibv-wave');
+    if (!wave) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const el = wave.closest('[data-voice]');
+    vnSeek(el, e.clientX);
+    const move = (ev) => vnSeek(el, ev.clientX);
+    const up = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+    addEventListener('pointercancel', up);
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    const wave = e.target.closest?.('.ibv-wave');
+    if (!wave || !['ArrowLeft', 'ArrowRight', ' ', 'Enter'].includes(e.key)) return;
+    e.preventDefault();
+    const el = wave.closest('[data-voice]'), a = vnFor(el.dataset.voice, el.dataset.src);
+    if (e.key === ' ' || e.key === 'Enter') { if (a.paused) a.play().catch(() => {}); else a.pause(); return; }
+    a.currentTime = Math.max(0, a.currentTime + (e.key === 'ArrowLeft' ? -5 : 5));
+    vnPaint(el.dataset.voice);
+  });
+
+  // ----- Video stills in the chat: show the length once it's known; "unavailable" if it's gone.
+  document.addEventListener('loadedmetadata', (e) => {
+    const box = e.target.closest?.('.ib-vthumb, .mv-thumb');
+    const len = box?.querySelector('.ib-vdur span, .mv-thumb-len');
+    if (len) len.textContent = vidClock(e.target.duration);
+  }, true);
+  document.addEventListener('error', (e) => { if (e.target.tagName === 'VIDEO') e.target.closest('.ib-vthumb')?.classList.add('broken'); }, true);
+
+  // ----- Documents: a card with the file type. A PDF opens in the app's PDF preview; anything else downloads.
+  const DOC_KIND = { pdf: 'pdf', doc: 'word', docx: 'word', xls: 'sheet', xlsx: 'sheet', csv: 'sheet', ppt: 'slides', pptx: 'slides', zip: 'zip', rar: 'zip', txt: 'text' };
+  function docHtml(m, src) {
+    const name = m.media?.filename || 'Document';
+    const mime = m.media?.mime || '';
+    const ext = (/\.([a-z0-9]{1,5})$/i.exec(name)?.[1] || mime.split('/')[1] || 'file').toLowerCase();
+    const pdf = ext === 'pdf' || /pdf/i.test(mime);
+    const dl = `${src}?name=${enc(name)}`;
+    const label = ext.length <= 4 ? ext.toUpperCase() : 'FILE';
+    const open = pdf ? `href="${src}" target="_blank" rel="noopener" data-pdf="${src}" data-pdf-name="${esc(name)}"` : `href="${dl}"`;
+    return `<div class="ib-doc2">
+      <a class="ib-doc2-main" ${open} title="${pdf ? 'Preview' : 'Download'} ${esc(name)}"><span class="ib-doc2-ico ${DOC_KIND[ext] || 'other'}">${icon('file-text', 18)}<em>${esc(label)}</em></span><span class="ib-doc2-name"><b>${esc(name)}</b><small>${pdf ? 'PDF · Click to preview' : esc(label + ' file · Click to download')}</small></span></a>
+      <a class="ib-doc2-dl" href="${dl}" title="Download" aria-label="Download ${esc(name)}">${icon('download', 17)}</a>
+    </div>`;
+  }
+
+  // ----- Locations: a map of the spot (OpenStreetMap tiles) with a pin; clicking opens a map you can move around.
+  const okCoord = (l) => Number.isFinite(Number(l.lat)) && Number.isFinite(Number(l.lng)) && (l.lat !== null && l.lng !== null);
+  const gmaps = (l) => `https://www.google.com/maps/search/?api=1&query=${Number(l.lat)},${Number(l.lng)}`;
+  function mapTiles(lat, lng, z = 15) {
+    const n = 2 ** z, r = (lat * Math.PI) / 180;
+    const x = ((lng + 180) / 360) * n * 256, y = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n * 256;
+    let h = '';
+    for (let tx = Math.floor((x - 200) / 256); tx <= Math.floor((x + 200) / 256); tx++) {
+      for (let ty = Math.floor((y - 110) / 256); ty <= Math.floor((y + 110) / 256); ty++) {
+        if (ty < 0 || ty >= n) continue;
+        h += `<img src="https://tile.openstreetmap.org/${z}/${((tx % n) + n) % n}/${ty}.png" style="left:${Math.round(tx * 256 - x)}px;top:${Math.round(ty * 256 - y)}px" alt="" loading="lazy" draggable="false">`;
+      }
+    }
+    return h;
+  }
+  function locHtml(l) {
+    if (!okCoord(l)) return `<div class="ib-text ib-unsupported">Shared a location</div>`;
+    const lat = Number(l.lat), lng = Number(l.lng);
+    const title = l.name || 'Location';
+    return `<a class="ib-loc2" href="${gmaps(l)}" target="_blank" rel="noopener" data-loc="${lat},${lng}" data-loc-name="${esc(l.name || '')}" data-loc-addr="${esc(l.address || '')}">
+      <span class="ib-map"><span class="ib-map-tiles">${mapTiles(lat, lng)}</span><span class="ib-map-pin">${PIN_SVG}</span><small class="ib-map-credit">© OpenStreetMap</small></span>
+      ${l.name || l.address ? `<span class="ib-loc2-text"><b>${esc(title)}</b>${l.address ? `<small>${esc(l.address)}</small>` : ''}</span>` : ''}
+    </a>`;
+  }
+  function locViewer(lat, lng, name, addr) {
+    let el = $('#locModal');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'locModal';
+      el.className = 'modal hidden';
+      document.body.append(el);
+      el.addEventListener('click', (e) => {
+        if (e.target === el || e.target.closest('[data-loc-close]')) hideOverlay(el);
+        const cp = e.target.closest('[data-loc-copy]');
+        if (cp) navigator.clipboard?.writeText(cp.dataset.locCopy).then(() => toast('Copied'), () => toast("Couldn't copy"));
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !el.classList.contains('hidden')) { e.stopPropagation(); hideOverlay(el); } }, true);
+    }
+    const d = 0.006, l = { lat, lng };
+    const where = addr || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    el.innerHTML = `<div class="modal-box loc-box" role="dialog" aria-label="${esc(name || 'Location')}">
+      <div class="modal-head"><h2 class="pdf-name">${icon('map-pin', 18)}<span>${esc(name || 'Shared location')}</span></h2>
+        <div class="pdf-actions"><a class="btn sm" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}" target="_blank" rel="noopener">${icon('arrow-right', 14)}Directions</a><a class="btn sm" href="${gmaps(l)}" target="_blank" rel="noopener">${icon('external-link', 14)}Google Maps</a><button type="button" class="icon-btn" data-loc-close aria-label="Close">${icon('x', 18)}</button></div></div>
+      <iframe class="loc-frame" src="https://www.openstreetmap.org/export/embed.html?bbox=${lng - d},${lat - d},${lng + d},${lat + d}&layer=mapnik&marker=${lat},${lng}" title="Map of ${esc(name || 'the location')}"></iframe>
+      <div class="loc-foot"><span>${esc(where)}</span><button type="button" class="btn sm quiet" data-loc-copy="${esc(addr ? `${name ? name + ', ' : ''}${addr}` : `${lat}, ${lng}`)}">${icon('copy', 14)}Copy</button></div>
+    </div>`;
+    el.classList.remove('hidden');
+  }
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest?.('a[data-loc]');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    const [lat, lng] = a.dataset.loc.split(',').map(Number);
+    locViewer(lat, lng, a.dataset.locName, a.dataset.locAddr);
+  });
+
+  // ----- Contact cards: who they shared, their numbers, and buttons to save it or copy the number.
+  function vcardsHtml(m) {
+    let list = m.contacts;
+    if (!list?.length) {
+      // Messages from before cards were kept whole: "Name · +91 98765 43210" per line.
+      list = String(m.text || '').split('\n').filter(Boolean).map((line) => {
+        const parts = line.split(' · ');
+        const phones = parts.filter((p) => /^\+?[\d\s()-]{6,}$/.test(p)).map((phone) => ({ phone }));
+        return { name: parts.find((p) => !/^\+?[\d\s()-]{6,}$/.test(p)) || '', phones };
+      });
+    }
+    return list.map((ct) => {
+      const phone = ct.phones?.[0]?.phone || '';
+      const name = ct.name || phone || 'Contact';
+      const sub = [...(ct.phones || []).map((p) => p.phone), ct.org, ct.email].filter(Boolean).join(' · ');
+      return `<div class="ib-vcard">
+        <div class="ib-vcard-top"><span class="ib-av" style="${avatarStyle(phone || name)}">${initials({ name: ct.name })}</span><span><b>${esc(name)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span></div>
+        ${phone ? `<div class="ib-vcard-acts"><button type="button" data-vcard-save="${esc(phone)}" data-name="${esc(ct.name || '')}">Save contact</button><button type="button" data-vcard-copy="${esc(phone)}">Copy number</button></div>` : ''}
+      </div>`;
+    }).join('') + `<span class="ib-vcard-spacer"></span>`;
+  }
+  document.addEventListener('click', async (e) => {
+    const cp = e.target.closest?.('[data-vcard-copy]');
+    if (cp) return navigator.clipboard?.writeText(cp.dataset.vcardCopy).then(() => toast('Number copied'), () => toast("Couldn't copy"));
+    const sv = e.target.closest?.('[data-vcard-save]');
+    if (!sv || sv.disabled) return;
+    sv.disabled = true;
+    try {
+      const r = await api('/contacts', { method: 'POST', body: { phone: sv.dataset.vcardSave, name: sv.dataset.name } });
+      toast(r.created ? `Saved ${sv.dataset.name || 'the contact'} to Contacts` : 'Already in your Contacts');
+    } catch (err) {
+      toast(err.message || "Couldn't save the contact");
+    } finally {
+      sv.disabled = false;
+    }
+  });
+
+  // ----- Media viewer, like WhatsApp on the computer: photos, stickers and videos open full screen over the app.
+  // Top: back, who sent it and when, zoom, open, download. Bottom: "All media" (a grid of everything in this chat),
+  // a strip of thumbnails to jump between them, the caption, Reply and Done. ←/→ or swipe to move, click, scroll or
+  // pinch to zoom, drag to look around, Esc to close. Ctrl/Cmd-click in the chat still opens a new tab.
+  const mv = { el: null, list: [], i: 0, z: 1, x: 0, y: 0, grid: false };
+  const viewable = () => (ib.thread?.messages || []).filter((m) => ['image', 'sticker', 'video'].includes(m.type) && m.media?.id);
+  const mediaSrc = (m) => `/api/media/${enc(m.media.id)}`;
+  const mvStage = () => $('.mv-stage', mv.el);
+  const mvImg = () => $('.mv-stage img', mv.el);
+  function mvOpen(mediaId) {
+    mv.list = viewable();
+    if (!mv.list.length) return;
+    mv.i = Math.max(0, mv.list.findIndex((m) => m.media.id === mediaId));
+    if (!mv.el) mvBuild();
+    vnStop();
+    mvStrip();
+    mvGrid(false);
+    mvShow();
+    mv.el.classList.add('open');
+    document.documentElement.classList.add('mv-lock');
+    $('[data-mv="close"]', mv.el).focus({ preventScroll: true });
+  }
+  function mvClose() {
+    if (!mv.el?.classList.contains('open')) return;
+    mv.el.classList.remove('open');
+    document.documentElement.classList.remove('mv-lock');
+    mvStage().innerHTML = '';
+    $('.mv-strip', mv.el).innerHTML = '';
+    $('.mv-grid', mv.el).innerHTML = '';
+  }
+  function mvBuild() {
+    mv.el = document.createElement('div');
+    mv.el.className = 'mv';
+    mv.el.setAttribute('role', 'dialog');
+    mv.el.setAttribute('aria-modal', 'true');
+    mv.el.setAttribute('aria-label', 'Media viewer');
+    mv.el.innerHTML = `
+      <div class="mv-head">
+        <button type="button" class="mv-btn mv-back" data-mv="close" aria-label="Close">${icon('arrow-left', 20)}</button>
+        <span class="mv-av"></span>
+        <div class="mv-who"><b></b><small></small></div>
+        <div class="mv-tools">
+          <button type="button" class="mv-btn" data-mv="zoom" aria-label="Zoom in" title="Zoom">${icon('zoom-in', 19)}</button>
+          <a class="mv-btn" data-mv="open" target="_blank" rel="noopener" aria-label="Open in a new tab" title="Open in a new tab">${icon('external-link', 18)}</a>
+          <a class="mv-btn" data-mv="download" aria-label="Download" title="Download">${icon('download', 19)}</a>
+        </div>
+      </div>
+      <div class="mv-body">
+        <div class="mv-stage"></div>
+        <button type="button" class="mv-nav prev" data-mv="prev" aria-label="Previous">${icon('arrow-left', 22)}</button>
+        <button type="button" class="mv-nav next" data-mv="next" aria-label="Next">${icon('arrow-right', 22)}</button>
+        <p class="mv-cap"></p>
+        <div class="mv-grid" hidden></div>
+      </div>
+      <div class="mv-foot">
+        <button type="button" class="mv-pill" data-mv="grid">${icon('layout-grid', 15)}<span>All media</span></button>
+        <div class="mv-strip" role="listbox" aria-label="Photos and videos in this chat"></div>
+        <div class="mv-acts">
+          <button type="button" class="mv-pill" data-mv="reply">${icon('reply', 15)}<span>Reply</span></button>
+          <button type="button" class="mv-pill mv-done" data-mv="done">Done</button>
+        </div>
+      </div>`;
+    document.body.appendChild(mv.el);
+    mvWire();
+  }
+  function thumbHtml(m, i, cls) {
+    const src = mediaSrc(m);
+    const inner = m.type === 'video'
+      ? `<video src="${src}#t=0.1" preload="metadata" muted playsinline></video><span class="mv-thumb-play">${PLAY_SVG}</span>${cls === 'mv-cell' ? '<span class="mv-thumb-len"></span>' : ''}`
+      : `<img src="${src}" alt="" loading="lazy" draggable="false" onerror="this.parentNode.classList.add('broken')">`;
+    return `<button type="button" class="mv-thumb ${cls} ${m.type}" data-mv-go="${i}" aria-label="${m.type === 'video' ? 'Video' : 'Photo'} ${i + 1}">${inner}</button>`;
+  }
+  function mvStrip() {
+    $('.mv-strip', mv.el).innerHTML = mv.list.map((m, i) => thumbHtml(m, i, 'mv-chip')).join('');
+  }
+  function mvGrid(show) {
+    mv.grid = show;
+    const g = $('.mv-grid', mv.el);
+    g.hidden = !show;
+    mv.el.classList.toggle('gridding', show);
+    if (!show) { g.innerHTML = ''; return; }
+    // Newest first, under a heading per day (like "All media" on the phone).
+    let html = '', day = null;
+    mv.list.map((m, i) => [m, i]).reverse().forEach(([m, i]) => {
+      const d = dayLabel(m.ts);
+      if (d !== day) { html += `${day ? '</div>' : ''}<h3>${esc(d)}</h3><div class="mv-cells">`; day = d; }
+      html += thumbHtml(m, i, 'mv-cell');
+    });
+    g.innerHTML = `<div class="mv-grid-in"><div class="mv-grid-head"><b>All media</b><span>${mv.list.length} ${mv.list.length === 1 ? 'item' : 'items'}</span></div>${html}</div></div>`;
+    $(`[data-mv-go="${mv.i}"]`, g)?.classList.add('current');
+    if (mv.list[mv.i]?.type === 'video') $('.mv-stage video', mv.el)?.pause();
+  }
+  function mvShow() {
+    const m = mv.list[mv.i], n = mv.list.length, el = mv.el, c = current() || {};
+    const src = mediaSrc(m), stage = mvStage();
+    el.classList.remove('broken');
+    el.classList.toggle('video', m.type === 'video');
+    el.classList.toggle('sticker', m.type === 'sticker');
+    stage.innerHTML = m.type === 'video'
+      ? `<video src="${src}" controls autoplay playsinline></video>`
+      : `<img src="${src}" alt="${esc(m.text || (m.type === 'sticker' ? 'Sticker' : 'Photo'))}" draggable="false">`;
+    const media = stage.firstElementChild;
+    media.onerror = () => el.classList.add('broken');
+    $('.mv-av', el).innerHTML = m.dir === 'out'
+      ? senderPhotoHtml(state.senders.find((s) => s.id === c.senderId) || {})
+      : `<span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span>`;
+    $('.mv-who b', el).textContent = m.dir === 'out' ? 'You' : displayName(c);
+    $('.mv-who small', el).textContent = new Date(m.ts).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const cap = $('.mv-cap', el);
+    cap.innerHTML = m.text ? fmtText(m.text) : '';
+    const ext = /png/.test(m.media.mime || '') ? 'png' : /webp/.test(m.media.mime || '') ? 'webp' : m.type === 'video' ? 'mp4' : 'jpg';
+    $('[data-mv="download"]', el).href = `${src}?name=${enc(`WhatsApp ${m.type === 'video' ? 'Video' : m.type === 'sticker' ? 'Sticker' : 'Image'} ${m.media.id}.${ext}`)}`;
+    $('[data-mv="open"]', el).href = src;
+    $('[data-mv="prev"]', el).hidden = mv.i === 0;
+    $('[data-mv="next"]', el).hidden = mv.i >= n - 1;
+    $('[data-mv="reply"]', el).hidden = !(m.dir === 'in' && m.wamid);
+    $('[data-mv="zoom"]', el).hidden = m.type === 'video';
+    for (const t of $$('.mv-strip .mv-thumb', el)) t.classList.toggle('current', Number(t.dataset.mvGo) === mv.i);
+    const cur = $(`.mv-strip [data-mv-go="${mv.i}"]`, el);
+    cur?.setAttribute('aria-selected', 'true');
+    cur?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+    mv.z = 1; mv.x = 0; mv.y = 0;
+    mvApply();
+  }
+  function mvStep(d) {
+    const i = mv.i + d;
+    if (i < 0 || i >= mv.list.length) return;
+    mv.i = i;
+    mvShow();
+  }
+  // Zoom to z, keeping the point (cx, cy) (from the stage's centre) under the pointer.
+  function mvZoom(z, cx = 0, cy = 0) {
+    if (!mvImg()) return;
+    z = Math.min(5, Math.max(1, z));
+    const k = z / mv.z;
+    mv.x = z === 1 ? 0 : cx - (cx - mv.x) * k;
+    mv.y = z === 1 ? 0 : cy - (cy - mv.y) * k;
+    mv.z = z;
+    mvClamp();
+    mvApply();
+  }
+  function mvClamp() {
+    const img = mvImg(), r = mvStage().getBoundingClientRect();
+    if (!img) return;
+    const mx = Math.max(0, (img.offsetWidth * mv.z - r.width) / 2 + 40), my = Math.max(0, (img.offsetHeight * mv.z - r.height) / 2 + 40);
+    mv.x = Math.min(mx, Math.max(-mx, mv.x));
+    mv.y = Math.min(my, Math.max(-my, mv.y));
+  }
+  function mvApply() {
+    const img = mvImg();
+    if (img) img.style.transform = `translate(${mv.x}px, ${mv.y}px) scale(${mv.z})`;
+    mv.el.classList.toggle('zoomed', mv.z > 1);
+    const zb = $('[data-mv="zoom"]', mv.el);
+    zb.innerHTML = icon(mv.z > 1 ? 'zoom-out' : 'zoom-in', 19);
+    zb.setAttribute('aria-label', mv.z > 1 ? 'Zoom out' : 'Zoom in');
+  }
+  function mvWire() {
+    const el = mv.el, stage = mvStage();
+    const fromCentre = (e) => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
+    let moved = false;
+    el.addEventListener('click', (e) => {
+      const go = e.target.closest('[data-mv-go]');
+      if (go) { mv.i = Number(go.dataset.mvGo); mvGrid(false); return mvShow(); }
+      const b = e.target.closest('[data-mv]');
+      if (b) {
+        const a = b.dataset.mv;
+        if (a === 'download' || a === 'open') return;
+        e.preventDefault();
+        if (a === 'close') mv.grid ? mvGrid(false) : mvClose();
+        else if (a === 'done') mvClose();
+        else if (a === 'prev') mvStep(-1);
+        else if (a === 'next') mvStep(1);
+        else if (a === 'zoom') mvZoom(mv.z > 1 ? 1 : 2.5);
+        else if (a === 'grid') mvGrid(!mv.grid);
+        else if (a === 'reply') { const w = mv.list[mv.i].wamid; mvClose(); startReply(w); }
+        return;
+      }
+      if (moved) return;
+      const img = mvImg();
+      if (img && e.target === img) mvZoom(mv.z > 1 ? 1 : 2.5, ...fromCentre(e));
+      else if (e.target === stage) mvClose(); // the dark area around it closes
+    });
+    stage.addEventListener('wheel', (e) => {
+      if (!mvImg()) return;
+      e.preventDefault();
+      mvZoom(mv.z * Math.exp(-e.deltaY * 0.0025), ...fromCentre(e));
+    }, { passive: false });
+    // Drag to look around when zoomed, swipe left/right to move between items, pinch to zoom.
+    const pts = new Map();
+    let start = null, pinch = null;
+    stage.addEventListener('pointerdown', (e) => {
+      if (e.target.tagName === 'VIDEO') return; // its own controls
+      pts.set(e.pointerId, [e.clientX, e.clientY]);
+      moved = false;
+      if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, z: mv.z };
+        start = null;
+      } else start = { px: e.clientX, py: e.clientY, x: mv.x, y: mv.y };
+    });
+    stage.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (pinch && pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        mvZoom(pinch.z * (Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d));
+        moved = true;
+        return;
+      }
+      if (!start) return;
+      const dx = e.clientX - start.px, dy = e.clientY - start.py;
+      if (!moved && Math.abs(dx) + Math.abs(dy) > 6) { moved = true; try { stage.setPointerCapture(e.pointerId); } catch { /* fine without */ } }
+      if (!moved) return;
+      const img = mvImg();
+      if (mv.z > 1) { mv.x = start.x + dx; mv.y = start.y + dy; mvClamp(); mvApply(); }
+      else if (img) img.style.transform = `translateX(${dx}px)`;
+    });
+    const end = (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.delete(e.pointerId);
+      if (pinch) { if (pts.size < 2) pinch = null; return; }
+      if (start && moved && mv.z === 1) {
+        const dx = e.clientX - start.px;
+        if (dx < -60) mvStep(1); else if (dx > 60) mvStep(-1); else mvApply();
+      }
+      start = null;
+      setTimeout(() => { moved = false; }, 0);
+    };
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
+    addEventListener('resize', () => { if (el.classList.contains('open')) { mvClamp(); mvApply(); } });
+  }
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest?.('a[data-view]');
+    if (!a || !a.dataset.view || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    if (!a.classList.contains('broken')) mvOpen(a.dataset.view);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (!mv.el?.classList.contains('open')) return;
+    if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); return mv.grid ? mvGrid(false) : mvClose(); }
+    if (mv.grid || e.target.tagName === 'VIDEO' || e.metaKey || e.ctrlKey || e.altKey) return;
+    const act = { ArrowLeft: () => mvStep(-1), ArrowRight: () => mvStep(1), '+': () => mvZoom(mv.z * 1.5), '=': () => mvZoom(mv.z * 1.5), '-': () => mvZoom(mv.z / 1.5) }[e.key];
+    if (!act) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    act();
+  }, true);
 
   // AI on/off for this chat (the switch in the chat header).
   $('#ibChat').addEventListener('change', async (e) => {
