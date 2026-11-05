@@ -148,7 +148,9 @@ $('[data-tab-go]').addEventListener('click', (e) => showTab(e.currentTarget.data
 $('#sidebar').addEventListener('click', (e) => { if (e.target.closest('#acctBtn, [data-goto], a[href]') && matchMedia('(max-width: 900px)').matches) setTimeout(() => setDrawer(false), 0); });
 function showTab(name) {
   if (name === 'assistant' && !state.me?.ai) name = 'overview'; // no AI assistant for this person
-  const navFor = { reports: 'report' }[name] || name; // pages under another one keep its sidebar item lit
+  // The Send page always sends one campaign (New campaign makes it first); without one, Campaigns.
+  if (name === 'send' && !window.SendPage?.campaignId()) name = 'campaigns';
+  const navFor = { reports: 'report', send: 'campaigns' }[name] || name; // pages under another one keep its sidebar item lit
   $$('.side-nav button[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === navFor));
   const wasHidden = $('#tab-' + name)?.classList.contains('hidden');
   $$('.tab').forEach((t) => t.classList.toggle('hidden', t.id !== 'tab-' + name));
@@ -180,8 +182,9 @@ function showTab(name) {
   hideTip();
   // The address follows the page (/send, /inbox; the overview is just /), so Back and Forward move
   // between pages and a reload stays where you are.
-  const path = name === 'overview' ? '/' : '/' + name;
-  if (location.pathname !== path || location.hash) history[showTab.replace ? 'replaceState' : 'pushState']({ tab: name }, '', path);
+  const path = name === 'overview' ? '/' : '/' + name + (name === 'send' ? '?c=' + encodeURIComponent(window.SendPage.campaignId()) : '');
+  const here = name === 'send' ? location.pathname + location.search : location.pathname;
+  if (here !== path || location.hash) history[showTab.replace ? 'replaceState' : 'pushState']({ tab: name }, '', path);
   showTab.replace = false;
 }
 // Which page an address means: /send → send; old #send links still work.
@@ -268,7 +271,7 @@ $('#themeCycle').addEventListener('click', (e) => {
 renderThemeSeg();
 document.addEventListener('click', (e) => {
   const go = e.target.closest('[data-goto]');
-  if (go) { e.preventDefault(); showTab(go.dataset.goto); }
+  if (go) { e.preventDefault(); if (go.dataset.goto === 'send') window.CampaignSetup.create(); else showTab(go.dataset.goto); }
   const copy = e.target.closest('.copy');
   if (copy) { navigator.clipboard.writeText($('#' + copy.dataset.copy).value); toast('Copied'); }
 });
@@ -1723,9 +1726,7 @@ $('#templateList').addEventListener('click', (e) => {
   if (b.dataset.use) {
     // An unapproved template can't be sent: clicking just shows why (the same note as on hover).
     if (b.dataset.tip) { b.classList.add('tip-show'); clearTimeout(b._tip); b._tip = setTimeout(() => b.classList.remove('tip-show'), 2600); return; }
-    $('#templateSelect').value = b.dataset.use;
-    onTemplateChange();
-    showTab('send');
+    window.CampaignSetup.create({ templateId: b.dataset.use });
   }
   if (b.dataset.del)
     guard(async () => {
@@ -2241,8 +2242,6 @@ document.body.append(headTip);
 let headTipT = 0;
 const headDesc = (h) => {
   const sub = h.closest('.section-head')?.querySelector(':scope > div:first-child > .sub');
-  // the campaigns summary only when it isn't showing beside the title already
-  if (sub?.classList.contains('cp-summary') && sub.offsetParent) return null;
   return sub && sub.textContent.trim() ? sub : null;
 };
 function hideHeadTip() { clearTimeout(headTipT); headTipT = 0; headTip.classList.add('hidden'); headTip.__for = null; }
@@ -2257,7 +2256,7 @@ function showHeadTip(h) {
   headTip.style.top = r.bottom + 8 + 'px';
 }
 document.addEventListener('pointerover', (e) => {
-  const h = e.target.closest?.(':is(.tab, #campaignList) > .section-head h1');
+  const h = e.target.closest?.(':is(.tab, #campaignList) > .section-head :is(h1, .cp-sum-btn)');
   if (h && headDesc(h)) {
     clearTimeout(headTipT);
     if (headTip.__for !== h) headTipT = setTimeout(() => showHeadTip(h), headTip.__for ? 0 : 250);
@@ -2267,6 +2266,8 @@ document.addEventListener('pointerover', (e) => {
   if (headTip.__for || headTipT) { clearTimeout(headTipT); headTipT = setTimeout(hideHeadTip, 160); }
 });
 addEventListener('scroll', () => headTip.__for && hideHeadTip(), { passive: true });
+document.addEventListener('focusin', (e) => { const b = e.target.closest?.('.cp-sum-btn'); if (b) showHeadTip(b); });
+document.addEventListener('focusout', (e) => { if (e.target.closest?.('.cp-sum-btn')) hideHeadTip(); });
 document.addEventListener('pointerdown', (e) => !e.target.closest?.('#headTip') && headTip.__for && hideHeadTip());
 
 // A header's filters sit beside the title while they fit on that line; when they don't (a narrow window, many filters)
@@ -2992,6 +2993,7 @@ $('#fTests').addEventListener('change', (e) => {
   saveOv();
   loadOverview().catch((err) => toast(err.message, 'error'));
 });
+
 
 $('#fReset').addEventListener('click', () => {
   state.ov.sender = state.ov.template = '';

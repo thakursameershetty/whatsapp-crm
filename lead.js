@@ -168,6 +168,11 @@ module.exports = function mountLead(app, ctx) {
   const masterOn = () => normalizeLead(settings()).on;
   const autoOn = () => { const c = normalizeLead(settings()); return c.on && c.autoOn; };
   const forNumber = (senderId) => playbooks().filter((p) => p.allNumbers || (p.numbers || []).includes(senderId));
+  // A campaign with AI replies switched on answers its own replies: it's a playbook of its own (made from the campaign's
+  // AI settings) for the numbers it was sent from. These are never picked for other chats (only by the campaign match).
+  const campaignPb = (c) => ({ id: 'cmp-' + c.id, name: c.name, when: '', business: c.ai.business || '', qualified: c.ai.qualified || '', nextStep: c.ai.nextStep || '', tone: c.ai.tone || '', draft: true, auto: Boolean(c.ai.auto), campaign: c.id });
+  const campaignPbs = (senderId) => (aiAllowed() ? db.campaigns.filter((c) => c.ai?.on && c.status !== 'draft' && Boolean(c.demo) === db.settings.demoMode && (c.senderIds || []).includes(senderId)).map(campaignPb) : []);
+  const forChat = (senderId) => [...forNumber(senderId), ...campaignPbs(senderId)];
   function defaultFor(senderId, list = forNumber(senderId)) {
     const want = normalizeLead(settings()).defaults[senderId];
     return list.find((p) => p.id === want) || list[0] || null;
@@ -178,7 +183,8 @@ module.exports = function mountLead(app, ctx) {
     let best = null;
     for (const c of db.campaigns) {
       if (Boolean(c.demo) !== db.settings.demoMode) continue;
-      const pb = list.find((p) => (p.templates || []).includes(c.templateId));
+      // the campaign's own AI settings first, else a playbook its template is linked to
+      const pb = list.find((p) => p.campaign === c.id) || list.find((p) => !p.campaign && (p.templates || []).includes(c.templateId));
       if (!pb) continue;
       for (const r of c.recipients) if (r.phone === wa && r.senderId === senderId && r.sentAt && (!best || r.sentAt > best.at)) best = { pb, at: r.sentAt, campaign: c.name };
     }
@@ -187,17 +193,18 @@ module.exports = function mountLead(app, ctx) {
   // Without asking the AI: the chat's playbook, or what it would be. needsAi = several could fit and none is chosen yet.
   function resolveSync(key) {
     const { senderId } = splitKey(key);
-    const list = forNumber(senderId);
-    if (!list.length) return null;
+    const all = forChat(senderId), list = all.filter((p) => !p.campaign);
+    if (!all.length) return null;
     const ai = aiOf(key);
-    const bound = ai.playbook && list.find((p) => p.id === ai.playbook.id);
-    const camp = campaignMatch(key, list);
+    const bound = ai.playbook && all.find((p) => p.id === ai.playbook.id);
+    const camp = campaignMatch(key, all);
     if (bound) {
       // a newer campaign with another playbook takes over (not when a person chose this one)
       if (ai.playbook.by !== 'manual' && camp && camp.pb.id !== bound.id && camp.at > ai.playbook.at) return { pb: camp.pb, by: 'campaign', why: camp.campaign, bind: true };
       return { pb: bound, by: ai.playbook.by, why: ai.playbook.why || '' };
     }
     if (camp) return { pb: camp.pb, by: 'campaign', why: camp.campaign, bind: true };
+    if (!list.length) return null;
     if (list.length === 1) return { pb: list[0], by: 'only' };
     return { pb: defaultFor(senderId, list), by: 'default', needsAi: true, list };
   }
@@ -355,7 +362,7 @@ Draft the next reply to the customer's latest message(s).`;
 
   // Called by the webhook for each conversation with new messages from the customer.
   function onInbound(key) {
-    if (!masterOn() || aiOf(key).off || !forNumber(splitKey(key).senderId).some((p) => p.draft)) return;
+    if (!masterOn() || aiOf(key).off || !forChat(splitKey(key).senderId).some((p) => p.draft)) return;
     clearTimeout(timers.get(key));
     timers.set(key, setTimeout(() => { timers.delete(key); draft(key).catch(() => {}); }, DEBOUNCE_MS));
   }

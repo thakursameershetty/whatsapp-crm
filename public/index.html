@@ -47,8 +47,6 @@
           class="nav-label">Inbox</span><span class="nav-badge hidden" id="inboxBadge"></span></button>
       <button data-icon="users" data-icon-size="16" data-tab="contacts" title="Contacts"><span
           class="nav-label">Contacts</span></button>
-      <button data-icon="send" data-icon-size="16" data-tab="send" title="Send"><span
-          class="nav-label">Send</span></button>
       <button data-icon="chart-column-increasing" data-icon-size="16" data-tab="campaigns" title="Campaigns"><span
           class="nav-label">Campaigns</span></button>
       <button data-icon="phone" data-icon-size="16" data-tab="numbers" title="Numbers"><span
@@ -386,6 +384,7 @@
     <!-- SEND -------------------------------------------------------------->
     <section id="tab-send" class="tab hidden">
       <div class="sp-bar" id="spBar">
+        <button class="tool sp-back" id="spBack" title="Back to Campaigns" aria-label="Back to Campaigns" data-icon="arrow-left" data-icon-size="16"></button>
         <div class="sp-file"><span class="sp-title" id="spTitle">Send a campaign</span><span class="sp-meta"
             id="spMeta">Open a contact
             list to start</span></div>
@@ -466,14 +465,12 @@
           </div>
           <div class="sp-pane" data-pane="compose">
             <div class="sp-sec">
-              <label>Campaign name <span class="opt">optional</span>
-                <input id="campaignName" placeholder="e.g. Diwali offer — Oct 2026" />
-              </label>
-              <div class="field-label">Template</div>
-              <button type="button" class="tp-btn" id="tplPickBtn" aria-haspopup="dialog"></button>
+              <div class="sp-camp hidden" id="spCamp"></div>
+              <input id="campaignName" type="hidden" />
+              <button type="button" class="tp-btn" id="tplPickBtn" aria-haspopup="dialog" hidden></button>
               <select id="templateSelect" hidden aria-hidden="true" tabindex="-1"></select>
             </div>
-            <div class="sp-sec">
+            <div class="sp-sec hidden" id="spFromSec">
               <div class="field-label">Send from <span class="opt" id="sendFromHint">split evenly across the numbers you pick</span>
               </div>
               <div id="senderChecks" class="toggle-list"></div>
@@ -941,6 +938,7 @@
   <script src="sheet.js"></script>
   <script src="select.js"></script>
   <script src="send.js"></script>
+  <script src="campaign-setup.js"></script>
   <script src="contacts.js"></script>
   <script src="campaigns.js"></script>
   <script src="notifications.js"></script>

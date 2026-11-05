@@ -694,6 +694,8 @@ app.use('/api', (req, res, next) => {
   }
   // Sending: only from your numbers.
   if (p === '/api/campaigns' && write && (req.body?.senderIds || []).some((x) => !scope.has(x))) return no('You can only send from your own numbers.');
+  if (p === '/api/campaigns' && write && req.body?.draftId && (db.drafts.find((d) => d.id === req.body.draftId)?.senderIds || []).some((x) => !scope.has(x))) return no('This campaign sends from a number you don’t have access to.');
+  if (/^\/api\/drafts(\/|$)/.test(p) && write && Array.isArray(req.body?.senderIds) && req.body.senderIds.some((x) => !scope.has(x))) return no('You can only send from your own numbers.');
   if (p === '/api/send/test' && !scope.has(req.body?.senderId)) return no('You can only send from your own numbers.');
   if (/^\/api\/senders\/([^/]+)\/photo/.test(p) && !scope.has(p.split('/')[3])) return no('That number isn’t yours.');
   // Lists: only what's on your numbers.
@@ -1510,7 +1512,14 @@ function notApprovedError(t) {
 }
 
 function createCampaign(body) {
-  const { name, templateId, senderIds = [] } = body;
+  // Sending a draft (made with New campaign): its name, template and AI settings, and its id, so the page that set it up
+  // keeps pointing at it. The draft stays until the send can no longer be undone (finishDraft).
+  const draft = body.draftId ? db.drafts.find((d) => d.id === body.draftId) : null;
+  if (body.draftId && !draft) throw fail('This campaign was deleted or has already been sent', 404);
+  if (draft && db.campaigns.some((c) => c.id === draft.id)) throw fail('This campaign is already sending', 409);
+  const name = draft ? draft.name : body.name;
+  const templateId = draft ? draft.templateId : body.templateId;
+  const senderIds = draft?.senderIds?.length ? draft.senderIds : body.senderIds || [];
   const hold = Math.min(10, Math.max(0, Math.round(Number(body.hold) || 0)));
   if (tenants.meta()?.suspended) throw fail('This workspace is suspended', 403);
   const template = db.templates.find((t) => t.id === templateId);
@@ -1554,7 +1563,7 @@ function createCampaign(body) {
   }
 
   const c = {
-    id: id(),
+    id: draft ? draft.id : id(),
     name: name || `${template.name} — ${new Date().toLocaleString()}`,
     templateId,
     templateName: template.name,
@@ -1570,19 +1579,26 @@ function createCampaign(body) {
     ...(body.source ? { source: body.source } : {}),
     // a test send (to yourself or the team): tagged, and left out of the Overview's numbers unless asked for
     ...(body.test ? { test: true } : {}),
+    ...(draft ? { ai: draft.ai || { on: false }, fromDraft: true, ...(draft.description ? { description: draft.description } : {}) } : {}),
   };
   recount(c);
   db.campaigns.unshift(c);
+  if (c.status !== 'holding') finishDraft(c);
   save();
   if (c.status === 'holding') setTimeout(() => releaseHold(c), hold * 1000);
   else if (!scheduledAt) runCampaign(c);
   return c;
+}
+// A sent draft is a campaign now: the draft goes (an undone send leaves it, ready to send again).
+function finishDraft(c) {
+  if (c.fromDraft) db.drafts = db.drafts.filter((d) => d.id !== c.id);
 }
 // The undo window has passed: send it (unless it was undone; then it's gone from the list and nothing happens).
 function releaseHold(c) {
   if (c.status !== 'holding' || !db.campaigns.includes(c)) return;
   c.status = 'queued';
   delete c.holdUntil;
+  finishDraft(c);
   save();
   runCampaign(c);
 }
@@ -1634,6 +1650,75 @@ app.post('/api/campaigns/:id/cancel', wrap((req, res) => {
   c.status = 'cancelled';
   save();
   res.json(summary(c));
+}));
+
+// --- Campaign drafts -----------------------------------------------------------
+// New campaign makes a draft: a name, a template and the AI reply settings. The people to send to are set up on the
+// Send page (kept in that browser while it's a draft); sending it turns the draft into a campaign with the same id.
+const AI_LIMITS = { business: 20000, qualified: 4000, nextStep: 1000, tone: 300 };
+function cleanAi(a = {}) {
+  const out = { on: Boolean(a.on), auto: Boolean(a.on && a.auto) };
+  for (const [k, n] of Object.entries(AI_LIMITS)) out[k] = String(a[k] ?? '').slice(0, n);
+  return out;
+}
+function draftFields(body, d = {}) {
+  if (body.name !== undefined) {
+    const name = String(body.name || '').trim().slice(0, 120);
+    if (!name) throw fail('Give the campaign a name');
+    d.name = name;
+  }
+  if (body.templateId !== undefined) {
+    const t = db.templates.find((x) => x.id === body.templateId);
+    if (!t) throw fail('Pick a template');
+    d.templateId = t.id;
+    d.templateName = t.name;
+  }
+  if (body.ai !== undefined) d.ai = cleanAi(body.ai);
+  if (body.description !== undefined) d.description = String(body.description || '').trim().slice(0, 500);
+  // The numbers it sends from: enabled ones that can send its template (same WhatsApp Business Account).
+  if (body.senderIds !== undefined || body.templateId !== undefined) {
+    const t = db.templates.find((x) => x.id === d.templateId);
+    const want = body.senderIds !== undefined ? (Array.isArray(body.senderIds) ? body.senderIds.map(String) : []) : d.senderIds || [];
+    const ok = db.senders.filter((x) => x.enabled && want.includes(x.id) && !(t?.wabaId && x.wabaId && x.wabaId !== t.wabaId));
+    if (body.senderIds !== undefined && !ok.length) throw fail('Choose at least one number to send from');
+    d.senderIds = ok.map((x) => x.id);
+  }
+  d.updatedAt = new Date().toISOString();
+  return d;
+}
+app.get('/api/drafts', (req, res) => res.json(db.drafts.filter((d) => Boolean(d.demo) === Boolean(db.settings.demoMode))));
+app.get('/api/drafts/:id', wrap((req, res) => {
+  const d = db.drafts.find((x) => x.id === req.params.id);
+  if (!d) throw fail(db.campaigns.some((c) => c.id === req.params.id) ? 'This campaign has already been sent' : 'This campaign draft was deleted', 404);
+  res.json(d);
+}));
+app.post('/api/drafts', wrap((req, res) => {
+  if (!String(req.body?.name || '').trim()) throw fail('Give the campaign a name');
+  if (!req.body?.templateId) throw fail('Pick a template');
+  const d = draftFields({ ai: {}, ...req.body }, { id: id(), createdAt: new Date().toISOString(), ...(db.settings.demoMode ? { demo: true } : {}) });
+  db.drafts.unshift(d);
+  save();
+  res.json(d);
+}));
+app.patch('/api/drafts/:id', wrap((req, res) => {
+  const d = db.drafts.find((x) => x.id === req.params.id);
+  if (!d) throw fail('This campaign draft was deleted or has been sent', 404);
+  draftFields(req.body || {}, d);
+  save();
+  res.json(d);
+}));
+app.delete('/api/drafts/:id', wrap((req, res) => {
+  db.drafts = db.drafts.filter((x) => x.id !== req.params.id);
+  save();
+  res.json({ ok: true });
+}));
+// A sent campaign's AI reply settings can still change: replies keep coming after it's sent.
+app.patch('/api/campaigns/:id/ai', wrap((req, res) => {
+  const c = db.campaigns.find((x) => x.id === req.params.id);
+  if (!c) throw fail('Not found', 404);
+  c.ai = cleanAi(req.body?.ai);
+  save();
+  res.json({ ai: c.ai });
 }));
 
 const summary = (c) => {
@@ -1728,7 +1813,9 @@ app.get('/api/campaigns', (req, res) => {
   // dots for the date picker, and the months that have campaigns
   const days = {};
   for (const c of all) { const k = dayKey(cpDay(c)); days[k] = (days[k] || 0) + 1; }
-  const base = { counts, total: rows.length, pinned: pinned.map(show), summary: summary30, days, any: all.length, live: all.some(cpLive), scheduled: all.some((c) => c.status === 'scheduled') };
+  const drafts = db.drafts.filter((d) => Boolean(d.demo) === Boolean(db.settings.demoMode) && (!q || [d.name, d.templateName].some((v) => String(v || '').toLowerCase().includes(q))));
+  const draftCount = db.drafts.filter((d) => Boolean(d.demo) === Boolean(db.settings.demoMode)).length;
+  const base = { counts, total: rows.length, pinned: pinned.map(show), drafts, draftCount, summary: summary30, days, any: all.length + db.drafts.length, live: all.some(cpLive), scheduled: all.some((c) => c.status === 'scheduled') };
   if (req.query.view === 'calendar') {
     const both = [...pinned, ...rows];
     const newest = both.map(cpDay).sort().at(-1);

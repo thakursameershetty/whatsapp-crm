@@ -104,6 +104,7 @@
     }, 600);
   }
   async function load() {
+    if (CP.drafts && !CP.detail) return loadDrafts();
     if (!(await fetchList())) return;
     if (CP.detail) return open(CP.detail);
     if (CP.day) renderDay();
@@ -175,7 +176,11 @@
     const statusCount = (fn) => R.counts[FILTERS.find((f) => f[2] === fn)[0]] || 0;
     el.innerHTML = `
       <div class="section-head has-tools${wasBelow ? ' tools-below' : ''}"><div><h1>Campaigns</h1>
-        <p class="sub cp-summary" title="Last 30 days: ${T.sent.toLocaleString()} sent, ${pctOf(T.del, T.sent)}% delivered, ${pctOf(T.read, T.del)}% read, ${T.rep.toLocaleString()} replies, ${T.leads.toLocaleString()} leads${testsOut ? ` (${testsOut} test${testsOut === 1 ? '' : 's'} not counted)` : ''}">Last 30 days · <b>${T.sent.toLocaleString()}</b> sent · <b>${pctOf(T.del, T.sent)}%</b> delivered · <b>${pctOf(T.read, T.del)}%</b> read · <b>${T.rep.toLocaleString()}</b> repl${T.rep === 1 ? 'y' : 'ies'} · <b>${T.leads.toLocaleString()}</b> lead${T.leads === 1 ? '' : 's'}${testsOut ? ` <span class="cp-tests-out">· ${testsOut} test${testsOut === 1 ? '' : 's'} not counted</span>` : ''}</p></div>
+        <button type="button" class="cp-sum-btn" aria-label="Last 30 days summary" title="">${icon('chart-column-increasing', 15)}</button>
+        <div class="sub cp-summary"><div class="cps-h">Last 30 days</div>${[
+          [T.sent.toLocaleString(), 'sent'], [pctOf(T.del, T.sent) + '%', 'delivered'], [pctOf(T.read, T.del) + '%', 'read'],
+          [T.rep.toLocaleString(), T.rep === 1 ? 'reply' : 'replies'], [T.leads.toLocaleString(), T.leads === 1 ? 'lead' : 'leads'],
+        ].map(([n, l]) => `<div class="cps-row"><span>${l}</span><b>${n}</b></div>`).join('')}${testsOut ? `<div class="cps-note">${testsOut} test${testsOut === 1 ? '' : 's'} not counted</div>` : ''}</div></div>
         <div class="in-head cp-tools">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="cpSearch" placeholder="Search campaigns" title="Search by campaign or template name" value="${esc(CP.q)}" aria-label="Search campaigns" /></div>
         <select id="cpFilter" aria-label="Status" title="Status">${FILTERS.filter(([k, , fn]) => k !== 'tests' || k === filter[0] || statusCount(fn)).map(([k, label, fn]) => `<option value="${k}" ${k === filter[0] ? 'selected' : ''}>${k === 'all' ? 'All campaigns' : label} (${statusCount(fn)})</option>`).join('')}</select>
@@ -189,7 +194,7 @@
           <button data-view="calendar" class="${CP.view === 'calendar' ? 'active' : ''}" title="Calendar" aria-label="Calendar" aria-checked="${CP.view === 'calendar'}" role="radio">${icon('calendar-days', 15)}</button>
         </div>
       </div>
-        <div class="row tight cp-head-actions"><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
+        <div class="row tight cp-head-actions">${R.draftCount ? `<button type="button" class="btn cp-drafts-btn" data-drafts-open title="Campaigns you started and haven't sent yet">${icon('file-text', 15)}Drafts<span class="cp-drafts-n">${R.draftCount}</span></button>` : ''}<button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
       ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
       ${CP.view === 'calendar' ? calendarHtml(calRows) : CP.view === 'cards'
         ? `<div class="cp-folders">${shown.map(folderHtml).join('')}</div>${!total ? `<p class="sub cp-none">${q || CP.date || CP.sender || CP.filter !== 'all' ? 'No campaigns match.' : 'Nothing here yet.'}</p>` : ''}${pager}`
@@ -437,7 +442,7 @@
     if (ev) return open(ev.dataset.dayOpen);
     const sch = e.target.closest('[data-day-schedule]');
     if (sch) return window.scheduleOn?.(sch.dataset.daySchedule);
-    if (e.target.closest('[data-day-new]')) showTab('send');
+    if (e.target.closest('[data-day-new]')) window.CampaignSetup.create();
   });
   // to a day: a key like 2026-11-05, a number of days from this one, or 0 for today (the address follows, no new history)
   function stepDay(to) {
@@ -541,6 +546,51 @@
     </button>`;
   }
 
+  // --- Drafts: their own page (/campaigns?drafts=1), so they never mix with sent campaigns ----------------------
+  async function loadDrafts() {
+    stop();
+    const list = await api('/drafts');
+    if (!CP.drafts || CP.detail) return; // moved on while it loaded
+    const el = $('#campaignList');
+    el.classList.remove('hidden');
+    $('#campaignDetail').classList.add('hidden');
+    el.innerHTML = `
+      <div class="section-head cp-drafts-head"><div><button type="button" class="icon-btn cd-back" data-drafts-back title="Back to campaigns" aria-label="Back to campaigns">${icon('arrow-left', 22)}</button><h1>Drafts</h1><span class="cp-drafts-sub">${list.length ? `${list.length} not sent yet` : ''}</span></div>
+        <div class="row tight cp-head-actions"><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
+      ${list.length
+        ? `<p class="sub cp-drafts-note">Campaigns you started but haven't sent. Open one to add the people and send it; once it's sent it moves to Campaigns.</p><div class="cp-folders">${list.map(draftHtml).join('')}</div>`
+        : emptyState({ icon: 'file-text', title: 'No drafts', text: "Campaigns you start and don't send right away wait here.", actions: `<button class="btn" data-drafts-back>${icon('arrow-left', 15)}Back to campaigns</button>` })}`;
+    LA.hydrate(el);
+    CP.draftList = list;
+  }
+  function openDrafts() {
+    CP.drafts = true;
+    if (state.tab === 'campaigns' && !history.state?.drafts) { history.pushState({ tab: 'campaigns', drafts: 1 }, '', '/campaigns?drafts=1'); CP.draftsPushed = true; }
+    scrollTo(0, 0);
+    load().catch((e) => toast(e.message, 'error'));
+  }
+  function closeDrafts() {
+    if (CP.draftsPushed && history.state?.drafts) { history.back(); return; } // (popstate then shows the list)
+    CP.drafts = false;
+    CP.draftsPushed = false;
+    history.replaceState({ tab: 'campaigns' }, '', '/campaigns');
+    load().catch((e) => toast(e.message, 'error'));
+  }
+
+  // A draft (made with New campaign, not sent yet) as a folder: opening it goes back to its Send page.
+  function draftHtml(d) {
+    const ai = state.me?.ai && d.ai?.on ? `<span class="cp-folder-leads">${icon('sparkles', 12)}AI replies</span>` : '';
+    return `<button type="button" class="cp-folder is-draft" data-draft="${d.id}" style="--c:oklch(var(--fl) var(--fc) 250)" title="${esc(d.name)}${d.description ? ` — ${esc(d.description)}` : ''}: continue setting it up">
+      <span class="cf-tab"></span><span class="cf-paper"></span><span class="cf-body"></span>
+      <span class="cp-folder-top"><span class="pill draft">Draft</span>${d.demo ? '<span class="pill demo">demo</span>' : ''}${ai}</span>
+      <span class="cp-folder-body">
+        <b>${esc(d.name)}</b>
+        <small>${esc(d.templateName || '')} · ${esc(shortDate(d.updatedAt || d.createdAt))}</small>
+      </span>
+      <span class="cf-stats cp-draft-go"><span>${icon('square-pen', 13)}Continue</span><span class="cp-draft-del" data-draft-del="${d.id}" role="button" tabindex="0" title="Delete draft" aria-label="Delete draft">${icon('delete', 14)}</span></span>
+    </button>`;
+  }
+
   // Where every message ended up, as one bar in the folder's colour: read, delivered, on its way, failed.
   function folderBar(c) {
     const s = c.stats || {};
@@ -565,6 +615,8 @@
   }
 
   $('#campaignList').addEventListener('click', async (e) => {
+    if (e.target.closest('[data-drafts-open]')) return openDrafts();
+    if (e.target.closest('[data-drafts-back]')) return closeDrafts();
     const pg = e.target.closest('[data-cp-page]');
     if (pg) {
       CP.page += Number(pg.dataset.cpPage);
@@ -607,6 +659,17 @@
         await load();
       }, a);
     }
+    const del = e.target.closest('[data-draft-del]');
+    if (del) {
+      e.stopPropagation();
+      const d = CP.draftList?.find((x) => x.id === del.dataset.draftDel);
+      return guard(async () => {
+        if (!(await confirmDialog({ title: `Delete “${esc(d?.name || 'this draft')}”?`, message: 'The draft and the sheets you set up for it are removed. Nothing was sent.', confirmText: 'Delete', danger: true }))) return;
+        await window.CampaignSetup.remove(del.dataset.draftDel);
+      });
+    }
+    const dr = e.target.closest('[data-draft]');
+    if (dr) return guard(() => window.CampaignSetup.resume(dr.dataset.draft));
     const item = e.target.closest('[data-open]');
     if (item) open(item.dataset.open);
   });
@@ -733,6 +796,8 @@
     const q = new URLSearchParams(location.search);
     const cid = history.state?.cid || q.get('c');
     const day = history.state?.day || q.get('day');
+    const drafts = Boolean(history.state?.drafts || q.get('drafts'));
+    if (!cid && !day && !CP.detail && drafts !== Boolean(CP.drafts)) { CP.drafts = drafts; if (!drafts) CP.draftsPushed = false; return load().catch(() => {}); }
     if (!cid && CP.detail) { if (day && day !== CP.day) CP.day = day; closeDetail(); }
     else if (cid && CP.detail !== cid) open(cid);
     else if (!cid && !day && CP.day) closeDay();
@@ -754,7 +819,7 @@
     $('#cdHead').innerHTML = `
       <div class="cd-title">
         <div class="cd-name"><button type="button" class="icon-btn cd-back" data-cd="back" title="Back to campaigns" aria-label="Back to campaigns">${icon('arrow-left', 22)}</button>${miniFolder(c)}<div><h1>${esc(c.name)} <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${c.demo ? ' <span class="pill demo">demo</span>' : ''}${c.test ? ' ' + TEST_PILL : ''}</h1>
-          <p class="sub">Template <code>${esc(c.templateName)}</code> · ${nums.length ? esc(nums.join(', ')) : `${c.senderIds.length} number(s)`} · ${esc(when)}</p></div></div>
+          ${c.description ? `<p class="sub cd-desc">${esc(c.description)}</p>` : ''}<p class="sub">Template <code>${esc(c.templateName)}</code> · ${nums.length ? esc(nums.join(', ')) : `${c.senderIds.length} number(s)`} · ${esc(when)}</p></div></div>
         <div class="cd-actions">${primary}
           <button class="btn" data-cd="follow" ${sentOf(s) || s.failed ? '' : 'disabled'}>Follow up ${icon('chevron-down', 14)}</button>
           <button class="btn quiet cd-more" data-cd="more" aria-label="More actions">⋯</button></div>
@@ -1271,6 +1336,7 @@
     const r = b.getBoundingClientRect();
     const running = live(c);
     Sheet.Menu.open(Math.min(r.left, innerWidth - 240), r.bottom + 4, [
+      ...(state.me?.ai ? [{ label: c.ai?.on ? 'AI replies: on…' : 'AI replies: off…', action: () => window.CampaignSetup.open({ campaign: c, onSaved: (x) => { c.ai = x.ai; } }) }, '-'] : []),
       { label: 'Export CSV', action: () => { location.href = `/api/campaigns/${c.id}/export.csv`; } },
       // a test send stays listed, but out of the Overview's numbers
       { label: c.test ? 'Not a test: count it again' : 'Mark as test', action: () => guard(async () => {
@@ -1303,6 +1369,8 @@
     if (fromUrl && !CP.detail && location.pathname === '/campaigns') CP.detail = fromUrl;
     const dayFromUrl = new URLSearchParams(location.search).get('day');
     if (!fromUrl && /^\d{4}-\d{2}-\d{2}$/.test(dayFromUrl || '') && !CP.day && location.pathname === '/campaigns') { CP.day = dayFromUrl; CP.view = 'calendar'; CP.calMonth = monthOfKey(dayFromUrl); }
+    // the Drafts page follows the address (/campaigns?drafts=1); coming back from elsewhere lands on the list
+    CP.drafts = location.pathname === '/campaigns' && new URLSearchParams(location.search).get('drafts') === '1';
     if (!CP.detail) $('#campaignDetail').classList.add('hidden');
     if (!CP.day) $('#campaignDay').classList.add('hidden');
     return load().catch((e) => toast(e.message, 'error'));
@@ -1311,7 +1379,7 @@
   // The page's home: the list (in the remembered cards / table / calendar view), with no campaign or day open.
   window.campaignsHome = () => {
     stop();
-    Object.assign(CP, { detail: null, pushed: false, day: null, dayPushed: false, listScroll: null, calScroll: null });
+    Object.assign(CP, { detail: null, pushed: false, day: null, dayPushed: false, listScroll: null, calScroll: null, drafts: false, draftsPushed: false });
     $('#campaignDetail').classList.add('hidden');
     $('#campaignDay').classList.add('hidden');
   };

@@ -16,6 +16,7 @@ const LISTS = {
   senders: (a, b) => cmp(a.createdAt, b.createdAt),
   templates: (a, b) => cmp(a.name, b.name),
   campaigns: (a, b) => cmp(b.createdAt, a.createdAt), // newest first
+  drafts: (a, b) => cmp(b.createdAt, a.createdAt), // campaigns being set up (not sent yet), newest first
   messages: (a, b) => cmp(a.ts, b.ts),
   contacts: (a, b) => cmp(a.createdAt, b.createdAt),
   tags: (a, b) => cmp(a.createdAt, b.createdAt),

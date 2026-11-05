@@ -5704,13 +5704,6 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .chart.is-flow > svg.d3chart { transition: opacity 0.12s ease; } /* going: at once, so the two axes never overlap */
 @media (prefers-reduced-motion: reduce) { .chart svg.d3chart { transition: none; } }
 /* Test campaigns: a quiet grey tag, a slightly faded folder, and the note in the Campaigns summary */
-.pill.test { background: var(--sunk); color: var(--muted); box-shadow: inset 0 0 0 1px var(--hair); }
-.cp-folder:has(.pill.test) .cf-body, .cp-folder:has(.pill.test) .cf-tab { filter: saturate(0.35); }
-.cp-cal-chip.is-test { opacity: 0.7; }
-.cp-tests-out { color: var(--faint); }
-.f-tests { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
-.f-tests.hidden { display: none; }
-.f-tests .opt { font-size: 11.5px; color: var(--faint); margin-left: -4px; }
 .sp-test { display: flex !important; align-items: center; justify-content: space-between; gap: 12px; margin-top: 2px; cursor: pointer; }
 .sp-test-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sp-test-t b { font-size: 13px; font-weight: 600; color: var(--text); }
@@ -6126,8 +6119,15 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 
 /* Campaigns: filters in the one-line header. The 30-day summary moves into the title's tooltip while the filters sit
    beside the title, and shows again under it when they drop to their own row. */
-#campaignList > .section-head.has-tools:not(.tools-below) .cp-summary { display: none; }
-#campaignList > .section-head.has-tools:not(.tools-below) h1 { cursor: help; }
+/* The 30-day summary is always in the title's tooltip (hover the title or the chart icon beside it). */
+#campaignList > .section-head .cp-summary { display: none; }
+#campaignList > .section-head h1 { cursor: help; }
+.cp-sum-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: help; }
+.cp-sum-btn:hover, .cp-sum-btn:focus-visible { background: var(--sunk); color: var(--text); }
+.head-tip .cps-h { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.head-tip .cps-row { display: flex; justify-content: space-between; gap: 28px; font-size: 13px; line-height: 1.7; }
+.head-tip .cps-row span { color: var(--muted); text-transform: capitalize; }
+.head-tip .cps-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
 #campaignList > .section-head.has-tools .cp-tools { gap: 10px; }
 #cpFilter { width: 178px; min-width: 0; }
 #cpPer { width: 132px; min-width: 132px; } /* "200 / page" fits beside the arrow */
@@ -6415,10 +6415,6 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 
 /* ---- Send page ---- */
 /* "This is a test", in the top bar beside Message; what it means is in its tooltip */
-.sp-testtop { display: inline-flex; align-items: center; gap: 8px; margin: 0 4px 0 0; padding: 0 4px 0 10px; height: 34px; border-radius: 10px; font: 600 13px Inter, sans-serif; color: var(--muted); cursor: help; white-space: nowrap; }
-.sp-testtop:hover { background: var(--sunk); color: var(--text); }
-.sp-testtop .toggle { cursor: pointer; }
-.sp-testtop.suggested > span:first-child::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--warn, #d97706); vertical-align: 2px; }
 /* the template field: a button that opens the picker */
 .tp-btn { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 54px; padding: 8px 14px; border: 0; border-radius: var(--r-md); background: var(--field); box-shadow: var(--sh-sunk); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
 .tp-btn:hover { background: var(--surface); box-shadow: var(--sh-raised); }
@@ -6570,7 +6566,6 @@ html.is-scrolling { scrollbar-color: var(--scroll-thumb) transparent; }
 .cd-ev-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; max-width: 45%; }
 .cd-ev-side time { font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .cd-ev.scheduled { background: color-mix(in srgb, var(--c) 8%, var(--surface)); box-shadow: inset 3px 0 0 var(--c), inset 0 0 0 1.5px color-mix(in srgb, var(--c) 45%, transparent); }
-.cd-ev.is-test { opacity: 0.8; }
 .cd-day-foot { display: flex; justify-content: flex-end; padding-top: 12px; margin-top: 4px; box-shadow: 0 -1px 0 var(--hair); }
 .cd-day-foot .btn, .cd-day-empty .btn { display: inline-flex; align-items: center; gap: 7px; }
 /* an empty day */
@@ -6937,3 +6932,96 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
    ".te-card input", so it won for text inputs but not for selects: the Name box sat 6px below Language.
    Matched specificity here; the label's grid gap does the spacing. */
 .te input:not([type="checkbox"]):not([type="file"]), .te select, .te textarea { margin: 0; }
+
+/* ---------- Campaign drafts & setup (campaign-setup.js) ---------- */
+.pill.draft { background: var(--sunk); color: var(--text); }
+.cp-folder.is-draft .cp-folder-leads { gap: 4px; background: var(--violet-soft); color: var(--violet); }
+.cp-folder.is-draft .cf-paper { opacity: 0.55; }
+.cf-stats.cp-draft-go { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; font-weight: 600; color: var(--info); }
+.cf-stats.cp-draft-go > span { flex-direction: row; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--info); }
+.cf-stats.cp-draft-go > span + span { padding-left: 0; box-shadow: none; }
+.cf-stats.cp-draft-go > .cp-draft-del { justify-content: center; width: 28px; height: 28px; border-radius: 8px; color: var(--muted); }
+.cp-draft-del:hover { background: var(--danger-soft); color: var(--danger); }
+
+.cs-form { display: flex; flex-direction: column; gap: 4px; }
+.cs-form .tp-btn { margin-bottom: 6px; }
+.cs-sent { margin: 0 0 8px; }
+.cs-ai { margin-top: 10px; padding: 14px; border-radius: var(--r-md); background: var(--sunk); }
+.cs-ai-fields { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; }
+.cs-ai-fields .pb-row { margin-top: 6px; }
+.cs-opt { margin: 0 0 6px; font-size: 12.5px; }
+.cs-warn { margin: 8px 0 0; font-size: 12.5px; color: var(--warn); }
+.cs-del { margin-right: auto; }
+
+.sp-back { flex: none; }
+.sp-camp { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 12px 14px; border-radius: var(--r-md); background: var(--field); box-shadow: var(--sh-sunk); }
+.sp-camp.hidden { display: none; }
+.sp-camp-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sp-camp-k { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.sp-camp-main b { font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-camp-main small { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.sp-camp-main small > span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.tp-btn[hidden] { display: none; }
+.cs-from-h { margin-top: 8px; }
+.cs-numsel { margin-bottom: 4px; }
+.cs-numsel { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 6px 38px 6px 12px; border: 0; border-radius: var(--r-md); background: var(--field) var(--chevron) no-repeat right 14px center; box-shadow: var(--sh-sunk); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.cs-numsel:hover:not(:disabled) { background-color: var(--surface); box-shadow: var(--sh-raised); }
+.cs-numsel:disabled { background-image: none; cursor: default; }
+.cs-numsel .ss-av { width: 28px; height: 28px; }
+.cs-numsel-t { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.cs-numsel-t b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-numsel-t small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-numsel-t.muted { color: var(--muted); font-size: 13px; }
+.cs-faces { display: flex; flex: none; }
+.cs-faces .ss-av { box-shadow: 0 0 0 2px var(--field); }
+.cs-faces .ss-av + .ss-av { margin-left: -9px; }
+.cs-numsel-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; padding: 8px 4px 2px; border-top: 1px solid var(--hair); }
+/* New campaign: a wide window, the form on the left and the chosen template's preview on the right */
+#modal .modal-box.cs-box { max-width: 960px; }
+.cs-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 26px; align-items: start; }
+.cs-preview { position: sticky; top: 0; }
+.cs-prev-box { border-radius: var(--r-md); }
+.cs-phone { margin: 0; min-height: 320px; padding: 18px 14px; }
+.cs-phone .bubble { max-width: 100%; }
+.cs-prev-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 320px; padding: 24px; border-radius: var(--r-md); background: var(--sunk); color: var(--muted); text-align: center; font-size: 13px; }
+.cs-prev-empty b { color: var(--text); font-size: 14px; font-weight: 600; }
+@media (max-width: 820px) { .cs-grid { grid-template-columns: minmax(0, 1fr); } .cs-preview { position: static; } }
+.cs-tplwrap { position: relative; margin-bottom: 6px; }
+.cs-tplwrap .tp-btn { margin-bottom: 0; }
+.cs-tplwrap:has(.cs-tpl-x:not(.hidden)) .tp-btn { padding-right: 52px; }
+.cs-tpl-x { position: absolute; top: 50%; right: 10px; transform: translateY(-50%); display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.cs-tpl-x:hover, .cs-tpl-x:focus-visible { background: var(--danger-soft); color: var(--danger); }
+/* New campaign: Cancel / Create stay in view at the bottom while the form scrolls */
+#modal .modal-box.cs-box { padding-bottom: 0; }
+#modal .cs-box .modal-actions { position: sticky; bottom: 0; z-index: 3; margin: 18px -26px 0; padding: 14px 26px; background: var(--surface); border-top: 1px solid var(--hair); }
+.sp-camp-desc { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.cd-desc { margin: 2px 0 0; color: var(--text); opacity: 0.8; }
+#csDesc { min-height: 120px; resize: vertical; }
+
+/* Drafts: a button in the Campaigns header, and their own page */
+.cp-drafts-btn { gap: 7px; }
+.cp-drafts-n { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; display: inline-grid; place-items: center; background: var(--violet-soft); color: var(--violet); font-size: 11.5px; font-weight: 700; }
+.cp-drafts-head .cd-back { margin-left: -8px; }
+.cp-drafts-sub { color: var(--muted); font-size: 13.5px; white-space: nowrap; }
+.cp-drafts-note { margin: 0 0 6px; max-width: 640px; }
+/* Campaigns: when the filters have their own row, they fill it edge to edge (search takes the spare width, the
+   view switch ends the row) */
+#campaignList > .section-head.has-tools.tools-below > .cp-tools .search-wrap { flex: 1 1 160px; min-width: 150px; max-width: none; }
+#campaignList > .section-head.has-tools.tools-below > .cp-tools .cp-view { margin-left: auto; }
+#campaignList > .section-head.has-tools.tools-below > .cp-tools > :not(.cp-view):not(.search-wrap) { flex-grow: 1; }
+#campaignList > .section-head.has-tools.tools-below > .cp-tools > .search-wrap { flex-grow: 3; }
+
+/* Test campaigns */
+.pill.test { background: var(--sunk); color: var(--muted); box-shadow: inset 0 0 0 1px var(--hair); }
+.cp-folder:has(.pill.test) .cf-body, .cp-folder:has(.pill.test) .cf-tab { filter: saturate(0.35); }
+.cp-cal-chip.is-test { opacity: 0.7; }
+.cp-tests-out { color: var(--faint); }
+.f-tests { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.f-tests.hidden { display: none; }
+.f-tests .opt { font-size: 11.5px; color: var(--faint); margin-left: -4px; }
+.sp-testtop { display: inline-flex; align-items: center; gap: 8px; margin: 0 4px 0 0; padding: 0 4px 0 10px; height: 34px; border-radius: 10px; font: 600 13px Inter, sans-serif; color: var(--muted); cursor: help; white-space: nowrap; }
+.sp-testtop:hover { background: var(--sunk); color: var(--text); }
+.sp-testtop .toggle { cursor: pointer; }
+.sp-testtop.suggested > span:first-child::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--warn, #d97706); vertical-align: 2px; }
+.cd-ev.is-test { opacity: 0.8; }
+.head-tip .cps-note { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line, color-mix(in srgb, var(--text) 10%, transparent)); font-size: 12px; color: var(--faint); }

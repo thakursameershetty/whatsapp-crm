@@ -8,6 +8,7 @@
     sheets: [], // { id, name, file, headers, rows: [{ cells, on, st, phone }], widths, filters, phoneName, included, dirty }
     active: -1,
     mapping: {}, // variable key -> { type: 'column' | 'fixed', value }
+    campaign: null, // the draft campaign this page is setting up ({ id, name, templateId, ai }); made with New campaign
     panel: (() => { try { return localStorage.getItem('sendPanel') !== '0'; } catch { return true; } })(),
   };
   const current = () => SP.sheets[SP.active] || null;
@@ -1148,6 +1149,39 @@
 
   // --- Chrome: toolbar state, tabs, summary ----------------------------------------------
 
+  // The campaign this page is for, at the top of Setup: its name, template and AI replies, with Edit (CampaignSetup).
+  function renderCamp() {
+    const c = SP.campaign, el = $('#spCamp');
+    if (!el) return;
+    el.classList.toggle('hidden', !c);
+    if (!c) return;
+    const t = state.templates.find((x) => x.id === c.templateId);
+    const ai = state.me?.ai ? (c.ai?.on ? (c.ai.auto ? 'AI replies on its own' : 'AI drafts replies') : 'No AI replies') : '';
+    const from = state.senders.filter((x) => state.selectedSenders.has(x.id));
+    const fromText = from.length === 1 ? from[0].verifiedName || from[0].label : from.length ? `${from.length} numbers` : 'No number';
+    el.innerHTML = `<div class="sp-camp-main"><span class="sp-camp-k">Campaign · draft</span><b title="${esc(c.name)}">${esc(c.name)}</b>${c.description ? `<span class="sp-camp-desc" title="${esc(c.description)}">${esc(c.description)}</span>` : ''}
+        <small><span>${icon('file-text', 13)}${esc(t?.name || c.templateName || 'No template')}</span><span title="${esc(from.map((x) => `${x.label} ${x.displayPhone || ''}`).join(', '))}">${icon('phone', 13)}${esc(fromText)}</span>${ai ? `<span>${icon('sparkles', 13)}${esc(ai)}</span>` : ''}</small></div>
+      <button type="button" class="btn sm" id="spCampEdit">${icon('settings', 14)}Edit</button>`;
+  }
+  $('#spCamp')?.addEventListener('click', (e) => {
+    if (!e.target.closest('#spCampEdit') || !SP.campaign) return;
+    window.CampaignSetup.open({ draft: SP.campaign, onSaved: (d) => useCampaign(d) });
+  });
+  $('#spBack')?.addEventListener('click', () => showTab('campaigns'));
+  // The campaign's details changed (or it was just opened): its template and name drive the page.
+  function useCampaign(d) {
+    SP.campaign = d;
+    $('#campaignName').value = d.name;
+    // the numbers chosen with the campaign (older drafts without them: every number that can send it, as before)
+    state.selectedSenders = new Set((d.senderIds || []).filter((x) => state.senders.some((s) => s.id === x && s.enabled)));
+    if ($('#templateSelect').value !== d.templateId) {
+      if (![...$('#templateSelect').options].some((o) => o.value === d.templateId)) renderTemplateSelect();
+      $('#templateSelect').value = d.templateId;
+      onTemplateChange();
+    } else renderSenderChecks();
+    renderChrome();
+  }
+
   function renderChrome() {
     Draft.save();
     const sh = current();
@@ -1160,7 +1194,8 @@
     $('#spTools').classList.toggle('no-data', !has);
     $('#tab-send').classList.toggle('panel-off', !SP.panel);
     $('#spPanelBtn').setAttribute('aria-pressed', String(SP.panel));
-    $('#spTitle').textContent = has ? sh.name : 'Send a campaign';
+    $('#spTitle').textContent = has ? sh.name : SP.campaign ? 'Add the people to send to' : 'Send a campaign';
+    renderCamp();
     if (has) {
       const c = sh.counts;
       const filtered = Object.keys(sh.filters).length;
@@ -1277,6 +1312,7 @@
       toast(`Moved ${n} row${n > 1 ? 's' : ''} back under the right columns · ⌘Z to undo`);
     }
   });
+
 
   // "This is a test": suggested (switched on) for a handful of people or a name with "test" in it, until you set it
   let testTouched = false;
@@ -1477,7 +1513,7 @@
       const c = await api('/campaigns', {
         method: 'POST',
         // "Send now" waits 5 seconds on the server, so it can be undone (it still goes if this page is closed)
-        body: { name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, test: $('#spTest').checked, ...(scheduledAt ? {} : { hold: 5 }) },
+        body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, test: $('#spTest').checked, ...(scheduledAt ? {} : { hold: 5 }) },
       });
       if (!scheduledAt && !(await undoToast({ title: `Sending ${c.total.toLocaleString()} message${c.total === 1 ? '' : 's'}`, msg: t.name }))) {
         try {
@@ -1497,18 +1533,20 @@
 
   // After a campaign is created: empty the page (lists, template, name, schedule, test flag) and drop the saved
   // draft. The chosen sender numbers stay, since the next campaign usually goes out from the same ones.
-  function resetAfterSend() {
+  function resetAfterSend({ keepCampaign = false } = {}) {
+    const sentId = SP.campaign?.id;
+    if (!keepCampaign) { Draft.flush(); SP.campaign = null; if (sentId) Draft.drop(sentId); }
     SP.sheets = [];
     SP.mapping = {};
     grid.clearHistory();
-    $('#templateSelect').value = '';
-    $('#campaignName').value = '';
+    if (!keepCampaign) { $('#templateSelect').value = ''; $('#campaignName').value = ''; }
     $('#scheduleAt').value = '';
     $('#sendMode [data-mode=now]')?.click();
     $('#spTest').checked = false;
     testTouched = false;
     closeTest();
     setPane('compose');
+    if (keepCampaign) onTemplateChange();
     activate(-1);
     Draft.save(); // an empty page deletes the stored draft
   }
@@ -1517,11 +1555,11 @@
     const n = SP.sheets.length;
     const ok = await confirmDialog({
       title: 'Start over?',
-      message: `This closes ${n === 1 ? 'the sheet' : `all ${n} sheets`} and clears the template, campaign name and schedule. Your original files and saved Contacts aren't changed.`,
+      message: `This closes ${n === 1 ? 'the sheet' : `all ${n} sheets`} and clears the variables and schedule. The campaign keeps its name, template and AI settings. Your original files and saved Contacts aren't changed.`,
       confirmText: 'Start over', danger: true,
     });
     if (!ok) return;
-    resetAfterSend();
+    resetAfterSend({ keepCampaign: Boolean(SP.campaign) });
     toast('Cleared. Ready for a new campaign');
   });
 
@@ -1542,8 +1580,8 @@
   Object.assign(window, { currentTemplate, renderTemplateSelect, onTemplateChange, renderSenderChecks, renderSendSummary: renderSummary });
   // From the campaigns calendar's "Schedule a campaign": the Send page, set to send later on that day (10 AM, or
   // half an hour from now when that's later), with the picker open to adjust it.
-  window.scheduleOn = (k) => {
-    showTab('send');
+  window.scheduleOn = (k) => window.CampaignSetup.create({ then: () => scheduleFor(k) });
+  function scheduleFor(k) {
     const [y, m, d] = k.split('-').map(Number);
     let when = new Date(y, m - 1, d, 10, 0);
     const soon = new Date(Date.now() + 30 * 60000);
@@ -1551,8 +1589,8 @@
     if (when < soon) when = soon;
     $('#scheduleAt').value = toLocalInput(when);
     $('#sendMode [data-mode=schedule]').click();
-    toast(`Set to send later: ${when.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}. Open your contacts and pick a template.`, '', { icon: 'clock' });
-  };
+    toast(`Set to send later: ${when.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}. Now add the people to send to.`, '', { icon: 'clock' });
+  }
   // Open contacts (from the Contacts page or a tag) as a sheet tab, ready to send to.
   function openContacts(list, label) {
     const extras = [...new Set(list.flatMap((c) => Object.keys(c.extra || {})))];
@@ -1566,7 +1604,10 @@
   }
 
   // Follow-ups from a campaign: these recipients, the same template, and each person's values as columns.
-  function openRecipients(list, { label, templateId }) {
+  function openRecipients(list, opts) {
+    window.CampaignSetup.create({ name: opts.label, templateId: opts.templateId, then: () => addRecipients(list, opts) });
+  }
+  function addRecipients(list, { label, templateId }) {
     const t = state.templates.find((x) => x.id === templateId);
     const vars = t?.variables || [];
     const headers = ['phone', 'name', ...vars.map(varLabel)];
@@ -1574,9 +1615,8 @@
     SP.sheets.push(makeSheet({ name: label, file: '', headers, rows }));
     showTab('send');
     activate(SP.sheets.length - 1);
-    if (t) {
+    if (t && SP.campaign?.templateId === t.id) {
       SP.mapping = Object.fromEntries(vars.map((v) => [v.key, { type: 'column', value: varLabel(v) }]));
-      $('#templateSelect').value = t.id;
       onTemplateChange();
     }
     toast(`${list.length.toLocaleString()} recipient${list.length === 1 ? '' : 's'} ready${t ? ` with ${t.name}` : ''}. Check, then send.`);
@@ -1596,7 +1636,10 @@
       r.onerror = () => rej(r.error);
     });
     const tx = async (mode, fn) => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction(STORE, mode); const out = fn(t.objectStore(STORE)); t.oncomplete = () => res(out?.result); t.onerror = () => rej(t.error); }); };
-    const key = () => 'ws:' + (state.me?.workspace?.id || 'default');
+    // one draft per campaign; 'ws:<id>' is the single draft from before campaigns were set up first (legacy)
+    const legacyKey = () => 'ws:' + (state.me?.workspace?.id || 'default');
+    const keyOf = (cid) => legacyKey() + ':c:' + cid;
+    const key = () => (SP.campaign ? keyOf(SP.campaign.id) : null);
     // Only what's needed to rebuild; checks (st/phone) and views are worked out again.
     const pack = () => ({
       v: 1, savedAt: Date.now(), active: SP.active, mapping: SP.mapping,
@@ -1608,19 +1651,35 @@
       templateId: $('#templateSelect').value, senders: [...state.selectedSenders], name: $('#campaignName').value,
       mode: state.sendMode, at: $('#scheduleAt').value,
     });
+    let pending = null; // the key a save is waiting to write
+    const write = () => {
+      const k = pending;
+      pending = null;
+      if (!k || k !== key()) return; // (the campaign changed: flush() wrote it already)
+      const data = pack();
+      const empty = !data.sheets.length;
+      tx('readwrite', (st) => (empty ? st.delete(k) : st.put(data, k))).catch(() => { });
+    };
     function save() {
-      if (!ready || restoring) return;
+      if (!ready || restoring || !key()) return;
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        const data = pack();
-        const empty = !data.sheets.length && !data.templateId && !data.name;
-        tx('readwrite', (st) => (empty ? st.delete(key()) : st.put(data, key()))).catch(() => { });
-      }, 500);
+      pending = key();
+      timer = setTimeout(write, 500);
     }
+    // Write a waiting save now (before switching to another campaign).
+    function flush() { clearTimeout(timer); if (pending) write(); }
+    const drop = (cid) => tx('readwrite', (st) => st.delete(keyOf(cid))).catch(() => { });
+    // The open campaign's sheets and settings, as it was left in this browser.
     async function restore() {
       let d = null;
-      try { d = await tx('readonly', (st) => st.get(key())); } catch { /* private window etc.: start fresh */ }
       ready = true;
+      clearTimeout(timer); pending = null; // (an empty page drawn while opening must not overwrite what's stored)
+      if (!key()) return false;
+      try {
+        d = await tx('readonly', (st) => st.get(key()));
+        // the old Send page's single draft (from before campaigns were set up first): a new campaign starts empty, so drop it
+        if (!d) tx('readwrite', (st) => st.delete(legacyKey())).catch(() => { });
+      } catch { /* private window etc.: start fresh */ }
       if (!d || d.v !== 1) return false;
       restoring = true;
       try {
@@ -1634,39 +1693,72 @@
           return sh;
         });
         SP.mapping = d.mapping || {};
-        if (state.templates.some((t) => t.id === d.templateId)) $('#templateSelect').value = d.templateId;
-        const ids = new Set(state.senders.filter((x) => x.enabled).map((x) => x.id));
-        const keep = (d.senders || []).filter((id) => ids.has(id));
-        if (keep.length) state.selectedSenders = new Set(keep);
-        $('#campaignName').value = d.name || '';
         if (d.mode === 'schedule' && d.at && new Date(d.at) > Date.now()) { $('#scheduleAt').value = d.at; $('#sendMode [data-mode=schedule]')?.click(); }
-        renderSenderChecks();
+        onTemplateChange();
         activate(Math.min(Math.max(0, d.active), SP.sheets.length - 1));
       } finally { restoring = false; }
       return SP.sheets.length > 0;
     }
     const clear = () => tx('readwrite', (st) => st.clear()).catch(() => { });
-    return { save, restore, clear };
+    return { save, restore, clear, flush, drop };
   })();
-  $('#campaignName').addEventListener('input', () => Draft.save());
   $('#scheduleAt').addEventListener('change', () => Draft.save());
   // Logging out: don't leave anyone's contact lists in this browser.
   document.addEventListener('click', (e) => { if (e.target.closest('a[href="/logout"]')) Draft.clear(); }, true);
 
+  // Open the page for a draft campaign: its own sheets and settings (another one's are saved first).
+  async function openDraftPage(d, { show = true } = {}) {
+    if (SP.campaign?.id !== d.id) {
+      Draft.flush();
+      SP.campaign = null; // (so clearing the page doesn't touch the other campaign's saved draft)
+      SP.sheets = [];
+      SP.mapping = {};
+      grid.clearHistory();
+      $('#scheduleAt').value = '';
+      $('#sendMode [data-mode=now]')?.click();
+      $('#spTest').checked = false;
+      testTouched = false;
+      closeTest();
+      setPane('compose');
+      useCampaign(d);
+      activate(-1);
+      await Draft.restore();
+    } else useCampaign(d);
+    if (show) showTab('send');
+  }
+  // New campaign first, then this (people from Contacts, a sheet the Assistant made): a page always sends one campaign.
+  const thenNew = (fn, opts = {}) => window.CampaignSetup.create({ ...opts, then: fn });
+
   window.SendPage = {
-    restoreDraft: () => Draft.restore(),
+    // At start-up: /send?c=<draft> opens that draft again (a sent one shows on Campaigns).
+    async restoreDraft() {
+      const cid = location.pathname.replace(/\/+$/, '') === '/send' && new URLSearchParams(location.search).get('c');
+      if (!cid) return false;
+      try { await openDraftPage(await api('/drafts/' + cid), { show: false }); return true; } catch { history.replaceState({ tab: 'campaigns' }, '', '/campaigns?c=' + encodeURIComponent(cid)); return false; }
+    },
+    openCampaign: openDraftPage,
+    campaignId: () => SP.campaign?.id || null,
+    // A draft was deleted: drop its saved sheets (and leave its page if it's open).
+    forgetCampaign(cid) {
+      Draft.drop(cid);
+      if (SP.campaign?.id !== cid) return;
+      SP.campaign = null;
+      resetAfterSend();
+      if (state.tab === 'send') showTab('campaigns');
+    },
     refresh: () => renderSummary(), // e.g. when the credit balance changes (billing.js)
     readWorkbook,
     toTable,
-    openContacts,
+    openContacts: (list, label) => thenNew(() => openContacts(list, label)),
     openRecipients,
     // A finished table (e.g. one the Assistant built) as a new tab, with its phone column set.
     openSheet(name, headers, rows, phoneName) {
-      const sh = makeSheet({ name, file: '', headers, rows });
-      if (phoneName && headers.includes(phoneName)) { sh.phoneName = phoneName; recheck(sh); }
-      SP.sheets.push(sh);
-      showTab('send');
-      activate(SP.sheets.length - 1);
+      thenNew(() => {
+        const sh = makeSheet({ name, file: '', headers, rows });
+        if (phoneName && headers.includes(phoneName)) { sh.phoneName = phoneName; recheck(sh); }
+        SP.sheets.push(sh);
+        activate(SP.sheets.length - 1);
+      });
     },
     loadXlsx: () => loadXlsxLib(),
     show() { fitSend(); renderChrome(); if (current()) grid.focus(); },
