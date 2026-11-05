@@ -1044,13 +1044,20 @@ const NUMBER_STATUS = {
   RESTRICTED: 'Restricted by Meta', BANNED: 'Banned by Meta', RATE_LIMITED: 'Rate limited', DELETED: 'Deleted at Meta', MIGRATED: 'Moved to another account',
 };
 const nameBlocked = (s) => ['PENDING_REVIEW', 'DECLINED', 'EXPIRED', 'NONE'].includes(s.nameStatus); // sends from it will fail
-function nameStatusHtml(s) {
+// The display name's status as a dot beside the name (green approved, amber waiting, red rejected / expired); hover or
+// focus it for what it means and what to do.
+function nameDotHtml(s) {
   const n = NAME_STATUS[s.nameStatus];
+  if (!n) return '';
+  const tip = `Display name: ${n[1].toLowerCase()}. ${n[2]}`
+    + (s.newNameStatus === 'PENDING_REVIEW' && s.nameStatus !== 'PENDING_REVIEW' ? ' A new name is in review.' : '')
+    + (s.nameRejection && s.nameStatus === 'DECLINED' ? ` Meta said: ${s.nameRejection}` : '')
+    + (s.statusCheckedAt ? ` Checked ${shortAgo(s.statusCheckedAt)}.` : '');
+  return `<i class="name-dot ${n[0]}" tabindex="0" role="img" aria-label="${esc(`Display name ${n[1].toLowerCase()}`)}" data-tip="${esc(tip)}"></i>`;
+}
+// Card rows: the number itself, when it isn't simply connected (the display name is the dot by the name).
+function nameStatusHtml(s) {
   const out = [];
-  if (n) {
-    const tip = n[2] + (s.nameRejection && s.nameStatus === 'DECLINED' ? ` Meta said: ${s.nameRejection}` : '') + (s.statusCheckedAt ? ` (checked ${shortAgo(s.statusCheckedAt)})` : '');
-    out.push(`<dt>Display name</dt><dd title="${esc(tip)}"><span class="tag ${n[0]}">${n[1]}</span>${s.newNameStatus === 'PENDING_REVIEW' && s.nameStatus !== 'PENDING_REVIEW' ? '<span class="tag-note">a new name is in review</span>' : ''}</dd>`);
-  }
   if (s.numberStatus && s.numberStatus !== 'CONNECTED') {
     out.push(`<dt>Number status</dt><dd title="Meta reports this number as ${esc(s.numberStatus.toLowerCase().replace(/_/g, ' '))}. Check it in WhatsApp Manager → Phone numbers."><span class="tag ${['PENDING', 'UNVERIFIED', 'RATE_LIMITED'].includes(s.numberStatus) ? 'warn' : 'bad'}">${esc(NUMBER_STATUS[s.numberStatus] || s.numberStatus.toLowerCase().replace(/_/g, ' '))}</span></dd>`);
   }
@@ -1085,7 +1092,7 @@ function renderSenders() {
       <div class="sender-id">
         ${senderPhotoHtml(s)}
         <div class="sender-who">
-          <b class="sender-vname" title="${s.verifiedName ? 'The business name customers see on WhatsApp' : esc(s.label)}">${esc(s.verifiedName || s.label)}</b>
+          <span class="sender-vrow"><b class="sender-vname" title="${s.verifiedName ? 'The business name customers see on WhatsApp' : esc(s.label)}">${esc(s.verifiedName || s.label)}</b>${nameDotHtml(s)}</span>
           <span class="sender-num">${esc(s.displayPhone || '—')}</span>
         </div>
         <label title="${s.enabled ? 'Number is in use' : 'Number is switched off'}">${toggleHtml({ checked: s.enabled, attrs: `data-enable="${s.id}"`, size: 'sm' })}</label>
