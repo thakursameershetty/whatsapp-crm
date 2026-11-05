@@ -5197,6 +5197,7 @@ $('#pwChange').addEventListener('click', () => {
     await window.SendPage?.restoreDraft().catch(() => false); // the Send page's sheets and settings from last time
     showTab.replace = true; // the first page replaces the address (e.g. an old #send link becomes /send)
     showTab(tabFromUrl());
+    window.CampaignSetup?.whatsNew(); // once per browser: Send moved into Campaigns
   } catch (e) {
     toast('Could not reach the server: ' + e.message, 'error');
   }

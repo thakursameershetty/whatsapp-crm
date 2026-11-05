@@ -24,6 +24,7 @@
     ai_handover: { icon: 'users', tone: 'warn' },
     ai_qualified: { icon: 'trending-up', tone: 'good' },
     ai_error: { icon: 'badge-alert', tone: 'warn' },
+    whats_new: { icon: 'sparkles', tone: 'violet' },
   };
   const FILTERS = [['all', 'All'], ['unread', 'Unread'], ['messages', 'Messages'], ['campaigns', 'Campaigns'], ['ai', 'AI assistant']];
   // Which new notifications also pop a toast. (Everything lands on the page either way.)
@@ -123,6 +124,7 @@
   // Open what a notification is about.
   function go(n) {
     const l = n.link || {};
+    if (l.whatsNew) { showTab(l.tab || 'campaigns'); return window.CampaignSetup?.whatsNew({ force: true }); } // the What's new window again
     if (l.tab === 'inbox' && l.key) { showTab('inbox'); window.Inbox?.open(l.key); }
     else if (l.tab === 'campaigns' && l.id) { showTab('campaigns'); window.openCampaign?.(l.id); }
     else if (l.tab) showTab(l.tab);

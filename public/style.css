@@ -7025,3 +7025,26 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
 .sp-testtop.suggested > span:first-child::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--warn, #d97706); vertical-align: 2px; }
 .cd-ev.is-test { opacity: 0.8; }
 .head-tip .cps-note { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line, color-mix(in srgb, var(--text) 10%, transparent)); font-size: 12px; color: var(--faint); }
+/* New campaign → AI replies: the chosen playbook, read-only, with this campaign's additions under it */
+.cs-pb { margin: 2px 0 8px; padding: 12px 14px 8px; border-radius: var(--r-md); background: var(--surface); box-shadow: inset 0 0 0 1px var(--hair); }
+.cs-pb-h { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13.5px; }
+.cs-pb-h svg { color: var(--violet); }
+.cs-pb-h .opt { font-size: 12px; color: var(--muted); font-weight: 400; }
+.cs-pb-body { margin-top: 8px; max-height: 96px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+.cs-pb.open .cs-pb-body { max-height: none; -webkit-mask-image: none; mask-image: none; }
+.cs-pb-row { margin-bottom: 8px; }
+.cs-pb-row span { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.cs-pb-row p { margin: 2px 0 0; font-size: 13px; white-space: pre-wrap; color: var(--text); }
+.cs-pb-more { margin-top: 2px; padding: 4px 0; border: 0; background: none; color: var(--info); font: 600 12.5px Inter, sans-serif; cursor: pointer; }
+/* Personalise, side by side: the variables on the left, the preview on the right */
+@media (min-width: 1251px) { #tab-send.pane-wide .sp-duo-fields { order: -1; } }
+/* What's new: Send moved into Campaigns */
+#modal .modal-box.wn-box { max-width: 600px; }
+.wn-lead { margin: 0 0 16px; font-size: 14px; line-height: 1.5; }
+.wn-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.wn-step { display: flex; gap: 14px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-md); background: var(--sunk); }
+.wn-ic { position: relative; flex: none; width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: var(--surface); color: var(--text); box-shadow: var(--sh-raised); }
+.wn-ic i { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--text); color: var(--surface); font: 700 10.5px Inter, sans-serif; font-style: normal; }
+.wn-step b { display: block; font-size: 14px; font-weight: 600; }
+.wn-step p { margin: 3px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.wn-step p b { display: inline; font-size: inherit; color: var(--text); }

@@ -911,12 +911,14 @@
         <div class="ib-draft-text">${fmtText(ai.draft.text)}</div>
         <div class="ib-draft-actions">
           ${w.open ? `<button class="btn sm primary" data-ai="send" data-icon="send" data-icon-size="13">Send</button><button class="btn sm" data-ai="edit">Edit</button>` : '<span class="sub">The reply window has closed, so only a template can be sent.</span>'}
-          <button class="btn sm quiet" data-ai="regen" title="Regenerate">${icon('refresh-cw', 14)}<span class="bl">Regenerate</span></button><button class="btn sm quiet" data-ai="dismiss" title="Dismiss">${icon('x', 14)}<span class="bl">Dismiss</span></button>
+          <button class="btn sm quiet" data-ai="regen" title="Regenerate">${icon('refresh-cw', 14)}<span class="bl">Regenerate</span></button><button class="btn sm quiet" data-ai="opts" title="Pick a playbook or add instructions, then regenerate" aria-expanded="${optsOpen()}">${icon('sliders-horizontal', 14)}<span class="bl">Playbook & notes</span></button><button class="btn sm quiet" data-ai="dismiss" title="Dismiss">${icon('x', 14)}<span class="bl">Dismiss</span></button>
         </div>
       </div>`;
-    else if (w.open && last?.dir === 'in' && !t.contact?.optOut) html += ai.auto
+    else if (w.open && last?.dir === 'in' && !t.contact?.optOut) html += `<div class="ib-ai-row">${ai.auto
       ? `<button class="ib-ai-ask" data-ai="reply" title="The AI writes and sends a reply now"><svg class="orb-icon" data-orb-icon="14"></svg>Let AI reply</button>`
-      : `<button class="ib-ai-ask" data-ai="regen"><svg class="orb-icon" data-orb-icon="14"></svg>Draft a reply with AI</button>`;
+      : `<button class="ib-ai-ask" data-ai="regen"><svg class="orb-icon" data-orb-icon="14"></svg>Draft a reply with AI</button>`}<button class="ib-ai-ask ib-ai-more" data-ai="opts" aria-expanded="${optsOpen()}" title="Pick a playbook or add instructions on top of it">${icon('sliders-horizontal', 14)}<span>Playbook & notes</span></button></div>`;
+    if (!ai.busy && ai.extra && !optsOpen()) html += `<button type="button" class="ib-ai-extra" data-ai="opts" title="Your instructions for this chat, added on top of the playbook. Click to change.">${icon('square-pen', 13)}<span><b>Added for this chat:</b> ${esc(ai.extra)}</span></button>`;
+    if (!ai.busy && optsOpen()) html += optsPanel(ai);
     if (ai.error && !ai.busy && !ai.draft) html += `<div class="ib-ai-err">${esc(ai.error)}</div>`;
     const sig = `${Boolean(ai.handover)}|${ai.busy ? 'busy' : ai.draft ? 'draft:' + ai.draft.text : ''}`;
     el.innerHTML = html;
@@ -936,6 +938,30 @@
     const act = b.dataset.ai;
     const setAi = (ai) => { if (ib.key === key && ib.thread) { ib.thread.ai = ai; renderAi(); renderLead(); } };
     if (act === 'contact') return window.Contacts?.open(ib.thread.contact.id);
+    if (act === 'opts') { if (optsOpen()) ib.aiOpts = null; else openOpts(); renderAi(); if (optsOpen()) $('#ibExtra')?.focus(); return; }
+    if (act === 'opts-close') { ib.aiOpts = null; renderAi(); return; }
+    if (act === 'opts-save' || act === 'opts-draft') {
+      const o = ib.aiOpts;
+      const cur = ib.thread.ai;
+      const curPb = cur.playbook?.by === 'manual' ? cur.playbook.id : '';
+      await guard(async () => {
+        if (act === 'opts-draft') {
+          setAi({ ...cur, busy: true, error: null });
+          ib.aiOpts = null;
+          setAi(await api(`/inbox/${enc(key)}/draft`, { method: 'POST', body: { playbook: o.pb || null, extra: o.extra } }));
+          await loadThread();
+        } else {
+          let x = cur;
+          if (o.pb !== curPb) x = await api(`/inbox/${enc(key)}/playbook`, { method: 'POST', body: { id: o.pb || null } });
+          if (o.extra.trim() !== (cur.extra || '')) x = await api(`/inbox/${enc(key)}/extra`, { method: 'POST', body: { text: o.extra } });
+          ib.aiOpts = null;
+          setAi(x);
+          toast('Saved for this chat. The next reply uses it.');
+        }
+      }, b).catch(() => {});
+      if (ib.thread?.ai?.busy) { ib.thread.ai.busy = false; renderAi(); }
+      return;
+    }
     if (act === 'send' || act === 'edit') {
       const ta = $('#ibText');
       if (!ta) return;
@@ -963,6 +989,45 @@
     if ((act === 'regen' || act === 'reply') && ib.thread?.ai?.busy) { ib.thread.ai.busy = false; renderAi(); }
   });
 
+  // "Playbook & notes": pick any playbook for this chat and add instructions on top of it (this chat only; the
+  // playbook itself isn't edited). What's typed lives in ib.aiOpts, so live updates re-rendering the panel keep it.
+  const optsOpen = () => Boolean(ib.aiOpts && ib.aiOpts.key === ib.key);
+  function openOpts() {
+    const ai = ib.thread?.ai || {};
+    ib.aiOpts = { key: ib.key, pb: ai.playbook?.by === 'manual' ? ai.playbook.id : '', extra: ai.extra || '' };
+  }
+  function optsPanel(ai) {
+    const o = ib.aiOpts;
+    const list = ai.playbooks || [];
+    const here = list.filter((p) => p.here), other = list.filter((p) => !p.here);
+    const opt = (p) => `<option value="${esc(p.id)}" ${o.pb === p.id ? 'selected' : ''}>${esc(p.name)}</option>`;
+    const auto = ai.playbook && ai.playbook.by !== 'manual' ? ` (now: ${esc(ai.playbook.name)})` : '';
+    return `<div class="ib-ai-opts">
+      <label class="ib-ai-field"><span>Playbook</span>
+        <select id="ibPbSel">
+          <option value="" ${o.pb ? '' : 'selected'}>Choose automatically${auto}</option>
+          ${here.length ? `<optgroup label="This number">${here.map(opt).join('')}</optgroup>` : ''}
+          ${other.length ? `<optgroup label="Other playbooks">${other.map(opt).join('')}</optgroup>` : ''}
+        </select>
+      </label>
+      <label class="ib-ai-field"><span>Add on top of the playbook <small>This chat only. The playbook stays as it is.</small></span>
+        <textarea id="ibExtra" rows="3" maxlength="2000" placeholder="e.g. Offer them the Diwali 10% discount. Reply in Telugu. They've already seen the demo.">${esc(o.extra)}</textarea>
+      </label>
+      <div class="ib-ai-opts-actions">
+        ${windowInfo(current()).open ? `<button class="btn sm primary" data-ai="opts-draft">${ai.draft ? 'Regenerate with these' : 'Draft reply'}</button>` : ''}
+        <button class="btn sm" data-ai="opts-save">Save for this chat</button>
+        <button class="btn sm quiet" data-ai="opts-close">Cancel</button>
+      </div>
+    </div>`;
+  }
+  $('#ibChat').addEventListener('input', (e) => {
+    if (!optsOpen()) return;
+    if (e.target.id === 'ibExtra') ib.aiOpts.extra = e.target.value;
+  });
+  $('#ibChat').addEventListener('change', (e) => {
+    if (optsOpen() && e.target.id === 'ibPbSel') ib.aiOpts.pb = e.target.value;
+  });
+
   // The playbook answering this chat: a chip in the header; click to pick another for this chat, or let it choose.
   const PB_WHY = {
     manual: () => 'You chose it for this chat',
@@ -984,8 +1049,12 @@
     const key = ib.key, r = b.getBoundingClientRect();
     const set = (id) => guard(async () => { const x = await api(`/inbox/${enc(key)}/playbook`, { method: 'POST', body: { id } }); if (ib.key === key && ib.thread) { ib.thread.ai = x; renderAi(); renderLead(); } toast(id ? `This chat now uses “${ai.playbooks.find((p) => p.id === id)?.name}”` : 'The playbook is chosen automatically again'); }, b).catch(() => {});
     const manual = ai.playbook?.by === 'manual';
+    const item = (p) => ({ label: p.name, checked: ai.playbook?.id === p.id, kbd: manual && ai.playbook?.id === p.id ? 'chosen' : p.here ? '' : 'other number', action: () => set(p.id) });
+    const here = ai.playbooks.filter((p) => p.here), other = ai.playbooks.filter((p) => !p.here);
     Sheet.Menu.open(r.left, r.bottom + 6, [
-      ...ai.playbooks.map((p) => ({ label: p.name, checked: ai.playbook?.id === p.id, kbd: manual && ai.playbook?.id === p.id ? 'chosen' : '', action: () => set(p.id) })),
+      ...here.map(item),
+      ...(here.length && other.length ? ['-'] : []),
+      ...other.map(item),
       '-',
       { label: 'Choose automatically', checked: false, disabled: !manual, action: () => set(null) },
     ]);

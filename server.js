@@ -1659,6 +1659,9 @@ const AI_LIMITS = { business: 20000, qualified: 4000, nextStep: 1000, tone: 300 
 function cleanAi(a = {}) {
   const out = { on: Boolean(a.on), auto: Boolean(a.on && a.auto) };
   for (const [k, n] of Object.entries(AI_LIMITS)) out[k] = String(a[k] ?? '').slice(0, n);
+  // a playbook it starts from (its facts and rules first, this campaign's additions on top; lead.js)
+  const pb = String(a.playbookId || '');
+  if (pb && normalizeLead(db.settings.leadAgent || {}).playbooks.some((p) => p.id === pb)) out.playbookId = pb;
   return out;
 }
 function draftFields(body, d = {}) {
@@ -2851,6 +2854,14 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
     }
   }
   if (n) save();
+});
+// What's new (once per workspace): Send moved into Campaigns. Opening it shows the same window as on first load, so
+// anyone who closed that can read it again.
+for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
+  if (db.settings.whatsNewCampaigns) return;
+  notes.add({ kind: 'whats_new', title: 'What’s new: Send now lives in Campaigns', body: 'Every send starts as a campaign now: its name, template, numbers and AI replies first, then the people. Open this to see how it works.', link: { tab: 'campaigns', whatsNew: 'campaign-flow' } });
+  db.settings.whatsNewCampaigns = true;
+  save();
 });
 // Everyone from campaigns sent before campaign contacts existed (once per workspace).
 for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
