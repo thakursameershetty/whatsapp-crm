@@ -1,5 +1,7 @@
 // Contacts page: the address book. Search, filter by tag and status, tag people in bulk,
 // edit a contact, import from Excel / CSV (every sheet, merged by phone number) and export.
+// Collections: named lists of contacts (picked from the selection bar); viewing one narrows the page to it, and
+// Export / Send then work on that collection.
 // Uses helpers from app.js and send.js (SendPage.readWorkbook / toTable / openContacts).
 
 (function () {
@@ -8,7 +10,7 @@
   const PER_OPTS = [25, 50, 100, 200, 0]; // as on Campaigns; 0 = show all
   const perPref = () => { try { const v = localStorage.getItem('ctPer'); return v != null && PER_OPTS.includes(Number(v)) ? Number(v) : 100; } catch { return 100; } };
   // fs: the Filters panel's picks, one set per section (any of a section's picks; every section with picks must match)
-  const CT = { contacts: [], cache: new Map(), total: 0, all: 0, pages: 1, per: perPref(), facets: {}, facetTotals: {}, tags: [], counts: {}, q: '', fs: { stage: new Set(), delivery: new Set(), num: new Set(), tag: new Set(), source: new Set() }, page: 0, selected: new Set(), chats: new Map(), loaded: false };
+  const CT = { contacts: [], cache: new Map(), total: 0, all: 0, pages: 1, per: perPref(), facets: {}, facetTotals: {}, tags: [], counts: {}, q: '', fs: { stage: new Set(), delivery: new Set(), num: new Set(), tag: new Set(), source: new Set() }, page: 0, selected: new Set(), chats: new Map(), loaded: false, collections: [], col: null };
   const STATUS = {
     new: { label: 'New', cls: '' },
     interested: { label: 'Interested', cls: 'sent' },
@@ -25,6 +27,7 @@
   function listQuery(extra = {}) {
     const p = new URLSearchParams({ page: CT.page, per: CT.per, sort: CT.sort.key, dir: CT.sort.dir, ...(CT.q ? { q: CT.q } : {}) });
     for (const [sec, set] of Object.entries(CT.fs)) if (set.size) p.set(sec, [...set].join(','));
+    if (CT.col) p.set('col', CT.col);
     for (const [k, v] of Object.entries(extra)) p.set(k, v);
     return p.toString();
   }
@@ -33,7 +36,8 @@
     const seq = ++loadSeq;
     const [r, inbox] = await Promise.all([api('/contacts?' + listQuery()), CT.chatsLoaded ? null : api('/inbox').catch(() => ({ conversations: [] }))]);
     if (seq !== loadSeq) return false; // a newer request (typing, another filter) has taken over
-    Object.assign(CT, { contacts: r.contacts, tags: r.tags, counts: r.counts, total: r.total, all: r.all, opted: r.opted, untagged: r.untagged, pages: r.pages, page: r.page, facets: r.facets, facetTotals: r.facetTotals, loaded: true });
+    Object.assign(CT, { contacts: r.contacts, tags: r.tags, counts: r.counts, total: r.total, all: r.all, opted: r.opted, untagged: r.untagged, pages: r.pages, page: r.page, facets: r.facets, facetTotals: r.facetTotals, collections: r.collections || [], loaded: true });
+    if (CT.col && !CT.collections.some((x) => x.id === CT.col)) CT.col = null; // deleted (here or in another tab)
     for (const c of r.contacts) CT.cache.set(c.id, c);
     state.contactTags = r.tags;
     if (inbox) { CT.chats = new Map(inbox.conversations.map((c) => [c.wa, c.key])); CT.chatsLoaded = true; }
@@ -268,6 +272,7 @@
 
 
     renderFilterBar(list);
+    renderCollection();
 
     // Patched, not replaced, so the switcher's thumb slides between Cards and Table.
     Motion.patch($('#ctView'), [['table', 'List', 'list'], ['cards', 'Cards', 'layout-grid']].map(([k, label, ic]) =>
@@ -370,6 +375,8 @@
       <span class="ct-sel-actions">
         <button class="btn sm" data-act="tag" data-icon="plus" data-icon-size="13">Add tag</button>
         <button class="btn sm" data-act="untag">Remove tag</button>
+        <button class="btn sm" data-act="collect" data-icon="layers" data-icon-size="13">Add to collection</button>
+        ${CT.col ? '<button class="btn sm" data-act="uncollect">Remove from collection</button>' : ''}
         <button class="btn sm" data-act="send" data-icon="send" data-icon-size="13">Send a message</button>
         <button class="btn sm quiet danger" data-act="delete" data-icon="delete" data-icon-size="13">Delete</button>
         <button class="btn sm quiet" data-act="clear">Clear</button>
@@ -858,6 +865,15 @@
     const ids = [...CT.selected];
     const act = b.dataset.act;
     if (act === 'clear') { CT.selected.clear(); return render(); }
+    if (act === 'uncollect') return collectionUpdate(colById(CT.col), { remove: ids }, true);
+    if (act === 'collect') {
+      const r = b.getBoundingClientRect();
+      return Sheet.Menu.open(r.left, r.bottom + 4, [
+        ...CT.collections.filter((x) => x.id !== CT.col).map((x) => ({ label: x.name, kbd: x.count.toLocaleString(), action: () => collectionUpdate(x, { add: ids }) })),
+        ...(CT.collections.some((x) => x.id !== CT.col) ? ['-'] : []),
+        { label: 'New collection…', action: () => collectionModal(null, ids) },
+      ]);
+    }
     if (act === 'send') {
       const list = (await guard(() => api('/contacts/by-ids', { method: 'POST', body: { ids } })))?.contacts.filter((c) => !c.optOut) || [];
       if (!list.length) return toast('Everyone selected has opted out', 'error');
@@ -1138,6 +1154,99 @@
   }
   $('#ctAdd').addEventListener('click', () => open(null));
 
+  // --- Collections --------------------------------------------------------------------
+  // A collection is a named list of contacts. The toolbar's Collections button switches the page between everyone
+  // and one collection; while one is shown, the bar under the toolbar names it (rename, send, export, delete).
+
+  const colById = (cid) => CT.collections.find((x) => x.id === cid) || null;
+  const fileBase = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'collection';
+  function showCollection(cid) {
+    CT.col = cid || null;
+    CT.selected.clear();
+    CT.page = 0;
+    CT.enter = true;
+    reload();
+  }
+  function renderCollection() {
+    const col = colById(CT.col);
+    const b = $('#ctColBtn');
+    b.innerHTML = `${icon('layers', 14)}<span>${esc(col ? col.name : 'All contacts')}</span>${icon('chevron-down', 14)}`;
+    b.classList.toggle('on', Boolean(col));
+    b.title = col ? `Showing the collection “${col.name}”. Click to switch.` : 'Collections: named lists of contacts you put together';
+    const bar = $('#ctColBar');
+    bar.classList.toggle('hidden', !col);
+    bar.innerHTML = col ? `<span class="ct-colbar-ic">${icon('layers', 16)}</span>
+      <span class="ct-colbar-t"><b>${esc(col.name)}</b><span class="muted">${col.count.toLocaleString()} contact${col.count === 1 ? '' : 's'}</span></span>
+      <span class="ct-sel-actions">
+        <button class="btn sm" data-col="send" data-icon="send" data-icon-size="13" ${col.count ? '' : 'disabled'}>Send a message</button>
+        <button class="btn sm" data-col="export" data-icon="download" data-icon-size="13" ${col.count ? '' : 'disabled'}>Export</button>
+        <button class="btn sm quiet" data-col="rename" data-icon="square-pen" data-icon-size="13">Rename</button>
+        <button class="btn sm quiet danger" data-col="delete" data-icon="delete" data-icon-size="13">Delete</button>
+        <button class="btn sm quiet" data-col="close" title="Back to all contacts" aria-label="Back to all contacts">${icon('x', 14)}</button>
+      </span>` : '';
+    LA.hydrate(bar);
+  }
+  $('#ctColBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    Sheet.Menu.open(r.left, r.bottom + 6, [
+      { label: 'All contacts', kbd: (CT.all || 0).toLocaleString(), checked: !CT.col, pre: `<span class="mi-ic">${icon('users', 15)}</span>`, action: () => showCollection(null) },
+      ...(CT.collections.length ? ['-'] : []),
+      ...CT.collections.map((x) => ({ label: x.name, kbd: x.count.toLocaleString(), checked: CT.col === x.id, pre: `<span class="mi-ic">${icon('layers', 15)}</span>`, action: () => showCollection(x.id) })),
+      '-',
+      { label: CT.selected.size ? `New collection from ${CT.selected.size.toLocaleString()} selected…` : 'New collection…', pre: `<span class="mi-ic">${icon('plus', 15)}</span>`, action: () => collectionModal(null, [...CT.selected]) },
+    ]);
+  });
+  $('#ctColBar').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-col]');
+    const col = colById(CT.col);
+    if (!b || !col) return;
+    const act = b.dataset.col;
+    if (act === 'close') return showCollection(null);
+    if (act === 'rename') return collectionModal(col);
+    if (act === 'export') return $('#ctExport').click();
+    if (act === 'send') {
+      const list = (await guard(() => api('/contacts?' + new URLSearchParams({ col: col.id, per: 0, page: 0 }))))?.contacts.filter((c) => !c.optOut) || [];
+      if (!list.length) return toast('Everyone in this collection has opted out', 'error');
+      return SendPage.openContacts(list, col.name);
+    }
+    if (act === 'delete') {
+      const ok = await confirmDialog({ title: `Delete “${esc(col.name)}”?`, message: 'Only the collection goes. Its contacts stay in Contacts.', confirmText: 'Delete', danger: true });
+      if (!ok) return;
+      return guard(async () => { await api('/collections/' + col.id, { method: 'DELETE' }); toast('Collection deleted'); showCollection(null); });
+    }
+  });
+  // Put contacts in (add) or take them out (remove); cleared: drop the selection afterwards (they've left the view)
+  function collectionUpdate(col, body, cleared = false) {
+    if (!col) return;
+    return guard(async () => {
+      const r = await api('/collections/' + col.id, { method: 'PUT', body });
+      if (cleared) CT.selected.clear();
+      await refresh();
+      const n = body.add ? r.added : r.removed, s = n === 1 ? '' : 's';
+      toast(body.add ? (n ? `Added ${n.toLocaleString()} contact${s} to “${r.name}”` : `They're already in “${r.name}”`) : `Removed ${n.toLocaleString()} contact${s} from “${r.name}”`);
+    });
+  }
+  // New (with these contacts in it) or rename
+  function collectionModal(col, ids = []) {
+    const body = openModal(col ? 'Rename collection' : 'New collection', `
+      <label>Name<input id="clName" value="${esc(col?.name || '')}" maxlength="60" placeholder="e.g. Diwali offer list, Hyderabad clinics" /></label>
+      ${col ? '' : `<p class="muted" style="margin:0">${ids.length ? `${ids.length.toLocaleString()} selected contact${ids.length === 1 ? '' : 's'} will be put in it.` : 'It starts empty: select contacts and choose “Add to collection”.'}</p>`}
+      <div class="modal-actions"><button class="btn quiet" id="clCancel">Cancel</button><button class="btn primary" id="clSave">${col ? 'Save' : 'Create collection'}</button></div>`);
+    $('#clName', body).focus();
+    $('#clCancel', body).onclick = closeModal;
+    const saveIt = (e) => guard(async () => {
+      const name = $('#clName', body).value;
+      const saved = col ? await api('/collections/' + col.id, { method: 'PUT', body: { name } }) : await api('/collections', { method: 'POST', body: { name, ids } });
+      closeModal();
+      if (col) { await refresh(); return toast('Renamed'); }
+      toast(saved.added ? `Created “${saved.name}” with ${saved.added.toLocaleString()} contact${saved.added === 1 ? '' : 's'}` : `Created “${saved.name}”`);
+      showCollection(saved.id); // show it straight away
+    }, e?.currentTarget);
+    $('#clSave', body).onclick = saveIt;
+    $('#clName', body).addEventListener('keydown', (e) => e.key === 'Enter' && saveIt());
+  }
+
   // --- Export -------------------------------------------------------------------------
 
   async function exportRows() {
@@ -1156,20 +1265,22 @@
   }
   $('#ctExport').addEventListener('click', (e) => {
     const r = e.currentTarget.getBoundingClientRect();
-    const label = CT.selected.size ? `${CT.selected.size} selected` : filterCount() || CT.q ? 'the filtered list' : 'everyone';
+    const col = colById(CT.col);
+    const label = CT.selected.size ? `${CT.selected.size} selected` : col ? (filterCount() || CT.q ? `“${col.name}”, filtered` : `“${col.name}”`) : filterCount() || CT.q ? 'the filtered list' : 'everyone';
     const date = new Date().toISOString().slice(0, 10);
+    const base = col ? fileBase(col.name) : 'contacts';
     Sheet.Menu.open(r.left, r.bottom + 4, [
       { label: `CSV · ${label}`, action: () => guard(async () => {
         const { head, rows } = await exportRows();
         const q = (v) => (/[",\n]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
-        download(new Blob(['﻿' + [head, ...rows].map((r) => r.map(q).join(',')).join('\n')], { type: 'text/csv' }), `contacts-${date}.csv`);
+        download(new Blob(['﻿' + [head, ...rows].map((r) => r.map(q).join(',')).join('\n')], { type: 'text/csv' }), `${base}-${date}.csv`);
       }) },
       { label: `Excel · ${label}`, action: () => guard(async () => {
         const XLSX = await loadXlsxLib();
         const { head, rows } = await exportRows();
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows]), 'Contacts');
-        XLSX.writeFile(wb, `contacts-${date}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...rows]), col ? col.name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) : 'Contacts');
+        XLSX.writeFile(wb, `${base}-${date}.xlsx`);
       }) },
     ]);
   });

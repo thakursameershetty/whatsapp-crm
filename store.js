@@ -19,6 +19,7 @@ const LISTS = {
   messages: (a, b) => cmp(a.ts, b.ts),
   contacts: (a, b) => cmp(a.createdAt, b.createdAt),
   tags: (a, b) => cmp(a.createdAt, b.createdAt),
+  collections: (a, b) => cmp(a.createdAt, b.createdAt),
   notifications: (a, b) => cmp(b.ts, a.ts), // newest first
   aiChats: (a, b) => cmp(b.updatedAt, a.updatedAt),
   links: (a, b) => cmp(a.createdAt, b.createdAt),

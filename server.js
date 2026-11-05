@@ -37,6 +37,8 @@ const DEFAULT_DB = {
   // Address book (contacts.js), keyed by phone number.
   contacts: [],
   tags: [],
+  // Named lists of contacts (contacts.js): { id, name, contactIds, createdAt, updatedAt }.
+  collections: [],
   // Redirect links for "Visit website" buttons: { id: code, url, createdAt, clicks }. See /go/:code.
   links: [],
 };
@@ -586,7 +588,7 @@ app.use((req, res, next) => (isPublic(req.path) ? next() : tenants.requireAuth(r
 // The tab that made the change says who it is (X-Tab), so it doesn't reload its own work.
 const LIVE_AREAS = [
   [/^\/api\/(senders|uploads)/, 'senders'], [/^\/api\/templates/, 'templates'], [/^\/api\/settings/, 'settings'],
-  [/^\/api\/(team|workspace)/, 'team'], [/^\/api\/(contacts|tags)/, 'contacts'], [/^\/api\/(campaigns|send)/, 'campaigns'],
+  [/^\/api\/(team|workspace)/, 'team'], [/^\/api\/(contacts|tags|collections)/, 'contacts'], [/^\/api\/(campaigns|send)/, 'campaigns'],
   [/^\/api\/reports/, 'reports'],
 ];
 app.use('/api', (req, res, next) => {

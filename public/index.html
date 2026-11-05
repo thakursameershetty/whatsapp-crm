@@ -299,6 +299,7 @@
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" autocomplete="off" class="search" id="ctSearch"
             placeholder="Search contacts" title="Search by name, phone, email or company"
             aria-label="Search contacts" /></div>
+        <button type="button" class="ct-sortbtn ct-numbtn" id="ctColBtn" aria-haspopup="menu" title="Collections: named lists of contacts you put together"></button>
         <button type="button" class="ct-sortbtn ct-numbtn hidden" id="ctNumBtn" aria-haspopup="menu" title="Filter by the number that added them"></button>
         <button type="button" class="ct-sortbtn" id="ctSortBtn" aria-haspopup="menu"></button>
         <select id="ctPer" aria-label="Contacts per page" title="How many contacts a page shows"></select>
@@ -310,6 +311,7 @@
           <button class="btn primary" id="ctAdd" data-icon="plus" title="Add one contact, or import many from a spreadsheet">Add contact(s)</button>
         </div>
       </div>
+      <div class="ct-colbar hidden" id="ctColBar" aria-live="polite"></div>
       <div class="ct-active hidden" id="ctActive" aria-live="polite"></div>
       <div class="ct-sel hidden" id="ctSel"></div>
       <div class="ct-layout" id="ctLayout">

@@ -2,7 +2,8 @@
 // People who write to you in the Inbox are added automatically; the Inbox lead
 // assistant fills in what it learns (need, budget, timeline, status). Contacts can be
 // imported from spreadsheets (merged by phone), exported, tagged, and sent to by tag.
-// Opted-out contacts are never sent to.
+// Opted-out contacts are never sent to. Collections are named lists of contacts you put together
+// by hand (a collection keeps contact ids); the Contacts page can show, send to and export one.
 
 const STATUSES = ['new', 'interested', 'qualified', 'won', 'lost'];
 const TAG_COLORS = ['blue', 'green', 'violet', 'orange', 'teal', 'pink', 'gray'];
@@ -12,6 +13,7 @@ module.exports = function mountContacts(app, ctx) {
   const { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast } = ctx;
   db.contacts ||= [];
   db.tags ||= [];
+  db.collections ||= [];
 
   const byPhone = (phone) => db.contacts.find((c) => c.phone === phone);
   const now = () => new Date().toISOString();
@@ -202,7 +204,10 @@ module.exports = function mountContacts(app, ctx) {
     const q = String(qs.q || '').trim().toLowerCase(), qd = q.replace(/\D/g, '');
     const inSearch = (c) => !q || [c.name, c.email, c.company, c.lead?.summary, fmtPhone(c.phone)].some((v) => String(v || '').toLowerCase().includes(q)) || (qd.length >= 3 && c.phone.includes(qd));
     const passes = (c, skip) => Object.entries(fs).every(([sec, set]) => sec === skip || !set.size || [...set].some((k) => MATCH[sec](c, k)));
-    const searched = db.contacts.filter(inSearch);
+    // Viewing a collection: only its contacts (one that no longer exists shows nobody)
+    const col = qs.col ? db.collections.find((x) => x.id === qs.col) : null;
+    const inCol = qs.col ? new Set(col?.contactIds || []) : null;
+    const searched = db.contacts.filter((c) => (!inCol || inCol.has(c.id)) && inSearch(c));
     const matching = searched.filter((c) => passes(c));
     // How many each option would give, with the other sections' picks
     const facets = {}, facetTotals = {};
@@ -257,9 +262,9 @@ module.exports = function mountContacts(app, ctx) {
 
   app.get('/api/contacts', (req, res) => {
     if (req.query.phones) return res.json({ phones: db.contacts.map((c) => c.phone) }); // the import's "new or already here"
-    if (req.query.page == null) return res.json({ contacts: db.contacts, tags: db.tags, counts: tagCounts(), statuses: STATUSES });
+    if (req.query.page == null) return res.json({ contacts: db.contacts, tags: db.tags, counts: tagCounts(), statuses: STATUSES, collections: collectionList() });
     const r = queryContacts(req.query);
-    res.json({ ...r, contacts: withColors(r.contacts), tags: db.tags, counts: tagCounts(), statuses: STATUSES });
+    res.json({ ...r, contacts: withColors(r.contacts), tags: db.tags, counts: tagCounts(), statuses: STATUSES, collections: collectionList() });
   });
   // One contact (opening it from the Inbox, or one not on the page shown), and several (a selection across pages)
   app.get('/api/contacts/:id', wrap((req, res) => {
@@ -309,6 +314,7 @@ module.exports = function mountContacts(app, ctx) {
     const ids = new Set(req.body.ids || []);
     const before = db.contacts.length;
     db.contacts = db.contacts.filter((c) => !ids.has(c.id));
+    for (const col of db.collections) col.contactIds = col.contactIds.filter((x) => !ids.has(x));
     save();
     res.json({ deleted: before - db.contacts.length });
   }));
@@ -375,6 +381,57 @@ module.exports = function mountContacts(app, ctx) {
   app.delete('/api/tags/:id', wrap((req, res) => {
     db.tags = db.tags.filter((t) => t.id !== req.params.id);
     for (const c of db.contacts) c.tags = c.tags.filter((t) => t !== req.params.id);
+    save();
+    res.json({ ok: true });
+  }));
+
+  // --- Collections ------------------------------------------------------------------------------------------
+  // { id, name, contactIds: [], createdAt, updatedAt }. Names are unique (ignoring case). Deleting a collection
+  // leaves its contacts as they are; deleting a contact takes it out of every collection.
+  const collectionList = () => db.collections.map(({ contactIds, ...x }) => ({ ...x, count: contactIds.length }));
+  const contactIdsIn = (list) => {
+    const ok = new Set(db.contacts.map((c) => c.id));
+    return [...new Set(Array.isArray(list) ? list : [])].filter((x) => ok.has(x));
+  };
+  const collectionName = (raw, except) => {
+    const name = clean(raw, 60);
+    if (!name) throw fail('Give the collection a name');
+    if (db.collections.some((x) => x !== except && x.name.toLowerCase() === name.toLowerCase())) throw fail('A collection with that name already exists');
+    return name;
+  };
+  const findCollection = (cid) => {
+    const col = db.collections.find((x) => x.id === cid);
+    if (!col) throw fail('Collection not found', 404);
+    return col;
+  };
+
+  app.get('/api/collections', (req, res) => res.json({ collections: collectionList() }));
+
+  // { name, ids }: a new collection, with these contacts in it (or none yet)
+  app.post('/api/collections', wrap((req, res) => {
+    const col = { id: id(), name: collectionName(req.body.name), contactIds: contactIdsIn(req.body.ids), createdAt: now(), updatedAt: now() };
+    db.collections.push(col);
+    save();
+    res.json({ ...collectionList().find((x) => x.id === col.id), added: col.contactIds.length });
+  }));
+
+  // { name?, add?: ids, remove?: ids }: rename it, or put contacts in or take them out
+  app.put('/api/collections/:id', wrap((req, res) => {
+    const col = findCollection(req.params.id);
+    if (req.body.name != null) col.name = collectionName(req.body.name, col);
+    const had = new Set(col.contactIds);
+    const add = contactIdsIn(req.body.add).filter((x) => !had.has(x));
+    const remove = new Set(Array.isArray(req.body.remove) ? req.body.remove : []);
+    const before = col.contactIds.length;
+    col.contactIds = [...col.contactIds.filter((x) => !remove.has(x)), ...add];
+    col.updatedAt = now();
+    save();
+    res.json({ ...collectionList().find((x) => x.id === col.id), added: add.length, removed: before + add.length - col.contactIds.length });
+  }));
+
+  app.delete('/api/collections/:id', wrap((req, res) => {
+    findCollection(req.params.id);
+    db.collections = db.collections.filter((x) => x.id !== req.params.id);
     save();
     res.json({ ok: true });
   }));

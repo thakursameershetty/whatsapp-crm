@@ -66,7 +66,7 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   // Fill in anything a workspace file is missing (older files, new features).
   function normalize(raw) {
     const db = { ...structuredClone(defaultDb), ...raw, settings: { ...structuredClone(defaultDb.settings), ...(raw.settings || {}) } };
-    for (const k of ['senders', 'templates', 'campaigns', 'messages', 'contacts', 'tags', 'notifications', 'aiChats']) db[k] ||= [];
+    for (const k of ['senders', 'templates', 'campaigns', 'messages', 'contacts', 'tags', 'collections', 'notifications', 'aiChats']) db[k] ||= [];
     db.chats ||= {};
     return db;
   }
