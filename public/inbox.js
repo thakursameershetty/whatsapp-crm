@@ -112,11 +112,26 @@
   const fmtText = (text) => waFormat(esc(text));
 
   const MEDIA_LABEL = { image: '📷 Photo', video: '🎥 Video', audio: '🎤 Audio', sticker: '💟 Sticker', location: '📍 Location' };
+  // What a message WhatsApp didn't share was (server.js keeps the kind from WhatsApp's reason).
+  const UNSUPPORTED = { view_once: 'View-once message', poll: 'Poll', edit: 'Edited a message', live_location: 'Live location', event: 'Event', video_note: 'Video note', call: 'Call', ephemeral: 'Disappearing message' };
+  const UNSUPPORTED_HINT = {
+    view_once: "WhatsApp doesn't let business accounts open view-once photos, videos or voice messages. Ask them to send it again without view once.",
+    poll: "WhatsApp doesn't share polls with business accounts. Ask them to type their answer instead.",
+    edit: "They edited an earlier message, but WhatsApp doesn't share the new text with business accounts. Ask them if it's important.",
+    live_location: "WhatsApp doesn't share live location with business accounts. Ask them to send their current location instead; that shows here.",
+    event: "WhatsApp doesn't share events with business accounts. Ask them to send the details as a message.",
+    video_note: "WhatsApp doesn't share video notes with business accounts. Ask them to send it as a normal video.",
+    call: "They tried to call this number. Calls aren't received here; reply with a message or call them back.",
+    ephemeral: "WhatsApp doesn't share disappearing messages with business accounts. Ask them to turn off disappearing messages and send it again.",
+  };
   function previewText(m) {
     if (!m) return '';
     if (m.type === 'reaction') return `Reacted ${m.reaction?.emoji || ''}`;
     if (m.type === 'template') return `Template: ${m.templateName || m.text}`;
     if (m.type === 'document') return '📄 ' + (m.media?.filename || m.text || 'Document');
+    if (m.type === 'unsupported') return UNSUPPORTED[m.unsupported?.kind] || 'Message not shown here';
+    if (m.type === 'contacts') return '👤 ' + (m.contacts?.[0]?.name || m.text || 'Contact');
+    if (m.type === 'video' && gif.ok.has(m.media?.id)) return 'GIF' + (m.text ? ' ' + m.text : '');
     if (MEDIA_LABEL[m.type]) return MEDIA_LABEL[m.type] + (m.text ? ' ' + m.text : '');
     return m.text || '';
   }
@@ -674,6 +689,7 @@
         <span><b>${ai.playbook?.auto ? 'AI auto-reply' : 'AI drafts'}</b><small>${ai.auto ? 'Replies on its own when they write, within the guardrails.' : ai.on ? 'Drafts a reply when they write, for you to send.' : ai.off ? 'Off for this chat.' : 'Drafts only when you ask (this playbook doesn’t draft on its own).'}</small></span>
         ${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm' })}
       </label>` : ''}
+      <button class="btn ibs-contact" data-media-grid="media">${icon('image', 15)}Media, audio and docs</button>
       <button class="btn ibs-contact" data-profile>${icon('user', 15)}Profile and other chats</button>
       ${ct ? `<button class="btn ibs-contact" data-ai="contact">${icon('users', 15)}Open contact</button>` : ''}`;
     Orb.hydrate(body);
@@ -737,6 +753,7 @@
           <button type="button" class="ibi-act" data-info-contacts="${esc(ct.id)}">${icon('users', 16)}<span>Contacts</span></button>`
           : `<button type="button" class="ibi-act primary" data-info-add>${icon('plus', 16)}<span>Add contact</span></button>`}
         </div>
+        ${mediaCard()}
         ${ct ? card('Stage', stageHtml(ct, lock), lock
           ? `<span class="stg-src you" title="${esc(`You set this${lock.by ? ` (${lock.by})` : ''}, so the AI won’t change it`)}">${icon('lock', 11)}Set by you</span>`
           : '<span class="stg-src" title="The AI moves the stage as the chat goes on"><svg class="orb-icon" data-orb-icon="12" aria-hidden="true"></svg>Set by the AI</span>') : ''}
@@ -1147,6 +1164,7 @@
     }
     box.innerHTML = html ? html + '</section>' : '';
     vnHydrate();
+    gifHydrate();
     Orb.hydrate(box);
     ib.seenKey = ib.key;
     if (toBottom || nearBottom) ib.stick = true;
@@ -1164,7 +1182,7 @@
       const q = byWamid.get(m.context);
       h += `<div class="ib-quote" data-jump="${esc(m.context)}"><b>${q ? (q.dir === 'out' ? 'You' : esc(displayName(c))) : 'Reply'}</b><span>${esc(q ? previewText(q) : 'Original message')}</span></div>`;
     }
-    const src = m.media?.id ? `/api/media/${enc(m.media.id)}` : '';
+    const src = m.media?.local || (m.media?.id ? `/api/media/${enc(m.media.id)}` : '');
     let textInside = true;
     if (m.auto) h += `<div class="ib-label ib-auto"><svg class="orb-icon" data-orb-icon="11"></svg>Auto-reply · AI</div>`;
     switch (m.type) {
@@ -1180,10 +1198,10 @@
         break;
       case 'video':
         // A still of the first frame with a play button; clicking opens it in the media viewer.
-        h += `<a class="ib-media ib-vthumb" href="${src}" target="_blank" rel="noopener" data-view="${esc(m.media?.id || '')}"><video src="${src}#t=0.1" preload="metadata" muted playsinline></video><span class="ib-vplay">${PLAY_SVG}</span><span class="ib-vdur">${icon('video', 12)}<span></span></span></a>`;
+        h += `<a class="ib-media ib-vthumb ${gif.ok.has(m.media?.id) ? 'gif' : ''}" href="${src}" target="_blank" rel="noopener" data-view="${esc(m.media?.id || '')}"><video src="${src}#t=0.1" preload="metadata" muted playsinline></video><span class="ib-vplay">${PLAY_SVG}</span><span class="ib-vdur">${icon('video', 12)}<span></span></span><button type="button" class="ib-gif-badge" data-gif-replay aria-label="Play GIF again">GIF</button></a>`;
         break;
       case 'audio':
-        h += m.media?.id ? voiceHtml(m, src) : `<div class="ib-text ib-unsupported">Audio unavailable</div>`;
+        h += m.media?.id || m.local ? voiceHtml(m.local ? { ...m, media: { ...m.media, id: m.id } } : m, src) : `<div class="ib-text ib-unsupported">Audio unavailable</div>`;
         break;
       case 'document':
         h += docHtml(m, src);
@@ -1199,11 +1217,25 @@
       case 'interactive':
         h += `<div class="ib-label">${icon('reply', 11)}Tapped a button</div>`;
         break;
-      case 'unsupported':
-        // WhatsApp didn't share this message's content (polls, some stickers, view-once, calls…).
-        h += `<div class="ib-text ib-unsupported">${icon('badge-alert', 13)}<span>Message not shown here. Open WhatsApp on the phone to see it.</span><span class="ib-spacer ${m.dir}"></span></div>`;
+      case 'unsupported': {
+        // WhatsApp didn't share this message's content (view-once, polls, edits, calls…). Newer messages keep
+        // WhatsApp's reason, so we can say what it was; older ones only know that something arrived.
+        const u = m.unsupported || {};
+        const what = UNSUPPORTED[u.kind];
+        const tip = [u.reason, u.code ? `WhatsApp code ${u.code}` : ''].filter(Boolean).join(' · ');
+        // A number on the WhatsApp API isn't on a phone, so "open it on the phone" isn't an option: say what to do instead.
+        const note = UNSUPPORTED_HINT[u.kind] || "WhatsApp doesn't share this kind of message with business accounts. If it matters, ask them to send it again as a normal message.";
+        h += `<div class="ib-text ib-unsupported"${tip ? ` title="${esc(tip)}"` : ''}>${icon(u.kind === 'view_once' ? 'eye' : 'badge-alert', 13)}<span><b>${esc(what || 'Message not shown')}</b> · ${esc(note)}</span><span class="ib-spacer ${m.dir}"></span></div>`;
         textInside = false;
         break;
+      }
+      case 'system':
+        h += `<div class="ib-label">${icon('badge-alert', 11)}WhatsApp notice</div>`;
+        break;
+    }
+    if (m.local && m.media) {
+      const p = m.progress || 0;
+      h += `<div class="ib-upl ${m.status === 'failed' ? 'failed' : ''}" data-upl="${esc(m.id)}"><span><i style="width:${p}%"></i></span><small>${m.status === 'failed' ? 'Not sent' : p < 100 ? `Uploading ${p}%` : 'Sending…'}</small></div>`;
     }
     const meta = `${fmtTime(m.ts)}${m.dir === 'out' ? tick(m.status, m.error) : ''}`;
     if (textInside && m.text) h += `<div class="ib-text">${fmtText(m.text)}<span class="ib-spacer ${m.dir}"></span></div>`;
@@ -1272,8 +1304,8 @@
     }
   }
   // After each redraw: measure the waveform and length of notes not seen yet, two at a time.
-  function vnHydrate() {
-    for (const el of $$('#ibMsgs [data-voice]')) {
+  function vnHydrate(root = $('#ibMsgs')) {
+    for (const el of root ? $$('[data-voice]', root) : []) {
       const id = el.dataset.voice;
       if (!vn.wave.has(id) && !vn.busy.has(id)) { vn.busy.add(id); vn.queue.push([id, el.dataset.src]); }
       vnPaint(id);
@@ -1281,7 +1313,7 @@
     while (vn.running < 2 && vn.queue.length) {
       const [id, src] = vn.queue.shift();
       vn.running++;
-      vnMeasure(id, src).finally(() => { vn.running--; vnHydrate(); });
+      vnMeasure(id, src).finally(() => { vn.running--; vnHydrate(null); });
     }
   }
   async function vnMeasure(id, src) {
@@ -1398,6 +1430,81 @@
   }, true);
   document.addEventListener('error', (e) => { if (e.target.tagName === 'VIDEO') e.target.closest('.ib-vthumb')?.classList.add('broken'); }, true);
 
+  // ----- GIFs: WhatsApp sends a GIF as a short video with no sound (the server checks the file for a sound
+  // track). In the chat it plays by itself, silently, GIF_LOOPS times when it comes into view, then rests with a
+  // GIF badge that plays it again. Clicking it opens the viewer, where it loops for as long as it's open.
+  const GIF_LOOPS = 3, GIF_MAX_SEC = 30;
+  const gif = { silent: new Map(), ok: new Set(), busy: new Set(), done: new Set(), loops: new Map(), io: null };
+  function gifHydrate(root = $('#ibMsgs')) {
+    for (const a of root ? $$('.ib-vthumb[data-view]', root) : []) {
+      const id = a.dataset.view;
+      if (!id) continue;
+      if (gif.silent.has(id)) { gifSetup(a, id); continue; }
+      if (gif.busy.has(id)) continue;
+      gif.busy.add(id);
+      fetch(`/api/media/${enc(id)}/info`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((info) => {
+          gif.silent.set(id, Boolean(info?.silent));
+          for (const el of $$(`.ib-vthumb[data-view="${CSS.escape(id)}"]`)) gifSetup(el, id);
+        })
+        .catch(() => {})
+        .finally(() => gif.busy.delete(id));
+    }
+  }
+  // A silent video that's short enough is a GIF: mark it and start watching for it to come into view.
+  function gifSetup(a, id) {
+    if (!gif.silent.get(id) || a.dataset.gifSet) return;
+    a.dataset.gifSet = '1';
+    const v = a.querySelector('video');
+    const go = () => {
+      if (!(v.duration > 0 && v.duration <= GIF_MAX_SEC)) return;
+      const fresh = !gif.ok.has(id);
+      gif.ok.add(id);
+      a.classList.add('gif');
+      if (gif.done.has(id) || (window.Motion?.reduce?.() ?? false)) return; // reduced motion: waits for a tap on the badge
+      gif.io ||= new IntersectionObserver((entries) => {
+        for (const en of entries) {
+          if (!en.isIntersecting) continue;
+          gif.io.unobserve(en.target);
+          gifPlay(en.target);
+        }
+      }, { threshold: 0.6 });
+      gif.io.observe(a);
+      if (fresh && mv.el?.classList.contains('open')) mvStrip(); // the viewer's thumbnails say GIF now
+    };
+    if (v.readyState >= 1) go(); else v.addEventListener('loadedmetadata', go, { once: true });
+  }
+  function gifPlay(a) {
+    const id = a.dataset.view, v = a.querySelector('video');
+    if (!v || !a.isConnected) return;
+    v.loop = false;
+    v.muted = true;
+    a.classList.add('playing');
+    const again = () => { v.currentTime = 0; v.play().catch(() => a.classList.remove('playing')); };
+    v.onended = () => {
+      const n = (gif.loops.get(id) || 0) + 1;
+      gif.loops.set(id, n);
+      if (n < GIF_LOOPS) return again();
+      gif.done.add(id);
+      gif.loops.delete(id);
+      a.classList.remove('playing');
+      v.currentTime = 0.1; // rest on the first frame, as before it played
+    };
+    if (v.ended || v.currentTime > 0.2) again(); else v.play().catch(() => a.classList.remove('playing'));
+  }
+  // The GIF badge plays it again (three more times) in the chat, without opening the viewer.
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest?.('[data-gif-replay]');
+    if (!b) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const a = b.closest('.ib-vthumb');
+    gif.done.delete(a.dataset.view);
+    gif.loops.delete(a.dataset.view);
+    gifPlay(a);
+  }, true);
+
   // ----- Documents: a card with the file type. A PDF opens in the app's PDF preview; anything else downloads.
   const DOC_KIND = { pdf: 'pdf', doc: 'word', docx: 'word', xls: 'sheet', xlsx: 'sheet', csv: 'sheet', ppt: 'slides', pptx: 'slides', zip: 'zip', rar: 'zip', txt: 'text' };
   function docHtml(m, src) {
@@ -1405,7 +1512,7 @@
     const mime = m.media?.mime || '';
     const ext = (/\.([a-z0-9]{1,5})$/i.exec(name)?.[1] || mime.split('/')[1] || 'file').toLowerCase();
     const pdf = ext === 'pdf' || /pdf/i.test(mime);
-    const dl = `${src}?name=${enc(name)}`;
+    const dl = /^blob:/.test(src) ? src : `${src}?name=${enc(name)}`;
     const label = ext.length <= 4 ? ext.toUpperCase() : 'FILE';
     const open = pdf ? `href="${src}" target="_blank" rel="noopener" data-pdf="${src}" data-pdf-name="${esc(name)}"` : `href="${dl}"`;
     return `<div class="ib-doc2">
@@ -1511,8 +1618,10 @@
   // Top: back, who sent it and when, zoom, open, download. Bottom: "All media" (a grid of everything in this chat),
   // a strip of thumbnails to jump between them, the caption, Reply and Done. ←/→ or swipe to move, click, scroll or
   // pinch to zoom, drag to look around, Esc to close. Ctrl/Cmd-click in the chat still opens a new tab.
-  const mv = { el: null, list: [], i: 0, z: 1, x: 0, y: 0, grid: false };
-  const viewable = () => (ib.thread?.messages || []).filter((m) => ['image', 'sticker', 'video'].includes(m.type) && m.media?.id);
+  const mv = { el: null, list: [], i: 0, z: 1, x: 0, y: 0, grid: false, tab: 'media', gridOnly: false };
+  const viewable = () => (ib.thread?.messages || []).filter((m) => ['image', 'sticker', 'video'].includes(m.type) && m.media?.id && !m.local);
+  const audios = () => (ib.thread?.messages || []).filter((m) => m.type === 'audio' && m.media?.id && !m.local);
+  const docs = () => (ib.thread?.messages || []).filter((m) => m.type === 'document' && m.media?.id && !m.local);
   const mediaSrc = (m) => `/api/media/${enc(m.media.id)}`;
   const mvStage = () => $('.mv-stage', mv.el);
   const mvImg = () => $('.mv-stage img', mv.el);
@@ -1522,9 +1631,45 @@
     mv.i = Math.max(0, mv.list.findIndex((m) => m.media.id === mediaId));
     if (!mv.el) mvBuild();
     vnStop();
+    mv.gridOnly = false;
     mvStrip();
     mvGrid(false);
     mvShow();
+    mvReveal();
+  }
+  // "Media, audio and docs" from Contact info: straight to the grid, on a tab (works when there are no photos too).
+  function mvOpenGrid(tab = 'media') {
+    mv.list = viewable();
+    mv.i = 0;
+    if (!mv.el) mvBuild();
+    mv.gridOnly = true;
+    mvStage().innerHTML = '';
+    mvStrip();
+    mv.tab = tab;
+    mvGrid(true);
+    mvReveal();
+  }
+  // Contact info's "Media, audio and docs" row: how many, and the latest photos; opens the grid on that tab.
+  function mediaCard() {
+    const media = viewable(), au = audios(), dc = docs();
+    const total = media.length + au.length + dc.length;
+    if (!total) return '';
+    const latest = media.slice(-4).reverse();
+    const first = media.length ? 'media' : au.length ? 'audio' : 'docs';
+    const counts = String(total);
+    return `<section class="ibi-card ibi-media">
+      <button type="button" class="ibi-media-h" data-media-grid="${first}"><b>Media, audio and docs</b><span>${esc(counts)}</span>${icon('arrow-right', 15)}</button>
+      ${latest.length ? `<div class="ibi-media-row">${latest.map((m) => `<a class="ibi-media-th ${m.type}" href="${mediaSrc(m)}" target="_blank" rel="noopener" data-view="${esc(m.media.id)}">${m.type === 'video' ? `<video src="${mediaSrc(m)}#t=0.1" preload="metadata" muted playsinline></video><span class="mv-thumb-play">${PLAY_SVG}</span>` : `<img src="${mediaSrc(m)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('broken')">`}</a>`).join('')}</div>` : ''}
+      ${au.length || dc.length ? `<div class="ibi-media-links">${au.length ? `<button type="button" data-media-grid="audio">${MIC_SVG}${au.length} audio</button>` : ''}${dc.length ? `<button type="button" data-media-grid="docs">${icon('file-text', 14)}${dc.length} ${dc.length === 1 ? 'document' : 'documents'}</button>` : ''}</div>` : ''}
+    </section>`;
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest?.('[data-media-grid]');
+    if (!b || !ib.thread) return;
+    e.preventDefault();
+    mvOpenGrid(b.dataset.mediaGrid);
+  });
+  function mvReveal() {
     mv.el.classList.add('open');
     document.documentElement.classList.add('mv-lock');
     $('[data-mv="close"]', mv.el).focus({ preventScroll: true });
@@ -1575,7 +1720,7 @@
   function thumbHtml(m, i, cls) {
     const src = mediaSrc(m);
     const inner = m.type === 'video'
-      ? `<video src="${src}#t=0.1" preload="metadata" muted playsinline></video><span class="mv-thumb-play">${PLAY_SVG}</span>${cls === 'mv-cell' ? '<span class="mv-thumb-len"></span>' : ''}`
+      ? `<video src="${src}#t=0.1" preload="metadata" muted playsinline></video>${gif.ok.has(m.media.id) ? '<span class="mv-thumb-gif">GIF</span>' : `<span class="mv-thumb-play">${PLAY_SVG}</span>${cls === 'mv-cell' ? '<span class="mv-thumb-len"></span>' : ''}`}`
       : `<img src="${src}" alt="" loading="lazy" draggable="false" onerror="this.parentNode.classList.add('broken')">`;
     return `<button type="button" class="mv-thumb ${cls} ${m.type}" data-mv-go="${i}" aria-label="${m.type === 'video' ? 'Video' : 'Photo'} ${i + 1}">${inner}</button>`;
   }
@@ -1584,20 +1729,47 @@
   }
   function mvGrid(show) {
     mv.grid = show;
-    const g = $('.mv-grid', mv.el);
+    const g = $('.mv-grid', mv.el), el = mv.el;
     g.hidden = !show;
-    mv.el.classList.toggle('gridding', show);
+    el.classList.toggle('gridding', show);
+    el.classList.toggle('grid-only', show && mv.gridOnly);
     if (!show) { g.innerHTML = ''; return; }
-    // Newest first, under a heading per day (like "All media" on the phone).
+    $('.mv-stage video', el)?.pause();
+    // The header shows the chat while the grid is up.
+    const c = current() || {};
+    $('.mv-av', el).innerHTML = `<span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span>`;
+    $('.mv-who b', el).textContent = displayName(c);
+    $('.mv-who small', el).textContent = 'Media, audio and docs';
+    const lists = { media: mv.list, audio: audios(), docs: docs() };
+    const tab = (k, label) => `<button type="button" role="tab" class="mv-tab ${mv.tab === k ? 'on' : ''}" data-mv-tab="${k}" aria-selected="${mv.tab === k}">${label}<span>${lists[k].length}</span></button>`;
+    const items = lists[mv.tab];
+    // Newest first, under a heading per day (like "Media, links and docs" on the phone).
     let html = '', day = null;
-    mv.list.map((m, i) => [m, i]).reverse().forEach(([m, i]) => {
+    const group = mv.tab === 'media' ? '<div class="mv-cells">' : '<div class="mv-rows">';
+    items.map((m, i) => [m, i]).reverse().forEach(([m, i]) => {
       const d = dayLabel(m.ts);
-      if (d !== day) { html += `${day ? '</div>' : ''}<h3>${esc(d)}</h3><div class="mv-cells">`; day = d; }
-      html += thumbHtml(m, i, 'mv-cell');
+      if (d !== day) { html += `${day ? '</div>' : ''}<h3>${esc(d)}</h3>${group}`; day = d; }
+      html += mv.tab === 'media' ? thumbHtml(m, i, 'mv-cell') : rowHtml(m);
     });
-    g.innerHTML = `<div class="mv-grid-in"><div class="mv-grid-head"><b>All media</b><span>${mv.list.length} ${mv.list.length === 1 ? 'item' : 'items'}</span></div>${html}</div></div>`;
-    $(`[data-mv-go="${mv.i}"]`, g)?.classList.add('current');
-    if (mv.list[mv.i]?.type === 'video') $('.mv-stage video', mv.el)?.pause();
+    if (day) html += '</div>';
+    const none = { media: 'No photos or videos in this chat yet.', audio: 'No voice messages or audio in this chat yet.', docs: 'No documents in this chat yet.' }[mv.tab];
+    g.innerHTML = `<div class="mv-grid-in"><div class="mv-tabs" role="tablist">${tab('media', 'Media')}${tab('audio', 'Audio')}${tab('docs', 'Docs')}</div>${html || `<p class="mv-none">${none}</p>`}</div>`;
+    if (!mv.gridOnly) $(`[data-mv-go="${mv.i}"]`, g)?.classList.add('current');
+    vnHydrate(g);
+  }
+  // A voice note or document in the Audio / Docs tab: who sent it and when, the player or the card, download, reply.
+  function rowHtml(m) {
+    const c = current() || {}, src = mediaSrc(m), mime = m.media.mime || '';
+    const when = new Date(m.ts).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    const ext = /ogg|opus/.test(mime) ? 'ogg' : /mpeg|mp3/.test(mime) ? 'mp3' : /mp4|m4a|aac/.test(mime) ? 'm4a' : /amr/.test(mime) ? 'amr' : 'audio';
+    const file = `${isVoice(m) ? 'Voice message' : 'Audio'} ${m.media.id}.${ext}`;
+    return `<div class="mv-row ${m.type}">
+      <div class="mv-row-h"><b>${m.dir === 'out' ? 'You' : esc(displayName(c))}</b><small>${esc(when)}</small>
+        ${m.type === 'audio' ? `<a class="mv-btn" href="${src}?name=${enc(file)}" title="Download" aria-label="Download">${icon('download', 16)}</a>` : ''}
+        ${m.wamid && m.dir === 'in' ? `<button type="button" class="mv-btn" data-mv-reply="${esc(m.wamid)}" title="Reply" aria-label="Reply">${icon('reply', 16)}</button>` : ''}</div>
+      <div class="mv-row-body ${m.dir}">${m.type === 'audio' ? voiceHtml(m, src) : docHtml(m, src)}</div>
+      ${m.text ? `<p class="mv-row-cap">${fmtText(m.text)}</p>` : ''}
+    </div>`;
   }
   function mvShow() {
     const m = mv.list[mv.i], n = mv.list.length, el = mv.el, c = current() || {};
@@ -1605,7 +1777,10 @@
     el.classList.remove('broken');
     el.classList.toggle('video', m.type === 'video');
     el.classList.toggle('sticker', m.type === 'sticker');
-    stage.innerHTML = m.type === 'video'
+    el.classList.toggle('gif', gif.ok.has(m.media.id));
+    stage.innerHTML = m.type === 'video' && gif.ok.has(m.media.id)
+      ? `<video src="${src}" autoplay loop muted playsinline disablepictureinpicture></video>`
+      : m.type === 'video'
       ? `<video src="${src}" controls autoplay playsinline></video>`
       : `<img src="${src}" alt="${esc(m.text || (m.type === 'sticker' ? 'Sticker' : 'Photo'))}" draggable="false">`;
     const media = stage.firstElementChild;
@@ -1669,18 +1844,22 @@
     let moved = false;
     el.addEventListener('click', (e) => {
       const go = e.target.closest('[data-mv-go]');
-      if (go) { mv.i = Number(go.dataset.mvGo); mvGrid(false); return mvShow(); }
+      if (go) { mv.i = Number(go.dataset.mvGo); mv.gridOnly = false; mvGrid(false); return mvShow(); }
+      const tb = e.target.closest('[data-mv-tab]');
+      if (tb) { mv.tab = tb.dataset.mvTab; $('.mv-grid', el).scrollTop = 0; return mvGrid(true); }
+      const rp = e.target.closest('[data-mv-reply]');
+      if (rp) { mvClose(); return startReply(rp.dataset.mvReply); }
       const b = e.target.closest('[data-mv]');
       if (b) {
         const a = b.dataset.mv;
         if (a === 'download' || a === 'open') return;
         e.preventDefault();
-        if (a === 'close') mv.grid ? mvGrid(false) : mvClose();
+        if (a === 'close') mv.grid && !mv.gridOnly ? mvGrid(false) : mvClose();
         else if (a === 'done') mvClose();
         else if (a === 'prev') mvStep(-1);
         else if (a === 'next') mvStep(1);
         else if (a === 'zoom') mvZoom(mv.z > 1 ? 1 : 2.5);
-        else if (a === 'grid') mvGrid(!mv.grid);
+        else if (a === 'grid') { if (mv.grid && mv.gridOnly) return mvClose(); if (!mv.grid) mv.tab = 'media'; mvGrid(!mv.grid); }
         else if (a === 'reply') { const w = mv.list[mv.i].wamid; mvClose(); startReply(w); }
         return;
       }
@@ -1747,7 +1926,7 @@
   });
   document.addEventListener('keydown', (e) => {
     if (!mv.el?.classList.contains('open')) return;
-    if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); return mv.grid ? mvGrid(false) : mvClose(); }
+    if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); return mv.grid && !mv.gridOnly ? mvGrid(false) : mvClose(); }
     if (mv.grid || e.target.tagName === 'VIDEO' || e.metaKey || e.ctrlKey || e.altKey) return;
     const act = { ArrowLeft: () => mvStep(-1), ArrowRight: () => mvStep(1), '+': () => mvZoom(mv.z * 1.5), '=': () => mvZoom(mv.z * 1.5), '-': () => mvZoom(mv.z / 1.5) }[e.key];
     if (!act) return;
@@ -2064,6 +2243,8 @@
     foot.innerHTML = simBar() + `<div class="ib-compose">
       <div class="ib-replybar hidden" id="ibReplyBar"></div>
       <div class="ib-compose-row">
+        <button class="icon-btn la-host" id="ibAttachBtn" title="Attach a photo, video, document or audio" aria-label="Attach" aria-haspopup="menu">${icon('paperclip', 18)}</button>
+        <button class="icon-btn" id="ibStickerBtn" title="Stickers" aria-label="Stickers" aria-haspopup="dialog">${STICKER_SVG}</button>
         <button class="icon-btn la-host" id="ibTplBtn" title="Send a template" aria-label="Send a template">${icon('file-text', 18)}</button>
         <textarea id="ibText" rows="1" placeholder="Type a message" aria-label="Message"></textarea>
         <button class="ib-send" id="ibSendBtn" aria-label="Send" title="Send (Enter)">${icon('send', 18)}</button>
@@ -2079,6 +2260,8 @@
     });
     $('#ibSendBtn').onclick = sendText;
     $('#ibTplBtn').onclick = templateModal;
+    $('#ibAttachBtn').onclick = (e) => { $('.ib-stk-tray')?.remove(); attachMenu(e.currentTarget); };
+    $('#ibStickerBtn').onclick = (e) => stickerTray(e.currentTarget);
     renderReplyBar();
     if (matchMedia('(pointer: fine)').matches) ta.focus();
   }
@@ -2134,6 +2317,498 @@
       toast(e.message, 'error');
     }
   }
+
+
+  // ---------- Attachments: send a photo, video, document or audio in the 24-hour window ----------
+  // The paperclip (or dropping files on the chat, or pasting a screenshot) opens a preview: each file large, with
+  // its own caption, a strip to move between them, and a note on how WhatsApp will send it. Photos WhatsApp can't
+  // take (WebP, HEIC in Safari…) or that are over 5 MB become JPGs here first, like the phone does. Anything else
+  // too big for its kind can go as a document instead. Then each one rises into the chat with its upload progress.
+  // Kept in step with OUT_MEDIA in server.js.
+  const OUT_MEDIA = {
+    image: { types: ['image/jpeg', 'image/png'], mb: 5, label: 'Photos' },
+    video: { types: ['video/mp4', 'video/3gpp'], mb: 16, label: 'Videos' },
+    audio: { types: ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/amr', 'audio/ogg'], mb: 16, label: 'Audio files' },
+    document: { types: null, mb: 100, label: 'Files' },
+    sticker: { types: [], mb: 0.5, label: 'Stickers' },
+  };
+  const MIME_ALIAS = { 'audio/x-m4a': 'audio/mp4', 'audio/m4a': 'audio/mp4', 'audio/mp3': 'audio/mpeg', 'audio/x-aac': 'audio/aac', 'image/jpg': 'image/jpeg', 'audio/opus': 'audio/ogg' };
+  // Types WhatsApp lists for documents. Others are tried, but WhatsApp may refuse them (its reason is shown).
+  const DOC_OK = /^(application\/pdf|text\/plain|application\/(msword|vnd\.ms-excel|vnd\.ms-powerpoint|vnd\.openxmlformats-officedocument\.[a-z.]+))$/;
+  const MB = 1024 * 1024;
+  const fmtSize = (n) => (n >= MB ? `${(n / MB).toFixed(n >= 10 * MB ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  const att = { el: null, items: [], i: 0, key: null };
+
+  const kindOf = (it) => (it.asSticker ? 'sticker' : it.asDoc ? 'document' : Object.keys(OUT_MEDIA).find((k) => OUT_MEDIA[k].types?.includes(it.mime)) || 'document');
+  // A photo WhatsApp won't take as a photo, or one over 5 MB: redraw it as a JPG (at most 4096 px, smaller until it fits).
+  async function asJpeg(file) {
+    const bmp = await createImageBitmap(file);
+    let scale = Math.min(1, 4096 / Math.max(bmp.width, bmp.height));
+    for (const q of [0.9, 0.85, 0.8, 0.75, 0.7, 0.6]) {
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * scale);
+      c.height = Math.round(bmp.height * scale);
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; // a PNG's see-through parts become white, not black
+      g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(bmp, 0, 0, c.width, c.height);
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', q));
+      if (blob && blob.size <= 5 * MB) return blob;
+      scale *= 0.85;
+    }
+    throw new Error('too big');
+  }
+  // A sticker, as WhatsApp needs it: a 512×512 WebP up to 100 KB, the picture fitted inside with its see-through
+  // parts kept. An animated WebP can only be used as it is (512×512, up to 500 KB): browsers can't make those.
+  async function makeSticker(file) {
+    if (file.type === 'image/webp') {
+      const h = new Uint8Array(await file.slice(0, 32).arrayBuffer());
+      if (String.fromCharCode(...h.slice(12, 16)) === 'VP8X' && h[20] & 0x02) {
+        const w = 1 + (h[24] | (h[25] << 8) | (h[26] << 16)), ht = 1 + (h[27] | (h[28] << 8) | (h[29] << 16));
+        if (w === 512 && ht === 512 && file.size <= 500 * 1024) return file;
+        throw new Error(`Animated stickers have to be 512×512 and up to 500 KB; this one is ${w}×${ht}, ${fmtSize(file.size)}.`);
+      }
+    }
+    let bmp;
+    try { bmp = await createImageBitmap(file); } catch { throw new Error("This browser can't open this picture to make a sticker."); }
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    const k = Math.min(496 / bmp.width, 496 / bmp.height); // a few pixels of margin, as WhatsApp's guide asks
+    const w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, (512 - w) / 2, (512 - h) / 2, w, h);
+    for (const q of [0.92, 0.85, 0.75, 0.65, 0.55, 0.45, 0.35]) {
+      const b = await new Promise((r) => c.toBlob(r, 'image/webp', q));
+      if (!b || b.type !== 'image/webp') throw new Error("This browser can't make stickers (it can't save WebP pictures). Try Chrome, Edge or Firefox.");
+      if (b.size <= 100 * 1024) return b;
+    }
+    throw new Error("Couldn't make this picture small enough for a sticker (WhatsApp allows 100 KB).");
+  }
+  async function toggleSticker(it, on) {
+    it.asSticker = on;
+    if (on) it.asDoc = false;
+    if (on && !it.sticker && !it.stickerErr) {
+      if (att.el?.classList.contains('open')) attDraw();
+      try {
+        const b = await makeSticker(it.original || it.blob);
+        it.sticker = { blob: b, url: URL.createObjectURL(b) };
+      } catch (e) { it.stickerErr = e.message; }
+    }
+    if (att.el?.classList.contains('open') && att.items.includes(it)) attDraw();
+  }
+  const canSticker = (it) => /^image\//.test(it.original?.type || it.mime) && !/svg/.test(it.mime);
+  async function prepare(file) {
+    const it = { name: file.name || `Pasted image ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.png`, mime: MIME_ALIAS[file.type] || file.type || 'application/octet-stream', blob: file, caption: '', asDoc: false, note: '' };
+    const img = /^image\//.test(it.mime) && it.mime !== 'image/gif' && it.mime !== 'image/svg+xml';
+    if (img && (!OUT_MEDIA.image.types.includes(it.mime) || file.size > 5 * MB)) {
+      try {
+        const was = it.mime === 'image/jpeg' || it.mime === 'image/png' ? `It was ${fmtSize(file.size)}, over WhatsApp's 5 MB for photos, so it's been made smaller` : `WhatsApp takes photos as JPG or PNG, so this ${it.mime.split('/')[1].toUpperCase()} becomes a JPG`;
+        it.blob = await asJpeg(file);
+        it.mime = 'image/jpeg';
+        it.name = it.name.replace(/\.[a-z0-9]+$/i, '') + '.jpg';
+        it.note = `${was}. To send the original, tick “Send as a document”.`;
+        it.original = file;
+      } catch {
+        it.asDoc = true;
+        it.note = "This browser can't open this kind of photo, so it goes as a document.";
+      }
+    }
+    if (it.mime === 'image/gif') { it.asDoc = true; it.note = 'GIFs go as a file. WhatsApp only plays GIFs that are sent from its own app.'; }
+    if (/^video\//.test(it.mime) && !OUT_MEDIA.video.types.includes(it.mime)) { it.asDoc = true; it.note = `WhatsApp plays MP4 videos only, so this ${(it.name.split('.').pop() || 'video').toUpperCase()} goes as a document.`; }
+    if (/^audio\//.test(it.mime) && !OUT_MEDIA.audio.types.includes(it.mime)) { it.asDoc = true; it.note = 'WhatsApp plays MP3, M4A, AAC, AMR and OGG audio, so this goes as a document.'; }
+    it.url = URL.createObjectURL(it.blob);
+    return it;
+  }
+  // What's wrong with sending it this way, if anything (blocks Send until fixed or removed).
+  function problem(it) {
+    if (it.asSticker) return it.stickerErr || (it.sticker ? '' : 'Making the sticker…');
+    const k = kindOf(it), max = OUT_MEDIA[k].mb * MB, size = (it.asDoc && it.original ? it.original : it.blob).size;
+    if (size > max) return k === 'document' ? `Too big: WhatsApp sends files up to 100 MB, and this is ${fmtSize(size)}.` : `Too big: ${OUT_MEDIA[k].label.toLowerCase()} can be up to ${OUT_MEDIA[k].mb} MB, and this is ${fmtSize(size)}.`;
+    return '';
+  }
+  async function openAttach(files, opts = {}) {
+    files = [...(files || [])].filter((f) => f && f.size !== undefined);
+    if (!files.length || !ib.key || !$('#ibText')) return;
+    if (!windowInfo(current()).open) return toast('The 24-hour reply window is closed. Send a template to restart the conversation.', 'error');
+    if (!att.el) attBuild();
+    if (att.key !== ib.key || !att.el.classList.contains('open')) { attReset(); att.key = ib.key; }
+    const busy = toastBusy(files.length);
+    const fresh = await Promise.all(files.slice(0, 30 - att.items.length).map(prepare));
+    busy?.();
+    if (files.length > fresh.length) toast(`Up to 30 files at a time: the first ${fresh.length} are ready. Send them, then add the rest.`, 'error');
+    if (!att.items.length && !opts.sticker) {
+      // What was typed in the reply box becomes the first file's caption (as on the phone). Not for stickers,
+      // which can't have one: the text stays in the reply box.
+      const ta = $('#ibText');
+      if (ta?.value.trim() && fresh[0]) { fresh[0].caption = ta.value.trim(); ta.value = ''; ib.drafts[ib.key] = ''; autosize(); }
+    }
+    att.i = att.items.length;
+    att.items.push(...fresh);
+    if (opts.sticker) for (const it of fresh) if (canSticker(it)) toggleSticker(it, true);
+    attDraw();
+    att.el.classList.add('open');
+    document.documentElement.classList.add('mv-lock');
+    setTimeout(() => $('.atx-cap', att.el)?.focus(), 30);
+  }
+  // Converting big photos can take a moment.
+  function toastBusy(n) {
+    let shown = false;
+    const t = setTimeout(() => { shown = true; toast(n > 1 ? `Getting ${n} files ready…` : 'Getting the file ready…'); }, 400);
+    return () => { clearTimeout(t); return shown; };
+  }
+  function attReset() {
+    for (const it of att.items) { URL.revokeObjectURL(it.url); if (it.origUrl) URL.revokeObjectURL(it.origUrl); if (it.sticker) URL.revokeObjectURL(it.sticker.url); }
+    att.items = []; att.i = 0;
+  }
+  function attClose(keep = false) {
+    if (!att.el?.classList.contains('open')) return;
+    att.el.classList.remove('open');
+    document.documentElement.classList.remove('mv-lock');
+    $('.atx-view', att.el).innerHTML = '';
+    if (!keep) attReset();
+  }
+  // Laid out like WhatsApp on the computer: ✕ and the file's name on top; the file large; the strip of files
+  // (the selected one shows a bin to remove it); the caption pill with "add files" in it; then who it's going to
+  // on the left and Send on the right.
+  function attBuild() {
+    att.el = document.createElement('div');
+    att.el.className = 'atx';
+    att.el.setAttribute('role', 'dialog');
+    att.el.setAttribute('aria-modal', 'true');
+    att.el.innerHTML = `
+      <div class="atx-head">
+        <button type="button" class="atx-x" data-as="close" aria-label="Cancel" title="Cancel">${icon('x', 20)}</button>
+        <div class="atx-title"><b></b><small></small></div>
+      </div>
+      <div class="atx-view"></div>
+      <div class="atx-under">
+        <div class="atx-note" hidden></div>
+        <div class="atx-strip" role="listbox" aria-label="Files to send"></div>
+        <div class="atx-capwrap">
+          <button type="button" class="atx-add" data-as="add" title="Add more files" aria-label="Add more files">${icon('plus', 18)}</button>
+          <input class="atx-cap" type="text" maxlength="1024" placeholder="Add a caption" aria-label="Caption">
+        </div>
+      </div>
+      <div class="atx-bar">
+        <span class="atx-to"></span>
+        <label class="atx-doc" title="Send the original file at full quality, as a document"><input type="checkbox" data-as="asdoc"><span>Send as document</span></label>
+        <label class="atx-doc atx-stk" title="Send this picture as a WhatsApp sticker"><input type="checkbox" data-as="assticker"><span>Send as sticker</span></label>
+        <button type="button" class="atx-send" data-as="send" aria-label="Send">${icon('send', 20)}<span class="atx-n"></span></button>
+      </div>
+      <input type="file" class="atx-more" multiple hidden>`;
+    document.body.appendChild(att.el);
+    att.el.addEventListener('click', (e) => {
+      const rm = e.target.closest('[data-as-rm]');
+      if (rm) {
+        const i = Number(rm.dataset.asRm);
+        URL.revokeObjectURL(att.items[i].url);
+        att.items.splice(i, 1);
+        if (!att.items.length) return attClose();
+        att.i = Math.min(att.i > i ? att.i - 1 : att.i, att.items.length - 1);
+        return attDraw();
+      }
+      const go = e.target.closest('[data-as-go]');
+      if (go) { att.i = Number(go.dataset.asGo); return attDraw(); }
+      const fix = e.target.closest('[data-as-fix]');
+      if (fix) { att.items[att.i].asDoc = true; return attDraw(); }
+      const a = e.target.closest('[data-as]')?.dataset.as;
+      if (a === 'close') attClose();
+      else if (a === 'add') $('.atx-more', att.el).click();
+      else if (a === 'send') attSend();
+    });
+    $('.atx-more', att.el).addEventListener('change', (e) => { openAttach(e.target.files); e.target.value = ''; });
+    $('.atx-cap', att.el).addEventListener('input', (e) => { att.items[att.i].caption = e.target.value; });
+    $('.atx-cap', att.el).addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); attSend(); } });
+    $('[data-as="asdoc"]', att.el).addEventListener('change', (e) => { const it = att.items[att.i]; it.asDoc = e.target.checked; if (it.asDoc) it.asSticker = false; attDraw(); });
+    $('[data-as="assticker"]', att.el).addEventListener('change', (e) => toggleSticker(att.items[att.i], e.target.checked));
+    document.addEventListener('keydown', (e) => {
+      if (!att.el.classList.contains('open')) return;
+      if (e.key === 'Escape') { e.stopImmediatePropagation(); attClose(); }
+      // ←/→ move between files (not while typing a caption).
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target.tagName !== 'INPUT' && att.items.length > 1) {
+        att.i = (att.i + (e.key === 'ArrowLeft' ? -1 : 1) + att.items.length) % att.items.length;
+        attDraw();
+      }
+    }, true);
+    // Files dropped on the open preview are added to it.
+    att.el.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); });
+    att.el.addEventListener('drop', (e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); openAttach(e.dataTransfer.files); } });
+  }
+  // A file's icon, coloured by type (PDF red, Word blue, Excel green, PowerPoint orange…), with its extension.
+  function fileIco(name, size = 26) {
+    const ext = (name.split('.').pop() || 'file').toLowerCase();
+    return `<span class="ib-doc2-ico ${DOC_KIND[ext] || 'other'}">${icon('file-text', size)}<em>${esc(ext.slice(0, 4).toUpperCase())}</em></span>`;
+  }
+  async function textPeek(it, view) {
+    try {
+      const t = await it.blob.slice(0, 4000).text();
+      if (view.dataset.url === it.url + 'document') $('.atx-text', view).textContent = t + (it.blob.size > 4000 ? '\n…' : '');
+    } catch { /* leave the card */ }
+  }
+  function attDraw() {
+    const el = att.el, it = att.items[att.i], c = current() || {};
+    const k = kindOf(it), bad = problem(it), file = k === 'sticker' && it.sticker ? it.sticker.blob : it.asDoc && it.original ? it.original : it.blob;
+    $('.atx-title b', el).textContent = k === 'sticker' ? 'Sticker' : it.asDoc && it.original ? it.original.name : it.name;
+    $('.atx-title small', el).textContent = `${fmtSize(file.size)}${att.items.length > 1 ? ` · ${att.i + 1} of ${att.items.length}` : ''}`;
+    // The big preview, as they'll get it: the photo, the video, the PDF's pages, a text file's start, or a file card.
+    const view = $('.atx-view', el);
+    if (view.dataset.url !== it.url + k + (it.sticker?.url || '')) {
+      view.dataset.url = it.url + k + (it.sticker?.url || '');
+      const url = it.asDoc && it.original ? (it.origUrl ||= URL.createObjectURL(it.original)) : it.url;
+      const mime = it.asDoc && it.original ? it.original.type : it.mime;
+      const card = (extra = '') => `<div class="atx-file">${fileIco(it.name, 30)}<b>${esc(it.name)}</b><small>${esc(fmtSize(file.size))}</small>${extra}</div>`;
+      view.innerHTML = k === 'sticker' ? `<div class="atx-sticker">${it.sticker ? `<img src="${it.sticker.url}" alt="Sticker">` : it.stickerErr ? `<img class="atx-sticker-was" src="${it.url}" alt="">` : '<span>Making the sticker…</span>'}</div>`
+        : k === 'image' || (k === 'document' && /^image\/(jpeg|png|webp|gif|avif|bmp)$/.test(mime)) ? `<img src="${url}" alt="">`
+        : k === 'video' ? `<video src="${url}" controls playsinline></video>`
+        : k === 'audio' ? `<div class="atx-file"><span class="atx-aud">${HEADPHONES_SVG}</span><b>${esc(it.name)}</b><small>${esc(fmtSize(file.size))}</small><audio src="${url}" controls></audio></div>`
+        : /pdf/.test(mime) ? `<iframe class="atx-pdf" src="${url}#toolbar=0&navpanes=0&view=FitH" title="${esc(it.name)}"></iframe>`
+        : /^text\/(plain|csv|markdown)$/.test(mime) || /\.(txt|csv|md|log)$/i.test(it.name) ? `<div class="atx-page"><pre class="atx-text"></pre></div>`
+        : card('<span class="atx-nopv">No preview available</span>');
+      if ($('.atx-text', view)) textPeek(it, view);
+    }
+    // How it'll go: notes about conversions, documents WhatsApp may refuse, or what's blocking Send.
+    const notes = [];
+    if (it.note && !(it.original && it.asDoc)) notes.push(esc(it.note));
+    if (k === 'document' && !DOC_OK.test(it.asDoc && it.original ? it.original.type : it.mime)) notes.push("WhatsApp lists PDF, Word, Excel, PowerPoint and text files for documents, so it may not accept this one. If it doesn't, you'll see why.");
+    if (k === 'audio') notes.push('Audio is sent without a caption.');
+    if (k === 'sticker' && it.sticker) notes.push(`Made into a 512×512 sticker (${fmtSize(it.sticker.blob.size)}), the size WhatsApp needs. Stickers are sent without a caption.`);
+    if (bad && bad !== 'Making the sticker…') notes.unshift(`<b>${esc(bad)}</b>${['image', 'video', 'audio'].includes(k) ? ' <button type="button" class="atx-fix" data-as-fix>Send as document instead</button>' : ''}`);
+    const note = $('.atx-note', el);
+    note.hidden = !notes.length;
+    note.classList.toggle('bad', Boolean(bad));
+    note.innerHTML = notes.map((n) => `<p>${n}</p>`).join('');
+    // The strip: thumbnails for photos and videos, coloured file icons for the rest. The selected one has a bin.
+    $('.atx-strip', el).innerHTML = att.items.map((x, i) => {
+      const xk = kindOf(x), on = i === att.i;
+      const face = xk === 'sticker' && x.sticker ? `<img class="atx-chip-stk" src="${x.sticker.url}" alt="">`
+        : /^image\/(jpeg|png|webp|gif|avif|bmp)$/.test(x.mime) ? `<img src="${x.url}" alt="">`
+        : xk === 'video' ? `<video src="${x.url}#t=0.1" preload="metadata" muted></video>`
+        : xk === 'audio' ? `<span class="atx-chip-aud">${HEADPHONES_SVG}</span>` : fileIco(x.name, 16);
+      return `<div class="atx-chip ${on ? 'on' : ''} ${problem(x) ? 'bad' : ''}" role="option" aria-selected="${on}">
+        <button type="button" ${on ? `data-as-rm="${i}" aria-label="Remove ${esc(x.name)}" title="Remove"` : `data-as-go="${i}" aria-label="${esc(x.name)}" title="${esc(x.name)}"`}>${face}${on ? `<span class="atx-bin">${icon('delete', 20)}</span>` : ''}</button>
+      </div>`;
+    }).join('');
+    $('.atx-strip .on', el)?.scrollIntoView({ inline: 'center', block: 'nearest' });
+    // Caption (not for audio).
+    const cap = $('.atx-cap', el);
+    cap.value = k === 'audio' || k === 'sticker' ? '' : it.caption;
+    cap.disabled = k === 'audio' || k === 'sticker';
+    cap.placeholder = k === 'audio' ? 'Audio is sent without a caption' : k === 'sticker' ? 'Stickers are sent without a caption' : 'Add a caption';
+    // Bottom bar: who it's going to; "Send as document" for photos and videos; Send with how many.
+    $('.atx-to', el).innerHTML = `<span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span><span>${esc(displayName(c))}</span>`;
+    const canDoc = (/^(image|video)\//.test(it.mime) && it.mime !== 'image/gif' && OUT_MEDIA[it.mime.startsWith('video') ? 'video' : 'image'].types.includes(it.mime)) || Boolean(it.original);
+    $('.atx-doc', el).hidden = !canDoc;
+    $('[data-as="asdoc"]', el).checked = it.asDoc && !it.asSticker;
+    $('.atx-stk', el).hidden = !canSticker(it);
+    $('[data-as="assticker"]', el).checked = Boolean(it.asSticker);
+    const blocked = att.items.some(problem);
+    const send = $('[data-as="send"]', el);
+    send.disabled = blocked;
+    send.title = blocked ? 'Fix or remove the files marked in red first' : att.items.length > 1 ? `Send ${att.items.length} files` : 'Send';
+    $('.atx-n', el).textContent = att.items.length > 1 ? att.items.length : '';
+  }
+  function attSend() {
+    if (!att.items.length || att.items.some(problem)) return;
+    const key = att.key, items = att.items.slice();
+    att.items = []; // the URLs live on in the chat until each upload is done
+    attClose(true);
+    let replyTo = ib.replyTo?.wamid;
+    ib.replyTo = null;
+    renderReplyBar();
+    (async () => { for (const it of items) { await sendFile(key, it, replyTo); replyTo = undefined; } })();
+  }
+  // One file: a placeholder in the chat with the file itself (so it shows at once), then the upload with progress.
+  function sendFile(key, it, replyTo) {
+    const stk = it.asSticker && it.sticker;
+    const type = kindOf(it), blob = stk ? stk.blob : it.asDoc && it.original ? it.original : it.blob, mime = stk ? 'image/webp' : it.asDoc && it.original ? (MIME_ALIAS[it.original.type] || it.original.type) : it.mime;
+    const name = stk ? 'sticker.webp' : it.asDoc && it.original ? it.original.name : it.name;
+    const temp = { id: 'tmp' + Date.now() + Math.random().toString(36).slice(2, 6), local: true, dir: 'out', type, text: type === 'audio' || type === 'sticker' ? '' : it.caption.trim(), ts: new Date().toISOString(), status: 'pending', context: replyTo, progress: 0, media: { local: stk ? stk.url : it.url, mime, filename: type === 'document' ? name : undefined, size: blob.size } };
+    const thread = ib.thread;
+    if (ib.key === key && thread) { thread.messages.push(temp); renderMessages(true); }
+    return new Promise((done) => {
+      const x = new XMLHttpRequest();
+      x.open('POST', `/api/inbox/${enc(key)}/media`);
+      x.setRequestHeader('Content-Type', 'application/octet-stream');
+      x.setRequestHeader('X-Tab', TAB_ID);
+      x.setRequestHeader('X-File-Type', mime);
+      x.setRequestHeader('X-File-Name', encodeURIComponent(name));
+      if (temp.text) x.setRequestHeader('X-Caption', encodeURIComponent(temp.text));
+      if (replyTo) x.setRequestHeader('X-Reply-To', encodeURIComponent(replyTo));
+      if (it.asDoc) x.setRequestHeader('X-As-Document', '1');
+      if (stk) x.setRequestHeader('X-As-Sticker', '1');
+      x.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        temp.progress = Math.round((100 * e.loaded) / e.total);
+        const bar = $(`[data-upl="${temp.id}"]`);
+        if (bar) { bar.querySelector('i').style.width = `${temp.progress}%`; bar.querySelector('small').textContent = temp.progress < 100 ? `Uploading ${temp.progress}%` : 'Sending…'; }
+      };
+      const fail = (msg) => {
+        Object.assign(temp, { status: 'failed', error: msg });
+        if (ib.key === key) renderMessages();
+        toast(msg, 'error');
+        done();
+      };
+      x.onerror = () => fail("Couldn't send the file: check the connection and try again.");
+      x.onload = async () => {
+        let json = {};
+        try { json = JSON.parse(x.responseText || '{}'); } catch { /* not JSON */ }
+        if (x.status === 401) location.href = '/login';
+        if (x.status < 200 || x.status >= 300) return fail(json.error || (x.status === 413 ? 'That file is too big for WhatsApp' : `Couldn't send the file (${x.status})`));
+        markSaved();
+        if (thread) thread.messages = thread.messages.filter((m) => m !== temp);
+        if (ib.key === key) await loadThread();
+        setTimeout(() => { URL.revokeObjectURL(it.url); if (it.sticker) URL.revokeObjectURL(it.sticker.url); }, 60000);
+        done();
+      };
+      x.send(blob);
+    });
+  }
+  // The paperclip menu.
+  function attachMenu(btn) {
+    let m = $('.ib-attach-menu');
+    if (m) return m.remove();
+    m = document.createElement('div');
+    m.className = 'ib-attach-menu';
+    m.setAttribute('role', 'menu');
+    m.innerHTML = `
+      <button type="button" role="menuitem" data-pick="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,image/bmp,video/mp4,video/3gpp,video/quicktime,video/*">${icon('image', 17)}<span><b>Photos & videos</b><small>JPG, PNG up to 5 MB · MP4 up to 16 MB</small></span></button>
+      <button type="button" role="menuitem" data-pick="">${icon('file-text', 17)}<span><b>Document</b><small>PDF, Word, Excel… up to 100 MB</small></span></button>
+      <button type="button" role="menuitem" data-pick="audio/*">${HEADPHONES_SVG}<span><b>Audio</b><small>MP3, M4A, AAC, OGG up to 16 MB</small></span></button>
+      <button type="button" role="menuitem" data-pick="image/*" data-sticker>${STICKER_SVG}<span><b>Sticker</b><small>Make one from any picture</small></span></button>`;
+    btn.closest('.ib-compose').appendChild(m);
+    m.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-pick]');
+      if (!b) return;
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.multiple = true;
+      if (b.dataset.pick) inp.accept = b.dataset.pick;
+      const sticker = 'sticker' in b.dataset;
+      inp.onchange = () => openAttach(inp.files, { sticker });
+      inp.click();
+      m.remove();
+    });
+    setTimeout(() => {
+      const away = (e) => { if (!m.contains(e.target) && !btn.contains(e.target)) { m.remove(); document.removeEventListener('pointerdown', away, true); } };
+      document.addEventListener('pointerdown', away, true);
+    });
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('.ib-attach-menu')?.remove(); });
+  // Drop files, or a whole folder, anywhere on a chat (like WhatsApp: a dashed frame, "Drop file here"). A folder
+  // sends every file in it (and its folders) as separate files, skipping hidden ones like .DS_Store. With the reply
+  // window closed it says so instead of letting the browser open the file.
+  const DROP_FOLDER_SVG = '<svg viewBox="0 0 64 52" width="76" height="62" aria-hidden="true"><path d="M4 8a4 4 0 0 1 4-4h15l6 6h27a4 4 0 0 1 4 4v30a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z" fill="#5aa9e6"/><path d="M4 16h56v28a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z" fill="#78bdf0"/><circle cx="52" cy="44" r="8" fill="#21c063"/><path d="M52 40v8M48 44h8" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>';
+  let dragDepth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  function dropZone(show) {
+    let z = $('#ibChat .ib-drop');
+    if (!show) { z?.remove(); return; }
+    const open = Boolean($('#ibText'));
+    if (!z) { z = document.createElement('div'); z.className = 'ib-drop'; $('#ibChat').appendChild(z); }
+    z.classList.toggle('closed', !open);
+    const c = current() || {};
+    z.innerHTML = `<div class="ib-drop-in">${DROP_FOLDER_SVG}<b>${open ? 'Drop file here' : "Can't send files right now"}</b><small>${open ? 'Photos, videos, documents, audio or a whole folder' : 'The 24-hour reply window is closed. Send a template to restart the conversation.'}</small>${open ? `<span class="ib-drop-to">To<span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}</span><b>${esc(displayName(c))}</b></span>` : ''}</div>`;
+  }
+  async function droppedFiles(dt) {
+    // Read the entries now: the drop's data is gone once this event is over.
+    const entries = [...(dt.items || [])].map((i) => (i.kind === 'file' ? i.webkitGetAsEntry?.() : null)).filter(Boolean);
+    if (!entries.length) return [...(dt.files || [])];
+    const out = [];
+    const walk = async (en) => {
+      if (out.length >= 200 || en.name.startsWith('.')) return;
+      if (en.isFile) { const f = await new Promise((res) => en.file(res, () => res(null))); if (f) out.push(f); return; }
+      if (!en.isDirectory) return;
+      const reader = en.createReader();
+      for (;;) {
+        const batch = await new Promise((res) => reader.readEntries(res, () => res([])));
+        if (!batch.length) break;
+        for (const x of batch.sort((p, q) => p.name.localeCompare(q.name, undefined, { numeric: true }))) await walk(x);
+      }
+    };
+    for (const en of entries) await walk(en);
+    return out;
+  }
+  $('#ibChat').addEventListener('dragenter', (e) => { if (!hasFiles(e) || !ib.key || att.el?.classList.contains('open')) return; e.preventDefault(); if (dragDepth++ === 0) dropZone(true); });
+  $('#ibChat').addEventListener('dragover', (e) => { if (hasFiles(e) && ib.key) { e.preventDefault(); e.dataTransfer.dropEffect = $('#ibText') ? 'copy' : 'none'; } });
+  $('#ibChat').addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dropZone(false); } });
+  $('#ibChat').addEventListener('drop', async (e) => {
+    dragDepth = 0;
+    dropZone(false);
+    if (!hasFiles(e) || !ib.key) return;
+    e.preventDefault();
+    if (!$('#ibText')) return toast('The 24-hour reply window is closed. Send a template to restart the conversation.', 'error');
+    const files = await droppedFiles(e.dataTransfer);
+    if (!files.length) return toast('Nothing to send: that folder is empty', 'error');
+    openAttach(files);
+  });
+  // Folders dropped on the open preview are added to it too.
+  document.addEventListener('drop', async (e) => {
+    if (!att.el?.classList.contains('open') || !att.el.contains(e.target) || !hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openAttach(await droppedFiles(e.dataTransfer));
+  }, true);
+
+  // ----- The sticker tray (beside the paperclip): stickers sent or received in your chats; one tap sends one.
+  const STICKER_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9.5L21 14.5V5a2 2 0 0 0-2-2z" /><path d="M14 21v-4.5a2 2 0 0 1 2-2h5"/><path d="M8.5 9.5h.01M15.5 9.5h.01"/><path d="M8.5 13.5s1.2 1.5 3.5 1.5"/></svg>';
+  async function stickerTray(btn) {
+    let t = $('.ib-stk-tray');
+    if (t) return t.remove();
+    $('.ib-attach-menu')?.remove();
+    t = document.createElement('div');
+    t.className = 'ib-stk-tray';
+    t.setAttribute('role', 'dialog');
+    t.setAttribute('aria-label', 'Stickers');
+    t.innerHTML = `<div class="ib-stk-head"><b>Stickers</b><button type="button" class="ib-stk-make" data-stk-make>${icon('plus', 14)}Make a sticker</button></div><div class="ib-stk-grid"><p class="ib-stk-empty">Loading…</p></div>`;
+    btn.closest('.ib-compose').appendChild(t);
+    t.addEventListener('click', (e) => {
+      if (e.target.closest('[data-stk-make]')) {
+        const inp = document.createElement('input');
+        inp.type = 'file'; inp.multiple = true; inp.accept = 'image/*';
+        inp.onchange = () => openAttach(inp.files, { sticker: true });
+        inp.click();
+        return t.remove();
+      }
+      const b = e.target.closest('[data-stk]');
+      if (b) { t.remove(); sendSticker(b.dataset.stk); }
+    });
+    setTimeout(() => {
+      const away = (e) => { if (!t.isConnected) return document.removeEventListener('pointerdown', away, true); if (!t.contains(e.target) && !btn.contains(e.target)) { t.remove(); document.removeEventListener('pointerdown', away, true); } };
+      document.addEventListener('pointerdown', away, true);
+    });
+    let list = [];
+    try { list = (await api('/stickers')).stickers || []; } catch (err) { $('.ib-stk-grid', t).innerHTML = `<p class="ib-stk-empty">${esc(err.message)}</p>`; return; }
+    if (!t.isConnected) return;
+    $('.ib-stk-grid', t).innerHTML = list.length
+      ? list.map((x) => `<button type="button" class="ib-stk" data-stk="${esc(x.id)}" title="Send this sticker" aria-label="Send sticker"><img src="/api/media/${enc(x.id)}" alt="" loading="lazy" onerror="this.parentNode.remove()"></button>`).join('')
+      : `<p class="ib-stk-empty">Stickers you send and receive show up here. You can also make one from any picture with <b>Make a sticker</b>.</p>`;
+  }
+  async function sendSticker(id) {
+    const key = ib.key, thread = ib.thread;
+    if (!key || !thread) return;
+    const replyTo = ib.replyTo?.wamid;
+    ib.replyTo = null;
+    renderReplyBar();
+    const temp = { id: 'tmp' + Date.now(), local: true, dir: 'out', type: 'sticker', text: '', ts: new Date().toISOString(), status: 'pending', context: replyTo, progress: 100, media: { local: `/api/media/${enc(id)}`, mime: 'image/webp' } };
+    thread.messages.push(temp);
+    renderMessages(true);
+    try {
+      await api(`/inbox/${enc(key)}/sticker`, { method: 'POST', body: { id, replyTo } });
+      thread.messages = thread.messages.filter((m) => m !== temp);
+      if (ib.key === key) await loadThread();
+    } catch (err) {
+      Object.assign(temp, { status: 'failed', error: err.message });
+      if (ib.key === key) renderMessages();
+      toast(err.message, 'error');
+    }
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('.ib-stk-tray')?.remove(); });
+  $('#ibChat').addEventListener('paste', (e) => {
+    if (e.target.id !== 'ibText') return;
+    const files = [...(e.clipboardData?.files || [])];
+    if (!files.length) return;
+    e.preventDefault();
+    openAttach(files);
+  });
 
   // ---------- Templates & new chats ----------
 

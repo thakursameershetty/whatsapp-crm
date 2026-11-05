@@ -2051,7 +2051,7 @@ function parseIncoming(m) {
       break;
     case 'image': case 'video': case 'audio': case 'document': case 'sticker': {
       const x = m[m.type] || {};
-      out.media = { id: x.id, mime: x.mime_type, filename: x.filename, voice: Boolean(x.voice) };
+      out.media = { id: x.id, mime: x.mime_type, filename: x.filename, voice: Boolean(x.voice), ...(x.sha256 ? { sha256: x.sha256 } : {}), ...(x.animated ? { animated: true } : {}) };
       out.text = x.caption || '';
       break;
     }
@@ -2080,12 +2080,32 @@ function parseIncoming(m) {
     case 'order':
       out.text = 'Sent an order';
       break;
-    default:
+    case 'system': // e.g. "They changed their number"
+      out.text = m.system?.body || 'WhatsApp notice';
+      break;
+    default: {
+      // WhatsApp didn't send the content (view-once, polls, edits…). Keep what it says about why, so the chat
+      // can name it ("View-once message") instead of a blank "not supported".
+      const e = m.errors?.[0] || {};
+      const raw = String(m.unsupported?.type || '').toLowerCase();
+      const said = `${raw} ${e.title || ''} ${e.message || ''} ${e.error_data?.details || ''}`.toLowerCase();
+      const kind = /view[\s_-]?once/.test(said) ? 'view_once'
+        : /\bpoll/.test(said) ? 'poll'
+        : /\bedit/.test(said) ? 'edit'
+        : /live[\s_-]?location/.test(said) ? 'live_location'
+        : /\bevent\b/.test(said) ? 'event'
+        : /video[\s_-]?note/.test(said) ? 'video_note'
+        : /\bcall/.test(said) ? 'call'
+        : /ephemeral|disappearing/.test(said) ? 'ephemeral'
+        : raw || (m.type && !['unsupported', 'unknown'].includes(m.type) ? m.type : '');
       out.type = 'unsupported';
-      out.text = "This message type isn't supported";
+      out.unsupported = { kind, code: e.code || null, reason: e.error_data?.details || e.message || e.title || '', raw: raw || m.type || '' };
+      out.text = UNSUPPORTED_LABEL[kind] || 'Message not shown here';
+    }
   }
   return out;
 }
+const UNSUPPORTED_LABEL = { view_once: 'View-once message', poll: 'Poll', edit: 'Edited a message', live_location: 'Live location', event: 'Event', video_note: 'Video note', call: 'Call', ephemeral: 'Disappearing message' };
 
 function ingestMessages(value) {
   const pnid = value.metadata?.phone_number_id;
@@ -2505,6 +2525,144 @@ async function sendInboxText(key, text, { replyTo, auto = false, credit } = {}) 
   return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : {}), ...(credit ? { credit } : {}) });
 }
 
+// ---------- Sending a photo, video, document or audio in the 24-hour window ----------
+// What WhatsApp accepts as each kind, and how big (MB). Anything else, or anything sent "as a document", goes as a
+// document (up to 100 MB): e.g. a GIF, HEIC or WAV, or a photo at full quality.
+const OUT_MEDIA = {
+  image: { types: ['image/jpeg', 'image/png'], mb: 5, label: 'Photos' },
+  video: { types: ['video/mp4', 'video/3gpp'], mb: 16, label: 'Videos' },
+  audio: { types: ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/amr', 'audio/ogg'], mb: 16, label: 'Audio files' },
+  document: { types: null, mb: 100, label: 'Documents' },
+};
+const MIME_ALIAS = { 'audio/x-m4a': 'audio/mp4', 'audio/m4a': 'audio/mp4', 'audio/mp3': 'audio/mpeg', 'audio/x-aac': 'audio/aac', 'image/jpg': 'image/jpeg', 'audio/opus': 'audio/ogg' };
+function outKind(mime, asDocument) {
+  if (asDocument) return 'document';
+  return Object.keys(OUT_MEDIA).find((k) => OUT_MEDIA[k].types?.includes(mime)) || 'document';
+}
+// Put the file in WhatsApp's media store (multipart, so not through graph()'s JSON). Returns its media id.
+async function uploadToMeta(sender, buf, mime, filename) {
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', mime);
+  form.append('file', new Blob([buf], { type: mime }), filename);
+  const r = await fetch(`https://graph.facebook.com/${db.settings.graphVersion}/${sender.phoneNumberId}/media`, { method: 'POST', headers: { Authorization: `Bearer ${sender.accessToken}` }, body: form });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok || json.error || !json.id) {
+    const err = new Error(json.error?.code === 190 ? `Access token for "${sender.label}" is expired or invalid. Paste a new token under Numbers.` : `WhatsApp didn't accept the file: ${json.error?.error_user_msg || json.error?.message || `HTTP ${r.status}`}`);
+    err.code = json.error?.code;
+    throw err;
+  }
+  return String(json.id);
+}
+// Who and where a reply goes, if the 24-hour window is open (else a clear error).
+function replyTarget(key) {
+  const { senderId, wa } = splitKey(key);
+  const sender = db.senders.find((s) => s.id === senderId);
+  if (!sender) throw fail('This WhatsApp number is no longer connected');
+  if (!/^\d{6,15}$/.test(wa)) throw fail('Invalid phone number');
+  if (!db.settings.demoMode && !sender.accessToken) throw fail(`"${sender.label}" has no access token`);
+  const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in').at(-1);
+  if (!lastIn || Date.now() - new Date(lastIn.ts) > WINDOW_MS) throw fail('The 24-hour reply window is closed. Send a template to restart the conversation.');
+  return { sender, wa };
+}
+// Upload a file to WhatsApp, send it, keep a copy (so the chat shows it at once) and record it. Demo mode only records.
+async function sendOutMedia(key, { buf, mime, type, filename, caption = '', replyTo }) {
+  const { sender, wa } = replyTarget(key);
+  const demo = db.settings.demoMode;
+  const mediaId = demo ? String(Date.now()) + String(Math.floor(Math.random() * 1e6)).padStart(6, '0') : await uploadToMeta(sender, buf, mime, filename);
+  const dir = path.join(MEDIA_DIR, tenants.wsId());
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, mediaId), buf);
+  fs.writeFileSync(path.join(dir, mediaId) + '.json', JSON.stringify({ mime, ...(type === 'video' ? { audio: mp4HasAudio(buf) } : {}) }));
+  const noCaption = type === 'audio' || type === 'sticker';
+  let wamid;
+  if (demo) wamid = 'wamid.DEMO' + id();
+  else {
+    const part = { id: mediaId };
+    if (caption && !noCaption) part.caption = caption;
+    if (type === 'document') part.filename = filename;
+    const payload = { messaging_product: 'whatsapp', recipient_type: 'individual', to: wa, type, [type]: part };
+    if (replyTo) payload.context = { message_id: replyTo };
+    wamid = (await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify(payload) })).messages?.[0]?.id;
+  }
+  const media = { id: mediaId, mime, size: buf.length, sha256: crypto.createHash('sha256').update(buf).digest('base64') };
+  if (type === 'document') media.filename = filename;
+  if (type === 'audio' && mime === 'audio/ogg') media.voice = true;
+  if (type === 'sticker' && webpInfo(buf)?.animated) media.animated = true;
+  return recordOut(key, { type, text: noCaption ? '' : caption, media, wamid, context: replyTo });
+}
+// A WebP's size and whether it's animated, from its header (RIFF....WEBP, then a VP8X, VP8L or VP8 chunk).
+function webpInfo(buf) {
+  if (buf.length < 30 || buf.toString('latin1', 0, 4) !== 'RIFF' || buf.toString('latin1', 8, 12) !== 'WEBP') return null;
+  const chunk = buf.toString('latin1', 12, 16);
+  if (chunk === 'VP8X') return { animated: Boolean(buf[20] & 0x02), w: 1 + buf.readUIntLE(24, 3), h: 1 + buf.readUIntLE(27, 3) };
+  if (chunk === 'VP8L') { const b = buf.readUInt32LE(21); return { animated: false, w: 1 + (b & 0x3fff), h: 1 + ((b >> 14) & 0x3fff) }; }
+  if (chunk === 'VP8 ') return { animated: false, w: buf.readUInt16LE(26) & 0x3fff, h: buf.readUInt16LE(28) & 0x3fff };
+  return null;
+}
+// WhatsApp's rules for a sticker: WebP, exactly 512×512, up to 100 KB (500 KB if animated).
+function stickerProblem(buf) {
+  const w = webpInfo(buf);
+  if (!w) return 'Stickers have to be WebP pictures.';
+  if (w.w !== 512 || w.h !== 512) return `Stickers have to be exactly 512×512 pixels; this one is ${w.w}×${w.h}.`;
+  const max = w.animated ? 500 : 100;
+  if (buf.length > max * 1024) return `${w.animated ? 'Animated stickers' : 'Stickers'} can be up to ${max} KB on WhatsApp; this one is ${Math.round(buf.length / 1024)} KB.`;
+  return '';
+}
+app.post('/api/inbox/:key/media', express.raw({ type: () => true, limit: '100mb' }), wrap(async (req, res) => {
+  const key = req.params.key;
+  replyTarget(key); // before reading anything else: a closed window is the clearest reason to stop
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) throw fail('The file is empty');
+  // The browser sends the bytes as octet-stream (so the JSON body parser never takes a .json file) and the real type here.
+  const raw = String(req.get('X-File-Type') || req.get('content-type') || '').split(';')[0].trim().toLowerCase() || 'application/octet-stream';
+  const mime = MIME_ALIAS[raw] || raw;
+  const dec = (h) => { try { return decodeURIComponent(String(req.get(h) || '')); } catch { return ''; } };
+  const filename = (dec('X-File-Name').replace(/[\\/\r\n"]/g, '_').slice(0, 200)) || 'file';
+  const caption = dec('X-Caption').trim().slice(0, 1024);
+  const replyTo = dec('X-Reply-To') || undefined;
+  const sticker = req.get('X-As-Sticker') === '1';
+  const type = sticker ? 'sticker' : outKind(mime, req.get('X-As-Document') === '1');
+  if (sticker) {
+    const bad = stickerProblem(buf);
+    if (bad) throw fail(bad);
+  } else {
+    const rule = OUT_MEDIA[type];
+    if (buf.length > rule.mb * 1024 * 1024) {
+      throw fail(type === 'document'
+        ? `WhatsApp sends files up to 100 MB. This one is ${(buf.length / 1048576).toFixed(1)} MB.`
+        : `${rule.label} can be up to ${rule.mb} MB on WhatsApp. This one is ${(buf.length / 1048576).toFixed(1)} MB. Send it as a document instead (up to 100 MB), or make it smaller.`, 413);
+    }
+  }
+  res.json(await sendOutMedia(key, { buf, mime: sticker ? 'image/webp' : mime, type, filename, caption, replyTo }));
+}));
+
+// The sticker tray: stickers sent or received in this workspace's chats, newest first, each sticker once.
+app.get('/api/stickers', wrap((req, res) => {
+  const seen = new Set(), stickers = [];
+  for (let i = db.messages.length - 1; i >= 0 && stickers.length < 80; i--) {
+    const m = db.messages[i];
+    if (m.type !== 'sticker' || !m.media?.id) continue;
+    const k = m.media.sha256 || m.media.id;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    stickers.push({ id: m.media.id, animated: Boolean(m.media.animated), dir: m.dir, ts: m.ts });
+  }
+  res.json({ stickers });
+}));
+// Send a sticker from the tray: its saved copy goes up to WhatsApp again (a received sticker's id can't be reused).
+app.post('/api/inbox/:key/sticker', wrap(async (req, res) => {
+  const key = req.params.key;
+  replyTarget(key);
+  const mid = String(req.body?.id || '');
+  if (!db.messages.some((m) => m.type === 'sticker' && m.media?.id === mid)) throw fail('That sticker is no longer available', 404);
+  const { file } = await ensureMedia(mid);
+  const buf = fs.readFileSync(file);
+  const bad = stickerProblem(buf);
+  if (bad) throw fail(`This sticker can't be sent again: ${bad.charAt(0).toLowerCase() + bad.slice(1)}`);
+  res.json(await sendOutMedia(key, { buf, mime: 'image/webp', type: 'sticker', filename: 'sticker.webp', replyTo: req.body?.replyTo || undefined }));
+}));
+
 // Store an outgoing Inbox message and tell open dashboards.
 function recordOut(key, msg) {
   if ((db.settings.readReceipts || 'open') !== 'off') sendReadReceipt(key);
@@ -2526,8 +2684,8 @@ function recordOut(key, msg) {
 }
 
 // Media people send arrives as an ID; download it once with the number's token and cache it.
-app.get('/api/media/:mid', wrap(async (req, res) => {
-  const mid = req.params.mid;
+// Beside the file, a .json with its type (and, for a video, whether it has sound: see mp4HasAudio).
+async function ensureMedia(mid) {
   if (!/^\d+$/.test(mid)) throw fail('Invalid media id', 404);
   const dir = path.join(MEDIA_DIR, tenants.wsId());
   const file = path.join(dir, mid);
@@ -2539,14 +2697,38 @@ app.get('/api/media/:mid', wrap(async (req, res) => {
     const info = await graph(sender, mid);
     const r = await fetch(info.url, { headers: { Authorization: `Bearer ${sender.accessToken}` } });
     if (!r.ok) throw fail(`Media download failed (HTTP ${r.status})`, 502);
+    const buf = Buffer.from(await r.arrayBuffer());
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
-    fs.writeFileSync(file + '.json', JSON.stringify({ mime: info.mime_type }));
+    fs.writeFileSync(file, buf);
+    fs.writeFileSync(file + '.json', JSON.stringify({ mime: info.mime_type, ...(/^video\//.test(info.mime_type || '') ? { audio: mp4HasAudio(buf) } : {}) }));
   }
-  const { mime } = JSON.parse(fs.readFileSync(file + '.json', 'utf8'));
-  res.type(mime || 'application/octet-stream');
+  const meta = JSON.parse(fs.readFileSync(file + '.json', 'utf8'));
+  // Videos cached before we checked for sound: check once now.
+  if (/^video\//.test(meta.mime || '') && meta.audio === undefined) {
+    meta.audio = mp4HasAudio(fs.readFileSync(file));
+    fs.writeFileSync(file + '.json', JSON.stringify(meta));
+  }
+  return { file, meta };
+}
+// WhatsApp sends a GIF as a short MP4 with no sound. An MP4 (or 3GP) lists its tracks in 'hdlr' boxes:
+// 'hdlr', 4 bytes version/flags, 4 bytes pre_defined, then the handler type, which is 'soun' for a sound track.
+function mp4HasAudio(buf) {
+  for (let i = buf.indexOf('hdlr'); i !== -1; i = buf.indexOf('hdlr', i + 4)) {
+    if (buf.toString('latin1', i + 12, i + 16) === 'soun') return true;
+  }
+  return false;
+}
+app.get('/api/media/:mid', wrap(async (req, res) => {
+  const { file, meta } = await ensureMedia(req.params.mid);
+  res.type(meta.mime || 'application/octet-stream');
   if (req.query.name) res.attachment(String(req.query.name));
   res.sendFile(file);
+}));
+// What the inbox needs to know before showing it: a video without sound is shown as a GIF.
+app.get('/api/media/:mid/info', wrap(async (req, res) => {
+  const { meta } = await ensureMedia(req.params.mid);
+  const video = /^video\//.test(meta.mime || '');
+  res.json({ mime: meta.mime || '', video, audio: video ? Boolean(meta.audio) : undefined, silent: video && meta.audio === false });
 }));
 
 // Upload a template header image, video or document from the computer. Returns a public link to put in

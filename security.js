@@ -30,7 +30,7 @@ function sameOrigin(req, res, next) {
 // name → [max requests, per milliseconds, which paths]
 const RULES = [
   ['ai', 60, 60000, (r) => r.path.startsWith('/api/ai/') && r.method !== 'GET'],
-  ['send', 60, 60000, (r) => r.method === 'POST' && (r.path === '/api/campaigns' || r.path === '/api/send/test' || /^\/api\/inbox\/[^/]+\/(send|draft)$/.test(r.path))],
+  ['send', 60, 60000, (r) => r.method === 'POST' && (r.path === '/api/campaigns' || r.path === '/api/send/test' || /^\/api\/inbox\/[^/]+\/(send|draft|media|sticker)$/.test(r.path))],
   ['write', 300, 60000, (r) => r.path.startsWith('/api/') && r.method !== 'GET'],
   ['read', 1200, 60000, (r) => r.path.startsWith('/api/')],
 ];
