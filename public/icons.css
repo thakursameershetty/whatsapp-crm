@@ -178,3 +178,21 @@ svg.la-smartphone.on { animation: la-buzz 0.5s linear; }
 /* arrow-right ("View all →"): the arrow nudges on along its way */
 svg.la-arrow-right .a-arrow { transition: transform 0.45s var(--la-spring); }
 svg.la-arrow-right.on .a-arrow { transform: translateX(3px); }
+
+/* Inbox message kinds: photo (sun pops, hill draws), video (lens pushes out), map pin (hops), voice note (mic
+   bobs), audio (headphones rock), sticker (corner peels, smile draws), contact (person rises), GIF (play nudges). */
+svg.la-image.on .a-sun { animation: la-sun-pop 0.45s var(--la-spring, ease-out); }
+@keyframes la-sun-pop { 0% { transform: scale(0.3); opacity: 0; } 100% { transform: none; opacity: 1; } }
+svg.la-video.on .a-lens { animation: la-lens 0.5s ease-in-out; }
+@keyframes la-lens { 45% { transform: translateX(1.8px) scale(1.1); } }
+svg.la-map-pin.on .a-pin { animation: la-hop 0.55s cubic-bezier(0.3, 0.7, 0.4, 1); transform-origin: 50% 100%; }
+@keyframes la-hop { 35% { transform: translateY(-3px) scaleY(1.05); } 70% { transform: translateY(0.5px) scaleY(0.94); } 100% { transform: none; } }
+svg.la-mic.on .a-mic { animation: la-mic 0.6s ease-in-out; transform-origin: 50% 100%; }
+@keyframes la-mic { 25% { transform: translateY(-1.5px); } 50% { transform: none; } 75% { transform: translateY(-0.8px); } }
+svg.la-headphones.on .a-cans { animation: la-rock 0.6s ease-in-out; transform-origin: 50% 30%; }
+svg.la-sticker.on .a-peel { animation: la-peel 0.5s ease-in-out; transform-origin: 100% 0%; }
+@keyframes la-peel { 45% { transform: scale(1.25) rotate(-6deg); } }
+svg.la-contact.on .a-head { animation: la-rise 0.45s var(--la-spring, ease-out); }
+svg.la-image-play.on .a-play { animation: la-nudge-r 0.5s ease-in-out; }
+@keyframes la-nudge-r { 45% { transform: translateX(1.6px) scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { svg.la .a-sun, svg.la .a-lens, svg.la .a-pin, svg.la .a-mic, svg.la .a-cans, svg.la .a-peel, svg.la .a-head, svg.la .a-play { animation: none !important; } }

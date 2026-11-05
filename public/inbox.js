@@ -111,7 +111,6 @@
   // WhatsApp-style *bold* _italic_ ~strike~ and clickable links (shared with template bubbles).
   const fmtText = (text) => waFormat(esc(text));
 
-  const MEDIA_LABEL = { image: '📷 Photo', video: '🎥 Video', audio: '🎤 Audio', sticker: '💟 Sticker', location: '📍 Location' };
   // What a message WhatsApp didn't share was (server.js keeps the kind from WhatsApp's reason).
   const UNSUPPORTED = { view_once: 'View-once message', poll: 'Poll', edit: 'Edited a message', live_location: 'Live location', event: 'Event', video_note: 'Video note', call: 'Call', ephemeral: 'Disappearing message' };
   const UNSUPPORTED_HINT = {
@@ -124,16 +123,29 @@
     call: "They tried to call this number. Calls aren't received here; reply with a message or call them back.",
     ephemeral: "WhatsApp doesn't share disappearing messages with business accounts. Ask them to turn off disappearing messages and send it again.",
   };
-  function previewText(m) {
-    if (!m) return '';
-    if (m.type === 'reaction') return `Reacted ${m.reaction?.emoji || ''}`;
-    if (m.type === 'template') return `Template: ${m.templateName || m.text}`;
-    if (m.type === 'document') return '📄 ' + (m.media?.filename || m.text || 'Document');
-    if (m.type === 'unsupported') return UNSUPPORTED[m.unsupported?.kind] || 'Message not shown here';
-    if (m.type === 'contacts') return '👤 ' + (m.contacts?.[0]?.name || m.text || 'Contact');
-    if (m.type === 'video' && gif.ok.has(m.media?.id)) return 'GIF' + (m.text ? ' ' + m.text : '');
-    if (MEDIA_LABEL[m.type]) return MEDIA_LABEL[m.type] + (m.text ? ' ' + m.text : '');
-    return m.text || '';
+  // A message in one line, as WhatsApp's chat list shows it: an icon for the kind (animated on hover) and the words.
+  // A photo or video with a caption shows the caption. previewText is the words alone.
+  function previewParts(m) {
+    if (!m) return [null, ''];
+    const cap = (label) => m.text || label;
+    switch (m.type) {
+      case 'reaction': return [null, `Reacted ${m.reaction?.emoji || ''}`];
+      case 'template': return [null, `Template: ${m.templateName || m.text}`];
+      case 'image': return ['image', cap('Photo')];
+      case 'video': return gif.ok.has(m.media?.id) ? ['image-play', cap('GIF')] : ['video', cap('Video')];
+      case 'audio': return m.media?.voice || /ogg|opus/i.test(m.media?.mime || '') ? ['mic', 'Voice message'] : ['headphones', 'Audio'];
+      case 'document': return ['file-text', m.media?.filename || m.text || 'Document'];
+      case 'sticker': return ['sticker', 'Sticker'];
+      case 'location': return ['map-pin', m.location?.name || 'Location'];
+      case 'contacts': return ['contact', m.contacts?.[0]?.name || String(m.text || '').split(' · ')[0] || 'Contact'];
+      case 'unsupported': return [m.unsupported?.kind === 'view_once' ? 'eye-off' : 'ban', UNSUPPORTED[m.unsupported?.kind] || 'Message not shown here'];
+      default: return [null, m.text || ''];
+    }
+  }
+  const previewText = (m) => previewParts(m)[1];
+  function previewHtml(m) {
+    const [ic, t] = previewParts(m);
+    return `<span class="ib-pv">${ic ? icon(ic, 15) : ''}<span class="ib-pv-t">${esc(t)}</span></span>`;
   }
 
   // Message ticks: clock (sending), ✓ sent, ✓✓ delivered, blue ✓✓ read, ! failed.
@@ -278,12 +290,12 @@
       box.innerHTML = list
         .map((c) => {
           const l = c.last || {};
-          return `<button class="ib-conv ${c.key === ib.key ? 'active' : ''} ${c.unread ? 'unread' : ''}" data-key="${esc(c.key)}" role="listitem">
+          return `<button class="ib-conv la-host ${c.key === ib.key ? 'active' : ''} ${c.unread ? 'unread' : ''}" data-key="${esc(c.key)}" role="listitem">
             <span class="ib-av" style="${avatarStyle(c.wa)}">${initials(c)}${multi ? viaBadge(c) : ''}</span>
             <span class="ib-conv-main">
               <span class="ib-conv-top"><b>${esc(displayName(c))}</b>${c.ai?.handover ? '<span class="ib-flag need">Needs you</span>' : c.ai?.hasDraft ? '<span class="ib-flag draft">Draft</span>' : ''}<time>${listTime(c.lastAt)}</time></span>
               <span class="ib-conv-bot">
-                <span class="ib-prev">${c.ai?.busy ? '<span class="ib-prev-typing">AI is typing…</span>' : `${l.dir === 'out' ? ticks(l.status) : ''}<span>${esc(previewText(l))}</span>`}</span>
+                <span class="ib-prev">${c.ai?.busy ? '<span class="ib-prev-typing">AI is typing…</span>' : `${l.dir === 'out' ? ticks(l.status) : ''}${previewHtml(l)}`}</span>
                 ${c.unread ? `<span class="ib-count">${c.unread}</span>` : ''}
               </span>
               ${multi ? `<span class="ib-via" title="via ${esc(c.senderLabel)}">via ${esc(c.senderLabel)}</span>` : ''}
@@ -1180,7 +1192,7 @@
     let h = simulated ? `<div class="ib-label ib-demo">Demo mode · not actually sent</div>` : '';
     if (m.context) {
       const q = byWamid.get(m.context);
-      h += `<div class="ib-quote" data-jump="${esc(m.context)}"><b>${q ? (q.dir === 'out' ? 'You' : esc(displayName(c))) : 'Reply'}</b><span>${esc(q ? previewText(q) : 'Original message')}</span></div>`;
+      h += `<div class="ib-quote" data-jump="${esc(m.context)}"><b>${q ? (q.dir === 'out' ? 'You' : esc(displayName(c))) : 'Reply'}</b>${q ? previewHtml(q) : '<span>Original message</span>'}</div>`;
     }
     const src = m.media?.local || (m.media?.id ? `/api/media/${enc(m.media.id)}` : '');
     let textInside = true;
@@ -2286,7 +2298,7 @@
     const m = ib.replyTo;
     bar.classList.toggle('hidden', !m);
     if (!m) return;
-    bar.innerHTML = `<div class="ib-quote"><b>${m.dir === 'out' ? 'You' : esc(displayName(current()))}</b><span>${esc(previewText(m))}</span></div>
+    bar.innerHTML = `<div class="ib-quote"><b>${m.dir === 'out' ? 'You' : esc(displayName(current()))}</b>${previewHtml(m)}</div>
       <button class="icon-btn" id="ibReplyX" aria-label="Cancel reply">${icon('x', 16)}</button>`;
     $('#ibReplyX').onclick = () => { ib.replyTo = null; renderReplyBar(); };
   }
@@ -2334,7 +2346,10 @@
   };
   const MIME_ALIAS = { 'audio/x-m4a': 'audio/mp4', 'audio/m4a': 'audio/mp4', 'audio/mp3': 'audio/mpeg', 'audio/x-aac': 'audio/aac', 'image/jpg': 'image/jpeg', 'audio/opus': 'audio/ogg' };
   // Types WhatsApp lists for documents. Others are tried, but WhatsApp may refuse them (its reason is shown).
-  const DOC_OK = /^(application\/pdf|text\/plain|application\/(msword|vnd\.ms-excel|vnd\.ms-powerpoint|vnd\.openxmlformats-officedocument\.[a-z.]+))$/;
+  // Types WhatsApp takes as a file: its document types, plus anything it accepts as media at all (a JPG or PNG,
+  // an MP4, MP3, M4A…), which is how a photo goes "as a document" at full quality. Others (ZIP, CSV, HEIC, MOV…)
+  // are tried, but WhatsApp may refuse them; its reason is shown if it does.
+  const DOC_OK = /^(application\/pdf|text\/plain|application\/(msword|vnd\.ms-excel|vnd\.ms-powerpoint|vnd\.openxmlformats-officedocument\.[a-z.]+)|image\/(jpeg|png|webp)|video\/(mp4|3gpp)|audio\/(aac|mp4|mpeg|amr|ogg))$/;
   const MB = 1024 * 1024;
   const fmtSize = (n) => (n >= MB ? `${(n / MB).toFixed(n >= 10 * MB ? 0 : 1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   const att = { el: null, items: [], i: 0, key: null };
@@ -2568,7 +2583,8 @@
     // How it'll go: notes about conversions, documents WhatsApp may refuse, or what's blocking Send.
     const notes = [];
     if (it.note && !(it.original && it.asDoc)) notes.push(esc(it.note));
-    if (k === 'document' && !DOC_OK.test(it.asDoc && it.original ? it.original.type : it.mime)) notes.push("WhatsApp lists PDF, Word, Excel, PowerPoint and text files for documents, so it may not accept this one. If it doesn't, you'll see why.");
+    const docType = it.asDoc && it.original ? MIME_ALIAS[it.original.type] || it.original.type : it.mime;
+    if (k === 'document' && !DOC_OK.test(docType)) notes.push(`WhatsApp may not accept ${(it.name.split('.').pop() || 'this kind of').toUpperCase()} files. It takes PDF, Word, Excel, PowerPoint, text, photos (JPG, PNG), MP4 videos and common audio. If it refuses this one, you'll see why.`);
     if (k === 'audio') notes.push('Audio is sent without a caption.');
     if (k === 'sticker' && it.sticker) notes.push(`Made into a 512×512 sticker (${fmtSize(it.sticker.blob.size)}), the size WhatsApp needs. Stickers are sent without a caption.`);
     if (bad && bad !== 'Making the sticker…') notes.unshift(`<b>${esc(bad)}</b>${['image', 'video', 'audio'].includes(k) ? ' <button type="button" class="atx-fix" data-as-fix>Send as document instead</button>' : k === 'sticker' ? ' <button type="button" class="atx-fix" data-as-unstk>Send as a photo instead</button>' : ''}`);

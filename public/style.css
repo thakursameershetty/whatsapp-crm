@@ -7440,3 +7440,12 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .atx-bar label.atx-doc input.cb { width: 18px; height: 18px; }
 .atx-bar label.atx-doc input.cb:focus-visible { box-shadow: var(--sh-sunk), 0 0 0 3px var(--ring); }
 .atx-bar label.atx-doc:hover input.cb:not(:checked) { --field: #272d31; }
+
+/* The one-line preview of a message (chat list, quoted reply, reply bar): an icon for its kind, then the words. */
+.ib-pv { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; overflow: hidden; }
+.ib-pv > svg { flex: none; color: var(--muted); }
+.ib-pv .ib-pv-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-prev > .ib-pv { flex: 1; }
+.ib-conv.unread .ib-pv > svg { color: var(--text); }
+.ib-quote .ib-pv { display: flex; }
+.ib-quote .ib-pv > svg { width: 14px; height: 14px; }

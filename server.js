@@ -2163,7 +2163,14 @@ function conversationBase(key, msgs, names, ctx = null) {
     senderLabel: sender?.label || 'Unknown number',
     wa,
     name: chat.name || names.get(wa) || '',
-    last: last && { dir: last.dir, type: last.type, text: last.text || last.templateName || '', status: last.status, ts: last.ts, reaction: last.reaction },
+    last: last && {
+      dir: last.dir, type: last.type, text: last.text || last.templateName || '', status: last.status, ts: last.ts, reaction: last.reaction,
+      // For the preview line's icon and words: voice note or audio file, the document's name, the place, the contact.
+      ...(last.media ? { media: { id: last.media.id, mime: last.media.mime, voice: last.media.voice || undefined, filename: last.media.filename } } : {}),
+      ...(last.location?.name ? { location: { name: last.location.name } } : {}),
+      ...(last.contacts?.[0]?.name ? { contacts: [{ name: last.contacts[0].name }] } : {}),
+      ...(last.unsupported?.kind ? { unsupported: { kind: last.unsupported.kind } } : {}),
+    },
     lastAt: last?.ts || null,
     unread,
     windowEndsAt: lastIn ? new Date(new Date(lastIn.ts).getTime() + WINDOW_MS).toISOString() : null,
