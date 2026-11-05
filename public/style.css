@@ -1745,6 +1745,10 @@ body.assistant-open main { padding-bottom: 0; }
 /* Tag colours, shared by chips everywhere (Contacts, Inbox, Send). */
 .tag-blue { --tag: var(--file-1); } .tag-green { --tag: var(--file-2); } .tag-violet { --tag: var(--file-3); }
 .tag-orange { --tag: var(--file-4); } .tag-teal { --tag: var(--file-5); } .tag-pink { --tag: var(--file-6); } .tag-gray { --tag: var(--muted); }
+:root { --tag-red: #cf3a3c; --tag-amber: #b5850a; --tag-lime: #5c8c12; --tag-sky: #1a8cc4; --tag-indigo: #4651c2; --tag-fuchsia: #a63dbd; --tag-brown: #8a5a3b; }
+:root[data-mode="dark"] { --tag-red: #f28b85; --tag-amber: #f0c45a; --tag-lime: #a9d95a; --tag-sky: #6cc6f0; --tag-indigo: #9ea7f5; --tag-fuchsia: #e08bf0; --tag-brown: #d1a07c; }
+.tag-red { --tag: var(--tag-red); } .tag-amber { --tag: var(--tag-amber); } .tag-lime { --tag: var(--tag-lime); } .tag-sky { --tag: var(--tag-sky); }
+.tag-indigo { --tag: var(--tag-indigo); } .tag-fuchsia { --tag: var(--tag-fuchsia); } .tag-brown { --tag: var(--tag-brown); }
 .tag-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 99px; font-size: 11.5px; font-weight: 600; white-space: nowrap; color: var(--tag); background: color-mix(in srgb, var(--tag) 14%, transparent); }
 
 .ct-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -1804,7 +1808,7 @@ body.assistant-open main { padding-bottom: 0; }
 .ct-leadbox dd, .ct-extra dd { margin: 0; overflow-wrap: anywhere; }
 .ct-extra { margin-bottom: 10px; font-size: 13px; }
 .ct-extra summary { cursor: pointer; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
-.tg-colors { display: flex; gap: 8px; margin: 4px 0 14px; }
+.tg-colors { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
 .tg-color { margin: 0; cursor: pointer; }
 .tg-color input { position: absolute; opacity: 0; }
 .tg-color i { display: block; width: 26px; height: 26px; border-radius: 50%; background: var(--tag); box-shadow: inset 0 0 0 2px var(--surface); }
@@ -2450,6 +2454,11 @@ html.vt-ct::view-transition-old(*) { animation-duration: 0.2s; }
 .cp-ficon .cf-tab { top: 0; height: 12px; border-radius: 0 6px 0 0; }
 .cp-ficon .cf-paper { top: 2px; right: 3px; width: calc(62% - 7px); height: 9px; border-radius: 2px 4px 0 0; }
 .cp-ficon .cf-body { inset: 5px 0 0 0; border-radius: 6px; box-shadow: 0 1px 2px rgba(16, 24, 32, 0.06), 0 4px 8px -4px color-mix(in srgb, var(--c) 70%, transparent); }
+/* Tiny, for menus and buttons (collections) */
+.cp-ficon.xs { width: 18px; height: 15px; }
+.cp-ficon.xs .cf-tab { height: 7px; border-radius: 0 3px 0 0; }
+.cp-ficon.xs .cf-paper { top: 1px; right: 2px; width: calc(62% - 4px); height: 5px; border-radius: 1px 2px 0 0; }
+.cp-ficon.xs .cf-body { inset: 3px 0 0 0; border-radius: 3px; box-shadow: 0 1px 1px rgba(16, 24, 32, 0.06); }
 
 /* Contacts empty state: sits inside the list card, no fixed height */
 .ct-empty { padding: 14px !important; }

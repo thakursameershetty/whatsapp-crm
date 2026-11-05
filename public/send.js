@@ -1485,18 +1485,33 @@
           return toast('Nothing was sent', '', { title: 'Undone', icon: 'undo-2' });
         } catch (err) { toast(err.message, 'error'); } // too late: it's sending, so show it
       }
+      resetAfterSend(); // it went: the next campaign starts from a clean page, so nobody wonders whether this one was sent
       if (state.tab !== 'send') { // moved on during the countdown: don't pull them back
-        $('#campaignName').value = '';
-        testTouched = false;
         return toast(scheduledAt ? 'Campaign scheduled' : `Campaign started — ${c.total} messages`, '', { onClick: () => { showTab('campaigns'); openCampaign(c.id); } });
       }
       toast(scheduledAt ? `Scheduled ${c.total} messages for ${new Date(scheduledAt).toLocaleString()}` : `Campaign started — ${c.total} messages queued`);
-      $('#campaignName').value = '';
-      testTouched = false;
       showTab('campaigns');
       openCampaign(c.id);
     }, e.target);
   });
+
+  // After a campaign is created: empty the page (lists, template, name, schedule, test flag) and drop the saved
+  // draft. The chosen sender numbers stay, since the next campaign usually goes out from the same ones.
+  function resetAfterSend() {
+    SP.sheets = [];
+    SP.mapping = {};
+    grid.clearHistory();
+    $('#templateSelect').value = '';
+    $('#campaignName').value = '';
+    $('#scheduleAt').value = '';
+    $('#sendMode [data-mode=now]')?.click();
+    $('#spTest').checked = false;
+    testTouched = false;
+    closeTest();
+    setPane('compose');
+    activate(-1);
+    Draft.save(); // an empty page deletes the stored draft
+  }
 
   // --- Page size ----------------------------------------------------------------------------
 

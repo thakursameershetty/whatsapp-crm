@@ -192,7 +192,15 @@ const tabFromUrl = () => {
   const t = (h && $('#tab-' + h) && h) || (p && $('#tab-' + p) && p) || 'overview';
   return t;
 };
-$$('.side-nav button[data-tab]').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+// The sidebar opens a page at its start: Campaigns always lands on the list, even from inside a campaign or a day.
+$$('.side-nav button[data-tab]').forEach((b) => b.addEventListener('click', () => {
+  if (b.dataset.tab === 'campaigns') {
+    window.campaignsHome?.();
+    // already on Campaigns (in a campaign or a day): the address drops ?c= / ?day= so a reload stays on the list
+    if (state.tab === 'campaigns' && location.search) history.replaceState({ tab: 'campaigns' }, '', '/campaigns');
+  }
+  showTab(b.dataset.tab);
+}));
 window.addEventListener('popstate', () => {
   const tab = tabFromUrl();
   if ($('#tab-' + tab)?.classList.contains('hidden')) { showTab.replace = true; showTab(tab); }

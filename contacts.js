@@ -6,7 +6,7 @@
 // by hand (a collection keeps contact ids); the Contacts page can show, send to and export one.
 
 const STATUSES = ['new', 'interested', 'qualified', 'won', 'lost'];
-const TAG_COLORS = ['blue', 'green', 'violet', 'orange', 'teal', 'pink', 'gray'];
+const TAG_COLORS = ['blue', 'green', 'violet', 'orange', 'teal', 'pink', 'gray', 'red', 'amber', 'lime', 'sky', 'indigo', 'fuchsia', 'brown'];
 const STOP_RE = /^\s*(stop|stop all|unsubscribe|opt[ -]?out|cancel|remove me)\s*[.!]*\s*$/i;
 
 module.exports = function mountContacts(app, ctx) {

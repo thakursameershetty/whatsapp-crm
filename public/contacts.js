@@ -18,7 +18,7 @@
     won: { label: 'Won', cls: 'delivered' },
     lost: { label: 'Not interested', cls: 'cancelled' },
   };
-  const COLORS = ['blue', 'green', 'violet', 'orange', 'teal', 'pink', 'gray'];
+  const COLORS = ['blue', 'green', 'violet', 'orange', 'teal', 'pink', 'gray', 'red', 'amber', 'lime', 'sky', 'indigo', 'fuchsia', 'brown'];
   const tagById = (id) => CT.tags.find((t) => t.id === id);
   const fmtPhone = (p) => { const m = /^91(\d{5})(\d{5})$/.exec(p); return m ? `+91 ${m[1]} ${m[2]}` : '+' + p; };
   const tagChip = (t, extra = '') => `<span class="tag-chip tag-${esc(t.color)}" title="${esc(t.name)}" ${extra}>${esc(t.name)}</span>`;
@@ -869,7 +869,7 @@
     if (act === 'collect') {
       const r = b.getBoundingClientRect();
       return Sheet.Menu.open(r.left, r.bottom + 4, [
-        ...CT.collections.filter((x) => x.id !== CT.col).map((x) => ({ label: x.name, kbd: x.count.toLocaleString(), action: () => collectionUpdate(x, { add: ids }) })),
+        ...CT.collections.filter((x) => x.id !== CT.col).map((x) => ({ label: x.name, kbd: x.count.toLocaleString(), pre: `<span class="mi-ic">${colFolder(x, 'xs')}</span>`, action: () => collectionUpdate(x, { add: ids }) })),
         ...(CT.collections.some((x) => x.id !== CT.col) ? ['-'] : []),
         { label: 'New collection…', action: () => collectionModal(null, ids) },
       ]);
@@ -1159,6 +1159,12 @@
   // and one collection; while one is shown, the bar under the toolbar names it (rename, send, export, delete).
 
   const colById = (cid) => CT.collections.find((x) => x.id === cid) || null;
+  // A collection shows as a folder, coloured like the Campaigns folders by its place in creation order
+  const colFolder = (col, size = '') => {
+    const i = CT.collections.indexOf(col);
+    const c = i >= 0 && window.folderColorAt ? window.folderColorAt(i) : 'oklch(var(--fl) var(--fc) 250)';
+    return `<span class="cp-ficon ${size}" style="--c:${c}" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span>`;
+  };
   const fileBase = (name) => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'collection';
   function showCollection(cid) {
     CT.col = cid || null;
@@ -1170,12 +1176,12 @@
   function renderCollection() {
     const col = colById(CT.col);
     const b = $('#ctColBtn');
-    b.innerHTML = `${icon('layers', 14)}<span>${esc(col ? col.name : 'All contacts')}</span>${icon('chevron-down', 14)}`;
+    b.innerHTML = `${col ? colFolder(col, 'xs') : icon('layers', 14)}<span>${esc(col ? col.name : 'All contacts')}</span>${icon('chevron-down', 14)}`;
     b.classList.toggle('on', Boolean(col));
     b.title = col ? `Showing the collection “${col.name}”. Click to switch.` : 'Collections: named lists of contacts you put together';
     const bar = $('#ctColBar');
     bar.classList.toggle('hidden', !col);
-    bar.innerHTML = col ? `<span class="ct-colbar-ic">${icon('layers', 16)}</span>
+    bar.innerHTML = col ? `${colFolder(col)}
       <span class="ct-colbar-t"><b>${esc(col.name)}</b><span class="muted">${col.count.toLocaleString()} contact${col.count === 1 ? '' : 's'}</span></span>
       <span class="ct-sel-actions">
         <button class="btn sm" data-col="send" data-icon="send" data-icon-size="13" ${col.count ? '' : 'disabled'}>Send a message</button>
@@ -1192,7 +1198,7 @@
     Sheet.Menu.open(r.left, r.bottom + 6, [
       { label: 'All contacts', kbd: (CT.all || 0).toLocaleString(), checked: !CT.col, pre: `<span class="mi-ic">${icon('users', 15)}</span>`, action: () => showCollection(null) },
       ...(CT.collections.length ? ['-'] : []),
-      ...CT.collections.map((x) => ({ label: x.name, kbd: x.count.toLocaleString(), checked: CT.col === x.id, pre: `<span class="mi-ic">${icon('layers', 15)}</span>`, action: () => showCollection(x.id) })),
+      ...CT.collections.map((x) => ({ label: x.name, kbd: x.count.toLocaleString(), checked: CT.col === x.id, pre: `<span class="mi-ic">${colFolder(x, 'xs')}</span>`, action: () => showCollection(x.id) })),
       '-',
       { label: CT.selected.size ? `New collection from ${CT.selected.size.toLocaleString()} selected…` : 'New collection…', pre: `<span class="mi-ic">${icon('plus', 15)}</span>`, action: () => collectionModal(null, [...CT.selected]) },
     ]);

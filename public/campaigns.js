@@ -1308,5 +1308,12 @@
     return load().catch((e) => toast(e.message, 'error'));
   };
   window.openCampaign = (cid) => open(cid);
+  // The page's home: the list (in the remembered cards / table / calendar view), with no campaign or day open.
+  window.campaignsHome = () => {
+    stop();
+    Object.assign(CP, { detail: null, pushed: false, day: null, dayPushed: false, listScroll: null, calScroll: null });
+    $('#campaignDetail').classList.add('hidden');
+    $('#campaignDay').classList.add('hidden');
+  };
   window.stopPolling = stop;
 })();
