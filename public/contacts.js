@@ -10,7 +10,7 @@
   const PER_OPTS = [25, 50, 100, 200, 0]; // as on Campaigns; 0 = show all
   const perPref = () => { try { const v = localStorage.getItem('ctPer'); return v != null && PER_OPTS.includes(Number(v)) ? Number(v) : 100; } catch { return 100; } };
   // fs: the Filters panel's picks, one set per section (any of a section's picks; every section with picks must match)
-  const CT = { contacts: [], cache: new Map(), total: 0, all: 0, pages: 1, per: perPref(), facets: {}, facetTotals: {}, tags: [], counts: {}, q: '', fs: { stage: new Set(), delivery: new Set(), num: new Set(), tag: new Set(), source: new Set() }, page: 0, selected: new Set(), chats: new Map(), loaded: false, collections: [], col: null };
+  const CT = { contacts: [], cache: new Map(), total: 0, all: 0, pages: 1, per: perPref(), facets: {}, facetTotals: {}, tags: [], counts: {}, q: '', fs: { stage: new Set(), delivery: new Set(), num: new Set(), tag: new Set(), coll: new Set(), source: new Set() }, page: 0, selected: new Set(), chats: new Map(), loaded: false, collections: [], col: null };
   const STATUS = {
     new: { label: 'New', cls: '' },
     interested: { label: 'Interested', cls: 'sent' },
@@ -38,6 +38,7 @@
     if (seq !== loadSeq) return false; // a newer request (typing, another filter) has taken over
     Object.assign(CT, { contacts: r.contacts, tags: r.tags, counts: r.counts, total: r.total, all: r.all, opted: r.opted, untagged: r.untagged, pages: r.pages, page: r.page, facets: r.facets, facetTotals: r.facetTotals, collections: r.collections || [], loaded: true });
     if (CT.col && !CT.collections.some((x) => x.id === CT.col)) CT.col = null; // deleted (here or in another tab)
+    for (const k of CT.fs.coll) if (k !== 'none' && !CT.collections.some((x) => x.id === k)) CT.fs.coll.delete(k); // a filter on a deleted collection goes too
     for (const c of r.contacts) CT.cache.set(c.id, c);
     state.contactTags = r.tags;
     if (inbox) { CT.chats = new Map(inbox.conversations.map((c) => [c.wa, c.key])); CT.chatsLoaded = true; }
@@ -160,6 +161,7 @@
     delivery: { title: 'Delivery', match: (c, k) => (k === 'delivered' ? everDelivered(c) : k === 'undelivered' ? everFailed(c) : c.optOut) },
     num: { title: 'Added by number', match: (c, k) => (c.via || 'none') === k },
     tag: { title: 'Tags', match: (c, k) => (k === 'none' ? !c.tags.length : c.tags.includes(k)) },
+    coll: { title: 'Collections', match: () => true }, // matched on the server, which knows who is in which collection
     source: { title: 'Who added them', match: (c, k) => (c.source || 'manual') === k },
   };
   // A contact passes when every section with picks matches (skip: leave one section out, for that section's counts)
@@ -175,6 +177,7 @@
       delivery: [['delivered', 'Delivered', dot('st-won'), 'Delivered in at least one campaign'], ['undelivered', 'Not delivered', dot('st-bad'), 'Not delivered in at least one campaign'], ['optout', 'Opted out', dot('st-optout')]],
       num: state.senders.length ? [...state.senders.map((x) => [x.id, x.label, `<span class="fpx-ph">${senderPhotoHtml(x)}</span>`, x.displayPhone]), ...gone.map((v) => [v, senderName(v), `<span class="fpx-ic">${icon('phone', 14)}</span>`]), ['none', 'By hand or import', `<span class="fpx-ic">${icon('upload', 14)}</span>`]] : [],
       tag: [...CT.tags.map((t) => [t.id, t.name, `<i class="ct-dot tag-${esc(t.color)}"></i>`]), ...(CT.tags.length ? [['none', 'No tag', dot('')]] : [])],
+      coll: [...CT.collections.map((x) => [x.id, x.name, `<span class="fpx-ic">${colFolder(x, 'xs')}</span>`]), ...(CT.collections.length ? [['none', 'Not in a collection', dot('')]] : [])],
       source: SOURCES.map(([k, l]) => [k, l, `<span class="fpx-ic">${icon(k === 'import' ? 'upload' : k === 'inbox' ? 'message-circle' : k === 'campaign' ? 'send' : 'user', 14)}</span>`]),
     };
   }
@@ -189,7 +192,7 @@
     b.innerHTML = `${icon('sliders-horizontal', 16)}${n ? `<b class="ct-fbadge">${n}</b>` : ''}`; // just the icon (and how many are on)
     b.classList.toggle('on', n > 0);
     b.setAttribute('aria-label', n ? `Filters, ${n} on` : 'Filters');
-    b.title = n ? `Filters (${n} on)` : 'Filters: stage, delivery, number, tag or who added them';
+    b.title = n ? `Filters (${n} on)` : 'Filters: stage, delivery, number, tag, collection or who added them';
     const bar = $('#ctActive');
     const all = CT.total > 0 && CT.selected.size >= CT.total && list.every((c) => CT.selected.has(c.id));
     const chips = Object.entries(CT.fs).flatMap(([sec, set]) => [...set].map((k) => `<span class="ct-chip"><span class="ct-chip-s">${esc(FILTERS[sec].title)}:</span>${esc(optLabel(sec, k))}<button type="button" data-unf="${sec}" data-k="${esc(k)}" aria-label="Remove ${esc(optLabel(sec, k))}">${icon('x', 12)}</button></span>`));
@@ -216,6 +219,7 @@
         if (one) { CT.fs[one.dataset.fclearsec].clear(); return applyFilters(); }
         const newTag = e.target.closest('[data-fnewtag]');
         if (newTag) return tagModal(null);
+        if (e.target.closest('[data-fnewcol]')) return collectionModal(null, [...CT.selected]);
         const editTag = e.target.closest('[data-fedit]');
         if (editTag) { e.preventDefault(); return tagModal(tagById(editTag.dataset.fedit)); }
       });
@@ -240,17 +244,17 @@
     const opts = filterOptions();
     const results = CT.total;
     const sec = (key) => {
-      if (!opts[key].length && key !== 'tag') return '';
+      if (!opts[key].length && key !== 'tag' && key !== 'coll') return '';
       const rows = opts[key].map(([k, label, lead, tip]) => {
         const n = CT.facets[key]?.[k] || 0;
         const on = CT.fs[key].has(k);
         return `<label class="fpx-opt ${on ? 'on' : ''} ${!n && !on ? 'zero' : ''}" ${tip ? `title="${esc(tip)}"` : ''}><input type="checkbox" class="cb" data-fsec="${key}" value="${esc(k)}" ${on ? 'checked' : ''} />${lead}<span class="fpx-t">${esc(label)}</span>${key === 'tag' && k !== 'none' ? `<button type="button" class="fpx-edit" data-fedit="${esc(k)}" title="Edit tag" aria-label="Edit ${esc(label)}">${icon('square-pen', 13)}</button>` : ''}<b>${n.toLocaleString()}</b></label>`;
       }).join('');
-      return `<section class="fpx-sec"><div class="fpx-h"><span>${FILTERS[key].title}</span>${CT.fs[key].size ? `<span class="fpx-n">${CT.fs[key].size}</span><button type="button" class="fpx-clr" data-fclearsec="${key}" title="Clear ${esc(FILTERS[key].title)}">Clear</button>` : ''}${key === 'tag' ? '<button type="button" class="fpx-add" data-fnewtag>+ New tag</button>' : ''}</div>${rows || '<p class="fpx-none">No tags yet.</p>'}</section>`;
+      return `<section class="fpx-sec"><div class="fpx-h"><span>${FILTERS[key].title}</span>${CT.fs[key].size ? `<span class="fpx-n">${CT.fs[key].size}</span><button type="button" class="fpx-clr" data-fclearsec="${key}" title="Clear ${esc(FILTERS[key].title)}">Clear</button>` : ''}${key === 'tag' ? '<button type="button" class="fpx-add" data-fnewtag>+ New tag</button>' : key === 'coll' ? '<button type="button" class="fpx-add" data-fnewcol>+ New collection</button>' : ''}</div>${rows || `<p class="fpx-none">No ${key === 'coll' ? 'collections' : 'tags'} yet.</p>`}</section>`;
     };
     const keep = box.querySelector('.fpx-body')?.scrollTop || 0;
     box.innerHTML = `<header class="fpx-head"><h2>Filters</h2><button type="button" class="icon-btn" data-fclose aria-label="Close">${icon('x', 18)}</button></header>
-      <div class="fpx-body">${['stage', 'delivery', 'num', 'tag', 'source'].map(sec).join('')}</div>
+      <div class="fpx-body">${['stage', 'delivery', 'num', 'tag', 'coll', 'source'].map(sec).join('')}</div>
       <footer class="fpx-foot"><button type="button" class="btn quiet" data-fclear ${filterCount() ? '' : 'disabled'}>Clear all</button><button type="button" class="btn primary" data-fclose>Show ${results.toLocaleString()} contact${results === 1 ? '' : 's'}</button></footer>`;
     box.querySelector('.fpx-body').scrollTop = keep;
   }

@@ -194,7 +194,7 @@
           <button data-view="calendar" class="${CP.view === 'calendar' ? 'active' : ''}" title="Calendar" aria-label="Calendar" aria-checked="${CP.view === 'calendar'}" role="radio">${icon('calendar-days', 15)}</button>
         </div>
       </div>
-        <div class="row tight cp-head-actions">${R.draftCount ? `<button type="button" class="btn cp-drafts-btn" data-drafts-open title="Campaigns you started and haven't sent yet">${icon('file-text', 15)}Drafts<span class="cp-drafts-n">${R.draftCount}</span></button>` : ''}<button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
+        <div class="row tight cp-head-actions"><button type="button" class="btn cp-drafts-btn" data-drafts-open title="Campaigns you started and haven't sent yet">${icon('file-text', 15)}Drafts${R.draftCount ? `<span class="cp-drafts-n">${R.draftCount}</span>` : ''}</button><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
       ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
       ${CP.view === 'calendar' ? calendarHtml(calRows) : CP.view === 'cards'
         ? `<div class="cp-folders">${shown.map(folderHtml).join('')}</div>${!total ? `<p class="sub cp-none">${q || CP.date || CP.sender || CP.filter !== 'all' ? 'No campaigns match.' : 'Nothing here yet.'}</p>` : ''}${pager}`
@@ -559,10 +559,16 @@
         <div class="row tight cp-head-actions"><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
       ${list.length
         ? `<p class="sub cp-drafts-note">Campaigns you started but haven't sent. Open one to add the people and send it; once it's sent it moves to Campaigns.</p><div class="cp-folders">${list.map(draftHtml).join('')}</div>`
-        : emptyState({ icon: 'file-text', title: 'No drafts', text: "Campaigns you start and don't send right away wait here.", actions: `<button class="btn" data-drafts-back>${icon('arrow-left', 15)}Back to campaigns</button>` })}`;
+        : `<div class="empty cp-drafts-empty">${DRAFT_ART}<h3>No drafts yet</h3><p>Campaigns you start and don't send right away wait here, so you can finish them later.</p><div class="row tight"><button class="btn" data-drafts-back>${icon('arrow-left', 15)}Back to campaigns</button><button class="btn primary" data-goto="send">${icon('plus', 15)}New campaign</button></div></div>`}`;
     LA.hydrate(el);
     CP.draftList = list;
   }
+  // The empty Drafts page's picture: a sheet that a pencil keeps writing on. Hover lifts it; a click starts it again.
+  const DRAFT_ART = `<button type="button" class="dr-art" data-dr-art title="Nothing here yet" aria-label="No drafts yet"><svg viewBox="0 0 64 64" width="76" height="76" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path class="dr-paper" d="M17 8h21l11 11v35a3 3 0 0 1-3 3H17a3 3 0 0 1-3-3V11a3 3 0 0 1 3-3z"/><path class="dr-fold" d="M38 8v8a3 3 0 0 0 3 3h8"/>
+    <path class="dr-line l1" pathLength="1" d="M21 29h20"/><path class="dr-line l2" pathLength="1" d="M21 37h22"/><path class="dr-line l3" pathLength="1" d="M21 45h14"/>
+    <g class="dr-pencil"><path d="M0 0l2.2-6.4L15 -19.2l4.2 4.2L6.4 -2.2z"/><path d="M2.2 -6.4l4.2 4.2"/><path d="M12.6 -16.8l4.2 4.2"/></g>
+  </svg></button>`;
   function openDrafts() {
     CP.drafts = true;
     if (state.tab === 'campaigns' && !history.state?.drafts) { history.pushState({ tab: 'campaigns', drafts: 1 }, '', '/campaigns?drafts=1'); CP.draftsPushed = true; }
@@ -616,6 +622,8 @@
 
   $('#campaignList').addEventListener('click', async (e) => {
     if (e.target.closest('[data-drafts-open]')) return openDrafts();
+    const art = e.target.closest('[data-dr-art]');
+    if (art) { art.classList.remove('play'); void art.offsetWidth; art.classList.add('play'); return; } // start the writing over
     if (e.target.closest('[data-drafts-back]')) return closeDrafts();
     const pg = e.target.closest('[data-cp-page]');
     if (pg) {

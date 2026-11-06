@@ -1099,6 +1099,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
 
   return {
     db, save, id, current, forWorkspace, allWorkspaces, byPhoneNumberId, createWorkspace,
+    roleIn, workspaceById: (wsId) => loaded.get(wsId) || null,
     mountAuth, requireAuth, mountAccountApi,
     signedIn: (req) => Boolean(sessionOf(req)),
     wsId: () => current()?.meta.id || null,

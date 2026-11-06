@@ -1057,6 +1057,27 @@ app.put('/api/senders/:id', wrap(async (req, res) => {
   res.json({ ...publicSender(s), warning: checked ? await linkWebhooks(s) : '' });
 }));
 
+// Moves a number (with its token and settings, under the same id) to another workspace the person owns. Its chats,
+// campaigns and contacts stay where they are; Meta's webhooks follow the number, so new replies arrive in the new
+// workspace. Moving it back joins it up with its old history again.
+app.post('/api/senders/:id/move', wrap(async (req, res) => {
+  const s = db.senders.find((x) => x.id === req.params.id);
+  if (!s) throw fail('Not found', 404);
+  if (req.role !== 'owner') throw fail('Only the workspace owner can move a number', 403);
+  const target = tenants.workspaceById(String(req.body.workspaceId || ''));
+  if (!target || target.meta.id === tenants.wsId()) throw fail('Pick another workspace to move it to');
+  if (tenants.roleIn(req.user.id, target.meta.id) !== 'owner') throw fail(`Only an owner of “${target.meta.name}” can move a number into it`, 403);
+  if (db.settings.demoMode || target.db.settings?.demoMode) throw fail('Numbers can’t be moved into or out of a workspace in demo mode');
+  if (target.db.senders.some((x) => x.phoneNumberId === s.phoneNumberId)) throw fail(`“${target.meta.name}” already has this number`);
+  const busy = db.campaigns.filter((c) => (c.senderIds || []).includes(s.id) && (cpLive(c) || ['scheduled', 'holding'].includes(c.status)));
+  if (busy.length) throw fail(`${busy.length === 1 ? `The campaign “${busy[0].name}” is` : `${busy.length} campaigns are`} still sending or scheduled from this number. Wait for ${busy.length === 1 ? 'it' : 'them'} to finish, or cancel ${busy.length === 1 ? 'it' : 'them'}, then move it.`);
+  tenants.forWorkspace(target, () => credits.checkNumberLimit()); // the plan's number limit there
+  db.senders = db.senders.filter((x) => x !== s);
+  save();
+  tenants.forWorkspace(target, () => { db.senders.push(s); save(); });
+  res.json({ ok: true, workspace: { id: target.meta.id, name: target.meta.name } });
+}));
+
 app.delete('/api/senders/:id', (req, res) => {
   db.senders = db.senders.filter((x) => x.id !== req.params.id);
   save();

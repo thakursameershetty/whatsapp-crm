@@ -193,6 +193,7 @@ module.exports = function mountContacts(app, ctx) {
     delivery: (c, k) => (k === 'delivered' ? everDelivered(c) : k === 'undelivered' ? everFailed(c) : k === 'optout' && Boolean(c.optOut)),
     num: (c, k) => (c.via || 'none') === k,
     tag: (c, k) => (k === 'none' ? !c.tags.length : c.tags.includes(k)),
+    coll: null, // a collection's id, or none: needs who is in which collection, so it's set up per query below
     source: (c, k) => (c.source || 'manual') === k,
   };
   const fmtPhone = (p) => { const m = /^91(\d{5})(\d{5})$/.exec(p); return m ? `+91 ${m[1]} ${m[2]}` : '+' + p; };
@@ -201,9 +202,13 @@ module.exports = function mountContacts(app, ctx) {
   function queryContacts(qs) {
     const listOf = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
     const fs = Object.fromEntries(Object.keys(MATCH).map((k) => [k, new Set(listOf(qs[k]))]));
+    // contact id -> the collections it's in
+    const colsOf = new Map();
+    for (const x of db.collections) for (const cid of x.contactIds) colsOf.has(cid) ? colsOf.get(cid).push(x.id) : colsOf.set(cid, [x.id]);
+    const match = { ...MATCH, coll: (c, k) => (k === 'none' ? !colsOf.has(c.id) : Boolean(colsOf.get(c.id)?.includes(k))) };
     const q = String(qs.q || '').trim().toLowerCase(), qd = q.replace(/\D/g, '');
     const inSearch = (c) => !q || [c.name, c.email, c.company, c.lead?.summary, fmtPhone(c.phone)].some((v) => String(v || '').toLowerCase().includes(q)) || (qd.length >= 3 && c.phone.includes(qd));
-    const passes = (c, skip) => Object.entries(fs).every(([sec, set]) => sec === skip || !set.size || [...set].some((k) => MATCH[sec](c, k)));
+    const passes = (c, skip) => Object.entries(fs).every(([sec, set]) => sec === skip || !set.size || [...set].some((k) => match[sec](c, k)));
     // Viewing a collection: only its contacts (one that no longer exists shows nobody)
     const col = qs.col ? db.collections.find((x) => x.id === qs.col) : null;
     const inCol = qs.col ? new Set(col?.contactIds || []) : null;
@@ -219,6 +224,7 @@ module.exports = function mountContacts(app, ctx) {
         else if (sec === 'delivery') { if (everDelivered(c)) bump('delivered'); if (everFailed(c)) bump('undelivered'); if (c.optOut) bump('optout'); }
         else if (sec === 'num') bump(c.via || 'none');
         else if (sec === 'tag') { if (!c.tags.length) bump('none'); else c.tags.forEach(bump); }
+        else if (sec === 'coll') { const l = colsOf.get(c.id); if (!l) bump('none'); else l.forEach(bump); }
         else bump(c.source || 'manual');
       }
       facets[sec] = n;

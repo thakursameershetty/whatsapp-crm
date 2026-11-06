@@ -3743,6 +3743,7 @@ h1, h2, h3, h4, p, li, dd, blockquote, code, .sub { overflow-wrap: anywhere; }
 .sf-status.ok { background: var(--good-soft); color: var(--good-text); }
 .sf-status.bad { background: var(--danger-soft); color: var(--danger); }
 .sf-status .sf-dup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.sf-field-err { display: block; margin-top: 6px; font-size: 12px; font-weight: 400; color: var(--danger); }
 .sf-spin { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: sf-spin 0.7s linear infinite; }
 @keyframes sf-spin { to { transform: rotate(360deg); } }
 .kv-ok { color: var(--good-text); }
@@ -5097,6 +5098,11 @@ body.limited #senderList .sender-card .toggle { display: none !important; }
 .nm-head b { display: block; font-size: 14px; } .nm-head span { font-size: 12.5px; color: var(--muted); }
 .nm-sec-l { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
 .nm-list { display: flex; flex-direction: column; margin: 0 -8px 16px; }
+.nm-move { display: flex; align-items: center; gap: 14px; padding: 12px 14px; margin-bottom: 10px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--hair, color-mix(in srgb, var(--text) 12%, transparent)); }
+.nm-move > div { flex: 1; min-width: 0; }
+.nm-move b { display: block; font-size: 13.5px; }
+.nm-move span { font-size: 12px; color: var(--muted); }
+.nm-move .btn { flex: none; }
 .nm-danger { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent); }
 .nm-danger > div { flex: 1; min-width: 0; }
 .nm-danger b { display: block; font-size: 13.5px; color: var(--danger); }
@@ -7032,6 +7038,44 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
 .cp-drafts-head .cd-back { margin-left: -8px; }
 .cp-drafts-sub { color: var(--muted); font-size: 13.5px; white-space: nowrap; }
 .cp-drafts-note { margin: 0 0 6px; max-width: 640px; }
+/* Empty Drafts page: a sheet a pencil keeps writing three lines on, then they fade and it starts again */
+.cp-drafts-empty .dr-art { width: 112px; height: 112px; margin: 0 auto 18px; padding: 0; border: 0; border-radius: var(--r-lg); display: grid; place-items: center; cursor: pointer; color: var(--accent-text); background: linear-gradient(180deg, var(--raised-1), var(--raised-2)); box-shadow: var(--sh-raised-hi); transition: transform 0.35s var(--ease-spring, ease), box-shadow 0.2s; }
+.cp-drafts-empty .dr-art:hover { transform: translateY(-4px) rotate(-2deg); }
+.cp-drafts-empty .dr-art:active { transform: translateY(-1px) scale(0.97); }
+.cp-drafts-empty .dr-art:focus-visible { outline: none; box-shadow: var(--sh-raised-hi), 0 0 0 3px var(--ring); }
+.dr-art svg { overflow: visible; }
+.dr-paper { fill: color-mix(in srgb, currentColor 10%, transparent); stroke: currentColor; stroke-width: 2; }
+.dr-fold { stroke: currentColor; stroke-width: 2; }
+.dr-line { stroke: currentColor; stroke-width: 2.4; stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0.75; }
+.dr-pencil { fill: var(--raised-1, #fff); stroke: currentColor; stroke-width: 1.8; transform: translate(21px, 29px); }
+.dr-art .l1 { animation: dr-l1 4.8s ease-in-out infinite; }
+.dr-art .l2 { animation: dr-l2 4.8s ease-in-out infinite; }
+.dr-art .l3 { animation: dr-l3 4.8s ease-in-out infinite; }
+.dr-art .dr-pencil { animation: dr-pen 4.8s ease-in-out infinite; }
+.dr-art.play .l1 { animation-name: dr-l1-b; } .dr-art.play .l2 { animation-name: dr-l2-b; } .dr-art.play .l3 { animation-name: dr-l3-b; } .dr-art.play .dr-pencil { animation-name: dr-pen-b; }
+@keyframes dr-l1 { 0% { stroke-dashoffset: 1; opacity: .75; } 20% { stroke-dashoffset: 0; } 86% { stroke-dashoffset: 0; opacity: .75; } 95% { opacity: 0; } 100% { stroke-dashoffset: 1; opacity: 0; } }
+@keyframes dr-l2 { 0%, 24% { stroke-dashoffset: 1; opacity: .75; } 44% { stroke-dashoffset: 0; } 86% { stroke-dashoffset: 0; opacity: .75; } 95% { opacity: 0; } 100% { stroke-dashoffset: 1; opacity: 0; } }
+@keyframes dr-l3 { 0%, 48% { stroke-dashoffset: 1; opacity: .75; } 62% { stroke-dashoffset: 0; } 86% { stroke-dashoffset: 0; opacity: .75; } 95% { opacity: 0; } 100% { stroke-dashoffset: 1; opacity: 0; } }
+@keyframes dr-pen {
+  0% { transform: translate(21px, 29px); } 20% { transform: translate(41px, 29px); } 24% { transform: translate(21px, 37px); }
+  44% { transform: translate(43px, 37px); } 48% { transform: translate(21px, 45px); } 62% { transform: translate(35px, 45px); }
+  74%, 90% { transform: translate(44px, 52px) rotate(8deg); } 100% { transform: translate(21px, 29px); }
+}
+/* the same, under another name, so a click restarts it from the top */
+@keyframes dr-l1-b { 0% { stroke-dashoffset: 1; opacity: .75; } 20% { stroke-dashoffset: 0; } 86% { stroke-dashoffset: 0; opacity: .75; } 95% { opacity: 0; } 100% { stroke-dashoffset: 1; opacity: 0; } }
+@keyframes dr-l2-b { 0%, 24% { stroke-dashoffset: 1; opacity: .75; } 44% { stroke-dashoffset: 0; } 86% { stroke-dashoffset: 0; opacity: .75; } 95% { opacity: 0; } 100% { stroke-dashoffset: 1; opacity: 0; } }
+@keyframes dr-l3-b { 0%, 48% { stroke-dashoffset: 1; opacity: .75; } 62% { stroke-dashoffset: 0; } 86% { stroke-dashoffset: 0; opacity: .75; } 95% { opacity: 0; } 100% { stroke-dashoffset: 1; opacity: 0; } }
+@keyframes dr-pen-b {
+  0% { transform: translate(21px, 29px); } 20% { transform: translate(41px, 29px); } 24% { transform: translate(21px, 37px); }
+  44% { transform: translate(43px, 37px); } 48% { transform: translate(21px, 45px); } 62% { transform: translate(35px, 45px); }
+  74%, 90% { transform: translate(44px, 52px) rotate(8deg); } 100% { transform: translate(21px, 29px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dr-art .dr-line, .dr-art .dr-pencil { animation: none !important; }
+  .dr-art .dr-line { stroke-dashoffset: 0; }
+  .dr-art .dr-pencil { transform: translate(35px, 45px); }
+  .cp-drafts-empty .dr-art:hover { transform: none; }
+}
 /* Campaigns: when the filters have their own row, they fill it edge to edge (search takes the spare width, the
    view switch ends the row) */
 #campaignList > .section-head.has-tools.tools-below > .cp-tools .search-wrap { flex: 1 1 160px; min-width: 150px; max-width: none; }

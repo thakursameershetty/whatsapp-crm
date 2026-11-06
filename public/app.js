@@ -1410,14 +1410,34 @@ function senderForm(s = null) {
     const p = String(fields().phoneNumberId || '').trim();
     return p && p !== s?.phoneNumberId ? state.senders.find((x) => x.id !== s?.id && x.phoneNumberId === p) : null;
   };
+  // While a duplicate is shown: the ID field is marked, and the Save / Add number button becomes Dismiss (closes
+  // the popup), so there's nothing to save. Changing anything in the form brings the button back.
+  const primary = $('button.primary', form), primaryText = primary.textContent;
+  const pnidInput = $('[name=phoneNumberId]', body);
+  let dupShown = false;
+  const clearDup = () => {
+    if (!dupShown) return;
+    dupShown = false;
+    pnidInput.classList.remove('bad');
+    pnidInput.removeAttribute('aria-invalid');
+    $('#sfDupHint', body)?.remove();
+    primary.textContent = primaryText;
+    status.className = 'sf-status hidden';
+  };
   const blockDup = () => {
     const d = dupOf();
     if (!d) return false;
-    show('bad', `${icon('triangle-alert', 15)}<span>This number is already added as <b>${esc(d.label)}</b>${d.displayPhone ? ` (${esc(d.displayPhone)})` : ''}. Edit that one instead of adding it again.<span class="sf-dup-actions"><button type="button" class="btn sm" id="sfOpenDup">${icon('square-pen', 14)}Open ${esc(d.label)}</button><button type="button" class="btn sm quiet" id="sfDismissDup">Dismiss</button></span></span>`);
+    dupShown = true;
+    pnidInput.classList.add('bad');
+    pnidInput.setAttribute('aria-invalid', 'true');
+    if (!$('#sfDupHint', body)) pnidInput.insertAdjacentHTML('afterend', '<span class="sf-field-err" id="sfDupHint"></span>');
+    $('#sfDupHint', body).innerHTML = `Already added as <b>${esc(d.label)}</b>`;
+    primary.textContent = 'Dismiss';
+    show('bad', `${icon('triangle-alert', 15)}<span>This number is already added as <b>${esc(d.label)}</b>${d.displayPhone ? ` (${esc(d.displayPhone)})` : ''}. Edit that one instead of adding it again.<span class="sf-dup-actions"><button type="button" class="btn sm" id="sfOpenDup">${icon('square-pen', 14)}Open ${esc(d.label)}</button></span></span>`);
     $('#sfOpenDup', body).addEventListener('click', () => senderForm(d)); // opens in the same popup
-    $('#sfDismissDup', body).addEventListener('click', () => { status.className = 'sf-status hidden'; $('[name=phoneNumberId]', body).focus(); });
     return true;
   };
+  form.addEventListener('input', clearDup);
   $('[name=phoneNumberId]', body).addEventListener('change', blockDup);
   const firstProblem = () => {
     const d = fields();
@@ -1466,6 +1486,7 @@ function senderForm(s = null) {
   }, e.currentTarget));
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+    if (dupShown) { closeModal(); return; } // the button reads Dismiss while a duplicate is shown
     const bad = firstProblem();
     if (bad) { form.querySelector(`[name=${bad[0]}]`).focus(); show('bad', esc(bad[1])); return; }
     if (blockDup()) return;
@@ -4448,6 +4469,8 @@ function numberModal(s) {
   if (!s) return;
   const team = state.team?.role === 'owner' && state.team.members.some((m) => m.role !== 'owner');
   const ai = Boolean(state.settings.aiManage);
+  // Other workspaces this person owns, where the number can be moved (owners only, not in demo mode).
+  const moveTo = state.me?.role === 'owner' && !state.settings.demoMode ? (state.me.workspaces || []).filter((w) => w.id !== state.me.workspace.id && w.role === 'owner') : [];
   const body = openModal(`${s.label}`, `
     <div class="nm-head">${senderPhotoHtml(s)}<div><b>${esc(s.verifiedName || s.label)}</b><span>${esc(s.displayPhone || '')}</span></div></div>
     ${ai ? `<div class="nm-sec-l nm-sec-row"><span>Lead assistant</span><button type="button" class="nm-link" id="nmPbAll">All playbooks ${icon('arrow-right', 13)}</button></div>
@@ -4457,6 +4480,10 @@ function numberModal(s) {
     ${team ? `<div class="nm-sec-l">Who can use this number</div>
     <p class="tmm-hint">They see its chats, campaigns and stats, and can send from it. Owners always can.</p>
     <div class="nm-list" id="nmList"></div>` : ''}
+    ${moveTo.length ? `<div class="nm-move">
+      <div><b>Move to another workspace</b><span>The number, its token and settings go to the workspace you pick, and new replies arrive there. Its chats, campaigns and contacts stay here.</span></div>
+      <button class="btn sm" id="nmMove" aria-haspopup="menu">${icon('arrow-right', 14)}Move to…${icon('chevron-down', 13)}</button>
+    </div>` : ''}
     <div class="nm-danger">
       <div><b>Delete this number</b><span>Removes it and its saved token from this app. Nothing changes in your Meta account.</span></div>
       <button class="btn sm danger-solid" id="nmDel">${icon('delete', 14)}Delete</button>
@@ -4545,6 +4572,24 @@ function numberModal(s) {
       draw();
       toast(`${m.name || m.email} ${cb.checked ? 'can now use' : 'no longer uses'} ${s.label}`);
     });
+  });
+  $('#nmMove', body)?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    Sheet.Menu.open(r.left, r.bottom + 6, moveTo.map((w) => ({ label: w.name, pre: `<span class="mi-ic">${icon('layout-grid', 15)}</span>`, action: () => guard(async () => {
+      const ok = await confirmDialog({
+        title: `Move “${s.label}” to ${w.name}?`, // shown as plain text
+        message: `It leaves this workspace and appears in <b>${esc(w.name)}</b>, with its token and settings. New replies arrive there. Its chats, campaigns and contacts stay here, and teammates here can no longer send from it.`,
+        confirmText: 'Move',
+      });
+      if (!ok) return;
+      await api(`/senders/${s.id}/move`, { method: 'POST', body: { workspaceId: w.id } });
+      closeModal();
+      state.selectedSenders.delete(s.id);
+      await loadSenders();
+      loadTeam().catch(() => {});
+      toast(`Click to go to ${w.name}.`, '', { title: `Moved ${s.label} to ${w.name}`, onClick: () => switchWorkspace(w.id) });
+    }) })));
   });
   $('#nmDel', body).onclick = () => guard(async () => {
     const ok = await confirmDialog({ title: `Delete “${esc(s.label)}”?`, message: 'The number and its saved token are removed from this app. Nothing changes in your Meta account.', confirmText: 'Delete', danger: true });
