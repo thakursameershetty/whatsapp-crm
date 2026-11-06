@@ -1404,6 +1404,21 @@ function senderForm(s = null) {
   // Editing the number or token means the last check no longer applies.
   form.addEventListener('input', (e) => { if (e.target.matches('[name=phoneNumberId], [name=wabaId], [name=accessToken]')) status.className = 'sf-status hidden'; });
   const fields = () => Object.fromEntries(new FormData(form));
+  // The same number can't be added twice (the server refuses it too). Numbers in this workspace are caught here,
+  // as soon as the ID is typed, with a button to open the one already saved. When editing, an unchanged ID is fine.
+  const dupOf = () => {
+    const p = String(fields().phoneNumberId || '').trim();
+    return p && p !== s?.phoneNumberId ? state.senders.find((x) => x.id !== s?.id && x.phoneNumberId === p) : null;
+  };
+  const blockDup = () => {
+    const d = dupOf();
+    if (!d) return false;
+    show('bad', `${icon('triangle-alert', 15)}<span>This number is already added as <b>${esc(d.label)}</b>${d.displayPhone ? ` (${esc(d.displayPhone)})` : ''}. Edit that one instead of adding it again.<span class="sf-dup-actions"><button type="button" class="btn sm" id="sfOpenDup">${icon('square-pen', 14)}Open ${esc(d.label)}</button><button type="button" class="btn sm quiet" id="sfDismissDup">Dismiss</button></span></span>`);
+    $('#sfOpenDup', body).addEventListener('click', () => senderForm(d)); // opens in the same popup
+    $('#sfDismissDup', body).addEventListener('click', () => { status.className = 'sf-status hidden'; $('[name=phoneNumberId]', body).focus(); });
+    return true;
+  };
+  $('[name=phoneNumberId]', body).addEventListener('change', blockDup);
   const firstProblem = () => {
     const d = fields();
     if (!d.label.trim()) return ['label', 'Give the number a label'];
@@ -1413,6 +1428,7 @@ function senderForm(s = null) {
   const check = async () => {
     const bad = firstProblem();
     if (bad && bad[0] !== 'label') { form.querySelector(`[name=${bad[0]}]`).focus(); show('bad', esc(bad[1])); return false; }
+    if (blockDup()) return false;
     show('busy', '<span class="sf-spin"></span>Checking with Meta…');
     try {
       const r = await api('/senders/verify', { method: 'POST', body: { ...fields(), senderId: s?.id } });
@@ -1427,6 +1443,7 @@ function senderForm(s = null) {
   // Fills the account ID from the phone number ID and token (or turns a pasted Business portfolio ID into it).
   $('#sfFind', body)?.addEventListener('click', (e) => guard(async () => {
     if (!fields().phoneNumberId) { $('[name=phoneNumberId]', body).focus(); show('bad', 'Enter the phone number ID first'); return; }
+    if (blockDup()) return;
     show('busy', '<span class="sf-spin"></span>Finding the Business Account…');
     try {
       const r = await api('/senders/find-waba', { method: 'POST', body: { ...fields(), senderId: s?.id } });
@@ -1437,6 +1454,7 @@ function senderForm(s = null) {
   // Fills the display phone (and the account ID, if empty) by checking the number with Meta.
   $('#sfFindPhone', body)?.addEventListener('click', (e) => guard(async () => {
     if (!fields().phoneNumberId) { $('[name=phoneNumberId]', body).focus(); show('bad', 'Enter the phone number ID first'); return; }
+    if (blockDup()) return;
     show('busy', '<span class="sf-spin"></span>Reading the number from Meta…');
     try {
       const r = await api('/senders/verify', { method: 'POST', body: { ...fields(), senderId: s?.id } });
@@ -1450,6 +1468,7 @@ function senderForm(s = null) {
     e.preventDefault();
     const bad = firstProblem();
     if (bad) { form.querySelector(`[name=${bad[0]}]`).focus(); show('bad', esc(bad[1])); return; }
+    if (blockDup()) return;
     const btn = $('button.primary', form);
     guard(async () => {
       if (live) show('busy', '<span class="sf-spin"></span>Checking with Meta, then saving…');

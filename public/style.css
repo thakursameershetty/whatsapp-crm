@@ -3742,6 +3742,7 @@ h1, h2, h3, h4, p, li, dd, blockquote, code, .sub { overflow-wrap: anywhere; }
 .sf-status.busy { background: var(--sunk); color: var(--muted); align-items: center; }
 .sf-status.ok { background: var(--good-soft); color: var(--good-text); }
 .sf-status.bad { background: var(--danger-soft); color: var(--danger); }
+.sf-status .sf-dup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .sf-spin { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: sf-spin 0.7s linear infinite; }
 @keyframes sf-spin { to { transform: rotate(360deg); } }
 .kv-ok { color: var(--good-text); }
