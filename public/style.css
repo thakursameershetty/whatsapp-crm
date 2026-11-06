@@ -7587,11 +7587,11 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 
 /* "Unlimited" (a workspace that's never charged): the Settings card is just the coin and the word */
 
-/* Credits page: Recent activity (14 days) with View all, and the full log in a popup */
-.cr-act-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
-.cr-act-h .field-label { margin: 0; }
-.cr-log-all { max-height: min(62vh, 640px); overflow-y: auto; padding-right: 6px; }
-.modal-box.cr-all-box { width: min(720px, calc(100vw - 32px)); }
+/* Credits page: Recent activity (14 days) in its own card under the balance; View all opens /credits-activity */
+#creditsActivity { margin-top: 20px; }
+#creditsActivity .card-head h2 .opt, .cr-month .opt { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: 6px; }
+.cr-month + .cr-month { margin-top: 24px; }
+.cr-month .field-label { margin: 0 0 4px; }
 
 /* Account menu: Credits, with the coin and the balance on the right */
 .acct-pop-item.acct-credits .acct-coin { width: 16px; height: 16px; border-radius: 50%; flex: none; }

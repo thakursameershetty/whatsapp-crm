@@ -576,7 +576,19 @@
       </div>
       <!-- billing.js fills it; a workspace that doesn't use credits sees the note instead -->
       <div class="card la-host credits-card hidden" id="creditsCard"></div>
+      <div class="card hidden" id="creditsActivity"></div>
       <div class="card hidden" id="creditsNone"><div class="empty"><div class="empty-ico" data-icon="zap" data-icon-size="28"></div><h3>Credits aren’t used here</h3><p>This workspace isn’t charged, so there’s no balance to show.</p></div></div>
+    </section>
+    <!-- Credits → View all activity: every ledger entry, by month (billing.js) -->
+    <section id="tab-credits-activity" class="tab hidden">
+      <div class="section-head">
+        <div>
+          <a href="/credits" class="icon-btn head-back" data-goto="credits" title="Back to Credits" aria-label="Back to Credits" data-icon="arrow-left" data-icon-size="22"></a>
+          <h1>Credits activity</h1>
+          <p class="sub" id="crAllSub">Everything added to and used from this workspace’s credits, newest first.</p>
+        </div>
+      </div>
+      <div class="card" id="crAllCard" data-skel="card:1"></div>
     </section>
     <section id="tab-templates" class="tab hidden">
       <div class="section-head has-tools">

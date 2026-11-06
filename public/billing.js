@@ -73,6 +73,8 @@ window.Credits = (() => {
     const shown = Boolean(d?.on || d?.unlimited);
     card.classList.toggle('hidden', !shown);
     $('#creditsNone')?.classList.toggle('hidden', shown || !d);
+    const act = $('#creditsActivity');
+    act?.classList.toggle('hidden', !shown);
     const unl = Boolean(d?.unlimited);
     if (!unl && !d?.on) return;
     const next = unl ? null : d.packs.filter((p) => !p.expired && p.left > 0).sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))[0];
@@ -98,9 +100,9 @@ window.Credits = (() => {
           <div class="cr-nums"><dt>WhatsApp numbers on your plan</dt><dd>${d.numberLimit == null ? `${fmt(d.numbersUsed)} connected · no limit` : `${fmt(d.numbersUsed)} of ${fmt(d.numberLimit)}`}</dd></div>
         </dl>
       </div>
-      <p class="sub cr-note">${unl ? 'This workspace is on Unlimited: nothing is taken, and the activity below shows what it used at the rates above.' : `Messages that fail give their credits back. Credits from a pack last ${d.months} months.`} These are SendON’s charges: Meta bills its own per-message fee to your WhatsApp Business Account separately.${unl ? '' : ' AI uses credits whether it runs on SendON’s AI or your own AI key.'}</p>
-      ${activityHtml(d.ledger, unl)}`;
+      <p class="sub cr-note">${unl ? 'This workspace is on Unlimited: nothing is taken, and the activity below shows what it used at the rates above.' : `Messages that fail give their credits back. Credits from a pack last ${d.months} months.`} These are SendON’s charges: Meta bills its own per-message fee to your WhatsApp Business Account separately.${unl ? '' : ' AI uses credits whether it runs on SendON’s AI or your own AI key.'}</p>`;
     LA.hydrate(card);
+    if (act) { act.innerHTML = activityHtml(d.ledger, unl); LA.hydrate(act); }
     if (!unl) roll($('.cr-num', card), d.balance);
   }
   // Recent activity: the last 14 days only; View all activity opens the whole log.
@@ -108,18 +110,27 @@ window.Credits = (() => {
   const recent = (ledger) => ledger.filter((l) => Date.now() - Date.parse(l.at) < RECENT_DAYS * 86400000);
   function activityHtml(ledger, free) {
     const list = recent(ledger);
-    return `<div class="cr-act-h"><span class="field-label">Recent activity <span class="opt">last ${RECENT_DAYS} days</span></span>${ledger.length ? `<button type="button" class="btn sm quiet" id="crAll" data-icon="list" data-icon-size="14">View all activity</button>` : ''}</div>
+    return `<div class="card-head"><h2 data-icon="history">Recent activity <span class="opt">last ${RECENT_DAYS} days</span></h2>${ledger.length ? `<button type="button" class="btn sm quiet" data-goto="credits-activity" data-icon="list" data-icon-size="14">View all activity</button>` : ''}</div>
       <div class="cr-log">${list.length ? list.map((l) => row(l, free)).join('') : `<p class="sub">${ledger.length ? `Nothing in the last ${RECENT_DAYS} days.` : 'Nothing yet.'}</p>`}</div>`;
   }
-  async function allActivity() {
+  // The Credits activity page (/credits-activity): every entry, newest first, under a heading per month.
+  async function showAll() {
+    const card = $('#crAllCard');
+    if (!card) return;
     let d;
-    try { d = await api('/credits?all=1'); } catch (e) { return toast(e.message, 'error'); }
-    const free = Boolean(d.unlimited);
-    openModal('All credits activity', `<p class="sub" style="margin-top:0">${fmt(d.ledger.length)} entr${d.ledger.length === 1 ? 'y' : 'ies'}, newest first.${free ? ' Unlimited: nothing was taken.' : ''}</p>
-      <div class="cr-log cr-log-all">${d.ledger.map((l) => row(l, free)).join('') || '<p class="sub">Nothing yet.</p>'}</div>`);
-    $('#modal .modal-box').classList.add('cr-all-box');
+    try { d = await api('/credits?all=1'); } catch (e) { card.innerHTML = `<p class="sub">${esc(e.message)}</p>`; return; }
+    if (state.tab !== 'credits-activity') return;
+    const free = Boolean(d.unlimited), n = d.ledger.length;
+    $('#crAllSub').textContent = `${fmt(n)} entr${n === 1 ? 'y' : 'ies'}, newest first.${free ? ' This workspace is on Unlimited: nothing was taken.' : ''}`;
+    if (!n) { card.innerHTML = '<div class="empty"><div class="empty-ico" data-icon="history" data-icon-size="28"></div><h3>Nothing yet</h3><p>Credits added and used will show here.</p></div>'; LA.hydrate(card); return; }
+    const months = [];
+    for (const l of d.ledger) {
+      const m = new Date(l.at).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      if (months.at(-1)?.m !== m) months.push({ m, rows: [] });
+      months.at(-1).rows.push(l);
+    }
+    card.innerHTML = months.map((g) => `<div class="cr-month"><h3 class="field-label">${esc(g.m)}</h3><div class="cr-log">${g.rows.map((l) => row(l, free)).join('')}</div></div>`).join('');
   }
-  document.addEventListener('click', (e) => { if (e.target.closest('#crAll')) allActivity(); });
   const numbersText = (n) => (n == null ? 'Unlimited numbers' : n === 1 ? '1 WhatsApp number' : `Up to ${n} WhatsApp numbers`);
   function row(l, free = false) { // free: an Unlimited workspace's use, logged but not taken
     const net = l.kind === 'add' ? `+${fmt(l.used)}` : free ? `${fmt(l.used - l.refunded)}` : `−${fmt(l.used - l.refunded)}`;
@@ -143,5 +154,5 @@ window.Credits = (() => {
   }
   document.addEventListener('click', (e) => { if (e.target.closest('#crBuy')) buy(); });
 
-  return { load, render, slots, costText, short, confirmText, get data() { return C.data; } };
+  return { load, render, slots, showAll, costText, short, confirmText, get data() { return C.data; } };
 })();
