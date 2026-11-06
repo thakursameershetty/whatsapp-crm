@@ -2439,6 +2439,7 @@ const LIVE_RELOAD = {
   contacts: () => state.tab === 'contacts' && window.Contacts?.show(),
   campaigns: () => { if (state.tab === 'campaigns') loadCampaigns(); if (state.tab === 'overview') loadOverview(); },
   reports: () => state.tab === 'reports' && window.MetaErrors?.showReports(),
+  credits: () => window.Credits?.load(), // an admin added credits: every balance on screen rolls up to the new one
 };
 document.addEventListener('live', (e) => {
   const d = e.detail || {};

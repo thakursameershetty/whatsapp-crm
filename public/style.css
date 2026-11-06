@@ -7576,3 +7576,11 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .cr-chip.out .coin-face img { filter: grayscale(0.75) brightness(calc(var(--lit) * 0.9)); }
 #ovTitle + .ov-live + .cr-slot, .ov-title-row .cr-slot { margin-left: 12px; }
 .as-head-right .cr-slot .cr-chip { height: 32px; box-shadow: inset 0 0 0 1px var(--hair); background: none; }
+
+/* Sign-up: agreeing to the Terms of Service and Privacy Policy (tenancy.js signupPage) */
+.auth-fields label.auth-agree { display: flex; align-items: flex-start; gap: 10px; margin: 2px 0 16px; font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--muted); cursor: pointer; }
+/* beats .auth-fields input:not([type=hidden]), the text-box style, so this stays an 18px checkbox */
+.auth-fields .auth-agree input.cb[type=checkbox] { flex: none; display: inline-block; width: 18px; height: 18px; min-width: 0; margin: 1px 0 0; padding: 0; border: 0; border-radius: 6px; background-color: var(--field); box-shadow: var(--sh-sunk), inset 0 0 0 1.5px color-mix(in srgb, var(--text) 28%, transparent); }
+.auth-fields .auth-agree input.cb[type=checkbox]:checked { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 12.5 4 4 8-9'/%3E%3C/svg%3E") center / 14px no-repeat, linear-gradient(180deg, var(--accent-1), var(--accent-2)); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.auth-fields .auth-agree input.cb[type=checkbox]:focus-visible { box-shadow: var(--sh-sunk), 0 0 0 3px var(--ring); }
+.auth-agree a { color: var(--text); font-weight: 600; }

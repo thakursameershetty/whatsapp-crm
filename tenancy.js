@@ -23,6 +23,9 @@ const SESSION_DAYS = 30;
 // How many workspaces one person may own (admins: no limit). The daily send limit is per workspace,
 // so this also stops someone multiplying it by making many workspaces.
 const MAX_WORKSPACES_PER_USER = Number(process.env.MAX_WORKSPACES_PER_USER || 3);
+// The Terms of Service and Privacy Policy people agree to at sign-up (public/terms.html, privacy.html). Change it when
+// either changes, so each account records which version it agreed to.
+const TERMS_VERSION = '2026-11-06';
 const NEW_WORKSPACE_DAILY_LIMIT = Number(process.env.NEW_WORKSPACE_DAILY_LIMIT || 250);
 // Forgiving about how it's typed in a hosting dashboard: quotes, commas, semicolons or spaces between emails.
 const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '').toLowerCase().replace(/["'`]/g, '').split(/[\s,;]+/).filter((e) => e.includes('@'));
@@ -154,6 +157,28 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
 
   const userByEmail = (email) => accounts.users.find((u) => u.email === String(email || '').trim().toLowerCase());
   const membershipsOf = (userId) => accounts.members.filter((m) => m.userId === userId);
+
+  // --- Prepaid credits: a customer who paid before signing up. An admin saves the pack against their email
+  // (admin panel → People → Add credits for a customer); it's added to the workspace they own as soon as there is
+  // one: when they sign up, sign in, or create a workspace. server.js passes in how credits are added (credits.js).
+  accounts.prepaid ||= [];
+  let addCredits = null;
+  const ownedWorkspace = (userId) => membershipsOf(userId).filter((m) => m.role === 'owner').map((m) => loaded.get(m.wsId)).filter(Boolean)
+    .sort((a, b) => String(a.meta.createdAt).localeCompare(String(b.meta.createdAt)))[0] || null;
+  function applyPrepaid(user) {
+    if (!addCredits || !user?.email) return null;
+    const mine = accounts.prepaid.filter((p) => !p.appliedAt && p.email === String(user.email).trim().toLowerCase());
+    const ws = mine.length ? ownedWorkspace(user.id) : null;
+    if (!ws) return null;
+    ws.meta.billing = 'credits'; // a prepaid pack only counts on the credits plan
+    for (const p of mine) {
+      addCredits(ws, { pack: p.pack, credits: p.credits, price: p.price, note: p.note ? `${p.note} (paid before sign-up)` : 'Paid before sign-up', by: p.by });
+      Object.assign(p, { appliedAt: now(), wsId: ws.meta.id, wsName: ws.meta.name });
+    }
+    accounts.prepaid = accounts.prepaid.filter((p) => !p.appliedAt || Date.now() - Date.parse(p.appliedAt) < 90 * 86400000).slice(0, 300); // applied ones are kept 90 days, for the list
+    saveAccounts();
+    return ws;
+  }
   const roleIn = (userId, wsId) => accounts.members.find((m) => m.userId === userId && m.wsId === wsId)?.role || null;
   const legacyUnclaimed = () => accounts.workspaces.find((w) => w.legacy && !accounts.members.some((m) => m.wsId === w.id));
 
@@ -282,7 +307,7 @@ ${notice ? `<p class="auth-notice">${esc(notice)}</p>` : ''}${error ? `<p class=
     }));
   }
 
-  function signupPage({ error = '', name = '', email = '', business = '', next = '', invite = null, codeSent = false, verified = '' } = {}) {
+  function signupPage({ error = '', name = '', email = '', business = '', next = '', invite = null, codeSent = false, verified = '', terms = false } = {}) {
     const legacy = !invite && legacyUnclaimed();
     return page('Create account', shell({
       kicker: invite ? `Join ${invite.wsName}` : 'Start free',
@@ -300,6 +325,7 @@ ${invite ? '' : `<label>Business name<input name="business" value="${esc(busines
 <label>Confirm password<input type="password" name="confirm" autocomplete="new-password" maxlength="128" placeholder="Type it again" required data-pw-match="#suPw"></label>
 ${legacy ? `<label>Existing app password <span class="opt">only if you used this app before</span><input type="password" name="legacy" autocomplete="off" placeholder="Keeps your existing ${esc(legacy.name)} data"></label>` : ''}
 <input type="hidden" name="next" value="${esc(next)}">
+<label class="auth-agree"><input type="checkbox" class="cb" name="terms" value="1" required${terms ? ' checked' : ''}><span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span></label>
 ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<button class="auth-btn" type="submit">${invite ? 'Join workspace' : 'Get started'}</button>
 <p class="login-alt">Already have an account? <a href="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">Sign in</a></p></form>`,
     }));
@@ -413,6 +439,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const found = inviteFromNext(next);
       const inv = found && sameEmail(found.email, user.email) ? found : null; // an invite is only for the address it was sent to
       if (inv) acceptInvite(inv, user.id);
+      applyPrepaid(user);
       const ws = inv?.wsId || user.lastWsId || membershipsOf(user.id)[0]?.wsId;
       if (!ws) return res.status(403).send(loginPage({ error: 'Your account has no workspace. Ask for a new invite.', email }));
       startSession(res, user.id, ws);
@@ -425,7 +452,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const email = String(req.body.email || '').trim().toLowerCase();
       const invite = inviteFromNext(next);
       // A page that comes back with another error keeps a confirmed email confirmed.
-      const again = (error) => res.status(400).send(signupPage({ error, name, email, business, next, invite, verified: req.body.code && !checkCode(email, req.body.code, { consume: false }) ? String(req.body.code) : '' }));
+      const again = (error) => res.status(400).send(signupPage({ error, name, email, business, next, invite, terms: req.body.terms === '1', verified: req.body.code && !checkCode(email, req.body.code, { consume: false }) ? String(req.body.code) : '' }));
       if (tooMany(`${req.ip}|signup`)) return again('Too many attempts. Try again in a few minutes.');
       noteTry(`${req.ip}|signup`);
       const nameCheck = checkName(name, 'person');
@@ -435,12 +462,13 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const weak = passwordRules.check(password, { email, name }).problem;
       if (weak) return again(weak);
       if (req.body.confirm !== password) return again("The two passwords don't match");
+      if (req.body.terms !== '1') return again('Agree to the Terms of Service and Privacy Policy to create your account');
       if (userByEmail(email)) return again('An account with this email already exists. Sign in instead.');
       const bizCheck = invite ? {} : checkName(business, 'workspace');
       if (bizCheck.error) return again(bizCheck.error);
       // The email is confirmed before the account exists: the code we sent must match.
       const codeErr = checkCode(email, req.body.code);
-      if (codeErr) return res.status(400).send(signupPage({ error: req.body.code ? codeErr : 'Click “Send code” and enter the code from your email', name, email, business, next, invite, codeSent: Boolean(codes.get(email)) }));
+      if (codeErr) return res.status(400).send(signupPage({ error: req.body.code ? codeErr : 'Click “Send code” and enter the code from your email', name, email, business, next, invite, terms: req.body.terms === '1', codeSent: Boolean(codes.get(email)) }));
 
       // Keeping the data from before accounts existed: prove it with the old app password
       // (or be the OWNER_EMAIL). Otherwise everyone starts with a fresh workspace.
@@ -450,7 +478,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const claims = old && ((legacy && appPassword && sameText(String(legacy), appPassword)) || (ownerEmail && email === ownerEmail.toLowerCase()) || (!appPassword && !ownerEmail && !hosted));
       if (old && legacy && !claims) return again('That app password is wrong. Leave it empty to start a fresh workspace.');
 
-      const user = { id: id(), name: nameCheck.name, email, password: hashPassword(password), createdAt: now(), emailVerified: true };
+      const user = { id: id(), name: nameCheck.name, email, password: hashPassword(password), createdAt: now(), emailVerified: true, termsAcceptedAt: now(), termsVersion: TERMS_VERSION };
       accounts.users.push(user);
       let wsId;
       if (invite) { acceptInvite(invite, user.id); wsId = invite.wsId; }
@@ -465,6 +493,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       }
       user.lastWsId = wsId;
       saveAccounts();
+      applyPrepaid(user);
       startSession(res, user.id, wsId);
       res.redirect('/');
     });
@@ -710,6 +739,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       if (req.session) req.session.wsId = ws.meta.id;
       req.user.lastWsId = ws.meta.id;
       saveAccounts();
+      applyPrepaid(req.user);
       res.json({ id: ws.meta.id, name: ws.meta.name });
     }));
 
@@ -1015,6 +1045,34 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       res.json({ ok: true, name });
     }));
 
+    // Prepaid credits (see applyPrepaid): waiting ones and those added in the last 90 days.
+    const PREPAID_PACKS = { '10k': [10000, 10000], '20k': [22000, 20000], '25k': [30000, 25000] }; // [credits, ₹ price] per pack (credits.js PACKS)
+    const publicPrepaid = (p) => ({ ...p, account: Boolean(userByEmail(p.email)) });
+    app.get('/api/admin/prepaid', wrap((req, res) => { adminOnly(req); res.json(accounts.prepaid.map(publicPrepaid)); }));
+    app.post('/api/admin/prepaid', wrap((req, res) => {
+      adminOnly(req);
+      const email = String(req.body.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw fail('Enter the customer’s email');
+      const pack = PREPAID_PACKS[req.body.pack] ? req.body.pack : null;
+      const credits = pack ? PREPAID_PACKS[pack][0] : Math.floor(Number(req.body.credits));
+      if (!Number.isFinite(credits) || credits < 1 || credits > 10_000_000) throw fail('Pick a pack or enter how many credits');
+      const p = { id: id(), email, pack, credits, price: pack ? PREPAID_PACKS[pack][1] : Math.max(0, Math.floor(Number(req.body.price) || 0)), note: String(req.body.note || '').trim().slice(0, 200), by: req.user.email, at: now() };
+      accounts.prepaid.unshift(p);
+      saveAccounts();
+      const user = userByEmail(email);
+      const ws = user ? applyPrepaid(user) : null; // an existing account gets it straight away
+      res.json({ ...publicPrepaid(p), appliedTo: ws ? ws.meta.name : null });
+    }));
+    app.delete('/api/admin/prepaid/:id', wrap((req, res) => {
+      adminOnly(req);
+      const p = accounts.prepaid.find((x) => x.id === req.params.id);
+      if (!p) throw fail('Not found', 404);
+      if (p.appliedAt) throw fail(`These credits were already added to ${p.wsName}. Take them back on that workspace’s Credits tab if needed.`);
+      accounts.prepaid = accounts.prepaid.filter((x) => x !== p);
+      saveAccounts();
+      res.json({ ok: true });
+    }));
+
     // --- Reported issues: anyone in a workspace can report a problem; admins see them all ----------
     const REPORT_AREAS = ['Sending & campaigns', 'Inbox & replies', 'Templates', 'Numbers & connection', 'AI assistant', 'Account & billing', 'Something else'];
     const publicReport = (r) => ({ id: r.id, at: r.at, area: r.area, errorCode: r.errorCode, message: r.message, page: r.page || '', status: r.status, resolvedAt: r.resolvedAt || null, by: r.by.name || r.by.email, byEmail: r.by.email });
@@ -1163,6 +1221,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
   return {
     db, save, id, current, forWorkspace, allWorkspaces, byPhoneNumberId, createWorkspace,
     roleIn, workspaceById: (wsId) => loaded.get(wsId) || null,
+    setCreditAdder: (fn) => { addCredits = fn; }, // (ws, { pack, credits, price, note, by }) → adds a pack (credits.js)
     mountAuth, requireAuth, mountAccountApi,
     signedIn: (req) => Boolean(sessionOf(req)),
     wsId: () => current()?.meta.id || null,

@@ -1,0 +1,42 @@
+/* The Terms of Service and Privacy Policy pages (terms.html, privacy.html): a readable document on the app's colours. */
+:root { color-scheme: light dark; }
+.lg-body { margin: 0; padding: 0 !important; /* style.css pads body for the app's sidebar */ background: var(--bg); color: var(--text); font: 400 15.5px/1.7 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.lg-top { position: sticky; top: 0; z-index: 2; background: color-mix(in srgb, var(--bg) 85%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: 0 1px 0 var(--hair); }
+.lg-top-in { max-width: 920px; margin: 0 auto; padding: 0 24px; height: 60px; display: flex; align-items: center; gap: 16px; }
+.lg-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font: 600 17px Outfit, Inter, sans-serif; }
+.lg-brand img { width: 28px; height: 28px; border-radius: 8px; }
+.lg-nav { margin-left: auto; display: flex; gap: 6px; }
+.lg-nav a { padding: 6px 12px; border-radius: 9px; color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; }
+.lg-nav a:hover { color: var(--text); background: var(--sunk); }
+.lg-nav a[aria-current] { color: var(--text); background: var(--surface); box-shadow: var(--sh-raised); }
+.lg-main { max-width: 920px; margin: 0 auto; padding: 40px 24px 80px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 48px; align-items: start; }
+.lg-toc { position: sticky; top: 84px; font-size: 13.5px; }
+.lg-toc b { display: block; margin-bottom: 8px; font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); }
+.lg-toc ol { margin: 0; padding-left: 18px; color: var(--faint); }
+.lg-toc li { margin: 4px 0; }
+.lg-toc a { color: var(--muted); text-decoration: none; }
+.lg-toc a:hover { color: var(--text); text-decoration: underline; }
+.lg-doc h1 { margin: 0 0 6px; font-size: 34px; line-height: 1.2; letter-spacing: -0.02em; }
+.lg-meta { margin: 0 0 28px; color: var(--muted); font-size: 14px; }
+.lg-lead { padding: 16px 18px; margin: 0 0 28px; border-radius: 14px; background: var(--surface); box-shadow: var(--sh-card); font-size: 15px; }
+.lg-doc h2 { margin: 36px 0 10px; font-size: 20px; letter-spacing: -0.01em; scroll-margin-top: 80px; }
+.lg-doc h3 { margin: 20px 0 6px; font-size: 16px; }
+.lg-doc p, .lg-doc ul { margin: 0 0 12px; }
+.lg-doc ul { padding-left: 22px; }
+.lg-doc li { margin: 4px 0; }
+.lg-doc a { color: var(--accent-text); }
+.lg-doc table { width: 100%; border-collapse: collapse; margin: 6px 0 16px; font-size: 14px; }
+.lg-doc th, .lg-doc td { padding: 9px 10px; text-align: left; vertical-align: top; border-top: 1px solid var(--hair); }
+/* style.css keeps table cells on one line (table:not(.data-table) td); a document's cells wrap */
+.lg-body .lg-doc table th, .lg-body .lg-doc table td { white-space: normal; box-shadow: none; }
+.lg-body .lg-doc table td:first-child { width: 30%; font-weight: 500; }
+.lg-doc th { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); border-top: 0; }
+.lg-foot { max-width: 920px; margin: 0 auto; padding: 24px; border-top: 1px solid var(--hair); display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; color: var(--muted); }
+.lg-foot a { color: var(--muted); }
+@media (max-width: 760px) {
+  .lg-main { grid-template-columns: 1fr; gap: 20px; padding-top: 24px; }
+  .lg-toc { position: static; }
+  .lg-doc h1 { font-size: 28px; }
+  .lg-top-in { padding: 0 16px; }
+  .lg-nav a { padding: 6px 8px; font-size: 13px; }
+}

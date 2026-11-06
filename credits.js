@@ -147,6 +147,9 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     const l = line('add:' + p.id, `${p.name} added`, 'add');
     l.used = n;
     save();
+    // The workspace hears about it (and sees the toast if it's open). The balance itself updates live: server.js
+    // tells the workspace's open pages, which reload it.
+    notes?.add({ kind: 'credits_added', title: `${n.toLocaleString('en-IN')} credits added`, body: `Your ${preset ? preset.name : 'credits'} ${preset ? 'is' : 'are'} ready to use until ${expires.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}. Balance: ${balance().toLocaleString('en-IN')} credits.`, link: { tab: 'settings' } });
     return p;
   }
 

@@ -624,7 +624,7 @@ app.get('/go/:code', (req, res) => {
   res.status(404).send('This link has expired or never existed.');
 });
 // The sign-in pages and the landing page use these files, so they load without signing in.
-const PUBLIC_FILES = new Set(['/style.css', '/icons.css', '/icons.js', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg']);
+const PUBLIC_FILES = new Set(['/style.css', '/icons.css', '/icons.js', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg', '/legal.css']);
 // The home page: the landing page for visitors, the app for anyone signed in. (/welcome always shows the landing page.)
 const LANDING = path.join(__dirname, 'public', 'landing.html');
 app.get(['/', '/welcome'], (req, res, next) => {
@@ -632,6 +632,10 @@ app.get(['/', '/welcome'], (req, res, next) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(LANDING);
 });
+// The Terms of Service and Privacy Policy: linked from sign-up and the landing page, so anyone can read them.
+for (const [route, file] of [['/terms', 'terms.html'], ['/privacy', 'privacy.html']]) {
+  app.get(route, (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', file)); });
+}
 // The landing page's company logos (public/brand/clients/) are public too.
 const PUBLIC_DIRS = ['/brand/clients/'];
 const isPublic = (p) => PUBLIC_FILES.has(p) || PUBLIC_DIRS.some((d) => p.startsWith(d) && !p.includes('..'));
@@ -3189,6 +3193,10 @@ function removeSeedData() {
 
 notes = require('./notifications')(app, { db, save, id, wrap, broadcast });
 credits = require('./credits').mount(app, { db, save, id, wrap, fail, meta: tenants.meta, notes });
+// Credits paid for before sign-up (admin → People) are added through the same path as the admin's "Add credits".
+// Either way, the workspace's open pages are told straight away, so the balance rolls up without a reload.
+const creditsChanged = (wsId) => broadcastTo(wsId, { kind: 'changed', area: 'credits', tab: '' });
+tenants.setCreditAdder((ws, pack) => { tenants.forWorkspace(ws, () => credits.addPack(pack)); creditsChanged(ws.meta.id); });
 // Admins: a workspace's credits, and adding a pack after the customer has paid.
 const adminWs = (req) => {
   if (!req.admin) throw fail('Admins only', 403);
@@ -3199,7 +3207,9 @@ const adminWs = (req) => {
 app.get('/api/admin/workspaces/:id/credits', wrap((req, res) => { const ws = adminWs(req); res.json(tenants.forWorkspace(ws, () => credits.summary())); }));
 app.post('/api/admin/workspaces/:id/credits', wrap((req, res) => {
   const ws = adminWs(req);
-  res.json(tenants.forWorkspace(ws, () => { credits.addPack({ ...req.body, by: req.user.email }); return credits.summary(); }));
+  const summary = tenants.forWorkspace(ws, () => { credits.addPack({ ...req.body, by: req.user.email }); return credits.summary(); });
+  creditsChanged(ws.meta.id);
+  res.json(summary);
 }));
 const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast });
 // Templates saved before their dates were kept: created = when it was sent to Meta from here, approved = the

@@ -287,3 +287,11 @@ html.ax-collapsed .ax-brand { flex: none; padding: 0; gap: 0; }
   .ax-row { grid-template-columns: minmax(0, 1fr) 76px 16px; gap: 10px; padding: 0 12px; }
   .ax-row > .c-plan { display: none; }
 }
+
+/* Add credits for a customer (People tab) */
+.ax-ppform { display: flex; flex-direction: column; gap: 12px; }
+.ax-ppform > label { display: flex; flex-direction: column; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; }
+.ax-ppform > label input { margin: 0; }
+.ax-pppacks { flex-wrap: wrap; gap: 10px 18px; margin: 0; }
+.ax-ppcustom { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ax-ppcustom input { margin: 0; }

@@ -77,13 +77,14 @@ function structure() {
 const relTag = (kind) => ({ main: '<span class="ax-tag main">Main</span>', sub: '<span class="ax-tag sub">Sub-workspace</span>', sep: '<span class="ax-tag sep">Separate</span>' }[kind] || '');
 
 async function loadAll() {
-  const [all, reps, dels, gv] = await Promise.all([
+  const [all, reps, dels, gv, prepaid] = await Promise.all([
     api('/admin/workspaces'),
     api('/admin/reports').catch(() => []),
     api('/admin/deletion-requests').catch(() => []),
     api('/admin/graph-version').catch(() => null),
+    api('/admin/prepaid').catch(() => []),
   ]);
-  Object.assign(S, { all, reps, dels, gv, loaded: true });
+  Object.assign(S, { all, reps, dels, gv, prepaid, loaded: true });
 }
 
 // --- Tabs and routing ------------------------------------------------------------------------------------------------
@@ -256,7 +257,8 @@ function peopleHtml() {
   const list = people().filter((p) => !q || (p.email || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q) || p.ws.some((w) => w.name.toLowerCase().includes(q)));
   return `
     <div class="ax-h"><div><h1>People</h1><p>Everyone with an account, and the workspaces they're in.</p></div>
-      <div class="ax-tools"><div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="pQ" placeholder="Search name, email or workspace" value="${esc(S.pQ)}" /></div></div></div>
+      <div class="ax-tools"><div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="pQ" placeholder="Search name, email or workspace" value="${esc(S.pQ)}" /></div><button type="button" class="btn sm primary" id="ppAdd">${ic('zap', 14)}Add credits for a customer</button></div></div>
+    ${prepaidHtml()}
     ${list.length ? `<section class="ax-card ax-list ax-people">
       <div class="ax-prow head"><span>Person</span><span class="c-ws">Workspaces</span><span class="c-joined">Joined</span><span></span></div>
       ${list.map((p) => `<div class="ax-prow">
@@ -266,6 +268,57 @@ function peopleHtml() {
         ${p.admin ? '<span class="ax-faint" style="justify-self:end;font-size:12.5px">Admin</span>' : `<button class="btn sm quiet danger" data-deluser="${p.id}">Delete account…</button>`}
       </div>`).join('')}
     </section>` : '<section class="ax-card ax-empty"><b>Nobody matches</b>Try another search.</section>'}`;
+}
+
+// Credits a customer paid for before signing up: added to their workspace when they sign up (or straight away if
+// they already have an account). Waiting ones can be cancelled; added ones say where they went.
+function prepaidHtml() {
+  const list = S.prepaid || [];
+  if (!list.length) return '';
+  const waiting = list.filter((p) => !p.appliedAt), done = list.filter((p) => p.appliedAt);
+  const row = (p) => `<tr>
+    <td><b>${esc(p.email)}</b><div class="ax-muted" style="font-size:12px">${esc(p.note || 'No note')} · by ${esc(p.by)} · ${ago(p.at)}</div></td>
+    <td class="num">${n(p.credits)}</td><td class="num">${p.price ? '₹' + n(p.price) : '—'}</td>
+    <td>${p.appliedAt ? `<span class="ax-tag good">Added</span> <a class="ax-link" href="#/w/${esc(p.wsId)}/credits">${esc(p.wsName)}</a> <span class="ax-faint">${ago(p.appliedAt)}</span>` : '<span class="ax-tag warn">Waiting for sign-up</span>'}</td>
+    <td class="num">${p.appliedAt ? '' : `<button class="btn sm quiet danger" data-pp-cancel="${p.id}">Cancel</button>`}</td>
+  </tr>`;
+  return `<section class="ax-card"><h3>${ic('zap', 16)}Credits paid before sign-up<span class="ax-faint" style="font-weight:400;font-size:12.5px;margin-left:4px">${waiting.length} waiting${done.length ? ` · ${done.length} added in the last 90 days` : ''}</span></h3>
+    <table class="ax-table"><thead><tr><th>Customer</th><th class="num">Credits</th><th class="num">Paid</th><th>Status</th><th></th></tr></thead><tbody>${[...waiting, ...done].map(row).join('')}</tbody></table></section>`;
+}
+function prepaidDlg() {
+  const d = dlg(`<div class="adm-dlg-h"><b>Add credits for a customer</b><button class="adm-x" data-close aria-label="Close">×</button></div>
+    <p class="sub" style="margin:0 0 16px">Once they've paid. If they don't have an account yet, the credits are added to their workspace the moment they sign up with this email. If they do, the credits go to the workspace they own straight away.</p>
+    <form id="ppForm" class="ax-ppform">
+      <label>Customer's email<input id="ppEmail" type="email" required autocomplete="off" placeholder="name@company.com" /></label>
+      <div class="adm-cr-plan ax-pppacks">
+        <label><input type="radio" name="ppPack" value="10k" /> ₹10,000 → 10,000</label>
+        <label><input type="radio" name="ppPack" value="20k" /> ₹20,000 → 22,000</label>
+        <label><input type="radio" name="ppPack" value="25k" checked /> ₹25,000 → 30,000</label>
+        <label><input type="radio" name="ppPack" value="custom" /> Custom</label>
+      </div>
+      <div class="ax-ppcustom hidden" id="ppCustom"><input id="ppCredits" inputmode="numeric" placeholder="Credits" aria-label="Credits" /><input id="ppPrice" inputmode="numeric" placeholder="₹ paid" aria-label="Amount paid in rupees" /></div>
+      <label><span>Note <span class="ax-faint" style="font-weight:400">invoice, UTR…</span></span><input id="ppNote" maxlength="200" autocomplete="off" /></label>
+      <div class="adm-dlg-acts"><button type="button" class="btn quiet" data-close>Cancel</button><button class="btn primary" id="ppGo">Add credits</button></div>
+    </form>`);
+  d.querySelector('#ppEmail').focus();
+  d.onchange = (e) => { if (e.target.name === 'ppPack') d.querySelector('#ppCustom').classList.toggle('hidden', e.target.value !== 'custom'); };
+  d.onclick = (e) => { if (e.target === d || e.target.closest('[data-close]')) d.close(); };
+  d.querySelector('#ppForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const pack = d.querySelector('[name=ppPack]:checked').value, email = d.querySelector('#ppEmail').value.trim();
+    const body = pack === 'custom' ? { email, credits: d.querySelector('#ppCredits').value, price: d.querySelector('#ppPrice').value } : { email, pack };
+    const amount = pack === 'custom' ? Number(body.credits) : { '10k': 10000, '20k': 22000, '25k': 30000 }[pack];
+    if (!amount) return toast('Enter how many credits', true);
+    if (!confirm(`Add ${n(amount)} credits for ${email}? Only once they've paid.`)) return;
+    const go = d.querySelector('#ppGo');
+    go.disabled = true;
+    try {
+      const r = await api('/admin/prepaid', { method: 'POST', body: { ...body, note: d.querySelector('#ppNote').value } });
+      d.close();
+      toast(r.appliedTo ? `${n(r.credits)} credits added to ${r.appliedTo}` : `${n(r.credits)} credits waiting: added when ${email} signs up`);
+      await reload();
+    } catch (err) { toast(err.message, true); go.disabled = false; }
+  };
 }
 
 // --- Issues ----------------------------------------------------------------------------------------------------------
@@ -543,6 +596,13 @@ document.addEventListener('click', async (e) => {
     return;
   }
   if (t.closest('#wsDelete') && w) return deleteWorkspaceDlg(w);
+  if (t.closest('#ppAdd')) return prepaidDlg();
+  const ppc = t.closest('[data-pp-cancel]');
+  if (ppc) {
+    if (!confirm('Cancel these waiting credits? Nothing has been added yet.')) return;
+    try { await api('/admin/prepaid/' + ppc.dataset.ppCancel, { method: 'DELETE' }); toast('Cancelled'); await reload(); } catch (err) { toast(err.message, true); }
+    return;
+  }
   // Credits
   const pack = t.closest('[data-pack]');
   if ((pack || t.closest('#crCustom')) && w && S.credits) {
