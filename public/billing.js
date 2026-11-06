@@ -33,12 +33,12 @@ window.Credits = (() => {
     const d = C.data, on = charged();
     document.querySelectorAll('.cr-slot').forEach((slot) => {
       if (unlimited()) {
-        slot.innerHTML = `<span class="cr-chip unl">${window.Coin ? Coin.html({ size: 24, label: 'Unlimited credits' }) : ''}<button type="button" class="cr-chip-t" data-goto="settings" title="This workspace has unlimited credits: nothing it does is charged"><b>Unlimited</b></button></span>`;
+        slot.innerHTML = `<span class="cr-chip unl">${window.Coin ? Coin.html({ size: 24, label: 'Unlimited credits' }) : ''}<button type="button" class="cr-chip-t" data-goto="credits" title="This workspace has unlimited credits: nothing it does is charged"><b>Unlimited</b></button></span>`;
         return;
       }
       if (!on) { slot.innerHTML = ''; return; }
       if (!slot.firstElementChild) {
-        slot.innerHTML = `<span class="cr-chip">${window.Coin ? Coin.html({ size: 24, label: 'Credits' }) : ''}<button type="button" class="cr-chip-t" data-goto="settings" title="Credits left in this workspace. Open Settings → Credits"><b class="cr-chip-v"></b><span>credits</span></button></span>`;
+        slot.innerHTML = `<span class="cr-chip">${window.Coin ? Coin.html({ size: 24, label: 'Credits' }) : ''}<button type="button" class="cr-chip-t" data-goto="credits" title="Credits left in this workspace. Open the Credits page"><b class="cr-chip-v"></b><span>credits</span></button></span>`;
       }
       slot.firstElementChild.className = 'cr-chip ' + lowOf(d);
       roll(slot.querySelector('.cr-chip-v'), d.balance);
@@ -46,7 +46,7 @@ window.Credits = (() => {
   }
   // While a page with the balance on it is open, check it now and then (a campaign that's sending uses credits).
   setInterval(() => {
-    if (charged() && document.visibilityState === 'visible' && ['overview', 'campaigns', 'assistant', 'settings'].includes(state.tab)) load();
+    if (charged() && document.visibilityState === 'visible' && ['overview', 'campaigns', 'assistant', 'credits'].includes(state.tab)) load();
   }, 20000);
 
   // --- For the Send page ---------------------------------------------------------------------------------------------
@@ -56,7 +56,7 @@ window.Credits = (() => {
   const short = (t, count) => {
     if (!charged() || !t || !count) return '';
     const need = count * rate(t);
-    return need > C.data.balance ? `Needs ${fmt(need)} credits and this workspace has ${fmt(C.data.balance)}. Add credits in Settings → Credits, or send to fewer people` : '';
+    return need > C.data.balance ? `Needs ${fmt(need)} credits and this workspace has ${fmt(C.data.balance)}. Add credits on the Credits page, or send to fewer people` : '';
   };
   // A line for the "Send N messages?" confirmation.
   const confirmText = (t, count) => {
@@ -65,32 +65,28 @@ window.Credits = (() => {
     return `<br><br>Uses <strong>${fmt(count * r)} credits</strong> (${r} per ${kind(t)} message) of your ${fmt(C.data.balance)}. Messages that fail give their credits back.`;
   };
 
-  // --- Settings → Credits ------------------------------------------------------------------------------------------
+  // --- the Credits page ------------------------------------------------------------------------------------------
   function render() {
     const card = $('#creditsCard');
     if (!card) return;
     const d = C.data;
-    card.classList.toggle('hidden', !d?.on && !d?.unlimited);
-    if (d?.unlimited) {
-      card.innerHTML = `<div class="card-head"><h2 data-icon="zap">Credits</h2></div>
-        <div class="cr-top cr-top-unl"><div class="cr-bal">${window.Coin ? Coin.html({ size: 92, label: 'Unlimited credits' }) : ''}<b>Unlimited</b><span>This workspace isn’t charged: campaigns, template messages and AI don’t use credits, and it can connect any number of WhatsApp numbers.</span></div></div>
-        <p class="sub cr-note">Meta still bills its own per-message fee to your WhatsApp Business Account.</p>`;
-      LA.hydrate(card);
-      return;
-    }
-    if (!d?.on) return;
-    const next = d.packs.filter((p) => !p.expired && p.left > 0).sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))[0];
-    const low = d.balance === 0 ? 'out' : next && lowOf(d) ? 'low' : '';
+    const shown = Boolean(d?.on || d?.unlimited);
+    card.classList.toggle('hidden', !shown);
+    $('#creditsNone')?.classList.toggle('hidden', shown || !d);
+    const unl = Boolean(d?.unlimited);
+    if (!unl && !d?.on) return;
+    const next = unl ? null : d.packs.filter((p) => !p.expired && p.left > 0).sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))[0];
+    const low = unl ? '' : d.balance === 0 ? 'out' : next && lowOf(d) ? 'low' : '';
     card.innerHTML = `
       <div class="card-head">
-        <h2 data-icon="zap">Credits</h2>
-        <button type="button" class="btn sm primary" id="crBuy" data-icon="plus" data-icon-size="14">Buy credits</button>
+        <h2 data-icon="zap">Balance</h2>
+        ${unl ? '' : '<button type="button" class="btn sm primary" id="crBuy" data-icon="plus" data-icon-size="14">Buy credits</button>'}
       </div>
       <div class="cr-top">
         <div class="cr-bal ${low}">
-          ${window.Coin ? Coin.html({ size: 92, label: `${fmt(d.balance)} credits` }) : ''}
-          <b class="cr-num"></b>
-          <span>${low === 'out' ? 'No credits left: campaigns, template messages and AI are on hold' : 'credits left'}${next ? ` · ${fmt(next.left)} expire ${day(next.expiresAt)}` : ''}</span>
+          ${window.Coin ? Coin.html({ size: 92, label: unl ? 'Unlimited credits' : `${fmt(d.balance)} credits` }) : ''}
+          ${unl ? '<b>Unlimited</b><span>Nothing here uses credits: the rates are what it would cost, for your records.</span>'
+            : `<b class="cr-num"></b><span>${low === 'out' ? 'No credits left: campaigns, template messages and AI are on hold' : 'credits left'}${next ? ` · ${fmt(next.left)} expire ${day(next.expiresAt)}` : ''}</span>`}
           ${d.demo ? '<span class="cr-demo">Demo mode is on: nothing uses credits</span>' : ''}
         </div>
         <dl class="cr-rates">
@@ -102,16 +98,32 @@ window.Credits = (() => {
           <div class="cr-nums"><dt>WhatsApp numbers on your plan</dt><dd>${d.numberLimit == null ? `${fmt(d.numbersUsed)} connected · no limit` : `${fmt(d.numbersUsed)} of ${fmt(d.numberLimit)}`}</dd></div>
         </dl>
       </div>
-      <p class="sub cr-note">Messages that fail give their credits back. Credits from a pack last ${d.months} months. These are SendON’s charges: Meta bills its own per-message fee to your WhatsApp Business Account separately. AI uses credits whether it runs on SendON’s AI or your own AI key.</p>
-      <div class="field-label">Recent activity</div>
-      <div class="cr-log">${d.ledger.length ? d.ledger.slice(0, 12).map(row).join('') : '<p class="sub">Nothing yet.</p>'}</div>`;
+      <p class="sub cr-note">${unl ? 'This workspace is on Unlimited: nothing is taken, and the activity below shows what it used at the rates above.' : `Messages that fail give their credits back. Credits from a pack last ${d.months} months.`} These are SendON’s charges: Meta bills its own per-message fee to your WhatsApp Business Account separately.${unl ? '' : ' AI uses credits whether it runs on SendON’s AI or your own AI key.'}</p>
+      ${activityHtml(d.ledger, unl)}`;
     LA.hydrate(card);
-    roll($('.cr-num', card), d.balance);
+    if (!unl) roll($('.cr-num', card), d.balance);
   }
+  // Recent activity: the last 14 days only; View all activity opens the whole log.
+  const RECENT_DAYS = 14;
+  const recent = (ledger) => ledger.filter((l) => Date.now() - Date.parse(l.at) < RECENT_DAYS * 86400000);
+  function activityHtml(ledger, free) {
+    const list = recent(ledger);
+    return `<div class="cr-act-h"><span class="field-label">Recent activity <span class="opt">last ${RECENT_DAYS} days</span></span>${ledger.length ? `<button type="button" class="btn sm quiet" id="crAll" data-icon="list" data-icon-size="14">View all activity</button>` : ''}</div>
+      <div class="cr-log">${list.length ? list.map((l) => row(l, free)).join('') : `<p class="sub">${ledger.length ? `Nothing in the last ${RECENT_DAYS} days.` : 'Nothing yet.'}</p>`}</div>`;
+  }
+  async function allActivity() {
+    let d;
+    try { d = await api('/credits?all=1'); } catch (e) { return toast(e.message, 'error'); }
+    const free = Boolean(d.unlimited);
+    openModal('All credits activity', `<p class="sub" style="margin-top:0">${fmt(d.ledger.length)} entr${d.ledger.length === 1 ? 'y' : 'ies'}, newest first.${free ? ' Unlimited: nothing was taken.' : ''}</p>
+      <div class="cr-log cr-log-all">${d.ledger.map((l) => row(l, free)).join('') || '<p class="sub">Nothing yet.</p>'}</div>`);
+    $('#modal .modal-box').classList.add('cr-all-box');
+  }
+  document.addEventListener('click', (e) => { if (e.target.closest('#crAll')) allActivity(); });
   const numbersText = (n) => (n == null ? 'Unlimited numbers' : n === 1 ? '1 WhatsApp number' : `Up to ${n} WhatsApp numbers`);
-  function row(l) {
-    const net = l.kind === 'add' ? `+${fmt(l.used)}` : `−${fmt(l.used - l.refunded)}`;
-    const detail = l.kind === 'add' ? 'Added' : l.kind === 'expire' ? 'Expired unused' : `${fmt(l.used)} used${l.refunded ? ` · ${fmt(l.refunded)} returned for failed messages` : ''}`;
+  function row(l, free = false) { // free: an Unlimited workspace's use, logged but not taken
+    const net = l.kind === 'add' ? `+${fmt(l.used)}` : free ? `${fmt(l.used - l.refunded)}` : `−${fmt(l.used - l.refunded)}`;
+    const detail = l.kind === 'add' ? 'Added' : l.kind === 'remove' ? 'Removed by SendON' : l.kind === 'expire' ? 'Expired unused' : `${fmt(l.used)} used${l.refunded ? ` · ${fmt(l.refunded)} returned for failed messages` : ''}${free ? ' · not charged' : ''}`;
     return `<div class="cr-row ${l.kind}"><span><b>${esc(l.what)}</b><small>${esc(detail)} · ${esc(relTime(l.at))}</small></span><em>${net}</em></div>`;
   }
 

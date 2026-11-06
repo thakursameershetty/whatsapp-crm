@@ -169,7 +169,7 @@ function showTab(name) {
   if (wasHidden) { Motion.enter($('#tab-' + name)); scrollTo(0, 0); } // a new page starts at the top
   state.tab = name;
   // Narrow screens: the top bar names the page, and choosing a page closes the menu.
-  $('#mbarTitle').textContent = $(`.side-nav button[data-tab="${navFor}"] .nav-label`)?.textContent || 'SendON';
+  $('#mbarTitle').textContent = $(`.side-nav button[data-tab="${navFor}"] .nav-label`)?.textContent || { credits: 'Credits' }[name] || 'SendON';
   setDrawer(false);
   // The inbox fills the window and starts with the sidebar shrunk to icons.
   document.body.classList.toggle('inbox-open', name === 'inbox');
@@ -181,7 +181,7 @@ function showTab(name) {
   requestAnimationFrame(setupSticky);
   document.body.classList.toggle('send-open', name === 'send');
   if (name === 'send') window.SendPage?.show();
-  if (['settings', 'send', 'overview', 'campaigns', 'assistant'].includes(name)) window.Credits?.load(); // the balance may have changed (it shows on all of these)
+  if (['credits', 'send', 'overview', 'campaigns', 'assistant'].includes(name)) window.Credits?.load(); // the balance may have changed (it shows on all of these)
   if (name === 'contacts') window.Contacts?.show();
   if (name === 'notifications') window.Notifications?.show();
   if (name === 'campaigns') loadCampaigns();
@@ -4991,6 +4991,12 @@ $('#acctBtn').addEventListener('click', (e) => {
     <div class="acct-pop-label">Workspaces</div>
     ${me.workspaces.map((w) => `<button type="button" class="acct-pop-item ws-item ${w.id === me.workspace.id ? 'on' : ''}" data-ws="${w.id}" role="menuitemradio" aria-checked="${w.id === me.workspace.id}"><i class="ss-check">${w.id === me.workspace.id ? TICK_SVG : ''}</i><span>${esc(w.name)}</span></button>`).join('')}
     <button type="button" class="acct-pop-item" data-act="team">${icon('users', 15)}<span>Workspace & team</span></button>
+    ${(() => { // Credits: only where they mean something (the credits plan while pricing is on, or Unlimited)
+      const c = window.Credits?.data;
+      if (!c || !(c.on || c.unlimited)) return '';
+      const low = c.unlimited ? '' : c.balance === 0 ? 'out' : '';
+      return `<button type="button" class="acct-pop-item acct-credits ${state.tab === 'credits' ? 'on' : ''}" data-act="credits"><img class="acct-coin" src="/brand/credit-coin.webp" alt="" /><span>Credits</span><em class="${low}">${c.unlimited ? 'Unlimited' : Number(c.balance).toLocaleString()}</em></button>`;
+    })()}
     ${me.admin ? `<button type="button" class="acct-pop-item" data-act="admin">${icon('layout-grid', 15)}<span>Admin: all workspaces</span></button>` : ''}
     <hr />
     <div class="acct-pop-theme"><span>Theme</span><div class="seg seg-icons">${THEMES.map(([k, label, ic]) => `<button type="button" data-theme-set="${k}" title="${label}" class="${k === cur ? 'active' : ''}">${icon(ic, 15)}</button>`).join('')}</div></div>
@@ -5007,6 +5013,7 @@ $('#acctBtn').addEventListener('click', (e) => {
     }
     if (act === 'team') { Sheet.Menu.close(); showTab('settings'); scrollTo({ top: 0, behavior: 'smooth' }); } // Workspace & team is the first card
     if (act === 'admin') location.href = '/admin.html';
+    if (act === 'credits') { Sheet.Menu.close(); showTab('credits'); }
   });
 });
 // The photo block in Edit your account (kept in step when the photo is uploaded or removed).

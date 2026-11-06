@@ -536,7 +536,7 @@ async function wsCredits(w) {
   let c;
   try { c = S.credits || (S.credits = await api('/admin/workspaces/' + w.id + '/credits')); } catch (e) { box.innerHTML = `<section class="ax-card ax-empty"><b>Couldn't load credits</b>${esc(e.message)}</section>`; return; }
   const low = c.balance === 0 ? 'out' : c.balance < 500 ? 'low' : '';
-  const kindText = (l) => (l.kind === 'add' ? 'Added' : l.kind === 'expire' ? 'Expired unused' : `${n(l.used)} used${l.refunded ? ` · ${n(l.refunded)} returned for failed messages` : ''}`);
+  const kindText = (l) => (l.kind === 'add' ? 'Added' : l.kind === 'remove' ? `Removed${l.by ? ' by ' + l.by : ''}` : l.kind === 'expire' ? 'Expired unused' : `${n(l.used)} used${l.refunded ? ` · ${n(l.refunded)} returned for failed messages` : ''}`);
   box.innerHTML = `
     ${c.live ? '' : '<div class="adm-pricing-off"><b>Pricing is off</b> (PRICING isn’t on), so nothing here applies yet. What you set is kept for when it’s on.</div>'}
     <div class="ax-grid2">
@@ -550,10 +550,12 @@ async function wsCredits(w) {
       <section class="ax-card"><h3>${ic('plus', 16)}Add credits <span class="ax-faint" style="font-weight:400;font-size:12.5px">once they’ve paid</span></h3>
         <div class="adm-cr-add" style="margin-top:0">${c.packOptions.map((p) => `<button class="btn sm" data-pack="${p.id}">Add ₹${n(p.price)} → ${n(p.credits)}</button>`).join('')}</div>
         <div class="adm-cr-custom" style="margin-bottom:0"><input id="crN" inputmode="numeric" placeholder="Credits" aria-label="Credits" /><input id="crPrice" inputmode="numeric" placeholder="₹ paid" aria-label="Amount paid in rupees" /><input id="crNote" placeholder="Note (invoice, UTR…)" aria-label="Note" /><button class="btn sm" id="crCustom">Add</button></div>
+        ${c.balance ? `<div class="ax-cr-remove"><b>Remove credits</b><span class="ax-faint">a refund, a mistake or a cancelled payment. Taken from the packs that expire last.</span>
+          <div class="adm-cr-custom" style="grid-template-columns:1fr 2.2fr auto;margin:8px 0 0"><input id="crRmN" inputmode="numeric" placeholder="Credits" aria-label="Credits to remove" /><input id="crRmNote" placeholder="Why (shown in their activity)" aria-label="Reason" /><button class="btn sm quiet danger" id="crRemove">Remove</button></div></div>` : ''}
       </section>
     </div>
-    ${c.packs.length ? `<section class="ax-card"><h3>${ic('layers', 16)}Packs</h3><table class="ax-table"><thead><tr><th>Pack</th><th class="num">Credits</th><th class="num">Left</th><th class="num">Paid</th><th class="num">Added</th><th class="num">Expires</th></tr></thead><tbody>
-      ${c.packs.map((p) => `<tr><td><b>${esc(p.name)}</b>${p.expired ? ' <span class="ax-tag">Expired</span>' : ''}</td><td class="num">${n(p.credits)}</td><td class="num">${n(p.left)}</td><td class="num">${p.price ? '₹' + n(p.price) : '—'}</td><td class="num ax-muted">${date(p.addedAt)}</td><td class="num ax-muted">${date(p.expiresAt)}</td></tr>`).join('')}
+    ${c.packs.length ? `<section class="ax-card"><h3>${ic('layers', 16)}Packs</h3><table class="ax-table"><thead><tr><th>Pack</th><th class="num">Credits</th><th class="num">Left</th><th class="num">Paid</th><th class="num">Added</th><th class="num">Expires</th><th></th></tr></thead><tbody>
+      ${c.packs.map((p) => `<tr><td><b>${esc(p.name)}</b>${p.expired ? ' <span class="ax-tag">Expired</span>' : !p.left ? ' <span class="ax-tag">Used up</span>' : ''}</td><td class="num">${n(p.credits)}</td><td class="num">${n(p.left)}</td><td class="num">${p.price ? '₹' + n(p.price) : '—'}</td><td class="num ax-muted">${date(p.addedAt)}</td><td class="num ax-muted">${date(p.expiresAt)}</td><td class="num">${p.left && !p.expired ? `<button class="btn sm quiet danger" data-pack-rm="${p.id}" data-left="${p.left}" data-name="${esc(p.name)}">Remove ${n(p.left)}</button>` : ''}</td></tr>`).join('')}
     </tbody></table></section>` : ''}
     <section class="ax-card"><h3>${ic('calendar-days', 16)}Activity</h3>
       ${c.ledger.length ? `<table class="ax-table ax-ledger"><tbody>${c.ledger.map((l) => `<tr><td><b>${esc(l.what)}</b><small>${esc(kindText(l))}</small></td><td class="num ax-muted">${ago(l.at)}</td><td class="num ${l.kind === 'add' ? 'add' : ''}"><b>${l.kind === 'add' ? '+' + n(l.used) : '−' + n(l.used - l.refunded)}</b></td></tr>`).join('')}</tbody></table>` : '<p class="ax-muted" style="margin:0">No activity yet.</p>'}
@@ -622,6 +624,19 @@ document.addEventListener('click', async (e) => {
     return;
   }
   // Credits
+  // Removing credits: what one pack has left, or an amount
+  const prm = t.closest('[data-pack-rm]');
+  if ((prm || t.closest('#crRemove')) && w && S.credits) {
+    const amount = prm ? Number(prm.dataset.left) : Math.floor(Number($('#crRmN').value));
+    if (!amount) return toast('Enter how many credits to remove', true);
+    if (!confirm(prm ? `Remove the ${n(amount)} credits left in ${prm.dataset.name} from ${w.name}? They can't use them any more.` : `Remove ${n(amount)} credits from ${w.name}? They can't use them any more.`)) return;
+    try {
+      await api('/admin/workspaces/' + w.id + '/credits/remove', { method: 'POST', body: prm ? { packId: prm.dataset.packRm, note: '' } : { credits: amount, note: $('#crRmNote').value.trim() } });
+      toast(`Removed ${n(amount)} credits`);
+      await reload();
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
   const pack = t.closest('[data-pack]');
   if ((pack || t.closest('#crCustom')) && w && S.credits) {
     const c = S.credits;

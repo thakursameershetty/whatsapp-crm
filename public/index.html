@@ -567,6 +567,17 @@
     </section>
 
     <!-- TEMPLATES --------------------------------------------------------->
+    <section id="tab-credits" class="tab hidden">
+      <div class="section-head">
+        <div>
+          <h1>Credits</h1>
+          <p class="sub">What this workspace has left, what each thing costs, and where credits went.</p>
+        </div>
+      </div>
+      <!-- billing.js fills it; a workspace that doesn't use credits sees the note instead -->
+      <div class="card la-host credits-card hidden" id="creditsCard"></div>
+      <div class="card hidden" id="creditsNone"><div class="empty"><div class="empty-ico" data-icon="zap" data-icon-size="28"></div><h3>Credits aren’t used here</h3><p>This workspace isn’t charged, so there’s no balance to show.</p></div></div>
+    </section>
     <section id="tab-templates" class="tab hidden">
       <div class="section-head has-tools">
         <div>
@@ -630,8 +641,6 @@
           <div class="ws-team" id="wsTeam"><span class="ws-team-l">Team <span class="opt" id="teamCount"></span></span><div id="teamRow" class="tm-row" aria-label="Team"></div></div>
         </div>
       </div>
-      <!-- Credits (billing.js): only for a workspace on the credits plan. -->
-      <div class="card la-host credits-card hidden" id="creditsCard"></div>
       <div class="grid-2">
         <div class="card la-host">
           <h2 data-icon="settings">General</h2>

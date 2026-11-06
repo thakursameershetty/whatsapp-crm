@@ -7568,7 +7568,7 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .cr-slot:empty { display: none; }
 .cr-chip { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px 0 6px; border-radius: 99px; background: var(--surface); box-shadow: var(--sh-raised); white-space: nowrap; vertical-align: middle; }
 .cr-chip-t { display: inline-flex; align-items: baseline; gap: 5px; padding: 0; border: 0; background: none; color: var(--text); cursor: pointer; font: 500 13px Inter, sans-serif; }
-.cr-chip-t b { font-size: 14.5px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.cr-chip-t b { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .cr-chip-t span { color: var(--muted); }
 .cr-chip-t:hover span { color: var(--text); text-decoration: underline; }
 .cr-chip.low .cr-chip-t b { color: var(--warn); }
@@ -7586,5 +7586,14 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .auth-agree a { color: var(--text); font-weight: 600; }
 
 /* "Unlimited" (a workspace that's never charged): the Settings card is just the coin and the word */
-.cr-top.cr-top-unl { grid-template-columns: 1fr; }
-.cr-top-unl .cr-bal span { max-width: 460px; }
+
+/* Credits page: Recent activity (14 days) with View all, and the full log in a popup */
+.cr-act-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.cr-act-h .field-label { margin: 0; }
+.cr-log-all { max-height: min(62vh, 640px); overflow-y: auto; padding-right: 6px; }
+.modal-box.cr-all-box { width: min(720px, calc(100vw - 32px)); }
+
+/* Account menu: Credits, with the coin and the balance on the right */
+.acct-pop-item.acct-credits .acct-coin { width: 16px; height: 16px; border-radius: 50%; flex: none; }
+.acct-pop-item.acct-credits em { margin-left: auto; font-style: normal; font-size: 12.5px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--muted); }
+.acct-pop-item.acct-credits em.out { color: var(--danger); }

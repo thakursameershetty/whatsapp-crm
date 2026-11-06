@@ -360,7 +360,7 @@ async function runCampaign(campaign) {
   const toSend = campaign.recipients.filter((r) => r.status === 'pending' || r.status === 'queued').length;
   if (tpl && toSend && !credits.enough(toSend * credits.rateFor(tpl), campaign.demo)) {
     campaign.status = 'stopped';
-    campaign.pausedReason = `Not sent: ${creditsShort(toSend, tpl)} Add credits in Settings → Credits, then resume it.`;
+    campaign.pausedReason = `Not sent: ${creditsShort(toSend, tpl)} Add credits on the Credits page, then resume it.`;
     save();
     notes?.add({ kind: 'credits_out', group: 'credits_out', title: `“${campaign.name}” didn’t start: not enough credits`, body: campaign.pausedReason, link: { tab: 'campaigns', id: campaign.id } });
     return;
@@ -397,7 +397,7 @@ async function runCampaign(campaign) {
       const ch = template ? credits.charge(credits.rateFor(template), credits.keys.campaign(campaign)) : null;
       if (ch === false) {
         control.stop = true;
-        campaign.pausedReason = 'Paused: this workspace ran out of credits. Add credits in Settings → Credits, then resume to send the rest.';
+        campaign.pausedReason = 'Paused: this workspace ran out of credits. Add credits on the Credits page, then resume to send the rest.';
         break;
       }
       if (ch) r.credit = ch;
@@ -684,7 +684,7 @@ const aiManage = (req) => req.admin || (req.ai && req.role === 'owner');
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // Each page has its own address (/send, /inbox…): they're all the one app page, which shows the right one.
-const APP_PAGES = ['overview', 'assistant', 'inbox', 'contacts', 'send', 'campaigns', 'numbers', 'templates', 'notifications', 'settings', 'report', 'reports', 'error-codes'];
+const APP_PAGES = ['overview', 'assistant', 'inbox', 'contacts', 'send', 'campaigns', 'numbers', 'templates', 'credits', 'notifications', 'settings', 'report', 'reports', 'error-codes'];
 app.get(APP_PAGES.map((p) => '/' + p), (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 // D3 for the dashboard charts, served locally so it works offline.
 app.use('/vendor', express.static(path.join(__dirname, 'node_modules', 'd3', 'dist')));
@@ -1692,7 +1692,7 @@ function createCampaign(body) {
   const { recipients, skipped, vars } = resolveRecipients(body, template);
   if (!recipients.length) throw fail('No valid recipients');
   checkDailyLimit(recipients.length);
-  if (!credits.enough(recipients.length * credits.rateFor(template))) throw fail(`Not enough credits. ${creditsShort(recipients.length, template)} Add credits in Settings → Credits, or send to fewer people.`, 402);
+  if (!credits.enough(recipients.length * credits.rateFor(template))) throw fail(`Not enough credits. ${creditsShort(recipients.length, template)} Add credits on the Credits page, or send to fewer people.`, 402);
   const missing = vars.find((v) => recipients.some((r) => !r.values[v.key]));
   const badRow = recipients.find((r) => valuesProblem(template, r.values));
   if (badRow) throw fail(`+${badRow.phone}: ${valuesProblem(template, badRow.values)}. Fix it on the Send page.`);
@@ -2044,7 +2044,7 @@ app.post('/api/campaigns/:id/resume', wrap((req, res) => {
   const retry = req.body?.retryFailed || codes ? c.recipients.filter((r) => r.status === 'failed' && (!codes || codes.has(reasonOf(r)))) : [];
   const tpl = db.templates.find((t) => t.id === c.templateId);
   const toSend = c.recipients.filter((r) => r.status === 'pending' || r.status === 'queued').length + retry.length;
-  if (tpl && !credits.enough(toSend * credits.rateFor(tpl), c.demo)) throw fail(`Not enough credits. ${creditsShort(toSend, tpl)} Add credits in Settings → Credits.`, 402);
+  if (tpl && !credits.enough(toSend * credits.rateFor(tpl), c.demo)) throw fail(`Not enough credits. ${creditsShort(toSend, tpl)} Add credits on the Credits page.`, 402);
   retry.forEach((r) => Object.assign(r, { status: 'pending', error: undefined }));
   runCampaign(c);
   res.json(summary(c));
@@ -2428,7 +2428,7 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
   const draft = db.chats[key]?.ai?.draft;
   const aiWritten = draft && String(text || '').trim() === String(draft.text || '').trim();
   const ch = aiWritten ? credits.charge(credits.AI_RATE, credits.keys.aiReply()) : null;
-  if (ch === false) throw fail('Out of credits: sending the AI’s suggested reply uses 1 credit. Add credits in Settings → Credits, or edit the reply and send it as your own.', 402);
+  if (ch === false) throw fail('Out of credits: sending the AI’s suggested reply uses 1 credit. Add credits on the Credits page, or edit the reply and send it as your own.', 402);
   try { res.json(await sendInboxText(key, text, { replyTo, ...(ch ? { credit: ch } : {}) })); } catch (e) { credits.refund(ch); throw e; }
 }));
 
@@ -2482,7 +2482,7 @@ async function sendInboxTemplate(key, templateId, values = {}) {
   const linkErr = valuesProblem(template, filled);
   if (linkErr) throw fail(linkErr);
   const ch = credits.charge(credits.rateFor(template), credits.keys.inboxTemplate());
-  if (ch === false) throw fail(`Out of credits: a ${String(template.category || 'marketing').toLowerCase()} template uses ${credits.rateFor(template)}. Add credits in Settings → Credits.`, 402);
+  if (ch === false) throw fail(`Out of credits: a ${String(template.category || 'marketing').toLowerCase()} template uses ${credits.rateFor(template)}. Add credits on the Credits page.`, 402);
   let wamid;
   try { wamid = await sendTemplate(sender, template, wa, filled, db.settings.demoMode); } catch (e) { credits.refund(ch); throw e; }
   return recordOut(key, { type: 'template', templateId, templateName: template.name, values, wamid, ...(ch ? { credit: ch } : {}) });
@@ -3232,6 +3232,13 @@ const adminWs = (req) => {
   if (!ws) throw fail('Workspace not found', 404);
   return ws;
 };
+// Taking credits back: { packId } for what's left in one pack, or { credits, packId? }, with a note.
+app.post('/api/admin/workspaces/:id/credits/remove', wrap((req, res) => {
+  const ws = adminWs(req);
+  const summary = tenants.forWorkspace(ws, () => { credits.removeCredits({ ...req.body, by: req.user.email }); return credits.summary(); });
+  creditsChanged(ws.meta.id);
+  res.json(summary);
+}));
 app.get('/api/admin/workspaces/:id/credits', wrap((req, res) => { const ws = adminWs(req); res.json(tenants.forWorkspace(ws, () => credits.summary())); }));
 app.post('/api/admin/workspaces/:id/credits', wrap((req, res) => {
   const ws = adminWs(req);

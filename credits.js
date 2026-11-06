@@ -87,10 +87,18 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
   // Take `n` credits for one thing. Returns the charge to keep with it ({ n, packs, key }), null when this workspace
   // isn't charged (go ahead, nothing taken), or false when there aren't enough (nothing taken).
   function charge(n, { key, what, demo } = {}) {
+    // Unlimited: nothing is taken, but the use is still logged, so Recent activity shows what the workspace did.
+    if (n && meta()?.billing === 'unlimited' && !(demo ?? db.settings.demoMode)) {
+      const l = line(key, what);
+      l.used += n;
+      l.count += 1;
+      save();
+      return { n, packs: [], key };
+    }
     if (!on(demo) || !n) return null;
     sweep();
     if (balance() < n) {
-      notes?.add({ kind: 'credits_out', group: 'credits_out', title: 'You’re out of credits', body: 'Messages and AI replies that use credits are on hold. Add credits to carry on.', link: { tab: 'settings' } });
+      notes?.add({ kind: 'credits_out', group: 'credits_out', title: 'You’re out of credits', body: 'Messages and AI replies that use credits are on hold. Add credits to carry on.', link: { tab: 'credits' } });
       return false;
     }
     const taken = [];
@@ -132,7 +140,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     const bal = balance();
     if (bal < at && !b.lowWarned) {
       b.lowWarned = true;
-      notes?.add({ kind: 'credits_low', group: 'credits_low', title: `Credits running low: ${bal.toLocaleString('en-IN')} left`, body: 'Add a pack so campaigns and AI replies don’t stop. Settings → Credits.', link: { tab: 'settings' } });
+      notes?.add({ kind: 'credits_low', group: 'credits_low', title: `Credits running low: ${bal.toLocaleString('en-IN')} left`, body: 'Add a pack so campaigns and AI replies don’t stop. the Credits page.', link: { tab: 'credits' } });
     }
   }
 
@@ -153,12 +161,33 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     save();
     // The workspace hears about it (and sees the toast if it's open). The balance itself updates live: server.js
     // tells the workspace's open pages, which reload it.
-    notes?.add({ kind: 'credits_added', title: `${n.toLocaleString('en-IN')} credits added`, body: `Your ${preset ? preset.name : 'credits'} ${preset ? 'is' : 'are'} ready to use until ${expires.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}. Balance: ${balance().toLocaleString('en-IN')} credits.`, link: { tab: 'settings' } });
+    notes?.add({ kind: 'credits_added', title: `${n.toLocaleString('en-IN')} credits added`, body: `Your ${preset ? preset.name : 'credits'} ${preset ? 'is' : 'are'} ready to use until ${expires.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}. Balance: ${balance().toLocaleString('en-IN')} credits.`, link: { tab: 'credits' } });
     return p;
   }
 
+  // An admin takes credits back (a refund, a mistake, a cancelled payment): from one pack (packId: everything it has
+  // left, or `credits` of it), or `credits` from the packs that expire last first. One line in the log, "Removed".
+  function removeCredits({ credits, packId, note, by }) {
+    sweep();
+    const b = book();
+    const pool = packId ? b.packs.filter((p) => p.id === packId) : live().slice().reverse();
+    if (packId && !pool.length) throw fail('That pack isn’t in this workspace');
+    const have = pool.reduce((s, p) => s + p.left, 0);
+    const want = credits == null || credits === '' ? (packId ? have : NaN) : Math.floor(Number(credits));
+    if (!Number.isFinite(want) || want < 1) throw fail('Enter how many credits to remove');
+    if (want > have) throw fail(`There ${have === 1 ? 'is' : 'are'} only ${have.toLocaleString('en-IN')} credit${have === 1 ? '' : 's'} ${packId ? 'left in that pack' : 'to remove'}`);
+    let need = want;
+    for (const p of pool) { const k = Math.min(p.left, need); p.left -= k; need -= k; if (!need) break; }
+    const pack = packId ? pool[0] : null;
+    const l = line('remove:' + id(), `${want.toLocaleString('en-IN')} credits removed${pack ? ` from ${pack.name}` : ''}${note ? ` · ${String(note).slice(0, 120)}` : ''}`, 'remove');
+    l.used = want;
+    l.by = by || '';
+    save();
+    return want;
+  }
+
   // What the Settings page shows.
-  function summary() {
+  function summary({ all = false } = {}) { // all: the whole log (View all activity), not just the latest
     sweep();
     const b = book();
     return {
@@ -168,7 +197,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
       demo: Boolean(db.settings.demoMode),
       balance: balance(),
       packs: b.packs.slice().reverse().slice(0, 20).map(({ id: pid, name, credits, left, price, addedAt, expiresAt }) => ({ id: pid, name, credits, left, price, addedAt, expiresAt, expired: !valid({ expiresAt }) })),
-      ledger: b.ledger.slice(0, 60).map(({ id: lid, kind, what, used, refunded, count, at }) => ({ id: lid, kind, what, used, refunded, count, at })),
+      ledger: b.ledger.slice(0, all ? LEDGER_MAX : 60).map(({ id: lid, kind, what, used, refunded, count, at, by }) => ({ id: lid, kind, what, used, refunded, count, at, ...(by ? { by } : {}) })),
       rates: { marketing: RATES.MARKETING, utility: RATES.UTILITY, authentication: RATES.AUTHENTICATION, ai: AI_RATE, plan: PLAN_RATE },
       packOptions: Object.entries(PACKS).map(([k, v]) => ({ id: k, ...v })),
       months: PACK_MONTHS,
@@ -177,7 +206,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     };
   }
 
-  app.get('/api/credits', (req, res) => res.json(summary()));
+  app.get('/api/credits', (req, res) => res.json(summary({ all: req.query.all === '1' })));
 
   // Ledger keys for the things that use credits, so each gets one running line.
   const keys = {
@@ -193,10 +222,10 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     const lim = numberLimit();
     if (lim == null || numbersUsed() < lim) return;
     const more = lim < 3 ? 'The ₹20,000 pack includes 3 numbers, and the ₹25,000 pack has no limit.' : 'The ₹25,000 pack has no number limit.';
-    throw fail(`Your credits include ${lim} WhatsApp number${lim === 1 ? '' : 's'}, and this workspace has ${numbersUsed()}. ${more} Settings → Credits.`, 402);
+    throw fail(`Your credits include ${lim} WhatsApp number${lim === 1 ? '' : 's'}, and this workspace has ${numbersUsed()}. ${more} the Credits page.`, 402);
   }
 
-  return { on, enough, balance, charge, refund, addPack, summary, keys, rateFor, AI_RATE, PLAN_RATE, numberLimit, checkNumberLimit };
+  return { on, enough, balance, charge, refund, addPack, removeCredits, summary, keys, rateFor, AI_RATE, PLAN_RATE, numberLimit, checkNumberLimit };
 }
 
 module.exports = { mount, balanceOf, rateFor, PACKS, RATES, AI_RATE, PLAN_RATE, isLive, setLive, ENV_LIVE };
