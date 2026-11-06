@@ -4455,11 +4455,13 @@ async function loadMe() {
   $('#acctAv').innerHTML = `${esc((workspace.name || '?').slice(0, 1).toUpperCase())}${faceHtml(user, 'acct-me-badge')}`;
   document.body.classList.toggle('no-ai', !state.me.ai); // hides the Assistant and AI settings
   document.body.classList.toggle('no-ai-manage', !(state.me.admin || (state.me.ai && state.me.role === 'owner'))); // AI keys and setup: owners
-  // A member limited to some numbers: owner-only controls go (the server refuses them anyway), and Settings says why.
-  const limited = Array.isArray(state.me.senders);
+  // Members (not owners or admins): owner-only controls for settings, numbers and templates go (the server refuses
+  // them anyway), and Settings says why. A member limited to some numbers is also told how many they have.
+  const limited = state.me.role !== 'owner' && !state.me.admin;
   document.body.classList.toggle('limited', limited);
   const ln = $('#limitedNote');
-  if (ln) { ln.classList.toggle('hidden', !limited); if (limited) ln.innerHTML = `${icon('lock', 14)}<span>You work with <b>${state.me.senders.length} number${state.me.senders.length === 1 ? '' : 's'}</b> the owner picked for you. Workspace settings, numbers and templates are changed by the owner.</span>`; }
+  const few = Array.isArray(state.me.senders);
+  if (ln) { ln.classList.toggle('hidden', !limited); if (limited) ln.innerHTML = `${icon('lock', 14)}<span>${few ? `You work with <b>${state.me.senders.length} number${state.me.senders.length === 1 ? '' : 's'}</b> the owner picked for you. ` : ''}Workspace settings, numbers and templates are changed by the owner.</span>`; }
   ['#setGraph', '#setConc', '#setDelay', '#setVerify', '#ccPick'].forEach((q) => { if ($(q)) $(q).disabled = limited; }); // owner-only workspace settings
   $('#acctWs').textContent = workspace.name;
   $('#acctUser').textContent = user.name || user.email;

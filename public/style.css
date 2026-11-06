@@ -5086,11 +5086,11 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .np-row small { font-size: 11.5px; color: var(--muted); }
 .np-acts { display: flex; justify-content: flex-end; gap: 6px; }
 
-/* A member limited to some numbers: owner-only controls go */
+/* Members (not owners or admins): owner-only controls for settings, numbers and templates go */
 body.limited #addSender, body.limited #addTemplate, body.limited #syncTemplates, body.limited .set-save,
 body.limited #senderList [data-edit], body.limited #senderList [data-del], body.limited #senderList [data-enable],
 body.limited #templateList [data-tedit], body.limited #templateList [data-del], body.limited #setRR,
-body.limited .sender-photo-btn { display: none !important; }
+body.limited .sender-photo-btn, body.limited .na-gear { display: none !important; }
 body.limited #demoRow .toggle { pointer-events: none; opacity: 0.5; }
 .limited-note { display: flex; align-items: flex-start; gap: 8px; margin: -4px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--sunk); color: var(--muted); font-size: 13px; line-height: 1.45; }
 .limited-note svg { flex: none; margin-top: 2px; }

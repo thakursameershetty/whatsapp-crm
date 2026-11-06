@@ -750,13 +750,16 @@ function publicSettings(req) {
 // another number is refused, and workspace-wide changes (settings, numbers, templates) are for owners only.
 // Contacts stay shared with everyone in the workspace.
 const keySender = (key) => { const k = String(key || ''); const i = k.lastIndexOf(':'); return i > 0 ? k.slice(0, i) : ''; };
+// Workspace-wide changes (settings, numbers, templates, demo data) are for owners, whichever numbers a member has.
+// Admins (ADMIN_EMAILS) may make them too, to help set a workspace up. Refreshing a number's photo isn't a change
+// anyone decides on (the Numbers page does it when a photo is missing), so it stays open.
 const OWNER_ONLY_WRITES = [/^\/api\/settings$/, /^\/api\/senders(\/|$)/, /^\/api\/templates(\/|$)/, /^\/api\/demo\/seed$/];
 app.use('/api', (req, res, next) => {
-  const scope = req.senderScope;
-  if (!scope) return next();
   const p = req.baseUrl + req.path, write = req.method !== 'GET';
   const no = (msg) => res.status(403).json({ error: msg });
-  if (write && OWNER_ONLY_WRITES.some((re) => re.test(p)) && !/^\/api\/senders\/[^/]+\/photo\/refresh$/.test(p)) return no('Only the workspace owner can change this.');
+  if (write && req.role !== 'owner' && !req.admin && OWNER_ONLY_WRITES.some((re) => re.test(p)) && !/^\/api\/senders\/[^/]+\/photo\/refresh$/.test(p)) return no('Only the workspace owner can change this.');
+  const scope = req.senderScope;
+  if (!scope) return next();
   // A chat: its key starts with the number it's on.
   const chat = /^\/api\/inbox\/([^/]+)/.exec(p);
   if (chat && !scope.has(keySender(decodeURIComponent(chat[1])))) return no('This chat is on a number you don’t have access to.');
