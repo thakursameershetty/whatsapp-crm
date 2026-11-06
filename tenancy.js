@@ -909,25 +909,60 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         ? `Admins only. You're signed in as ${req.user.email}, which isn't in ADMIN_EMAILS.`
         : `Admins only. ADMIN_EMAILS isn't set on this server: add ${req.user.email} to it and restart.`, 403);
     };
+    // One workspace as the admin pages list it.
+    const DAY_MS = 86400000;
+    const after = (ts, t) => ts && Date.parse(ts) >= t;
+    function adminRow(ws) {
+      const day = Date.now() - DAY_MS, month = Date.now() - 30 * DAY_MS;
+      const d = ws.db, m = ws.meta;
+      const recips = d.campaigns.filter((c) => !c.demo).flatMap((c) => c.recipients || []); // real sends only
+      const sent = (t) => recips.filter((r) => after(r.sentAt, t)).length + d.messages.filter((x) => x.dir === 'out' && x.type === 'template' && !x.demo && after(x.ts, t)).length;
+      const failed30 = recips.filter((r) => r.status === 'failed' && after(r.failedAt || r.sentAt, month)).length;
+      const last = [...d.messages.filter((x) => !x.demo).map((x) => x.ts), ...d.campaigns.filter((c) => !c.demo).map((c) => c.startedAt || c.createdAt)].filter(Boolean).sort().at(-1) || null;
+      return {
+        id: m.id, name: m.name, createdAt: m.createdAt, suspended: Boolean(m.suspended), suspendedAt: m.suspendedAt || null, dailyLimit: m.dailyLimit ?? null, legacy: Boolean(m.legacy),
+        billing: m.billing === 'credits' ? 'credits' : 'free', credits: balanceOf(d), pricingLive: PRICING_LIVE,
+        members: accounts.members.filter((x) => x.wsId === m.id).map((x) => { const u = accounts.users.find((y) => y.id === x.userId); return { id: u?.id, name: u?.name || '', email: u?.email, role: x.role, joinedAt: x.joinedAt || null, admin: isAdmin(u), createdAt: u?.createdAt || null }; }),
+        ai: aiOn(ws), aiBuiltIn: ours(ws),
+        demoMode: Boolean(d.settings.demoMode), numbers: d.senders.filter((s) => !s.seed).length, contacts: d.contacts.length,
+        campaigns: d.campaigns.filter((c) => !c.demo).length, sent24h: sent(day), sent30d: sent(month), failed30d: failed30, lastActivity: last,
+        openReports: (d.reports || []).filter((r) => r.status === 'open').length,
+      };
+    }
     app.get('/api/admin/workspaces', wrap((req, res) => {
       adminOnly(req);
-      const day = Date.now() - 86400000, month = Date.now() - 30 * 86400000;
-      const after = (ts, t) => ts && Date.parse(ts) >= t;
-      res.json(allWorkspaces().map((ws) => {
-        const d = ws.db, m = ws.meta;
-        const recips = d.campaigns.filter((c) => !c.demo).flatMap((c) => c.recipients || []); // real sends only
-        const sent = (t) => recips.filter((r) => after(r.sentAt, t)).length + d.messages.filter((x) => x.dir === 'out' && x.type === 'template' && !x.demo && after(x.ts, t)).length;
-        const failed30 = recips.filter((r) => r.status === 'failed' && after(r.failedAt || r.sentAt, month)).length;
-        const last = [...d.messages.filter((x) => !x.demo).map((x) => x.ts), ...d.campaigns.filter((c) => !c.demo).map((c) => c.startedAt || c.createdAt)].filter(Boolean).sort().at(-1) || null;
-        return {
-          id: m.id, name: m.name, createdAt: m.createdAt, suspended: Boolean(m.suspended), dailyLimit: m.dailyLimit ?? null, legacy: Boolean(m.legacy),
-          billing: m.billing === 'credits' ? 'credits' : 'free', credits: balanceOf(d), pricingLive: PRICING_LIVE,
-          members: accounts.members.filter((x) => x.wsId === m.id).map((x) => { const u = accounts.users.find((y) => y.id === x.userId); return { id: u?.id, name: u?.name || '', email: u?.email, role: x.role, admin: isAdmin(u) }; }),
-          ai: aiOn(ws), aiBuiltIn: ours(ws),
-          demoMode: Boolean(d.settings.demoMode), numbers: d.senders.filter((s) => !s.seed).length, contacts: d.contacts.length,
-          campaigns: d.campaigns.filter((c) => !c.demo).length, sent24h: sent(day), sent30d: sent(month), failed30d: failed30, lastActivity: last,
-        };
-      }).sort((a, b) => String(b.lastActivity || b.createdAt).localeCompare(String(a.lastActivity || a.createdAt))));
+      res.json(allWorkspaces().map(adminRow).sort((a, b) => String(b.lastActivity || b.createdAt).localeCompare(String(a.lastActivity || a.createdAt))));
+    }));
+    // A workspace's own admin page: the list's summary plus sends per day (14 days, UTC), its numbers, recent
+    // campaigns, templates and reported issues. Read only.
+    app.get('/api/admin/workspaces/:id', wrap((req, res) => {
+      adminOnly(req);
+      const ws = loaded.get(req.params.id);
+      if (!ws) throw fail('Workspace not found', 404);
+      const d = ws.db, DAYS = 14;
+      const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+      const first = today.getTime() - (DAYS - 1) * DAY_MS;
+      const series = Array.from({ length: DAYS }, (_, i) => ({ day: new Date(first + i * DAY_MS).toISOString().slice(0, 10), sent: 0, failed: 0, received: 0 }));
+      const bump = (ts, k) => { const i = ts ? Math.floor((Date.parse(ts) - first) / DAY_MS) : -1; if (i >= 0 && i < DAYS) series[i][k]++; };
+      const real = d.campaigns.filter((c) => !c.demo);
+      for (const c of real) for (const r of c.recipients || []) { bump(r.sentAt, 'sent'); if (r.status === 'failed') bump(r.failedAt || r.sentAt, 'failed'); }
+      for (const x of d.messages) if (!x.demo) { if (x.dir === 'out' && x.type === 'template') bump(x.ts, 'sent'); else if (x.dir === 'in') bump(x.ts, 'received'); }
+      const tally = (rs, ...st) => rs.filter((r) => st.includes(r.status)).length;
+      res.json({
+        ...adminRow(ws),
+        graphVersion: d.settings.graphVersion || '',
+        series,
+        numbers: d.senders.filter((s) => !s.seed).map((s) => ({ id: s.id, label: s.label, displayPhone: s.displayPhone || '', verifiedName: s.verifiedName || '', qualityRating: s.qualityRating || '', nameStatus: s.nameStatus || '', messagingLimit: s.messagingLimit || '', enabled: s.enabled !== false, wabaId: s.wabaId || '', phoneNumberId: s.phoneNumberId, hasToken: Boolean(s.accessToken), lastCheckedAt: s.lastCheckedAt || null, createdAt: s.createdAt || null })),
+        recentCampaigns: real.slice().sort((a, b) => String(b.startedAt || b.createdAt).localeCompare(String(a.startedAt || a.createdAt))).slice(0, 8).map((c) => {
+          const rs = c.recipients || [];
+          return { id: c.id, name: c.name, templateName: c.templateName || '', status: c.status, test: Boolean(c.test), total: rs.length, delivered: tally(rs, 'delivered', 'read'), failed: tally(rs, 'failed'), at: c.startedAt || c.scheduledAt || c.createdAt };
+        }),
+        templates: { total: d.templates.length, approved: d.templates.filter((t) => t.status === 'APPROVED').length, pending: d.templates.filter((t) => /PENDING|IN_APPEAL/.test(t.status || '')).length, rejected: d.templates.filter((t) => t.status === 'REJECTED').length },
+        optedOut: d.contacts.filter((c) => c.optOut).length,
+        conversations: Object.keys(d.chats || {}).length,
+        received30d: d.messages.filter((x) => x.dir === 'in' && !x.demo && after(x.ts, Date.now() - 30 * DAY_MS)).length,
+        reports: (d.reports || []).slice(0, 30).map(publicReport),
+      });
     }));
     app.patch('/api/admin/workspaces/:id', wrap((req, res) => {
       adminOnly(req);

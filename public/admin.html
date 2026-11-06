@@ -8,144 +8,576 @@
   <link rel="icon" type="image/svg+xml" href="/brand/logo-small.svg" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="admin.css" />
   <script>try{var t=localStorage.getItem('theme')||'light';document.documentElement.dataset.mode=t==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):t}catch(e){}</script>
 </head>
-<body class="admin-body">
-  <main class="admin adm">
-    <header class="adm-head">
-      <div class="adm-title">
-        <img class="adm-logo" src="/brand/logo-small.svg" alt="" />
-        <div><h1>Admin</h1><p class="sub">Every workspace on this server: usage, limits and health.</p></div>
-      </div>
-      <a class="btn" href="/" data-icon="arrow-left" data-icon-size="15">Back to the app</a>
-    </header>
-
-    <section class="adm-kpis" id="kpis"></section>
-
-    <section class="adm-attn hidden" id="attn">
-      <section class="card adm-panel hidden" id="repSec">
-        <div class="adm-panel-h"><h2 data-icon="badge-alert">Reported issues</h2><span class="tag" id="repCount"></span></div>
-        <div id="repList"></div>
-      </section>
-      <section class="card adm-panel hidden" id="delReqs">
-        <div class="adm-panel-h"><h2 data-icon="delete">Deletion requests</h2><span class="tag warn" id="delCount"></span></div>
-        <p class="sub">Reach out first, then delete the account or dismiss the request.</p>
-        <div id="delList"></div>
-      </section>
-    </section>
-
-    <section class="card adm-gv" id="gvSec">
-      <span class="adm-gv-ic" data-icon="layers" data-icon-size="18"></span>
-      <div class="adm-gv-main"><b id="gvTitle">Meta API version</b><span class="sub" id="gvSub"></span></div>
-      <div class="adm-gv-act">
-        <button type="button" class="btn sm" id="gvOpen">Move all to…</button>
-        <form class="gv-form hidden" id="gvForm"><input id="gvTo" placeholder="v26.0" maxlength="6" aria-label="Version" /><button class="btn sm primary" type="submit">Move all</button><button type="button" class="btn sm quiet" id="gvCancel">Cancel</button></form>
-      </div>
-      <div class="adm-gv-split hidden" id="gvList"></div>
-    </section>
-
-    <section class="adm-ws">
-      <div class="adm-ws-h">
-        <h2>Workspaces <span class="opt" id="wsCount"></span></h2>
-        <div class="adm-tools">
-          <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="q" placeholder="Search workspace or email" /></div>
-          <div class="seg" id="wsFilter" role="tablist" aria-label="Show"></div>
-        </div>
-      </div>
-      <div class="card adm-table-card"><div class="table-wrap"><table class="data-table adm-table" id="tbl"><thead><tr>
-        <th>Workspace</th><th>People</th><th class="num">Numbers</th><th class="num">Contacts</th><th class="num">Sent today</th><th class="num">Sent 30d</th><th>Failed 30d</th><th>Daily limit <span class="adm-hint" tabindex="0" data-tip="Template messages a workspace can send in 24 hours. Leave it empty for no limit.">?</span></th><th>Credits <span class="adm-hint" tabindex="0" data-tip="Credits plan or free. On the credits plan, template messages and AI (on any key) use credits; add a pack here once they’ve paid. Workspaces made before credits existed are free until you switch them.">?</span></th><th>AI <span class="adm-hint" tabindex="0" data-tip="The AI assistant. Switched on, the workspace's owners can use it and choose which of their members can too. Always on for your own workspaces.">?</span></th><th>Last active</th><th></th>
-      </tr></thead><tbody><tr><td colspan="12" class="table-empty">Loading…</td></tr></tbody></table></div></div>
-    </section>
-  </main>
+<body class="ax-body">
+  <script>try{if(localStorage.getItem('ax-side')==='collapsed')document.documentElement.classList.add('ax-collapsed')}catch(e){}</script>
+  <aside class="ax-side" aria-label="Admin">
+    <div class="ax-side-top">
+      <a class="ax-brand" href="#/overview" title="SendON Admin"><img src="/brand/logo-small.svg" alt="" /><span class="ax-lbl"><b>SendON</b><span>Admin</span></span></a>
+      <button type="button" class="ax-collapse" id="axCollapse" aria-label="Collapse sidebar" title="Collapse sidebar"></button>
+    </div>
+    <nav class="ax-tabs" id="tabs" aria-label="Admin sections"></nav>
+    <div class="ax-side-foot">
+      <a class="ax-tab" href="/" title="Back to the app"><span class="ax-ic" data-icon="arrow-left" data-icon-size="16"></span><span class="ax-lbl">Back to the app</span></a>
+    </div>
+  </aside>
+  <main class="ax-main" id="view"><div class="ax-loading">Loading…</div></main>
   <div id="toasts"></div>
   <script src="icons.js"></script>
   <script src="motion.js"></script>
 <script>
-const $ = (s) => document.querySelector(s);
+// The admin panel: tabs across the top (Overview, Workspaces, People, Issues, Deletion requests, System) and a page
+// per workspace with its own tabs. The address says where you are (#/workspaces, #/w/<id>/credits), so Back works.
+// "Main" and "sub-workspace" aren't stored anywhere: when one account owns several workspaces, its oldest is the main
+// one and the rest are its sub-workspaces; a workspace whose owner has no other is "separate".
+const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const ago = (t) => { if (!t) return '—'; const m = (Date.now() - Date.parse(t)) / 60000; return m < 60 ? Math.round(m) + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
-function toast(msg, err) { const el = document.createElement('div'); el.className = 'toast' + (err ? ' error' : ''); el.textContent = msg; $('#toasts').append(el); setTimeout(() => el.remove(), 3500); }
+const ic = (n, s = 15) => LA.icon(n, s);
+const n = (x) => Number(x || 0).toLocaleString('en-IN');
+const ago = (t) => { if (!t) return '—'; const m = (Date.now() - Date.parse(t)) / 60000; return m < 1 ? 'just now' : m < 60 ? Math.round(m) + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
+const date = (t) => (t ? new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
+function toast(msg, err) { const el = document.createElement('div'); el.className = 'toast' + (err ? ' error' : ''); el.textContent = msg; $('#toasts').append(el); setTimeout(() => el.remove(), 3800); }
 async function api(path, opts = {}) {
   const r = await fetch('/api' + path, { method: opts.method || 'GET', headers: { 'Content-Type': 'application/json' }, body: opts.body ? JSON.stringify(opts.body) : undefined });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
 }
-let all = [];
-let wsFilter = '';
 const COLORS = 6;
 const hue = (t) => { let h = 0; for (const c of String(t)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return (h % COLORS) + 1; };
 const initial = (t) => (String(t || '?').trim().match(/[A-Za-z0-9]/) || ['?'])[0].toUpperCase();
+const av = (t, cls = '') => `<span class="adm-av ${cls}" style="--av:var(--file-${hue(t)})">${esc(initial(t))}</span>`;
 const DAY7 = 7 * 86400000;
 const isActive = (w) => !w.suspended && w.lastActivity && Date.now() - Date.parse(w.lastActivity) < DAY7;
-const FILTERS = [['', 'All', () => true], ['active', 'Active', isActive], ['idle', 'Idle', (w) => !w.suspended && !isActive(w)], ['suspended', 'Suspended', (w) => w.suspended]];
+const failRate = (w) => (w.sent30d ? Math.round((100 * w.failed30d) / w.sent30d) : null);
+const rateCls = (r) => (r == null ? '' : r >= 20 ? 'bad' : r >= 8 ? 'warn' : 'good');
 
-function renderKpis() {
-  const sent = all.reduce((n, w) => n + w.sent30d, 0), failed = all.reduce((n, w) => n + w.failed30d, 0);
-  const today = all.reduce((n, w) => n + w.sent24h, 0);
+// --- Data ------------------------------------------------------------------------------------------------------------
+const S = { all: [], reps: [], dels: [], gv: null, loaded: false, wsQ: '', wsF: '', open: new Set(), pQ: '', repF: 'open', detail: null }; // open: main workspaces unfolded on the Workspaces tab
+
+// Who owns a workspace (its earliest owner), and how workspaces sit together under one owner.
+const ownerOf = (w) => w.members.filter((m) => m.role === 'owner').sort((a, b) => String(a.joinedAt || '').localeCompare(String(b.joinedAt || '')))[0] || null;
+function structure() {
+  const by = new Map();
+  for (const w of S.all) {
+    const o = ownerOf(w), k = o?.id || 'none:' + w.id;
+    if (!by.has(k)) by.set(k, { owner: o, list: [] });
+    by.get(k).list.push(w);
+  }
+  for (const g of by.values()) g.list.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  const rel = new Map(); // workspace id -> { kind: main|sub|sep, group }
+  for (const g of by.values()) g.list.forEach((w, i) => rel.set(w.id, { kind: g.list.length > 1 ? (i === 0 ? 'main' : 'sub') : 'sep', group: g }));
+  const groups = [...by.values()].filter((g) => g.list.length > 1).sort((a, b) => b.list.length - a.list.length || String(a.owner?.email).localeCompare(String(b.owner?.email)));
+  const separate = [...by.values()].filter((g) => g.list.length === 1).map((g) => g.list[0]);
+  return { rel, groups, separate };
+}
+const relTag = (kind) => ({ main: '<span class="ax-tag main">Main</span>', sub: '<span class="ax-tag sub">Sub-workspace</span>', sep: '<span class="ax-tag sep">Separate</span>' }[kind] || '');
+
+async function loadAll() {
+  const [all, reps, dels, gv] = await Promise.all([
+    api('/admin/workspaces'),
+    api('/admin/reports').catch(() => []),
+    api('/admin/deletion-requests').catch(() => []),
+    api('/admin/graph-version').catch(() => null),
+  ]);
+  Object.assign(S, { all, reps, dels, gv, loaded: true });
+}
+
+// --- Tabs and routing ------------------------------------------------------------------------------------------------
+const TABS = [
+  ['overview', 'Overview', 'layout-grid'],
+  ['workspaces', 'Workspaces', 'layers'],
+  ['people', 'People', 'users'],
+  ['issues', 'Issues', 'badge-alert'],
+  ['requests', 'Deletion requests', 'delete'],
+  ['system', 'System', 'settings'],
+];
+function route() {
+  const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
+  if (parts[0] === 'w' && parts[1]) return { tab: 'workspaces', ws: decodeURIComponent(parts[1]), sub: parts[2] || 'overview' };
+  return { tab: TABS.some(([k]) => k === parts[0]) ? parts[0] : 'overview' };
+}
+function drawTabs(r) {
+  const open = S.reps.filter((x) => x.status === 'open').length;
+  const count = { workspaces: S.all.length, people: people().length, issues: open, requests: S.dels.length };
+  const cls = { issues: open ? 'warn' : '', requests: S.dels.length ? 'bad' : '' };
+  // Collapsed, only the icons show: the name is the hover text, and a coloured dot stands in for an urgent count.
+  $('#tabs').innerHTML = TABS.map(([k, label, icon]) => {
+    const c = count[k] != null && (count[k] || k === 'workspaces' || k === 'people') ? count[k] : null;
+    return `<a class="ax-tab ${r.tab === k ? 'on' : ''}" href="#/${k}" title="${label}${c ? ` (${n(c)})` : ''}" ${r.tab === k ? 'aria-current="page"' : ''}><span class="ax-ic">${ic(icon, 16)}${c && cls[k] ? `<i class="ax-dot ${cls[k]}"></i>` : ''}</span><span class="ax-lbl">${label}</span>${c != null ? `<span class="ax-count ${cls[k] || ''}">${n(c)}</span>` : ''}</a>`;
+  }).join('');
+}
+async function render() {
+  const r = route();
+  if (!S.loaded) { try { await loadAll(); } catch (e) { $('#view').innerHTML = `<div class="ax-card ax-empty"><b>Couldn't load the admin panel</b>${esc(e.message)}</div>`; return; } }
+  drawTabs(r);
+  const view = $('#view');
+  if (r.ws) await renderWorkspace(r.ws, r.sub);
+  else view.innerHTML = ({ overview: overviewHtml, workspaces: workspacesHtml, people: peopleHtml, issues: issuesHtml, requests: requestsHtml, system: systemHtml }[r.tab])();
+  document.title = (r.ws ? (S.detail?.name || 'Workspace') : TABS.find(([k]) => k === r.tab)[1]) + ' · Admin · SendON';
+  LA.hydrate(document);
+  Motion.segs?.(document);
+}
+addEventListener('hashchange', () => { render(); scrollTo(0, 0); });
+async function reload() { S.loaded = false; S.detail = null; await render(); }
+
+// --- Overview --------------------------------------------------------------------------------------------------------
+function kpi(icon, label, value, sub, cls = '') { return `<div class="ax-kpi ${cls}"><i>${ic(icon, 15)}</i><span>${label}</span><b>${value}</b><small>${sub}</small></div>`; }
+function pricingNote() {
+  const live = S.all[0]?.pricingLive;
+  return live || !S.all.length ? '' : '<div class="adm-pricing-off"><b>Pricing is off.</b> Nothing is charged and there are no number limits. Plans and credits you set are kept for when it’s switched on: add <code>PRICING=on</code> to the server’s variables (Railway → Variables) and redeploy.</div>';
+}
+function overviewHtml() {
+  const all = S.all, st = structure();
+  const sent = all.reduce((a, w) => a + w.sent30d, 0), failed = all.reduce((a, w) => a + w.failed30d, 0), today = all.reduce((a, w) => a + w.sent24h, 0);
   const rate = sent ? Math.round((100 * failed) / sent) : 0;
-  const openReps = reps.filter((r) => r.status === 'open').length;
-  const tile = (ic, label, value, sub, cls = '') => `<div class="card adm-kpi ${cls}"><span class="adm-kpi-ic">${LA.icon(ic, 16)}</span><span class="adm-kpi-l">${label}</span><b>${value}</b><span class="adm-kpi-s">${sub}</span></div>`;
-  $('#kpis').innerHTML =
-    tile('layout-grid', 'Workspaces', all.length.toLocaleString(), `${all.filter(isActive).length} active this week${all.some((w) => w.suspended) ? ` · ${all.filter((w) => w.suspended).length} suspended` : ''}`)
-    + tile('send', 'Messages, 30 days', sent.toLocaleString(), `${today.toLocaleString()} today`)
-    + tile('badge-alert', 'Failure rate, 30 days', sent ? rate + '%' : '—', sent ? `${failed.toLocaleString()} failed` : 'nothing sent', rate >= 20 ? 'bad' : rate >= 8 ? 'warn' : '')
-    + tile('bell', 'Needs attention', (openReps + dels.length).toLocaleString(), openReps + dels.length ? `${openReps} open report${openReps === 1 ? '' : 's'} · ${dels.length} deletion request${dels.length === 1 ? '' : 's'}` : 'All clear', openReps + dels.length ? 'warn' : '');
+  const open = S.reps.filter((x) => x.status === 'open');
+  // Things to look at, most urgent first
+  const items = [];
+  for (const d of S.dels) items.push(`<a href="#/requests"><i class="bad">${ic('delete', 15)}</i><span><b>${esc(d.name || d.email)}</b> asked to delete their account<small>${esc(d.reasonText || '')} · ${ago(d.at)}</small></span></a>`);
+  for (const r of open.slice(0, 4)) items.push(`<a href="#/issues"><i class="warn">${ic('badge-alert', 15)}</i><span><b>${esc(r.area)}</b> reported in ${esc(r.workspace)}<small>${esc(r.message)}</small></span></a>`);
+  if (open.length > 4) items.push(`<a href="#/issues"><i class="warn">${ic('badge-alert', 15)}</i><span><b>${open.length - 4} more open issues</b></span></a>`);
+  for (const w of all.filter((x) => x.billing === 'credits' && x.pricingLive && !x.credits)) items.push(`<a href="#/w/${w.id}/credits"><i class="bad">${ic('zap', 15)}</i><span><b>${esc(w.name)}</b> is out of credits<small>Sending and AI are on hold</small></span></a>`);
+  for (const w of all.filter((x) => (failRate(x) ?? 0) >= 20 && x.sent30d >= 20)) items.push(`<a href="#/w/${w.id}"><i class="warn">${ic('triangle-alert', 15)}</i><span><b>${esc(w.name)}</b>: ${failRate(w)}% of messages failed in 30 days<small>${n(w.failed30d)} of ${n(w.sent30d)}</small></span></a>`);
+  for (const w of all.filter((x) => x.suspended)) items.push(`<a href="#/w/${w.id}/settings"><i class="info">${ic('lock', 15)}</i><span><b>${esc(w.name)}</b> is suspended<small>${w.suspendedAt ? 'since ' + date(w.suspendedAt) : ''}</small></span></a>`);
+  const top = all.filter((w) => w.sent30d).sort((a, b) => b.sent30d - a.sent30d).slice(0, 6), max = top[0]?.sent30d || 1;
+  const newest = all.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 5);
+  const subs = st.groups.reduce((a, g) => a + g.list.length - 1, 0);
+  return `
+    <div class="ax-h"><div><h1>Overview</h1><p>Every workspace on this server: usage, limits and health.</p></div></div>
+    ${pricingNote()}
+    <section class="ax-kpis">
+      ${kpi('layout-grid', 'Workspaces', n(all.length), `${all.filter(isActive).length} active this week${all.some((w) => w.suspended) ? ` · ${all.filter((w) => w.suspended).length} suspended` : ''}`)}
+      ${kpi('send', 'Messages, 30 days', n(sent), `${n(today)} today`)}
+      ${kpi('badge-alert', 'Failure rate, 30 days', sent ? rate + '%' : '—', sent ? `${n(failed)} failed` : 'nothing sent', rate >= 20 ? 'bad' : rate >= 8 ? 'warn' : '')}
+      ${kpi('bell', 'Needs attention', n(items.length), items.length ? 'see the list below' : 'All clear', items.length ? 'warn' : 'good')}
+    </section>
+    <div class="ax-grid2">
+      <section class="ax-card"><h3>${ic('bell', 16)}Needs attention</h3>
+        ${items.length ? `<div class="ax-attn">${items.join('')}</div>` : `<div class="ax-allclear">${ic('circle-check', 16)}Nothing needs you right now.</div>`}
+      </section>
+      <section class="ax-card"><h3>${ic('trending-up', 16)}Most active, 30 days<a class="ax-link" href="#/workspaces">All workspaces</a></h3>
+        ${top.length ? `<div class="ax-top5">${top.map((w) => `<a href="#/w/${w.id}"><b>${esc(w.name)}</b><span class="adm-bar"><i style="width:${Math.max(4, (100 * w.sent30d) / max)}%"></i></span><em>${n(w.sent30d)}</em></a>`).join('')}</div>` : '<p class="ax-muted" style="margin:0">Nothing sent in the last 30 days.</p>'}
+      </section>
+    </div>
+    <div class="ax-grid2">
+      <section class="ax-card"><h3>${ic('layers', 16)}How workspaces are organised<a class="ax-link" href="#/workspaces">See them</a></h3>
+        <div class="ax-struct">
+          <div><b>${n(st.groups.length)}</b><span>Main workspaces with sub-workspaces</span></div>
+          <div><b>${n(subs)}</b><span>Sub-workspaces under them</span></div>
+          <div><b>${n(st.separate.length)}</b><span>Workspaces on their own</span></div>
+        </div>
+      </section>
+      <section class="ax-card"><h3>${ic('plus', 16)}Newest workspaces</h3>
+        <div class="ax-top5">${newest.map((w) => `<a href="#/w/${w.id}"><b>${esc(w.name)}</b><span class="ax-muted" style="font-size:12.5px">${esc(ownerOf(w)?.email || 'No owner')}</span><em>${ago(w.createdAt)}</em></a>`).join('')}</div>
+      </section>
+    </div>`;
 }
 
-function render() {
-  const q = $('#q').value.trim().toLowerCase();
-  const f = FILTERS.find((x) => x[0] === wsFilter) || FILTERS[0];
-  const list = all.filter((w) => f[2](w) && (!q || w.name.toLowerCase().includes(q) || w.members.some((m) => (m.email || '').toLowerCase().includes(q))));
-  Motion.patch($('#wsFilter'), FILTERS.map(([k, l, fn]) => `<button data-f="${k}" class="${k === wsFilter ? 'active' : ''}" role="tab" aria-selected="${k === wsFilter}">${l} <span class="opt">${all.filter(fn).length}</span></button>`).join(''));
-  Motion.segs(document);
-  $('#wsCount').textContent = list.length === all.length ? all.length : `${list.length} of ${all.length}`;
-  pricingNote();
-  renderKpis();
-  $('#tbl tbody').innerHTML = list.map((w) => {
-    const rate = w.sent30d ? Math.round((100 * w.failed30d) / w.sent30d) : null;
-    const rcls = rate == null ? '' : rate >= 20 ? 'bad' : rate >= 8 ? 'warn' : 'good';
-    const people = w.members.slice(0, 3).map((m) => `<span class="adm-av sm" style="--av:var(--file-${hue(m.email)})" title="${esc(m.email)} · ${esc(m.role)}">${initial(m.email)}</span>`).join('');
-    return `<tr class="${w.suspended ? 'is-suspended' : ''}">
-      <td><div class="adm-wsc">
-        <span class="adm-av" style="--av:var(--file-${hue(w.name)})">${initial(w.name)}</span>
-        <div class="adm-wsn"><b title="${esc(w.name)}">${esc(w.name)}</b>
-          <span>${w.legacy ? '<span class="tag">Original</span>' : ''}${w.demoMode ? '<span class="tag warn">Demo</span>' : ''}since ${new Date(w.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
-      </div></td>
-      <td>${w.members.length ? `<button type="button" class="adm-people" data-people="${w.id}" title="See people · delete an account"><span class="adm-avs">${people}</span><span class="adm-email">${esc(w.members[0]?.email || '')}${w.members.length > 1 ? ` <span class="muted">+${w.members.length - 1}</span>` : ''}</span></button>` : '<span class="muted">Nobody yet</span>'}</td>
-      <td class="num">${w.numbers || '<span class="muted">0</span>'}</td>
-      <td class="num">${w.contacts ? w.contacts.toLocaleString() : '<span class="muted">0</span>'}</td>
-      <td class="num">${w.sent24h ? w.sent24h.toLocaleString() : '<span class="muted">0</span>'}</td>
-      <td class="num">${w.sent30d ? w.sent30d.toLocaleString() : '<span class="muted">0</span>'}</td>
-      <td>${rate == null ? '<span class="muted">—</span>' : `<div class="adm-fail ${rcls}"><span class="adm-bar"><i style="width:${Math.min(100, rate)}%"></i></span><b>${rate}%</b><span class="muted">${w.failed30d.toLocaleString()}</span></div>`}</td>
-      <td><label class="adm-limit"><input data-limit="${w.id}" value="${w.dailyLimit ?? ''}" placeholder="No limit" inputmode="numeric" aria-label="Daily limit for ${esc(w.name)} (messages per day)" /></label></td>
-      <td><button type="button" class="btn sm ${w.billing === 'credits' ? (w.credits ? '' : 'danger-soft') : 'quiet'}" data-credits="${w.id}" title="Plan and credits">${w.billing === 'credits' ? `${w.credits.toLocaleString('en-IN')} credits` : 'Free plan'}</button></td>
-      <td><label class="adm-ai" title="${w.aiBuiltIn ? 'Always on for your own workspaces' : w.ai ? 'AI assistant on: owners choose which members get it' : 'Switch on the AI assistant for this workspace'}"><span class="toggle sm"><input type="checkbox" data-ai="${w.id}" ${w.ai ? 'checked' : ''} ${w.aiBuiltIn ? 'disabled' : ''} aria-label="AI assistant for ${esc(w.name)}" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label></td>
-      <td class="${isActive(w) ? '' : 'muted'}">${w.lastActivity ? ago(w.lastActivity) : '<span class="muted">Never</span>'}</td>
-      <td class="adm-st">${w.suspended ? '<span class="tag bad">Suspended</span>' : ''}<button class="btn sm ${w.suspended ? '' : 'quiet danger'}" data-suspend="${w.id}" data-to="${!w.suspended}">${w.suspended ? 'Unsuspend' : 'Suspend'}</button></td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="12" class="table-empty">No workspaces match.</td></tr>';
+// --- Workspaces --------------------------------------------------------------------------------------------------------
+const WS_FILTERS = [['', 'All', () => true], ['active', 'Active', isActive], ['idle', 'Idle', (w) => !w.suspended && !isActive(w)], ['suspended', 'Suspended', (w) => w.suspended]];
+function wsMatches(w) {
+  const f = WS_FILTERS.find((x) => x[0] === S.wsF) || WS_FILTERS[0], q = S.wsQ.trim().toLowerCase();
+  return f[2](w) && (!q || w.name.toLowerCase().includes(q) || w.members.some((m) => (m.email || '').toLowerCase().includes(q) || (m.name || '').toLowerCase().includes(q)));
 }
-// People in a workspace, and deleting an account (admins: immediately, after typing the email).
+const rowHead = () => `<div class="ax-row head"><span>Workspace</span><span class="c-owner">Owner</span><span class="c-plan">Plan</span><span class="num c-nums">Numbers</span><span class="num c-sent">Sent 30d</span><span class="c-fail">Failed 30d</span><span class="c-last">Last active</span><span></span></div>`;
+// One row. Every row has two lines (name, then tags or the date it was made), so all rows are the same height.
+// A main workspace starts with an arrow that unfolds its sub-workspaces underneath.
+function wsRow(w, rel, opts = {}) {
+  const r = failRate(w), o = ownerOf(w);
+  const plan = w.billing === 'credits' ? `<span class="ax-plan ${w.credits ? '' : 'zero'}">${n(w.credits)} credits</span>` : '<span class="ax-plan free">Free plan</span>';
+  const subs = rel.kind === 'main' ? rel.group.list.length - 1 : 0, open = S.open.has(w.id);
+  const tags = [
+    subs ? `<button type="button" class="ax-tag sub ax-subs" data-toggle="${w.id}" aria-expanded="${open}">${subs} sub-workspace${subs === 1 ? '' : 's'}</button>` : '',
+    rel.kind === 'sub' ? '<span class="ax-tag sub">Sub-workspace</span>' : '',
+    w.suspended ? '<span class="ax-tag bad">Suspended</span>' : '',
+    w.demoMode ? '<span class="ax-tag warn">Demo</span>' : '',
+    w.legacy ? '<span class="ax-tag">Original</span>' : '',
+    w.openReports ? `<span class="ax-tag warn">${w.openReports} open issue${w.openReports === 1 ? '' : 's'}</span>` : '',
+  ].join('');
+  const lead = subs ? `<button type="button" class="ax-twist ${open ? 'open' : ''}" data-toggle="${w.id}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} the sub-workspaces of ${esc(w.name)}">${ic('chevron-down', 15)}</button>` : '<span class="ax-twist-space"></span>';
+  return `<div class="ax-row ${rel.kind === 'sub' ? 'sub' : ''} ${opts.last ? 'last' : ''} ${w.suspended ? 'is-off' : ''}" data-href="#/w/${w.id}">
+    <span class="ax-who">${lead}${av(w.name)}<div><a href="#/w/${w.id}" title="${esc(w.name)}">${esc(w.name)}</a><small>${tags || `<span>since ${date(w.createdAt)}</span>`}</small></div></span>
+    <span class="ax-owner c-owner" title="${esc(o?.email || '')}">${esc(o?.email || 'No owner')}${w.members.length > 1 ? ` <span class="ax-faint">+${w.members.length - 1}</span>` : ''}</span>
+    <span class="c-plan">${plan}</span>
+    <span class="num c-nums">${w.numbers || '<span class="ax-faint">0</span>'}</span>
+    <span class="num c-sent">${w.sent30d ? n(w.sent30d) : '<span class="ax-faint">0</span>'}</span>
+    <span class="c-fail">${r == null ? '<span class="ax-faint">—</span>' : `<span class="ax-fail ${rateCls(r)}"><span class="adm-bar"><i style="width:${Math.min(100, Math.max(3, r))}%"></i></span><b>${r}%</b></span>`}</span>
+    <span class="c-last ${isActive(w) ? '' : 'ax-muted'}">${w.lastActivity ? ago(w.lastActivity) : 'Never'}</span>
+    <span class="ax-chev">${ic('chevron-down', 15)}</span>
+  </div>`;
+}
+// All workspaces in one table: main and separate workspaces at the top level, sub-workspaces folded under their main
+// one. A search or filter that matches a sub-workspace shows it under its main workspace, unfolded.
+function workspacesHtml() {
+  const st = structure(), searching = Boolean(S.wsQ.trim() || S.wsF);
+  const tops = S.all.filter((w) => st.rel.get(w.id)?.kind !== 'sub');
+  const rows = [];
+  let shown = 0;
+  for (const w of tops) {
+    const rel = st.rel.get(w.id), subs = rel.kind === 'main' ? rel.group.list.slice(1) : [];
+    const subHits = subs.filter(wsMatches), hit = wsMatches(w);
+    if (!hit && !subHits.length) continue;
+    shown += (hit ? 1 : 0) + subHits.length;
+    rows.push(wsRow(w, rel));
+    const open = S.open.has(w.id) || (searching && subHits.length > 0);
+    if (open) { S.open.add(w.id); (searching ? subHits : subs).forEach((x, i, a) => rows.push(wsRow(x, st.rel.get(x.id), { last: i === a.length - 1 }))); }
+  }
+  const seg = (id, items, cur) => `<div class="seg" id="${id}" role="tablist">${items.map(([k, label, extra]) => `<button data-v="${k}" class="${k === cur ? 'active' : ''}" role="tab" aria-selected="${k === cur}">${label}${extra != null ? ` <span class="opt">${extra}</span>` : ''}</button>`).join('')}</div>`;
+  const mains = tops.filter((w) => st.rel.get(w.id).kind === 'main');
+  return `
+    <div class="ax-h"><div><h1>Workspaces</h1><p>${shown === S.all.length ? n(S.all.length) : `${n(shown)} of ${n(S.all.length)}`} workspaces. When one account owns several, the oldest is the main one and the others are its sub-workspaces.</p></div>
+      <div class="ax-tools">
+        <div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="wsQ" placeholder="Search workspace, owner or email" value="${esc(S.wsQ)}" /></div>
+        ${seg('wsF', WS_FILTERS.map(([k, l, fn]) => [k, l, S.all.filter(fn).length]), S.wsF)}
+        ${mains.length ? `<button type="button" class="btn sm quiet" id="wsAllOpen">${mains.every((w) => S.open.has(w.id)) ? 'Collapse all' : 'Expand all'}</button>` : ''}
+      </div>
+    </div>
+    ${pricingNote()}
+    ${rows.length ? `<section class="ax-card ax-list"><div class="ax-rows ax-tree">${rowHead()}${rows.join('')}</div></section>` : emptyWs()}`;
+}
+const emptyWs = () => '<section class="ax-card ax-empty"><b>No workspaces match</b>Try another search or filter.</section>';
+
+// --- People ----------------------------------------------------------------------------------------------------------
+function people() {
+  const by = new Map();
+  for (const w of S.all) for (const m of w.members) {
+    if (!m.id) continue;
+    if (!by.has(m.id)) by.set(m.id, { ...m, ws: [] });
+    by.get(m.id).ws.push({ id: w.id, name: w.name, role: m.role });
+  }
+  return [...by.values()].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+}
+function peopleHtml() {
+  const q = S.pQ.trim().toLowerCase(), asked = new Set(S.dels.map((d) => d.id));
+  const list = people().filter((p) => !q || (p.email || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q) || p.ws.some((w) => w.name.toLowerCase().includes(q)));
+  return `
+    <div class="ax-h"><div><h1>People</h1><p>Everyone with an account, and the workspaces they're in.</p></div>
+      <div class="ax-tools"><div class="search-wrap" data-icon="search" data-icon-size="15"><input class="search" id="pQ" placeholder="Search name, email or workspace" value="${esc(S.pQ)}" /></div></div></div>
+    ${list.length ? `<section class="ax-card ax-list ax-people">
+      <div class="ax-prow head"><span>Person</span><span class="c-ws">Workspaces</span><span class="c-joined">Joined</span><span></span></div>
+      ${list.map((p) => `<div class="ax-prow">
+        <span class="ax-who">${av(p.email, 'sm')}<div><b title="${esc(p.name || p.email)}">${esc(p.name || p.email)}</b><small title="${esc(p.email)}">${esc(p.email)}${p.admin ? '<span class="ax-tag main">Admin</span>' : ''}${asked.has(p.id) ? '<span class="ax-tag bad">Asked to delete</span>' : ''}</small></div></span>
+        <span class="ax-wschips c-ws">${p.ws.map((w) => `<a class="ax-wschip" href="#/w/${w.id}/people">${av(w.name, 'sm')}<span>${esc(w.name)}</span><em>${w.role === 'owner' ? 'Owner' : 'Member'}</em></a>`).join('')}</span>
+        <span class="c-joined ax-muted" style="font-size:13px">${date(p.createdAt)}</span>
+        ${p.admin ? '<span class="ax-faint" style="justify-self:end;font-size:12.5px">Admin</span>' : `<button class="btn sm quiet danger" data-deluser="${p.id}">Delete account…</button>`}
+      </div>`).join('')}
+    </section>` : '<section class="ax-card ax-empty"><b>Nobody matches</b>Try another search.</section>'}`;
+}
+
+// --- Issues ----------------------------------------------------------------------------------------------------------
+// Reports come two ways: across all workspaces (r.by is the person) and on a workspace page (r.by is their name).
+const repWho = (r) => (typeof r.by === 'object' ? r.by.name || r.by.email : r.by);
+const repEmail = (r) => (typeof r.by === 'object' ? r.by.email : r.byEmail);
+function repRow(r, wsId, withWs = true) {
+  return `<div class="adm-rep ${r.status === 'resolved' ? 'done' : ''}">
+    <div class="adm-rep-main">
+      <div class="adm-rep-t"><b>${esc(r.area)}</b>${r.errorCode ? `<code>${esc(r.errorCode)}</code>` : ''}<span class="muted">${esc(repWho(r))}${withWs ? ` · <a class="ax-link" href="#/w/${wsId}/issues">${esc(r.workspace)}</a>` : ''} · ${ago(r.at)}${r.page ? ' · ' + esc(r.page) : ''}</span></div>
+      <p title="${esc(r.message)}">${esc(String(r.message).replace(/\s*\n+\s*/g, ' '))}</p>
+    </div>
+    <div class="adm-rep-act">
+      <a class="btn sm quiet" href="mailto:${encodeURIComponent(repEmail(r) || '')}?subject=${encodeURIComponent('About the issue you reported: ' + r.area)}">Email</a>
+      <button class="btn sm" data-rep="${wsId}/${r.id}" data-to="${r.status === 'resolved' ? 'open' : 'resolved'}">${r.status === 'resolved' ? 'Reopen' : 'Resolve'}</button>
+    </div>
+  </div>`;
+}
+function issuesHtml() {
+  const open = S.reps.filter((r) => r.status === 'open').length;
+  const F = [['open', 'Open', open], ['resolved', 'Resolved', S.reps.length - open], ['all', 'All', S.reps.length]];
+  const list = S.reps.filter((r) => S.repF === 'all' || r.status === S.repF);
+  return `
+    <div class="ax-h"><div><h1>Issues</h1><p>Problems people reported from inside their workspace.</p></div>
+      <div class="ax-tools"><div class="seg" id="repF" role="tablist">${F.map(([k, l, c]) => `<button data-v="${k}" class="${k === S.repF ? 'active' : ''}">${l} <span class="opt">${c}</span></button>`).join('')}</div></div></div>
+    <section class="ax-card">${list.length ? list.map((r) => repRow(r, r.wsId)).join('') : `<div class="ax-empty"><b>${S.repF === 'open' ? 'Nothing open' : 'No issues here'}</b>${S.repF === 'open' ? 'Every reported issue is resolved.' : ''}</div>`}</section>`;
+}
+
+// --- Deletion requests -------------------------------------------------------------------------------------------------
+function requestsHtml() {
+  return `
+    <div class="ax-h"><div><h1>Deletion requests</h1><p>Reach out first, then delete the account or dismiss the request.</p></div></div>
+    <section class="ax-card">${S.dels.length ? S.dels.map((d) => `<div class="del-req">
+      <div class="del-req-head"><div><b>${esc(d.name || d.email)}</b> <span class="muted">${esc(d.email)}</span><br><span class="muted">Asked ${ago(d.at)} · member since ${date(d.createdAt)}</span></div><span class="pill">${esc(d.reasonText)}</span></div>
+      ${d.note ? `<blockquote>${esc(d.note)}</blockquote>` : ''}
+      <ul class="del-plan">${d.plan.map((p) => `<li class="${p.action}"><b>${p.wsId ? `<a class="ax-link" href="#/w/${p.wsId}">${esc(p.name)}</a>` : esc(p.name)}</b> — ${esc(p.text)}</li>`).join('') || '<li>Not in any workspace</li>'}</ul>
+      <div class="del-acts">
+        <a class="btn sm" href="mailto:${encodeURIComponent(d.email)}?subject=${encodeURIComponent('About deleting your SendON account')}">Email them</a>
+        <button class="btn sm quiet" data-dismiss="${d.id}">Dismiss request</button>
+        <button class="btn sm quiet danger" data-deluser="${d.id}">Delete account…</button>
+      </div>
+    </div>`).join('') : '<div class="ax-empty"><b>No requests</b>Nobody has asked to delete their account.</div>'}</section>`;
+}
+
+// --- System ----------------------------------------------------------------------------------------------------------
+function systemHtml() {
+  const g = S.gv, live = S.all[0]?.pricingLive;
+  let gv = '<div class="ax-sys"><i class="warn">' + ic('layers', 18) + '</i><div><b>Meta API version</b><span>Couldn’t read it.</span></div></div>';
+  if (g) {
+    const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    const by = {};
+    for (const w of g.workspaces) (by[w.version || '(none)'] ||= []).push(w.name);
+    const versions = Object.keys(by).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    const one = versions.length === 1 ? versions[0] : null;
+    const until = (v) => (g.retires[v] ? `supported until ${fmt(g.retires[v])}` : 'newer than the app knows');
+    gv = `<div class="ax-sys"><i>${ic('layers', 18)}</i><div>
+        <b>${one ? `All ${g.workspaces.length} workspaces on <code>${esc(one)}</code>` : `Workspaces use ${versions.length} versions`}</b>
+        <span>${one ? `${until(one)} · ${one === g.recommended ? 'kept current automatically' : `the server moves anyone below ${esc(g.recommended)} up to it`}` : `The server moves everyone below <b>${esc(g.recommended)}</b> up to it on start and daily.`}</span></div>
+        <button type="button" class="btn sm" id="gvOpen">Move all to…</button>
+        <form class="gv-form hidden" id="gvForm"><input id="gvTo" placeholder="v26.0" maxlength="6" aria-label="Version" /><button class="btn sm primary" type="submit">Move all</button><button type="button" class="btn sm quiet" id="gvCancel">Cancel</button></form>
+      </div>${one ? '' : `<div class="ax-gvlist">${versions.map((v) => `<div class="gv-chip"><code>${esc(v)}</code><span>${by[v].length} · ${esc(until(v))}</span></div>`).join('')}</div>`}`;
+  }
+  return `
+    <div class="ax-h"><div><h1>System</h1><p>Settings that apply to every workspace on this server.</p></div></div>
+    <section class="ax-card"><h3>${ic('layers', 16)}Meta Graph API</h3>${gv}</section>
+    <section class="ax-card"><h3>${ic('zap', 16)}Pricing and credits</h3>
+      <div class="ax-sys"><i class="${live ? '' : 'warn'}">${ic('zap', 18)}</i><div>
+        <b>${live ? 'Pricing is on' : 'Pricing is off'}</b>
+        <span>${live ? 'Workspaces on the credits plan use credits for template messages and AI, and their number of WhatsApp numbers follows their pack. Set each workspace’s plan on its Credits tab.' : 'Nothing is charged and there are no number limits. Plans and credits you set on each workspace’s Credits tab are kept for when it’s on. To switch it on, add <code>PRICING=on</code> to the server’s variables (Railway → Variables) and redeploy.'}</span>
+      </div></div>
+    </section>`;
+}
+
+// --- One workspace -----------------------------------------------------------------------------------------------------
+const SUBS = [['overview', 'Overview', 'layout-grid'], ['numbers', 'Numbers', 'phone'], ['people', 'People', 'users'], ['credits', 'Credits', 'zap'], ['issues', 'Issues', 'badge-alert'], ['settings', 'Settings', 'settings']];
+async function renderWorkspace(id, sub) {
+  const view = $('#view');
+  if (S.detail?.id !== id) {
+    view.innerHTML = '<div class="ax-loading">Loading…</div>';
+    try { S.detail = await api('/admin/workspaces/' + encodeURIComponent(id)); S.credits = null; }
+    catch (e) { view.innerHTML = `<div class="ax-crumb"><a href="#/workspaces">Workspaces</a></div><section class="ax-card ax-empty"><b>Workspace not found</b>${esc(e.message)}</section>`; return; }
+  }
+  const w = S.detail, st = structure(), rel = st.rel.get(w.id) || { kind: 'sep', group: { list: [w], owner: ownerOf(w) } };
+  const o = rel.group.owner, main = rel.group.list[0], others = rel.group.list.filter((x) => x.id !== w.id);
+  const relText = rel.kind === 'main'
+    ? `Main workspace of <b>${esc(o?.email || '')}</b>. Sub-workspaces: ${others.map((x) => `<a href="#/w/${x.id}">${esc(x.name)}</a>`).join(', ')}.`
+    : rel.kind === 'sub'
+      ? `Sub-workspace of <b>${esc(o?.email || '')}</b>. Main workspace: <a href="#/w/${main.id}">${esc(main.name)}</a>${others.length > 1 ? `. Also: ${others.filter((x) => x.id !== main.id).map((x) => `<a href="#/w/${x.id}">${esc(x.name)}</a>`).join(', ')}` : ''}.`
+      : o ? `Separate workspace. <b>${esc(o.email)}</b> owns no other.` : 'No owner.';
+  if (!SUBS.some(([k]) => k === sub)) sub = 'overview';
+  const issuesOpen = (w.reports || []).filter((r) => r.status === 'open').length;
+  view.innerHTML = `
+    <div class="ax-crumb"><a href="#/workspaces">Workspaces</a><span class="sep">/</span><span>${esc(w.name)}</span></div>
+    <section class="ax-hero">
+      ${av(w.name)}
+      <div class="ax-hero-main">
+        <h1>${esc(w.name)}</h1>
+        <div class="ax-hero-tags">${relTag(rel.kind)}${w.suspended ? '<span class="ax-tag bad">Suspended</span>' : isActive(w) ? '<span class="ax-tag good">Active</span>' : '<span class="ax-tag">Idle</span>'}${w.billing === 'credits' ? `<span class="ax-tag ${w.credits ? 'main' : 'bad'}">${n(w.credits)} credits</span>` : '<span class="ax-tag">Free plan</span>'}${w.demoMode ? '<span class="ax-tag warn">Demo mode</span>' : ''}${w.legacy ? '<span class="ax-tag">Original</span>' : ''}</div>
+        <div class="ax-hero-rel">${relText}</div>
+      </div>
+      <div class="ax-hero-side"><small>Created ${date(w.createdAt)}</small><small>Last active ${w.lastActivity ? ago(w.lastActivity) : 'never'}</small></div>
+    </section>
+    <nav class="ax-subtabs" aria-label="${esc(w.name)}">${SUBS.map(([k, l, icon]) => `<a href="#/w/${w.id}/${k}" class="${k === sub ? 'on' : ''}">${ic(icon, 14)}${l}${k === 'issues' && issuesOpen ? ` <span class="ax-count warn">${issuesOpen}</span>` : k === 'numbers' ? ` <span class="ax-count">${w.numbers.length}</span>` : k === 'people' ? ` <span class="ax-count">${w.members.length}</span>` : ''}</a>`).join('')}</nav>
+    <div id="wsBody">${sub === 'credits' ? '<div class="ax-loading">Loading…</div>' : ({ overview: wsOverview, numbers: wsNumbers, people: wsPeople, issues: wsIssues, settings: wsSettings }[sub])(w, rel)}</div>`;
+  if (sub === 'credits') await wsCredits(w);
+}
+function wsOverview(w, rel) {
+  const r = failRate(w);
+  const max = Math.max(1, ...w.series.map((d) => d.sent));
+  const sentInChart = w.series.reduce((a, d) => a + d.sent, 0);
+  const lbl = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const group = rel.group.list.length > 1 ? rel.group.list : [];
+  return `
+    <section class="ax-kpis six">
+      ${kpi('send', 'Sent today', n(w.sent24h), `daily limit ${w.dailyLimit == null ? 'none' : n(w.dailyLimit)}`)}
+      ${kpi('trending-up', 'Sent, 30 days', n(w.sent30d), `${n(w.campaigns)} campaigns in all`)}
+      ${kpi('badge-alert', 'Failed, 30 days', r == null ? '—' : r + '%', `${n(w.failed30d)} messages`, rateCls(r) === 'good' ? '' : rateCls(r))}
+      ${kpi('message-circle', 'Replies in, 30 days', n(w.received30d), `${n(w.conversations)} conversations`)}
+      ${kpi('users', 'Contacts', n(w.contacts), `${n(w.optedOut)} opted out`)}
+      ${kpi('file-text', 'Templates approved', n(w.templates.approved), `${w.templates.pending} pending · ${w.templates.rejected} rejected`)}
+    </section>
+    <div class="ax-grid2">
+      <section class="ax-card"><h3>${ic('calendar-days', 16)}Last 14 days<span class="ax-legend" style="margin-left:auto"><span><i></i>Sent</span><span><i class="f"></i>Failed</span></span></h3>
+        ${sentInChart ? `<div class="ax-chart">${w.series.map((d) => `<div class="ax-bar" data-tip="${lbl(d.day)}: ${n(d.sent)} sent${d.failed ? `, ${n(d.failed)} failed` : ''}${d.received ? `, ${n(d.received)} in` : ''}"><i style="height:${(100 * Math.max(0, d.sent - d.failed)) / max}%"></i>${d.failed ? `<i class="f" style="height:${(100 * d.failed) / max}%"></i>` : ''}</div>`).join('')}</div>
+          <div class="ax-axis">${w.series.map((d, i) => `<span>${i % 2 ? '' : lbl(d.day)}</span>`).join('')}</div>` : '<div class="ax-empty" style="padding:40px 0">Nothing sent in the last 14 days.</div>'}
+      </section>
+      <section class="ax-card"><h3>${ic('layers', 16)}${group.length ? 'This account’s workspaces' : 'About'}</h3>
+        ${group.length ? `<div class="ax-rows ax-tree" style="margin:0 -20px">${group.map((x, i) => `<a class="ax-row ${i ? 'sub' : ''}" href="#/w/${x.id}" style="grid-template-columns:minmax(0,1fr) 90px 24px;${x.id === w.id ? 'background:color-mix(in srgb,var(--sunk) 60%,transparent)' : ''}"><span class="ax-who">${av(x.name, 'sm')}<div><b>${esc(x.name)}${x.id === w.id ? ' <span class="ax-faint" style="font-weight:400">(this one)</span>' : ''}</b><small>${relTag(i ? 'sub' : 'main')}</small></div></span><span class="num">${n(x.sent30d)} <span class="ax-faint" style="font-size:11.5px">30d</span></span><span class="ax-chev">${ic('chevron-down', 15)}</span></a>`).join('')}</div>`
+          : `<dl class="ax-kv"><dt>Owner</dt><dd>${esc(ownerOf(w)?.email || 'No owner')}</dd><dt>Numbers</dt><dd>${w.numbers.length}</dd><dt>Plan</dt><dd>${w.billing === 'credits' ? `Credits · ${n(w.credits)} left` : 'Free'}</dd><dt>AI assistant</dt><dd>${w.ai ? 'On' : 'Off'}</dd><dt>Meta API</dt><dd><code>${esc(w.graphVersion || '—')}</code></dd></dl>`}
+      </section>
+    </div>
+    <section class="ax-card"><h3>${ic('send', 16)}Recent campaigns</h3>
+      ${w.recentCampaigns.length ? `<table class="ax-table"><thead><tr><th>Campaign</th><th>Status</th><th class="num">Recipients</th><th class="num">Delivered</th><th class="num">Failed</th><th class="num">When</th></tr></thead><tbody>
+        ${w.recentCampaigns.map((c) => `<tr><td><b>${esc(c.name)}</b><div class="ax-muted" style="font-size:12px">${esc(c.templateName)}${c.test ? ' · test' : ''}</div></td><td><span class="ax-tag ${c.status === 'completed' ? 'good' : c.status === 'failed' || c.status === 'stopped' ? 'bad' : ''}">${esc(c.status)}</span></td><td class="num">${n(c.total)}</td><td class="num">${c.total ? Math.round((100 * c.delivered) / c.total) + '%' : '—'}</td><td class="num">${c.failed ? n(c.failed) : '<span class="ax-faint">0</span>'}</td><td class="num ax-muted">${ago(c.at)}</td></tr>`).join('')}
+      </tbody></table>` : '<p class="ax-muted" style="margin:0">No campaigns yet.</p>'}
+    </section>`;
+}
+const QUALITY = { GREEN: ['High', 'good'], YELLOW: ['Medium', 'warn'], RED: ['Low', 'bad'] };
+const NAME = { APPROVED: ['Approved', 'good'], AVAILABLE_WITHOUT_REVIEW: ['Approved', 'good'], DECLINED: ['Rejected', 'bad'], PENDING_REVIEW: ['In review', 'warn'], EXPIRED: ['Expired', 'bad'] };
+function wsNumbers(w) {
+  if (!w.numbers.length) return '<section class="ax-card ax-empty"><b>No WhatsApp numbers yet</b>This workspace hasn’t connected a number.</section>';
+  return `<div class="ax-nums">${w.numbers.map((s) => {
+    const q = QUALITY[s.qualityRating], nm = NAME[s.nameStatus];
+    return `<section class="ax-card ax-num">
+      <div class="ax-num-h"><i class="${s.enabled ? '' : 'off'}">${ic('phone', 17)}</i><div><b>${esc(s.verifiedName || s.label)}</b><small>${esc(s.displayPhone || 'No display number')}</small></div><span class="ax-tag ${s.enabled ? 'good' : ''}">${s.enabled ? 'On' : 'Off'}</span></div>
+      <dl class="ax-kv">
+        ${s.verifiedName && s.verifiedName !== s.label ? `<dt>Label</dt><dd>${esc(s.label)}</dd>` : ''}
+        <dt>Quality</dt><dd>${q ? `<span class="ax-tag ${q[1]}">${q[0]}</span>` : '<span class="ax-faint">Not rated</span>'}</dd>
+        <dt>Display name</dt><dd>${nm ? `<span class="ax-tag ${nm[1]}">${nm[0]}</span>` : '<span class="ax-faint">—</span>'}</dd>
+        ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(s.messagingLimit.replace(/^TIER_/, '').replace('UNLIMITED', 'Unlimited'))} / day</dd>` : ''}
+        <dt>Access token</dt><dd>${s.hasToken ? 'Saved' : '<span class="ax-tag bad">Missing</span>'}</dd>
+        <dt>Phone number ID</dt><dd><code>${esc(s.phoneNumberId)}</code></dd>
+        <dt>WABA ID</dt><dd>${s.wabaId ? `<code>${esc(s.wabaId)}</code>` : '<span class="ax-faint">—</span>'}</dd>
+        <dt>Last checked</dt><dd>${s.lastCheckedAt ? ago(s.lastCheckedAt) : '<span class="ax-faint">Never</span>'}</dd>
+      </dl>
+    </section>`;
+  }).join('')}</div>`;
+}
+function wsPeople(w) {
+  const asked = new Set(S.dels.map((d) => d.id));
+  return `<section class="ax-card ax-list ax-people">
+    <div class="ax-prow head"><span>Person</span><span class="c-ws">Also in</span><span class="c-joined">Joined</span><span></span></div>
+    ${w.members.map((m) => {
+      const also = people().find((p) => p.id === m.id)?.ws.filter((x) => x.id !== w.id) || [];
+      return `<div class="ax-prow">
+        <span class="ax-who">${av(m.email, 'sm')}<div><b title="${esc(m.name || m.email)}">${esc(m.name || m.email)}</b><small>${esc(m.email)}<span class="ax-tag ${m.role === 'owner' ? 'main' : ''}">${m.role === 'owner' ? 'Owner' : 'Member'}</span>${m.admin ? '<span class="ax-tag main">Admin</span>' : ''}${asked.has(m.id) ? '<span class="ax-tag bad">Asked to delete</span>' : ''}</small></div></span>
+        <span class="ax-wschips c-ws">${also.length ? also.map((x) => `<a class="ax-wschip" href="#/w/${x.id}">${av(x.name, 'sm')}<span>${esc(x.name)}</span><em>${x.role === 'owner' ? 'Owner' : 'Member'}</em></a>`).join('') : '<span class="ax-faint" style="font-size:13px">No other workspace</span>'}</span>
+        <span class="c-joined ax-muted" style="font-size:13px">${date(m.joinedAt || m.createdAt)}</span>
+        ${m.admin ? '<span class="ax-faint" style="justify-self:end;font-size:12.5px">Admin</span>' : `<button class="btn sm quiet danger" data-deluser="${m.id}">Delete account…</button>`}
+      </div>`;
+    }).join('') || '<div class="ax-empty"><b>Nobody yet</b></div>'}
+  </section>`;
+}
+function wsIssues(w) {
+  const list = w.reports || [];
+  return `<section class="ax-card">${list.length ? list.map((r) => repRow(r, w.id, false)).join('') : '<div class="ax-empty"><b>No issues reported</b>Nobody in this workspace has reported a problem.</div>'}</section>`;
+}
+function wsSettings(w) {
+  return `
+    <section class="ax-card"><h3>${ic('settings', 16)}Limits and features</h3>
+      <div class="ax-set"><div><b>Daily limit</b><span>Template messages this workspace can send in 24 hours. Leave it empty for no limit.</span></div>
+        <div class="ax-inline"><input class="ax-limit" id="wsLimit" value="${w.dailyLimit ?? ''}" placeholder="No limit" inputmode="numeric" aria-label="Daily limit" /><button class="btn sm" id="wsLimitSave">Save</button></div></div>
+      <div class="ax-set"><div><b>AI assistant</b><span>${w.aiBuiltIn ? 'Always on for your own workspaces.' : 'When it’s on, the owners can use it and choose which of their members can too.'}</span></div>
+        <label class="adm-ai"><span class="toggle sm"><input type="checkbox" id="wsAi" ${w.ai ? 'checked' : ''} ${w.aiBuiltIn ? 'disabled' : ''} aria-label="AI assistant" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label></div>
+    </section>
+    <section class="ax-card"><h3>${ic('file-text', 16)}Details</h3>
+      <dl class="ax-kv"><dt>Workspace ID</dt><dd><code>${esc(w.id)}</code></dd><dt>Created</dt><dd>${date(w.createdAt)}</dd><dt>Meta API version</dt><dd><code>${esc(w.graphVersion || '—')}</code></dd><dt>Demo mode</dt><dd>${w.demoMode ? 'On' : 'Off'}</dd><dt>Campaigns</dt><dd>${n(w.campaigns)}</dd></dl>
+    </section>
+    <section class="ax-card ax-danger"><h3>${ic('lock', 16)}${w.suspended ? 'Suspended' : 'Suspend'}</h3>
+      <div class="ax-set"><div><b>${w.suspended ? `Suspended${w.suspendedAt ? ' since ' + date(w.suspendedAt) : ''}` : 'Suspend this workspace'}</b><span>${w.suspended ? 'Its members are locked out and nothing is sent. Unsuspend to let them back in.' : 'Its members are locked out and sending stops until you unsuspend it. Nothing is deleted.'}</span></div>
+        <button class="btn sm ${w.suspended ? '' : 'danger-solid'}" id="wsSuspend" data-to="${!w.suspended}">${w.suspended ? 'Unsuspend' : 'Suspend'}</button></div>
+    </section>`;
+}
+async function wsCredits(w) {
+  const box = $('#wsBody');
+  let c;
+  try { c = S.credits || (S.credits = await api('/admin/workspaces/' + w.id + '/credits')); } catch (e) { box.innerHTML = `<section class="ax-card ax-empty"><b>Couldn't load credits</b>${esc(e.message)}</section>`; return; }
+  const low = c.balance === 0 ? 'out' : c.balance < 500 ? 'low' : '';
+  const kindText = (l) => (l.kind === 'add' ? 'Added' : l.kind === 'expire' ? 'Expired unused' : `${n(l.used)} used${l.refunded ? ` · ${n(l.refunded)} returned for failed messages` : ''}`);
+  box.innerHTML = `
+    ${c.live ? '' : '<div class="adm-pricing-off"><b>Pricing is off</b> (PRICING isn’t on), so nothing here applies yet. What you set is kept for when it’s on.</div>'}
+    <div class="ax-grid2">
+      <section class="ax-card"><h3>${ic('zap', 16)}Plan</h3>
+        <div class="adm-cr-plan"><label><input type="radio" name="crPlan" value="free" ${c.on ? '' : 'checked'} /> Free plan</label><label><input type="radio" name="crPlan" value="credits" ${c.on ? 'checked' : ''} /> Credits plan</label></div>
+        ${c.on ? `<div class="ax-bal ${low}"><b>${n(c.balance)}</b><span class="ax-muted">credits left</span></div>
+          <p class="ax-muted" style="margin:0 0 4px;font-size:13px">WhatsApp numbers: ${c.numberLimit == null ? `${n(c.numbersUsed)} connected · no limit` : `${n(c.numbersUsed)} of ${n(c.numberLimit)}`}</p>` : '<p class="ax-muted" style="margin:0;font-size:13px">On the free plan nothing uses credits.</p>'}
+        <p class="ax-faint" style="margin:10px 0 0;font-size:12.5px;line-height:1.5">Marketing message ${c.rates.marketing}, utility ${c.rates.utility}, AI reply or Assistant answer ${c.rates.ai} (any key), Assistant campaign plan ${c.rates.plan ?? 3}. Failed messages are refunded; packs last ${c.months} months.</p>
+      </section>
+      <section class="ax-card"><h3>${ic('plus', 16)}Add credits <span class="ax-faint" style="font-weight:400;font-size:12.5px">once they’ve paid</span></h3>
+        <div class="adm-cr-add" style="margin-top:0">${c.packOptions.map((p) => `<button class="btn sm" data-pack="${p.id}">Add ₹${n(p.price)} → ${n(p.credits)}</button>`).join('')}</div>
+        <div class="adm-cr-custom" style="margin-bottom:0"><input id="crN" inputmode="numeric" placeholder="Credits" aria-label="Credits" /><input id="crPrice" inputmode="numeric" placeholder="₹ paid" aria-label="Amount paid in rupees" /><input id="crNote" placeholder="Note (invoice, UTR…)" aria-label="Note" /><button class="btn sm" id="crCustom">Add</button></div>
+      </section>
+    </div>
+    ${c.packs.length ? `<section class="ax-card"><h3>${ic('layers', 16)}Packs</h3><table class="ax-table"><thead><tr><th>Pack</th><th class="num">Credits</th><th class="num">Left</th><th class="num">Paid</th><th class="num">Added</th><th class="num">Expires</th></tr></thead><tbody>
+      ${c.packs.map((p) => `<tr><td><b>${esc(p.name)}</b>${p.expired ? ' <span class="ax-tag">Expired</span>' : ''}</td><td class="num">${n(p.credits)}</td><td class="num">${n(p.left)}</td><td class="num">${p.price ? '₹' + n(p.price) : '—'}</td><td class="num ax-muted">${date(p.addedAt)}</td><td class="num ax-muted">${date(p.expiresAt)}</td></tr>`).join('')}
+    </tbody></table></section>` : ''}
+    <section class="ax-card"><h3>${ic('calendar-days', 16)}Activity</h3>
+      ${c.ledger.length ? `<table class="ax-table ax-ledger"><tbody>${c.ledger.map((l) => `<tr><td><b>${esc(l.what)}</b><small>${esc(kindText(l))}</small></td><td class="num ax-muted">${ago(l.at)}</td><td class="num ${l.kind === 'add' ? 'add' : ''}"><b>${l.kind === 'add' ? '+' + n(l.used) : '−' + n(l.used - l.refunded)}</b></td></tr>`).join('')}</tbody></table>` : '<p class="ax-muted" style="margin:0">No activity yet.</p>'}
+    </section>`;
+  LA.hydrate(box);
+}
+
+// --- Actions -----------------------------------------------------------------------------------------------------------
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'wsQ') { S.wsQ = e.target.value; keepFocus('wsQ', () => render()); }
+  if (e.target.id === 'pQ') { S.pQ = e.target.value; keepFocus('pQ', () => render()); }
+});
+// Re-render while typing in a search box without losing the cursor.
+function keepFocus(id, fn) { const pos = $('#' + id)?.selectionStart; Promise.resolve(fn()).then(() => { const el = $('#' + id); if (el) { el.focus(); el.setSelectionRange(pos, pos); } }); }
+
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  const seg = t.closest('.seg [data-v]');
+  if (seg) {
+    const id = seg.parentElement.id, v = seg.dataset.v;
+    if (id === 'wsF') S.wsF = v;
+    if (id === 'repF') S.repF = v;
+    return render();
+  }
+  const tog = t.closest('[data-toggle]');
+  if (tog) { const id = tog.dataset.toggle; S.open.has(id) ? S.open.delete(id) : S.open.add(id); return render(); }
+  if (t.closest('#wsAllOpen')) {
+    const st = structure(), mains = S.all.filter((w) => st.rel.get(w.id)?.kind === 'main');
+    const all = mains.every((w) => S.open.has(w.id));
+    mains.forEach((w) => (all ? S.open.delete(w.id) : S.open.add(w.id)));
+    return render();
+  }
+  const row = t.closest('.ax-row[data-href]');
+  if (row && !t.closest('a, button')) { location.hash = row.dataset.href; return; }
+  const rep = t.closest('[data-rep]');
+  if (rep) {
+    try { await api('/admin/reports/' + rep.dataset.rep, { method: 'POST', body: { status: rep.dataset.to } }); toast(rep.dataset.to === 'resolved' ? 'Marked resolved' : 'Reopened'); await reload(); } catch (err) { toast(err.message, true); }
+    return;
+  }
+  const dis = t.closest('[data-dismiss]');
+  if (dis) { try { await api('/admin/users/' + dis.dataset.dismiss + '/dismiss-deletion', { method: 'POST' }); toast('Request dismissed'); await reload(); } catch (err) { toast(err.message, true); } return; }
+  const del = t.closest('[data-deluser]');
+  if (del) return deleteUserDlg(del.dataset.deluser);
+  // Meta API version
+  if (t.closest('#gvOpen')) { $('#gvOpen').classList.add('hidden'); $('#gvForm').classList.remove('hidden'); $('#gvTo').focus(); return; }
+  if (t.closest('#gvCancel')) { $('#gvForm').classList.add('hidden'); $('#gvOpen').classList.remove('hidden'); return; }
+  // Workspace settings
+  const w = S.detail;
+  if (t.closest('#wsLimitSave') && w) {
+    try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { dailyLimit: $('#wsLimit').value.trim() } }); toast('Daily limit saved'); await reload(); } catch (err) { toast(err.message, true); }
+    return;
+  }
+  const sus = t.closest('#wsSuspend');
+  if (sus && w) {
+    const to = sus.dataset.to === 'true';
+    if (to && !confirm(`Suspend ${w.name}? Its members are locked out and sending stops.`)) return;
+    try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { suspended: to } }); toast(to ? 'Suspended' : 'Unsuspended'); await reload(); } catch (err) { toast(err.message, true); }
+    return;
+  }
+  // Credits
+  const pack = t.closest('[data-pack]');
+  if ((pack || t.closest('#crCustom')) && w && S.credits) {
+    const c = S.credits;
+    const body = pack ? { pack: pack.dataset.pack } : { credits: $('#crN').value, price: $('#crPrice').value };
+    const amount = pack ? c.packOptions.find((p) => p.id === body.pack).credits : Number(body.credits);
+    if (!amount) return toast('Enter how many credits', true);
+    if (!confirm(`Add ${n(amount)} credits to ${w.name}? Only once they’ve paid.`)) return;
+    try { await api('/admin/workspaces/' + w.id + '/credits', { method: 'POST', body: { ...body, note: $('#crNote').value } }); toast('Credits added'); await reload(); } catch (err) { toast(err.message, true); }
+  }
+});
+document.addEventListener('change', async (e) => {
+  const w = S.detail;
+  if (e.target.id === 'wsAi' && w) {
+    const on = e.target.checked;
+    try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { ai: on } }); toast(on ? 'AI assistant on. The owners pick which members get it.' : 'AI assistant off for this workspace'); await reload(); }
+    catch (err) { e.target.checked = !on; toast(err.message, true); }
+  }
+  if (e.target.name === 'crPlan' && w) {
+    const v = e.target.value;
+    if (v === 'credits' && !confirm(`Switch ${w.name} to the credits plan? From now on, template messages and AI use credits, and sending stops when they run out.`)) { render(); return; }
+    try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { billing: v } }); toast(v === 'credits' ? 'On the credits plan' : 'On the free plan'); await reload(); } catch (err) { toast(err.message, true); }
+  }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'wsLimit') $('#wsLimitSave')?.click(); });
+document.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'gvForm') return;
+  e.preventDefault();
+  const to = $('#gvTo').value.trim();
+  if (!confirm(`Move every workspace to ${to}? Each one's sending, Inbox and template sync will use it straight away.`)) return;
+  try { const r = await api('/admin/graph-version', { method: 'POST', body: { version: to } }); toast(r.moved.length ? `Moved ${r.moved.length} workspace(s) to ${to}` : `Every workspace already uses ${to}`); await reload(); }
+  catch (err) { toast(err.message, true); }
+});
+
+// Deleting an account (after typing their email): shows what happens to each of their workspaces first.
 function dlg(html) {
   let d = document.getElementById('admDlg');
-  if (!d) { d = document.createElement('dialog'); d.id = 'admDlg'; d.className = 'adm-dlg'; document.body.append(d); d.addEventListener('click', (e) => { if (e.target === d) d.close(); }); }
+  if (!d) { d = document.createElement('dialog'); d.id = 'admDlg'; d.className = 'adm-dlg'; document.body.append(d); }
   d.innerHTML = html; if (!d.open) d.showModal(); return d;
-}
-function peopleDlg(wsId) {
-  const w = all.find((x) => x.id === wsId);
-  if (!w) return;
-  const d = dlg(`<div class="adm-dlg-h"><b>${esc(w.name)}</b><span>${w.members.length} ${w.members.length === 1 ? 'person' : 'people'}</span><button class="adm-x" data-close aria-label="Close">×</button></div>
-    <div class="adm-dlg-list">${w.members.map((m) => `<div class="adm-person">
-      <span class="adm-av sm" style="--av:var(--file-${hue(m.email)})">${initial(m.email)}</span>
-      <div><b>${esc(m.name || m.email)}</b><span>${esc(m.email)} · ${m.role === 'owner' ? 'Owner' : 'Member'}${m.admin ? ' · admin' : ''}</span></div>
-      ${m.admin ? '<span class="muted adm-note">Admin</span>' : `<button class="btn sm quiet danger" data-deluser="${m.id}">Delete account…</button>`}
-    </div>`).join('')}</div>`);
-  d.onclick = (e) => {
-    if (e.target === d || e.target.closest('[data-close]')) return d.close();
-    const b = e.target.closest('[data-deluser]');
-    if (b) deleteUserDlg(b.dataset.deluser);
-  };
 }
 async function deleteUserDlg(id) {
   let u;
@@ -162,180 +594,31 @@ async function deleteUserDlg(id) {
     if (e.target === d || e.target.closest('[data-close]')) return d.close();
     if (e.target.closest('#admDelGo') && !go.disabled) {
       go.disabled = true;
-      try { await api('/admin/users/' + u.id + '/delete', { method: 'POST', body: { confirm: input.value } }); d.close(); toast('Account deleted'); load(); }
-      catch (err) { toast(err.message, true); go.disabled = false; }
+      try {
+        await api('/admin/users/' + u.id + '/delete', { method: 'POST', body: { confirm: input.value } });
+        d.close(); toast('Account deleted');
+        if (S.detail && !S.all.some((x) => x.id === S.detail.id)) location.hash = '#/workspaces';
+        await reload();
+      } catch (err) { toast(err.message, true); go.disabled = false; }
     }
   };
 }
-$('#tbl').addEventListener('click', (e) => { const b = e.target.closest('[data-people]'); if (b) peopleDlg(b.dataset.people); });
-// Pricing (credits) is off until PRICING=on is set on the server: say so above the table.
-function pricingNote() {
-  const live = all[0]?.pricingLive;
-  let n = document.getElementById('admPricing');
-  if (live || !all.length) { n?.remove(); return; }
-  if (!n) { n = document.createElement('div'); n.id = 'admPricing'; n.className = 'adm-pricing-off'; $('.adm-table-card').before(n); }
-  n.innerHTML = '<b>Pricing is off.</b> Nothing is charged and there are no number limits. Plans and credits you set here are kept for when it’s switched on: add <code>PRICING=on</code> to the server’s variables (Railway → Variables) and redeploy.';
-}
-// A workspace's plan and credits: switch between free and the credits plan, add a pack once they've paid, and see where credits went.
-async function creditsDlg(wsId) {
-  const w = all.find((x) => x.id === wsId);
-  if (!w) return;
-  let c;
-  try { c = await api('/admin/workspaces/' + wsId + '/credits'); } catch (err) { return toast(err.message, true); }
-  const n = (x) => Number(x || 0).toLocaleString('en-IN');
-  const d = dlg(`<div class="adm-dlg-h"><b>${esc(w.name)}</b><span>Credits</span><button class="adm-x" data-close aria-label="Close">×</button></div>
-    ${c.live ? '' : '<p class="adm-pricing-off sm"><b>Pricing is off</b> (PRICING isn’t on), so nothing here applies yet.</p>'}
-    <div class="adm-cr-plan"><label><input type="radio" name="crPlan" value="free" ${c.on ? '' : 'checked'} /> Free plan</label><label><input type="radio" name="crPlan" value="credits" ${c.on ? 'checked' : ''} /> Credits plan</label></div>
-    <p class="sub">${c.on ? `<b>${n(c.balance)} credits</b> left.` : 'On the free plan nothing uses credits.'} Marketing message ${c.rates.marketing}, utility ${c.rates.utility}, AI reply or Assistant answer ${c.rates.ai} (any key), Assistant campaign plan ${c.rates.plan ?? 3}. Failed messages are refunded; packs last ${c.months} months.</p>
-    <div class="adm-cr-add">${c.packOptions.map((p) => `<button class="btn sm" data-pack="${p.id}">Add ₹${n(p.price)} → ${n(p.credits)}</button>`).join('')}</div>
-    <div class="adm-cr-custom"><input id="crN" inputmode="numeric" placeholder="Credits" aria-label="Credits" /><input id="crPrice" inputmode="numeric" placeholder="₹ paid" aria-label="Amount paid in rupees" /><input id="crNote" placeholder="Note (invoice, UTR…)" aria-label="Note" /><button class="btn sm" id="crCustom">Add</button></div>
-    <div class="adm-cr-log">${c.ledger.slice(0, 10).map((l) => `<div><span>${esc(l.what)}</span><b>${l.kind === 'add' ? '+' + n(l.used) : '−' + n(l.used - l.refunded)}</b></div>`).join('') || '<p class="sub">No activity yet.</p>'}</div>`);
-  const add = async (body) => {
-    if (!confirm(`Add ${body.pack ? c.packOptions.find((p) => p.id === body.pack).credits.toLocaleString('en-IN') : Number(body.credits).toLocaleString('en-IN')} credits to ${w.name}? Only once they’ve paid.`)) return;
-    try { await api('/admin/workspaces/' + wsId + '/credits', { method: 'POST', body: { ...body, note: d.querySelector('#crNote').value } }); toast('Credits added'); await load(); creditsDlg(wsId); } catch (err) { toast(err.message, true); }
-  };
-  d.onchange = async (e) => {
-    const r = e.target.closest('[name=crPlan]');
-    if (!r) return;
-    if (r.value === 'credits' && !confirm(`Switch ${w.name} to the credits plan? From now on, template messages and AI use credits, and sending stops when they run out.`)) { creditsDlg(wsId); return; }
-    try { await api('/admin/workspaces/' + wsId, { method: 'PATCH', body: { billing: r.value } }); toast(r.value === 'credits' ? 'On the credits plan' : 'On the free plan'); await load(); creditsDlg(wsId); } catch (err) { toast(err.message, true); }
-  };
-  d.onclick = (e) => {
-    if (e.target === d || e.target.closest('[data-close]')) return d.close();
-    const p = e.target.closest('[data-pack]');
-    if (p) return add({ pack: p.dataset.pack });
-    if (e.target.closest('#crCustom')) add({ credits: d.querySelector('#crN').value, price: d.querySelector('#crPrice').value });
-  };
-}
-$('#tbl').addEventListener('click', (e) => { const b = e.target.closest('[data-credits]'); if (b) creditsDlg(b.dataset.credits); });
-$('#wsFilter').addEventListener('click', (e) => { const b = e.target.closest('[data-f]'); if (!b) return; wsFilter = b.dataset.f; render(); });
 
-function syncAttn() { $('#attn').classList.toggle('hidden', $('#repSec').classList.contains('hidden') && $('#delReqs').classList.contains('hidden')); }
-// Deletion requests: what they said, and what deleting would do to each workspace.
-let dels = [];
-function renderDels() {
-  $('#delReqs').classList.toggle('hidden', !dels.length);
-  $('#delCount').textContent = `${dels.length} waiting`;
-  syncAttn();
-  $('#delList').innerHTML = dels.map((d) => `<div class="del-req">
-    <div class="del-req-head"><div><b>${esc(d.name || d.email)}</b> <span class="muted">${esc(d.email)}</span><br><span class="muted">Asked ${ago(d.at)} · member since ${d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—'}</span></div><span class="pill">${esc(d.reasonText)}</span></div>
-    ${d.note ? `<blockquote>${esc(d.note)}</blockquote>` : ''}
-    <ul class="del-plan">${d.plan.map((p) => `<li class="${p.action}"><b>${esc(p.name)}</b> — ${esc(p.text)}</li>`).join('') || '<li>Not in any workspace</li>'}</ul>
-    <div class="del-acts">
-      <a class="btn sm" href="mailto:${encodeURIComponent(d.email)}?subject=${encodeURIComponent('About deleting your SendON account')}">Email them</a>
-      <button class="btn sm quiet" data-dismiss="${d.id}">Dismiss request</button>
-      <button class="btn sm quiet danger" data-delete="${d.id}" data-email="${esc(d.email)}">Delete account…</button>
-    </div>
-  </div>`).join('');
+// Expand / collapse the sidebar (remembered on this browser).
+function drawCollapse() {
+  const col = document.documentElement.classList.contains('ax-collapsed');
+  const b = $('#axCollapse');
+  b.innerHTML = ic('panel-left', 16);
+  b.title = b.ariaLabel = col ? 'Expand sidebar' : 'Collapse sidebar';
+  b.setAttribute('aria-expanded', String(!col));
 }
-$('#delList').addEventListener('click', async (e) => {
-  const dis = e.target.closest('[data-dismiss]'), del = e.target.closest('[data-delete]');
-  try {
-    if (dis) { await api('/admin/users/' + dis.dataset.dismiss + '/dismiss-deletion', { method: 'POST' }); toast('Request dismissed'); load(); }
-    if (del) {
-      const typed = prompt(`This permanently deletes ${del.dataset.email} and the workspaces only they use. It can't be undone.\n\nType their email to confirm:`);
-      if (typed === null) return;
-      await api('/admin/users/' + del.dataset.delete + '/delete', { method: 'POST', body: { confirm: typed } });
-      toast('Account deleted'); load();
-    }
-  } catch (err) { toast(err.message, true); }
+$('#axCollapse').addEventListener('click', () => {
+  const col = document.documentElement.classList.toggle('ax-collapsed');
+  try { localStorage.setItem('ax-side', col ? 'collapsed' : 'open'); } catch {}
+  drawCollapse();
 });
-// Reported issues, across all workspaces.
-let reps = [];
-let showResolved = false;
-function renderReps() {
-  const open = reps.filter((r) => r.status === 'open').length;
-  const resolved = reps.length - open;
-  $('#repSec').classList.toggle('hidden', !reps.length);
-  $('#repCount').textContent = open ? `${open} open` : 'All resolved';
-  $('#repCount').className = 'tag ' + (open ? 'warn' : 'good');
-  syncAttn();
-  const shown = reps.filter((r) => r.status === 'open' || showResolved);
-  // One compact row per report: what, who, when, the message on one line (full text on hover), actions on the right.
-  $('#repList').innerHTML = shown.map((r) => `<div class="adm-rep ${r.status === 'resolved' ? 'done' : ''}">
-      <div class="adm-rep-main">
-        <div class="adm-rep-t"><b>${esc(r.area)}</b>${r.errorCode ? `<code>${esc(r.errorCode)}</code>` : ''}<span class="muted">${esc(r.by.name || r.by.email)} · ${esc(r.workspace)} · ${ago(r.at)}${r.page ? ' · ' + esc(r.page) : ''}</span></div>
-        <p title="${esc(r.message)}">${esc(r.message.replace(/\s*\n+\s*/g, ' '))}</p>
-      </div>
-      <div class="adm-rep-act">
-        <a class="btn sm quiet" href="mailto:${encodeURIComponent(r.by.email)}?subject=${encodeURIComponent('About the issue you reported: ' + r.area)}">Email</a>
-        <button class="btn sm" data-rep="${r.wsId}/${r.id}" data-to="${r.status === 'resolved' ? 'open' : 'resolved'}">${r.status === 'resolved' ? 'Reopen' : 'Resolve'}</button>
-      </div>
-    </div>`).join('') + (resolved ? `<button type="button" class="adm-more" id="repMore">${showResolved ? 'Hide' : 'Show'} ${resolved} resolved</button>` : '') + (!shown.length ? '<p class="sub">Nothing open.</p>' : '');
-}
-$('#repList').addEventListener('click', (e) => { if (e.target.closest('#repMore')) { showResolved = !showResolved; renderReps(); } });
-$('#repList').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-rep]');
-  if (!b) return;
-  try { await api('/admin/reports/' + b.dataset.rep, { method: 'POST', body: { status: b.dataset.to } }); toast(b.dataset.to === 'resolved' ? 'Marked resolved' : 'Reopened'); load(); } catch (err) { toast(err.message, true); }
-});
-// Meta API version: one line when everyone agrees; a breakdown when they don't.
-async function loadGv() {
-  const g = await api('/admin/graph-version');
-  const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-  const by = {};
-  for (const w of g.workspaces) (by[w.version || '(none)'] ||= []).push(w.name);
-  const versions = Object.keys(by).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-  const one = versions.length === 1 ? versions[0] : null;
-  const until = (v) => (g.retires[v] ? `supported until ${fmt(g.retires[v])}` : 'newer than the app knows');
-  $('#gvTitle').innerHTML = one ? `All ${g.workspaces.length} workspaces on <code>${esc(one)}</code>` : `Workspaces use ${versions.length} versions`;
-  $('#gvSub').innerHTML = one
-    ? `${until(one)} · ${one === g.recommended ? 'kept current automatically' : `the server moves anyone below ${esc(g.recommended)} up to it`}`
-    : `The server moves everyone below <b>${esc(g.recommended)}</b> up to it on start and daily.`;
-  $('#gvList').classList.toggle('hidden', Boolean(one));
-  $('#gvList').innerHTML = one ? '' : versions.map((v) => `<div class="gv-chip"><code>${esc(v)}</code><span>${by[v].length} · ${esc(until(v))}</span></div>`).join('');
-}
-$('#gvOpen').addEventListener('click', () => { $('#gvOpen').classList.add('hidden'); $('#gvForm').classList.remove('hidden'); $('#gvTo').focus(); });
-$('#gvCancel').addEventListener('click', () => { $('#gvForm').classList.add('hidden'); $('#gvOpen').classList.remove('hidden'); });
-$('#gvForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const to = $('#gvTo').value.trim();
-  if (!confirm(`Move every workspace to ${to}? Each one's sending, Inbox and template sync will use it straight away.`)) return;
-  try { const r = await api('/admin/graph-version', { method: 'POST', body: { version: to } }); toast(r.moved.length ? `Moved ${r.moved.length} workspace(s) to ${to}` : `Every workspace already uses ${to}`); $('#gvTo').value = ''; $('#gvCancel').click(); loadGv(); }
-  catch (err) { toast(err.message, true); }
-});
-async function load() {
-  try { await loadGv(); } catch (e) { $('#gvSec').classList.add('hidden'); }
-  try { reps = await api('/admin/reports'); renderReps(); } catch (e) { /* the table below shows the error */ }
-  try { dels = await api('/admin/deletion-requests'); renderDels(); } catch (e) { /* the table below shows the error */ }
-  try { all = await api('/admin/workspaces'); render(); LA.hydrate(document); }
-  catch (e) { $('#tbl tbody').innerHTML = `<tr><td colspan="12" class="table-empty">${esc(e.message)}</td></tr>`; }
-}
-$('#q').addEventListener('input', render);
-// The "?" hints: a tooltip right away on hover or keyboard focus (the browser's own title tooltip is slow and easy
-// to miss). It floats over the page, so the table's scroll box can't cut it off.
-const tipEl = Object.assign(document.createElement('div'), { className: 'adm-tip', role: 'tooltip' });
-document.body.append(tipEl);
-const showTip = (h) => {
-  tipEl.textContent = h.dataset.tip;
-  tipEl.classList.add('on');
-  const r = h.getBoundingClientRect(), w = tipEl.offsetWidth;
-  tipEl.style.left = Math.max(12, Math.min(innerWidth - w - 12, r.left + r.width / 2 - w / 2)) + 'px';
-  tipEl.style.top = r.bottom + 8 + 'px';
-};
-const hideTip = () => tipEl.classList.remove('on');
-for (const [ev, fn] of [['mouseover', showTip], ['focusin', showTip]]) document.addEventListener(ev, (e) => { const h = e.target.closest?.('.adm-hint[data-tip]'); if (h) fn(h); });
-for (const ev of ['mouseout', 'focusout']) document.addEventListener(ev, (e) => { if (e.target.closest?.('.adm-hint[data-tip]')) hideTip(); });
-addEventListener('scroll', hideTip, { passive: true, capture: true });
-$('#tbl').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-suspend]');
-  if (!b) return;
-  const to = b.dataset.to === 'true';
-  if (to && !confirm('Suspend this workspace? Its members are locked out and sending stops.')) return;
-  try { await api('/admin/workspaces/' + b.dataset.suspend, { method: 'PATCH', body: { suspended: to } }); toast(to ? 'Suspended' : 'Unsuspended'); load(); } catch (err) { toast(err.message, true); }
-});
-$('#tbl').addEventListener('change', async (e) => {
-  const a = e.target.closest('[data-ai]');
-  if (a) {
-    try { await api('/admin/workspaces/' + a.dataset.ai, { method: 'PATCH', body: { ai: a.checked } }); toast(a.checked ? 'AI assistant on. The owners pick which members get it.' : 'AI assistant off for this workspace'); load(); }
-    catch (err) { a.checked = !a.checked; toast(err.message, true); }
-    return;
-  }
-  const i = e.target.closest('[data-limit]');
-  if (!i) return;
-  try { await api('/admin/workspaces/' + i.dataset.limit, { method: 'PATCH', body: { dailyLimit: i.value.trim() } }); toast('Daily limit saved'); load(); } catch (err) { toast(err.message, true); }
-});
-load();
+drawCollapse();
+render();
 </script>
 </body>
 </html>
