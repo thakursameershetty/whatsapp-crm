@@ -101,7 +101,12 @@ function phoneInputError(input) {
   const digits = v.replace(/\D/g, '').replace(/^00/, '');
   if (digits.length < 10) return 'That number is too short. Enter 10 digits, or the full number with the country code.';
   if (digits.length > 15) return 'That number is too long. Phone numbers have at most 15 digits.';
-  return normalizePhone(v) ? '' : 'Enter a valid phone number';
+  return normalizeTypedPhone(v) ? '' : 'Enter a valid phone number';
+}
+// A number typed into a form, cleaned. Brackets there are punctuation ("(987) 650-0100", "(020) 7946 0958"),
+// so their digits are kept. Sheet cells go through normalizePhone instead, where brackets hold notes to drop.
+function normalizeTypedPhone(input) {
+  return normalizePhone(String(input ?? '').replace(/[()]/g, ' '));
 }
 
 // Every phone number in a cell, best first. Lead sheets often hold several ("98450 08573 / 99805 17082",
@@ -1623,7 +1628,7 @@ app.post('/api/send/test', wrap(async (req, res) => {
   { const e = !db.settings.demoMode && notApprovedError(template); if (e) throw fail(e); }
   const phoneErr = phoneInputError(phone);
   if (phoneErr) throw fail(phoneErr);
-  const to = normalizePhone(phone);
+  const to = normalizeTypedPhone(phone);
   if (!db.settings.demoMode && !sender.accessToken) throw fail('This sender has no access token');
   const linkErr = valuesProblem(template, withLinkDefaults(template, values));
   if (linkErr) throw fail(linkErr);
@@ -3246,7 +3251,7 @@ app.post('/api/admin/workspaces/:id/credits', wrap((req, res) => {
   creditsChanged(ws.meta.id);
   res.json(summary);
 }));
-const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast });
+const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, normalizeTypedPhone, phoneInputError, broadcast });
 // Templates saved before their dates were kept: created = when it was sent to Meta from here, approved = the
 // latest "was approved" notification about it. Templates made in WhatsApp Manager have neither until they change.
 for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {

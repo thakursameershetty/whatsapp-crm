@@ -738,7 +738,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const { name, error } = checkName(req.body.name, 'workspace');
       if (error) throw fail(error);
       const limit = workspaceLimit(req.user);
-      if (limit != null && ownedCount(req.user.id) >= limit) throw fail(`You already have ${limit} workspaces,, the most one account can own. Contact us if you need more.`);
+      if (limit != null && ownedCount(req.user.id) >= limit) throw fail(`You already have ${limit} workspaces, the most one account can own. Contact us if you need more.`);
       const ws = createWorkspace(name);
       accounts.members.push({ wsId: ws.meta.id, userId: req.user.id, role: 'owner', joinedAt: now() });
       if (req.session) req.session.wsId = ws.meta.id;

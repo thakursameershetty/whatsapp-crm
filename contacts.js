@@ -10,7 +10,7 @@ const TAG_COLORS = ['blue', 'green', 'violet', 'orange', 'teal', 'pink', 'gray',
 const STOP_RE = /^\s*(stop|stop all|unsubscribe|opt[ -]?out|cancel|remove me)\s*[.!]*\s*$/i;
 
 module.exports = function mountContacts(app, ctx) {
-  const { db, save, id, wrap, fail, normalizePhone, phoneInputError, broadcast } = ctx;
+  const { db, save, id, wrap, fail, normalizePhone, normalizeTypedPhone, phoneInputError, broadcast } = ctx;
   db.contacts ||= [];
   db.tags ||= [];
   db.collections ||= [];
@@ -286,7 +286,7 @@ module.exports = function mountContacts(app, ctx) {
   app.post('/api/contacts', wrap((req, res) => {
     const phoneErr = phoneInputError(req.body.phone);
     if (phoneErr) throw fail(phoneErr);
-    const phone = normalizePhone(req.body.phone);
+    const phone = normalizeTypedPhone(req.body.phone);
     const { contact, created } = upsert(phone, req.body, { source: 'manual', addTags: req.body.tags || [] });
     save();
     res.json({ contact, created });
@@ -298,7 +298,7 @@ module.exports = function mountContacts(app, ctx) {
     if (req.body.phone != null) {
       const phoneErr = phoneInputError(req.body.phone);
       if (phoneErr) throw fail(phoneErr);
-      const phone = normalizePhone(req.body.phone);
+      const phone = normalizeTypedPhone(req.body.phone);
       if (phone !== c.phone && byPhone(phone)) throw fail('Another contact already has that number');
       c.phone = phone;
       delete c.phoneProblem;
