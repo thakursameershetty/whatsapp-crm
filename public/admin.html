@@ -457,6 +457,8 @@ function wsSettings(w) {
     <section class="ax-card ax-danger"><h3>${ic('lock', 16)}${w.suspended ? 'Suspended' : 'Suspend'}</h3>
       <div class="ax-set"><div><b>${w.suspended ? `Suspended${w.suspendedAt ? ' since ' + date(w.suspendedAt) : ''}` : 'Suspend this workspace'}</b><span>${w.suspended ? 'Its members are locked out and nothing is sent. Unsuspend to let them back in.' : 'Its members are locked out and sending stops until you unsuspend it. Nothing is deleted.'}</span></div>
         <button class="btn sm ${w.suspended ? '' : 'danger-solid'}" id="wsSuspend" data-to="${!w.suspended}">${w.suspended ? 'Unsuspend' : 'Suspend'}</button></div>
+      <div class="ax-set"><div><b>Delete this workspace</b><span>${w.legacy ? 'This is the original workspace (the data from before workspaces existed), so it can’t be deleted here.' : 'Deletes its numbers, contacts, campaigns, messages and Assistant files for good. Its people keep their accounts and move to another workspace of theirs. Suspending can be undone; this can’t.'}</span></div>
+        ${w.legacy ? '' : '<button class="btn sm danger-solid" id="wsDelete">Delete workspace…</button>'}</div>
     </section>`;
 }
 async function wsCredits(w) {
@@ -540,6 +542,7 @@ document.addEventListener('click', async (e) => {
     try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { suspended: to } }); toast(to ? 'Suspended' : 'Unsuspended'); await reload(); } catch (err) { toast(err.message, true); }
     return;
   }
+  if (t.closest('#wsDelete') && w) return deleteWorkspaceDlg(w);
   // Credits
   const pack = t.closest('[data-pack]');
   if ((pack || t.closest('#crCustom')) && w && S.credits) {
@@ -573,6 +576,39 @@ document.addEventListener('submit', async (e) => {
   try { const r = await api('/admin/graph-version', { method: 'POST', body: { version: to } }); toast(r.moved.length ? `Moved ${r.moved.length} workspace(s) to ${to}` : `Every workspace already uses ${to}`); await reload(); }
   catch (err) { toast(err.message, true); }
 });
+
+// Deleting a workspace (after typing its name): says what goes, and where its people end up.
+function deleteWorkspaceDlg(w) {
+  const others = (m) => people().find((p) => p.id === m.id)?.ws.filter((x) => x.id !== w.id) || [];
+  const stranded = w.members.filter((m) => !others(m).length);
+  const d = dlg(`<div class="adm-dlg-h"><b>Delete ${esc(w.name)}?</b><button class="adm-x" data-close aria-label="Close">×</button></div>
+    <p class="sub">This deletes the workspace and everything in it right away. It can't be undone.</p>
+    <ul class="del-plan">
+      <li class="delete"><b>${n(w.numbers.length)} WhatsApp number${w.numbers.length === 1 ? '' : 's'}</b>, ${n(w.contacts)} contacts, ${n(w.campaigns)} campaigns, its chats and Assistant files — deleted</li>
+      ${w.billing === 'credits' && w.credits ? `<li class="delete"><b>${n(w.credits)} unused credits</b> — gone with it</li>` : ''}
+      ${w.members.map((m) => { const o = others(m); return `<li><b>${esc(m.email)}</b> — ${o.length ? `keeps their account, moves to ${esc(o[0].name)}` : 'has no other workspace'}</li>`; }).join('')}
+    </ul>
+    ${stranded.length ? `<p class="adm-pricing-off" style="margin:0 0 4px">${stranded.map((m) => esc(m.email)).join(', ')} would be left with no workspace, so this can't be deleted on its own. Delete ${stranded.length > 1 ? 'their accounts' : 'their account'} on the People tab instead; that removes this workspace too.</p>`
+      : `<label class="adm-confirm">Type the workspace name to confirm<input id="admWsName" autocomplete="off" placeholder="${esc(w.name)}" /></label>`}
+    <div class="adm-dlg-acts"><button class="btn quiet" data-close>Cancel</button>${stranded.length ? '' : '<button class="btn danger-solid" id="admWsGo" disabled>Delete workspace</button>'}</div>`);
+  const input = d.querySelector('#admWsName'), go = d.querySelector('#admWsGo');
+  input?.focus();
+  if (input) input.oninput = () => { go.disabled = input.value.trim() !== w.name; };
+  d.onclick = async (e) => {
+    if (e.target === d || e.target.closest('[data-close]')) return d.close();
+    if (e.target.closest('#admWsGo') && !go.disabled) {
+      go.disabled = true;
+      try {
+        await api('/admin/workspaces/' + w.id, { method: 'DELETE', body: { confirm: input.value } });
+        d.close();
+        toast(`${w.name} deleted`);
+        S.open.delete(w.id);
+        location.hash = '#/workspaces';
+        await reload();
+      } catch (err) { toast(err.message, true); go.disabled = false; }
+    }
+  };
+}
 
 // Deleting an account (after typing their email): shows what happens to each of their workspaces first.
 function dlg(html) {

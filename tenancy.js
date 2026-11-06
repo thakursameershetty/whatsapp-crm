@@ -716,14 +716,12 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     // Delete the current workspace for everyone in it: its numbers, templates, contacts, campaigns, inbox and
     // AI chats. Owners only, after typing its name. Not while messages are going out, and not your last workspace
     // (there'd be nowhere to land). Members are moved to another workspace they belong to, or signed out of it.
-    app.delete('/api/workspace', wrap(async (req, res) => {
-      ownerOnly(req);
-      const ws = current(), wsId = ws.meta.id;
-      if (String(req.body?.confirm || '').trim() !== ws.meta.name) throw fail('Type the workspace name exactly to confirm');
-      const busy = ws.db.campaigns.filter((c) => ['running', 'queued', 'scheduled'].includes(c.status));
-      if (busy.length) throw fail(`${busy.length} campaign${busy.length > 1 ? 's are' : ' is'} sending or scheduled here. Stop or cancel ${busy.length > 1 ? 'them' : 'it'} on the Campaigns page first.`);
-      const next = membershipsOf(req.user.id).find((m) => m.wsId !== wsId && loaded.get(m.wsId));
-      if (!next) throw fail('This is your only workspace. Create another one first, or delete your account instead (Settings → Account).');
+    // Deletes a workspace and everything in it (its data, its invites, who's in it, its assistant files). Anyone signed
+    // in to it lands in another workspace of theirs; with none left, that session ends. Used by the owner's delete
+    // (Settings) and the admin's (admin panel → workspace → Settings); each checks its own rules first.
+    const busyCampaigns = (ws) => ws.db.campaigns.filter((c) => ['running', 'queued', 'scheduled'].includes(c.status));
+    async function dropWorkspace(ws) {
+      const wsId = ws.meta.id;
       if (ws.timer) { clearTimeout(ws.timer); ws.timer = null; }
       loaded.delete(wsId);
       accounts.workspaces = accounts.workspaces.filter((w) => w.id !== wsId);
@@ -737,11 +735,22 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         return Boolean(other);
       });
       for (const u of accounts.users) if (u.lastWsId === wsId) u.lastWsId = membershipsOf(u.id)[0]?.wsId || null;
-      if (req.session) req.session.wsId = next.wsId;
-      req.user.lastWsId = next.wsId;
       saveAccounts();
       await store.deleteWorkspace(wsId);
       fs.rmSync(path.join(__dirname, 'data', 'ai-files', wsId.replace(/[^\w-]/g, '')), { recursive: true, force: true }); // its assistant files
+    }
+    app.delete('/api/workspace', wrap(async (req, res) => {
+      ownerOnly(req);
+      const ws = current(), wsId = ws.meta.id;
+      if (String(req.body?.confirm || '').trim() !== ws.meta.name) throw fail('Type the workspace name exactly to confirm');
+      const busy = busyCampaigns(ws);
+      if (busy.length) throw fail(`${busy.length} campaign${busy.length > 1 ? 's are' : ' is'} sending or scheduled here. Stop or cancel ${busy.length > 1 ? 'them' : 'it'} on the Campaigns page first.`);
+      const next = membershipsOf(req.user.id).find((m) => m.wsId !== wsId && loaded.get(m.wsId));
+      if (!next) throw fail('This is your only workspace. Create another one first, or delete your account instead (Settings → Account).');
+      await dropWorkspace(ws);
+      if (req.session) req.session.wsId = next.wsId;
+      req.user.lastWsId = next.wsId;
+      saveAccounts();
       res.json({ ok: true, to: { id: next.wsId, name: accounts.workspaces.find((w) => w.id === next.wsId)?.name || '' } });
     }));
 
@@ -985,6 +994,25 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       }
       saveAccounts();
       res.json({ ok: true });
+    }));
+
+    // Admins delete a workspace (admin panel → the workspace → Settings). Not the original workspace (the data from
+    // before workspaces existed), not while campaigns are sending or scheduled, and not when someone would be left with
+    // no workspace at all (they could sign in to nothing): their account is deleted instead (People).
+    app.delete('/api/admin/workspaces/:id', wrap(async (req, res) => {
+      adminOnly(req);
+      const ws = loaded.get(req.params.id);
+      if (!ws) throw fail('Workspace not found', 404);
+      const wsId = ws.meta.id, name = ws.meta.name;
+      if (ws.meta.legacy) throw fail('This is the original workspace: it holds the data from before workspaces existed, so it can’t be deleted here.');
+      if (String(req.body?.confirm || '').trim() !== name) throw fail('Type the workspace name exactly to confirm');
+      const busy = busyCampaigns(ws);
+      if (busy.length) throw fail(`${busy.length} campaign${busy.length > 1 ? 's are' : ' is'} sending or scheduled here. Wait for ${busy.length > 1 ? 'them' : 'it'} to finish, or ask the owner to cancel ${busy.length > 1 ? 'them' : 'it'}, then delete the workspace.`);
+      const stranded = accounts.members.filter((m) => m.wsId === wsId && !membershipsOf(m.userId).some((x) => x.wsId !== wsId && loaded.get(x.wsId)))
+        .map((m) => accounts.users.find((u) => u.id === m.userId)?.email).filter(Boolean);
+      if (stranded.length) throw fail(`${stranded.join(', ')} ${stranded.length > 1 ? 'have' : 'has'} no other workspace, so deleting this one would leave ${stranded.length > 1 ? 'them' : 'them'} nothing to sign in to. Delete ${stranded.length > 1 ? 'their accounts' : 'their account'} instead (People), which removes this workspace too.`);
+      await dropWorkspace(ws);
+      res.json({ ok: true, name });
     }));
 
     // --- Reported issues: anyone in a workspace can report a problem; admins see them all ----------
