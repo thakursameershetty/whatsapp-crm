@@ -1000,7 +1000,9 @@ app.post('/api/senders/find-waba', wrap(async (req, res) => {
   const who = { label: 'this number', accessToken: token };
   const say = (e, fallback) => (e.code === 190 ? "Meta doesn't accept this access token. Paste a new one." : fallback);
   const wabaId = await findWaba(who, pnid, given, say);
-  if (!wabaId) throw fail("Meta won't say which account this number is in for this token. Paste your Business portfolio ID here (the business_id= in business.facebook.com links) and click Find again.");
+  // Meta has no lookup from a phone number to its account, and this token isn't allowed to list accounts
+  // (no business_management permission, or a temporary token), so the ID has to be pasted in.
+  if (!wabaId) throw fail("Couldn't find it automatically with this token. Paste the WhatsApp Business Account ID instead: it's in Meta Business Settings → Accounts → WhatsApp accounts (pick the account, the ID is under its name), or in your Meta app → WhatsApp → API Setup. Your Business portfolio ID (business_id= in business.facebook.com links) also works. Then click Find again.");
   const name = await graph(who, `${encodeURIComponent(wabaId)}?fields=name`).then((x) => x.name || '').catch(() => '');
   res.json({ wabaId, name });
 }));
