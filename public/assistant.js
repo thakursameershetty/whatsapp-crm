@@ -527,7 +527,7 @@
     } catch (e) {
       turn.stopSteps();
       if (e.status === 412) {
-        turn.add(`<div class="ai-note"><svg class="orb-icon" data-orb-icon="16"></svg><div><strong>Connect the AI first.</strong> ${esc(e.message)}</div><button class="btn sm primary" data-goto="settings">Open Settings</button></div>`);
+        turn.add(`<div class="ai-note"><svg class="orb-icon" data-orb-icon="16"></svg><div><strong>Connect the AI first.</strong> ${esc(e.message)}</div><button class="btn sm primary" data-goto="settings/inbox">Open Settings</button></div>`);
         input.value = text;
       } else if (e.status === 409 && /new chat/i.test(e.message)) {
         turn.add(`<div class="ai-note warn">${icon('badge-alert', 16)}<div>${esc(e.message)}</div><button class="btn sm" data-as-new>New chat</button></div>`);

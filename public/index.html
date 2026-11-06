@@ -10,10 +10,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="icons.css" />
-  <link rel="stylesheet" href="style.css" />
-  <script src="dates.js"></script>
-  <script src="no-autofill.js"></script>
+  <link rel="stylesheet" href="/icons.css" />
+  <link rel="stylesheet" href="/style.css" />
+  <script src="/dates.js"></script>
+  <script src="/no-autofill.js"></script>
   <script>
     // Resolve the theme before first paint. "auto" follows the OS setting.
     (function () {
@@ -616,227 +616,292 @@
 
     <!-- SETTINGS ---------------------------------------------------------->
     <section id="tab-settings" class="tab hidden">
-      <div class="section-head">
+      <!-- The title with the search across every tab beside it, then the tabs (settings.js). Each panel is one tab, made of
+           groups: a title and a line about it on the left, its settings in a card on the right. -->
+      <div class="section-head set-head">
         <div>
           <h1>Settings</h1>
           <p class="sub">Your account, your workspace and team, and how this workspace sends and replies.</p>
         </div>
-      </div>
-      <div class="acct-cards">
-        <div class="card la-host acct-me-card">
-          <h2 data-icon="user">Your account</h2>
-          <div class="acct-me" id="acctMe"></div>
-          <dl class="acct-facts" id="acctFacts"></dl>
-          <div class="acct-actions">
-            <button class="btn" id="acctEdit" data-icon="square-pen" data-icon-size="14">Edit profile</button>
-            <button class="btn" id="pwChange" data-icon="lock" data-icon-size="14">Change password</button>
-            <button class="btn quiet danger hidden" id="acctPhotoRm" data-icon="delete" data-icon-size="14">Remove photo</button>
+        <div class="set-find">
+          <div class="search-wrap set-search" data-icon="search" data-icon-size="15">
+            <input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="setQ" type="search" placeholder="Search settings" autocomplete="off" aria-label="Search settings" aria-controls="setResults" />
+            <kbd class="set-kbd" aria-hidden="true">/</kbd>
           </div>
-          <div class="acct-del-note hidden" id="acctDelNote"></div>
-          <div class="acct-foot">
-          <a class="btn quiet danger acct-logout" href="/logout"><svg class="logout-ic" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><g class="logout-arrow"><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></g></svg>Log out</a>
-          <button class="acct-del-link" id="acctDelete" type="button">Request account deletion</button>
-          </div>
-        </div>
-        <div class="card la-host acct-card" id="acctCard">
-          <div class="card-head">
-            <h2 data-icon="users">Workspace &amp; team</h2>
-            <div class="row tight"><button class="btn quiet sm hidden" id="wsSettings" data-icon="settings" data-icon-size="14">Workspace settings</button>
-            <button class="btn quiet sm" id="wsNew" data-icon="plus" data-icon-size="14">New workspace</button></div>
-          </div>
-          <p class="sub acct-lead">Numbers, templates, contacts, campaigns, inbox and AI settings belong to this workspace. Invite teammates to share it.</p>
-          <div class="field-label">Workspace name</div>
-          <div class="row tight acct-inline"><input id="wsName" maxlength="40" aria-label="Workspace name" /><button class="btn" id="wsSave">Save</button></div>
-          <div class="field-label acct-gap">Your workspaces <span class="opt" id="wsCount"></span></div>
-          <div id="wsList" class="ws-list"></div>
-          <!-- Moved into the current workspace's row by renderWorkspaces() (moved, not rebuilt, so its listeners stay). -->
-          <div class="ws-team" id="wsTeam"><span class="ws-team-l">Team <span class="opt" id="teamCount"></span></span><div id="teamRow" class="tm-row" aria-label="Team"></div></div>
+          <div class="set-results hidden" id="setResults" role="listbox" aria-label="Matching settings"></div>
         </div>
       </div>
-      <div class="grid-2">
-        <div class="card la-host">
-          <h2 data-icon="settings">General</h2>
-          <p class="limited-note hidden" id="limitedNote"></p>
-          <div class="setting-row" id="demoRow">
-            <div>
-              <div class="setting-title">Demo mode <span class="info-tip" tabindex="0" role="button" aria-label="About Demo mode"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Demo mode</b><span>Nothing is really sent. Campaigns, replies and ticks are simulated, so you can try the app safely.</span><span>Turn it <b>off</b> to send real WhatsApp messages from your numbers.</span></span></span></div>
-              <div class="sub">Simulate sending. Switch off to send real WhatsApp messages.</div>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" id="setDemo" />
-              <span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span
-                  class="knob"></span></span>
-            </label>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-title">Animations</div>
-              <div class="sub" id="motionHelp">Auto keeps them smooth, and turns them down on slower computers.</div>
-            </div>
-            <div class="seg" id="setMotion" role="radiogroup" aria-label="Animations">
-              <button type="button" data-motion="auto" role="radio">Auto</button>
-              <button type="button" data-motion="full" role="radio">Full</button>
-              <button type="button" data-motion="lite" role="radio">Reduced</button>
-            </div>
-          </div>
-          <div class="setting-row rr-row">
-            <div>
-              <div class="setting-title rr-title"><span class="rr-ticks" id="rrTicks" aria-hidden="true"><svg viewBox="0 0 28 18" width="26" height="17"><path class="t1" d="M2 9.5l4.5 4.5L15 4"/><path class="t2" d="M10.5 13.2l.8.8L19.8 4"/></svg></span>Read receipts</div>
-              <div class="sub" id="rrHelp">When customers see blue ticks on their messages.</div>
-            </div>
-            <div class="seg" id="setRR" role="radiogroup" aria-label="Read receipts">
-              <button type="button" data-rr="open" role="radio">When I open</button>
-              <button type="button" data-rr="reply" role="radio">Only when I reply</button>
-              <button type="button" data-rr="off" role="radio">Off</button>
-            </div>
-          </div>
-          <div class="row set-row">
-            <div class="set-field">
-              <div class="field-label">Default country <span class="info-tip" tabindex="0" role="button" aria-label="About Default country"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Default country</b><span>Used when a phone number is written without a country code: <code>98765 43210</code> becomes <code>+91 98765 43210</code>.</span><span>Numbers that already start with a code (like <code>+44…</code>) are left as they are.</span></span></span></div>
-              <button type="button" class="cc-pick" id="ccPick" aria-haspopup="listbox"></button>
-              <input type="hidden" id="setCC" /><input type="hidden" id="setCountry" />
-            </div>
-            <label><span class="lbl-row">Graph API version <span class="info-tip" tabindex="0" role="button" aria-label="About Graph API version"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Graph API version</b><span>Which version of Meta’s API this app talks to. It <b>doesn’t update itself</b>.</span><span>Meta supports each version for about two years, then retires it and requests start failing. Change it when Meta emails you about a retiring version, or if sending suddenly fails with a version error.</span><span>Use a recent version from Meta’s changelog, e.g. <code>v25.0</code> (supported until July 2028).</span></span></span></span>
-              <input id="setGraph" placeholder="v25.0" />
-              <span class="gv-warn hidden" id="gvWarn"></span>
-            </label>
-          </div>
-          <div class="row set-row">
-            <label><span class="lbl-row">Parallel sends per number <span class="info-tip" tabindex="0" role="button" aria-label="About Parallel sends per number"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Parallel sends per number</b><span>How many messages each of your numbers sends <b>at the same time</b> during a campaign.</span><span>Higher is faster, but Meta can reject messages for sending too fast (error 130429). <b>5</b> is a safe default; lower it if you see that error.</span></span></span></span>
-              <input id="setConc" type="number" min="1" max="50" />
-            </label>
-            <label><span class="lbl-row">Delay between sends (ms) <span class="info-tip" tabindex="0" role="button" aria-label="About Delay between sends"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Delay between sends</b><span>A pause, in milliseconds, after each message before the next one (1000 ms = 1 second).</span><span>Together with parallel sends this sets the speed: <b>5 parallel with 100 ms</b> is at most about <b>50 messages a second</b> per number; with 1000 ms it’s about 5 a second.</span><span>Slower sending looks more natural and is gentler on your quality rating.</span></span></span></span>
-              <input id="setDelay" type="number" min="0" />
-            </label>
-          </div>
-          <div class="card-actions"><button class="btn primary" id="saveSettings" data-icon="circle-check">Save
-              settings</button></div>
-        </div>
+      <div class="set-top">
+        <nav class="set-tabs" id="setTabs" role="tablist" aria-label="Settings sections">
+          <button type="button" role="tab" data-set="account" data-icon="user" data-icon-size="15">Account</button>
+          <button type="button" role="tab" data-set="inbox" data-icon="message-circle" data-icon-size="15">Inbox &amp; AI</button>
+          <button type="button" role="tab" data-set="sending" data-icon="send" data-icon-size="15">Sending</button>
+          <button type="button" role="tab" data-set="developer" data-icon="zap" data-icon-size="15">Developer</button>
+          <button type="button" role="tab" data-set="appearance" data-icon="sun-moon" data-icon-size="15">Appearance</button>
+        </nav>
+      </div>
 
-        <div class="card la-host">
-          <h2 data-icon="zap">Webhook (delivery status and Inbox)</h2>
-          <p class="sub">To see <em>delivered</em>, <em>read</em> and <em>failed</em>, and to receive replies in the
-            Inbox, add this in Meta App Dashboard →
-            WhatsApp → Configuration → Webhook and subscribe to the <code>messages</code> field. It must be a public
-            HTTPS address (deploy the app, or use ngrok while testing).</p>
-          <label><span class="lbl-row">Callback URL <span class="info-tip" tabindex="0" role="button" aria-label="About Callback URL"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Callback URL</b><span>Where Meta sends replies and delivery updates (sent, delivered, read, failed). Paste it in Meta App Dashboard → WhatsApp → Configuration → Webhook.</span><span>It must be this app’s public HTTPS address.</span></span></span></span>
-            <div class="input-group"><input id="webhookUrl" readonly /><button class="btn sm copy"
-                data-copy="webhookUrl" data-icon="copy" data-icon-size="14">Copy</button></div>
-          </label>
-          <label><span class="lbl-row">Verify token <span class="info-tip" tabindex="0" role="button" aria-label="About Verify token"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Verify token</b><span>A password you paste in Meta next to the Callback URL, so Meta can confirm the webhook is yours.</span><span>Any text works, as long as it’s the same here and in Meta. Changing it here means updating it in Meta too.</span></span></span></span>
-            <div class="input-group"><input id="setVerify" /><button class="btn sm copy" data-copy="setVerify"
-                data-icon="copy" data-icon-size="14">Copy</button></div>
-          </label>
-          <div class="wh-status" id="whStatus"></div>
-        </div>
-
-        <div class="card span-2 la-host ai-settings">
-          <h2><svg class="orb-icon" data-orb-icon="16" aria-hidden="true"></svg>AI assistant</h2>
-          <div class="ai-set-grid">
-            <div>
-              <div class="ai-help" data-for="gemini">
-                <p class="sub">Gemini by Google has a free tier, which is enough for development and demos. To get a
-                  key:</p>
-                <ol class="guide ai-steps-list">
-                  <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank"
-                      rel="noopener">aistudio.google.com/apikey</a>
-                    and sign in with a Google account.</li>
-                  <li>Click <strong>Create API key</strong> and copy it.</li>
-                  <li>Paste it here, click <strong>Save</strong>, then <strong>Test</strong>.</li>
-                </ol>
-                <p class="sub">On the free tier Google may use what you send to improve its products, and there's a
-                  limit
-                  on requests per minute and per day. Avoid real customer data, or switch to Claude.</p>
+      <!-- ACCOUNT: you, then the workspace you're in and its team, then the danger zone ---------------------------->
+      <div class="set-panel" data-panel="account" role="tabpanel">
+        <section class="set-group" data-find="your account profile name photo email password change confirmed member since">
+          <header class="set-gh"><h3>Profile</h3><p>How you appear to your team, and how you sign in.</p></header>
+          <div class="card la-host set-gc acct-me-card">
+            <div class="set-profile">
+              <div class="acct-me" id="acctMe"></div>
+              <div class="acct-actions">
+                <button class="btn sm" id="acctEdit" data-icon="square-pen" data-icon-size="14">Edit profile</button>
+                <button class="btn sm" id="pwChange" data-icon="lock" data-icon-size="14">Change password</button>
+                <button class="btn sm quiet danger hidden" id="acctPhotoRm" data-icon="delete" data-icon-size="14">Remove photo</button>
               </div>
-              <div class="ai-help hidden" data-for="claude">
-                <p class="sub">Claude by Anthropic is paid per use (a few cents per request) and isn't included in a
-                  Claude.ai subscription. To get a key:</p>
-                <ol class="guide ai-steps-list">
-                  <li>Sign in or sign up at <a href="https://console.anthropic.com" target="_blank"
-                      rel="noopener">console.anthropic.com</a>.</li>
-                  <li>Add credit under <strong>Settings → Billing</strong>; you can set a monthly limit there.</li>
-                  <li>Open <strong>Settings → API keys → Create key</strong> and copy it. It's only shown once.</li>
-                  <li>Paste it here, click <strong>Save</strong>, then <strong>Test</strong>.</li>
-                </ol>
-              </div>
-              <p class="sub">Either way, for an attached file the assistant only sees the column names, the first five
-                rows
-                (with phone numbers partly hidden) and summary counts. It can't send anything on its own: every
-                campaign it plans waits for your approval.</p>
             </div>
-            <div>
-              <label>AI provider</label>
-              <div class="seg ai-provider" id="aiProviderSeg" role="radiogroup" aria-label="AI provider">
-                <button type="button" data-provider="gemini"><img class="prov-logo" src="/brand/gemini.svg" alt="" />Gemini <span class="opt">free tier</span></button>
-                <button type="button" data-provider="claude"><img class="prov-logo" src="/brand/claude.svg" alt="" />Claude</button>
-              </div>
-              <div class="ai-fields" data-for="gemini">
-                <label><span class="prov-label"><img class="prov-logo" src="/brand/gemini.svg" alt="" />Gemini API key</span> <span class="opt" id="geminiKeyState"></span>
-                  <input id="setGeminiKey" type="text" class="secret" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" spellcheck="false"
-                    placeholder="Paste your key" />
-                </label>
-                <label>Model <span class="opt">from Google AI Studio</span>
-                  <input id="setGeminiModel" list="geminiModels" spellcheck="false" placeholder="gemini-3.8-flash" />
-                  <datalist id="geminiModels">
-                    <option value="gemini-3.8-flash"></option>
-                    <option value="gemini-3.6-flash"></option>
-                    <option value="gemini-3.5-flash-lite"></option>
-                    <option value="gemini-2.5-flash"></option>
-                  </datalist>
-                </label>
-              </div>
-              <div class="ai-fields hidden" data-for="claude">
-                <label><span class="prov-label"><img class="prov-logo" src="/brand/claude.svg" alt="" />Anthropic API key</span> <span class="opt" id="aiKeyState"></span>
-                  <input id="setAiKey" type="text" class="secret" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" spellcheck="false" placeholder="sk-ant-…" />
-                </label>
-                <p class="sub">Uses Claude Opus 5.5.</p>
-              </div>
-              <div class="card-actions row tight"><button class="btn quiet danger sm hidden" id="removeAiKey">Remove
-                  key</button><button class="btn" id="testAiKey">Test</button><button class="btn primary" id="saveAiKey"
-                  data-icon="circle-check">Save</button></div>
+            <dl class="acct-facts" id="acctFacts"></dl>
+          </div>
+        </section>
+
+        <section class="set-group" data-find="workspace name team members invite teammates new workspace switch rename">
+          <header class="set-gh"><h3>Workspace &amp; team</h3><p>Numbers, templates, contacts, campaigns, inbox and AI settings belong to the workspace. Invite teammates to share it.</p>
+            <div class="set-gh-acts"><button class="btn quiet sm" id="wsNew" data-icon="plus" data-icon-size="14">New workspace</button><button class="btn quiet sm hidden" id="wsSettings" data-icon="settings" data-icon-size="14">Workspace settings</button></div>
+          </header>
+          <div class="card la-host set-gc acct-card" id="acctCard">
+            <div class="setting-row set-wide" data-find="workspace name rename">
+              <div><div class="setting-title">Workspace name</div><div class="sub">Shown to your team and in the sidebar.</div></div>
+              <div class="set-ctl"><div class="ws-name-ctl" id="wsNameCtl"><b class="ws-name-v" id="wsNameV"></b><span class="ws-name-box hidden" id="wsNameBox"><input id="wsName" maxlength="40" aria-label="Workspace name" aria-describedby="wsNameCount" /><small class="ws-name-count" id="wsNameCount" aria-live="polite"></small></span><button type="button" class="btn quiet hidden" id="wsCancel">Cancel</button><button type="button" class="btn" id="wsSave"></button></div></div>
+            </div>
+            <div class="set-sub-h">Your workspaces <span class="opt" id="wsCount"></span></div>
+            <div id="wsList" class="ws-list"></div>
+            <!-- Moved into the current workspace's row by renderWorkspaces() (moved, not rebuilt, so its listeners stay). -->
+            <div class="ws-team" id="wsTeam"><span class="ws-team-l">Team <span class="opt" id="teamCount"></span></span><div id="teamRow" class="tm-row" aria-label="Team"></div></div>
+          </div>
+        </section>
+
+        <section class="set-group set-danger" data-find="log out sign out delete account deletion danger">
+          <header class="set-gh"><h3>Danger zone</h3><p>Leaving and closing your account.</p></header>
+          <div class="card la-host set-gc">
+            <div class="acct-del-note hidden" id="acctDelNote"></div>
+            <div class="setting-row">
+              <div><div class="setting-title">Log out</div><div class="sub">Sign out of SendON on this browser.</div></div>
+              <a class="btn acct-logout" href="/logout"><svg class="logout-ic" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><g class="logout-arrow"><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></g></svg>Log out</a>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-title">Delete your account</div><div class="sub">Ask us to delete your account and the data that belongs only to you.</div></div>
+              <button class="btn quiet danger" id="acctDelete" type="button">Request deletion</button>
             </div>
           </div>
-        </div>
+        </section>
+      </div>
 
-        <div class="card span-2 la-host lead-settings">
-          <div class="la-head">
-            <h2><svg class="orb-icon" data-orb-icon="16" aria-hidden="true"></svg>Lead assistant (Inbox)</h2>
-            <div class="la-head-acts"><button type="button" class="btn sm" id="pbAllBtn" title="See and customise every playbook in one place" onclick="playbookManager()">All playbooks</button></div>
+      <!-- INBOX & AI -------------------------------------------------------------------------------------------->
+      <div class="set-panel hidden" data-panel="inbox" role="tabpanel">
+        <section class="set-group" data-find="read receipts blue ticks seen inbox">
+          <header class="set-gh"><h3>Conversations</h3><p>What customers see when you read their messages.</p></header>
+          <div class="card la-host set-gc">
+            <div class="setting-row rr-row" data-find="read receipts blue ticks seen">
+              <div>
+                <div class="setting-title rr-title"><span class="rr-ticks" id="rrTicks" aria-hidden="true"><svg viewBox="0 0 28 18" width="26" height="17"><path class="t1" d="M2 9.5l4.5 4.5L15 4"/><path class="t2" d="M10.5 13.2l.8.8L19.8 4"/></svg></span>Read receipts</div>
+                <div class="sub" id="rrHelp">When customers see blue ticks on their messages.</div>
+              </div>
+              <div class="set-ctl"><select id="setRR" aria-label="Read receipts">
+                <option value="open">When I open the chat</option>
+                <option value="reply">Only when I reply</option>
+                <option value="off">Off</option>
+              </select></div>
+            </div>
           </div>
-          <p class="sub la-intro" id="laIntro">Drafts replies in the Inbox that help people and move them toward becoming a lead, saves what it learns, and flags chats a person should take over.
-            Each <strong>playbook</strong> is one setup for it; numbers use the playbooks you give them.
-            <span class="la-how" tabindex="0" title="When a number has several playbooks, a chat uses the one you picked in that chat, else the one linked to the campaign they replied to, else the one the AI finds fits best, else the number’s default.">How a chat gets its playbook</span></p>
-          <div class="la-switches">
-            <label class="la-sw"><span><b>Draft replies automatically</b><small>When someone writes, a draft is ready, using their chat’s playbook. Off: nothing drafts on its own for any number; you can still ask for a draft in a chat.</small></span><span class="toggle"><input type="checkbox" id="laMaster" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label>
-            <label class="la-sw" id="laAutoRow"><span><b>Send replies automatically <span class="pill scheduled">Beta</span></b><small>Playbooks set to reply on their own send without anyone approving, within the guardrails: they wait when a person is needed, after an opt-out, when your team is active, and after 5 an hour. Off: they only draft.</small></span><span class="toggle"><input type="checkbox" id="laAutoAll" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label>
-          </div>
-          <div class="pb-list" id="pbList"></div>
-        </div>
+        </section>
 
-        <div class="card span-2 la-host">
-          <h2 data-icon="rocket">Getting your API credentials</h2>
-          <ol class="guide">
-            <li>Go to <a href="https://developers.facebook.com/apps" target="_blank"
-                rel="noopener">developers.facebook.com/apps</a>, create an app of type <strong>Business</strong> and add
-              the <strong>WhatsApp</strong> product.</li>
-            <li>In <strong>WhatsApp → API Setup</strong>, add and verify each business phone number. Copy each number's
-              <strong>Phone number ID</strong>. The <strong>WhatsApp Business Account ID</strong> is found
-              automatically when you add the number.
-            </li>
-            <li>Create a <strong>permanent token</strong>: Business Settings → Users → System users → add an Admin
-              system user → assign your app and WhatsApp account → Generate token with
-              <code>whatsapp_business_messaging</code> and <code>whatsapp_business_management</code>.
-            </li>
-            <li>Create message templates in <strong>WhatsApp Manager → Message templates</strong> and wait for approval.
-            </li>
-            <li>Here: <strong>Numbers → Add number</strong> for each phone, <strong>Templates → Sync from Meta</strong>,
-              then switch Demo mode off.</li>
-          </ol>
-          <p class="sub">Meta limits how many unique people your business can message outside the 24-hour reply window
-            in a rolling 24 hours. The limit is shared by every number in your business portfolio, starts at 250 and rises
-            (2,000, 10,000, 100,000, unlimited) while your quality stays high. Only message people who opted in. Blocks and reports lower your quality rating and
-            can get numbers restricted.</p>
-        </div>
+        <section class="set-group lead-settings" data-find="lead assistant playbooks draft replies automatically send replies automatically auto reply">
+          <header class="set-gh"><h3><svg class="orb-icon" data-orb-icon="16" aria-hidden="true"></svg>Lead assistant</h3>
+            <p id="laIntro">Drafts replies in the Inbox that help people and move them toward becoming a lead, and flags chats a person should take over. Each <strong>playbook</strong> is one setup for it; numbers use the playbooks you give them.</p>
+            <p><span class="la-how" tabindex="0" title="When a number has several playbooks, a chat uses the one you picked in that chat, else the one linked to the campaign they replied to, else the one the AI finds fits best, else the number’s default.">How a chat gets its playbook</span></p>
+            <div class="set-gh-acts"><button type="button" class="btn sm" id="pbAllBtn" title="See and customise every playbook in one place" onclick="playbookManager()">All playbooks</button></div>
+          </header>
+          <div class="card la-host set-gc">
+            <div class="la-switches">
+              <label class="la-sw"><span><b>Draft replies automatically</b><small>When someone writes, a draft is ready, using their chat’s playbook. Off: nothing drafts on its own for any number; you can still ask for a draft in a chat.</small></span><span class="toggle"><input type="checkbox" id="laMaster" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label>
+              <label class="la-sw" id="laAutoRow"><span><b>Send replies automatically <span class="pill scheduled">Beta</span></b><small>Playbooks set to reply on their own send without anyone approving, within the guardrails: they wait when a person is needed, after an opt-out, when your team is active, and after 5 an hour. Off: they only draft.</small></span><span class="toggle"><input type="checkbox" id="laAutoAll" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label>
+            </div>
+            <div class="pb-list" id="pbList"></div>
+          </div>
+        </section>
+
+        <section class="set-group ai-settings" data-find="ai assistant provider gemini claude anthropic api key model">
+          <header class="set-gh"><h3><svg class="orb-icon" data-orb-icon="16" aria-hidden="true"></svg>AI provider</h3>
+            <p>The model behind the Assistant and drafted replies. It can’t send anything on its own: every campaign it plans waits for your approval.</p>
+            <p>For an attached file it only sees the column names, the first five rows (phone numbers partly hidden) and summary counts.</p>
+          </header>
+          <div class="card la-host set-gc">
+            <div class="ai-set-grid">
+              <div>
+                <label>AI provider</label>
+                <div class="seg ai-provider" id="aiProviderSeg" role="radiogroup" aria-label="AI provider">
+                  <button type="button" data-provider="gemini"><img class="prov-logo" src="/brand/gemini.svg" alt="" />Gemini <span class="opt">free tier</span></button>
+                  <button type="button" data-provider="claude"><img class="prov-logo" src="/brand/claude.svg" alt="" />Claude</button>
+                </div>
+                <div class="ai-fields" data-for="gemini">
+                  <label><span class="prov-label"><img class="prov-logo" src="/brand/gemini.svg" alt="" />Gemini API key</span> <span class="opt" id="geminiKeyState"></span>
+                    <input id="setGeminiKey" type="text" class="secret" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" spellcheck="false" placeholder="Paste your key" />
+                  </label>
+                  <label>Model <span class="opt">from Google AI Studio</span>
+                    <input id="setGeminiModel" list="geminiModels" spellcheck="false" placeholder="gemini-3.8-flash" />
+                    <datalist id="geminiModels">
+                      <option value="gemini-3.8-flash"></option>
+                      <option value="gemini-3.6-flash"></option>
+                      <option value="gemini-3.5-flash-lite"></option>
+                      <option value="gemini-2.5-flash"></option>
+                    </datalist>
+                  </label>
+                </div>
+                <div class="ai-fields hidden" data-for="claude">
+                  <label><span class="prov-label"><img class="prov-logo" src="/brand/claude.svg" alt="" />Anthropic API key</span> <span class="opt" id="aiKeyState"></span>
+                    <input id="setAiKey" type="text" class="secret" autocomplete="off" data-1p-ignore data-lpignore="true" data-form-type="other" spellcheck="false" placeholder="sk-ant-…" />
+                  </label>
+                  <p class="sub">Uses Claude Opus 5.5.</p>
+                </div>
+                <div class="card-actions row tight"><button class="btn quiet danger sm hidden" id="removeAiKey">Remove key</button><button class="btn" id="testAiKey">Test</button><button class="btn primary" id="saveAiKey" data-icon="circle-check">Save</button></div>
+              </div>
+              <div class="set-aside">
+                <div class="ai-help" data-for="gemini">
+                  <b>Getting a Gemini key</b>
+                  <p class="sub">Gemini by Google has a free tier, enough for development and demos.</p>
+                  <ol class="guide ai-steps-list">
+                    <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with a Google account.</li>
+                    <li>Click <strong>Create API key</strong> and copy it.</li>
+                    <li>Paste it here, click <strong>Save</strong>, then <strong>Test</strong>.</li>
+                  </ol>
+                  <p class="sub">On the free tier Google may use what you send to improve its products, and requests per minute and per day are limited. Avoid real customer data, or switch to Claude.</p>
+                </div>
+                <div class="ai-help hidden" data-for="claude">
+                  <b>Getting a Claude key</b>
+                  <p class="sub">Claude by Anthropic is paid per use (a few cents per request) and isn't included in a Claude.ai subscription.</p>
+                  <ol class="guide ai-steps-list">
+                    <li>Sign in or sign up at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>.</li>
+                    <li>Add credit under <strong>Settings → Billing</strong>; you can set a monthly limit there.</li>
+                    <li>Open <strong>Settings → API keys → Create key</strong> and copy it. It's only shown once.</li>
+                    <li>Paste it here, click <strong>Save</strong>, then <strong>Test</strong>.</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- SENDING ----------------------------------------------------------------------------------------------->
+      <div class="set-panel hidden" data-panel="sending" role="tabpanel">
+        <section class="set-group" data-find="demo mode live real messages default country code">
+          <header class="set-gh"><h3>Live sending</h3><p>Whether campaigns really go out, and how phone numbers without a country code are read.</p></header>
+          <div class="card la-host set-gc">
+            <p class="limited-note hidden" id="limitedNote"></p>
+            <div class="setting-row" id="demoRow" data-find="demo simulate live real messages test">
+              <div>
+                <div class="setting-title">Demo mode <span class="info-tip" tabindex="0" role="button" aria-label="About Demo mode"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Demo mode</b><span>Nothing is really sent. Campaigns, replies and ticks are simulated, so you can try the app safely.</span><span>Turn it <b>off</b> to send real WhatsApp messages from your numbers.</span></span></span></div>
+                <div class="sub">Simulate sending. Switch off to send real WhatsApp messages.</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="setDemo" />
+                <span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span>
+              </label>
+            </div>
+            <div class="setting-row" data-find="default country code phone numbers prefix">
+              <div>
+                <div class="setting-title">Default country <span class="info-tip" tabindex="0" role="button" aria-label="About Default country"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Default country</b><span>Used when a phone number is written without a country code: <code>98765 43210</code> becomes <code>+91 98765 43210</code>.</span><span>Numbers that already start with a code (like <code>+44…</code>) are left as they are.</span></span></span></div>
+                <div class="sub">For phone numbers written without a country code.</div>
+              </div>
+              <div class="set-ctl">
+                <button type="button" class="cc-pick" id="ccPick" aria-haspopup="listbox"></button>
+                <input type="hidden" id="setCC" /><input type="hidden" id="setCountry" />
+              </div>
+            </div>
+            <div class="card-actions"><button class="btn primary set-save" id="saveSettings" data-icon="circle-check">Save</button></div>
+          </div>
+        </section>
+
+        <section class="set-group" data-find="campaign speed parallel sends delay messages a second">
+          <header class="set-gh"><h3>Campaign speed</h3><p>How fast each of your numbers sends. Slower sending looks more natural and is gentler on your quality rating.</p></header>
+          <div class="card la-host set-gc">
+            <div class="setting-row" data-find="parallel sends concurrency speed at the same time 130429">
+              <div>
+                <div class="setting-title">Parallel sends per number <span class="info-tip" tabindex="0" role="button" aria-label="About Parallel sends per number"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Parallel sends per number</b><span>How many messages each of your numbers sends <b>at the same time</b> during a campaign.</span><span>Higher is faster, but Meta can reject messages for sending too fast (error 130429). <b>5</b> is a safe default; lower it if you see that error.</span></span></span></div>
+                <div class="sub">Messages each number sends at the same time. 5 is a safe default.</div>
+              </div>
+              <div class="set-ctl sm"><input id="setConc" type="number" min="1" max="50" aria-label="Parallel sends per number" /></div>
+            </div>
+            <div class="setting-row" data-find="delay between sends milliseconds ms pause">
+              <div>
+                <div class="setting-title">Delay between sends <span class="info-tip" tabindex="0" role="button" aria-label="About Delay between sends"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Delay between sends</b><span>A pause, in milliseconds, after each message before the next one (1000 ms = 1 second).</span><span>Together with parallel sends this sets the speed: <b>5 parallel with 100 ms</b> is at most about <b>50 messages a second</b> per number; with 1000 ms it’s about 5 a second.</span></span></span></div>
+                <div class="sub">A pause after each message (1000 ms = 1 second).</div>
+              </div>
+              <div class="set-ctl sm"><div class="set-unit"><input id="setDelay" type="number" min="0" aria-label="Delay between sends in milliseconds" /><span>ms</span></div></div>
+            </div>
+            <div class="set-foot"><div class="set-speed" id="setSpeed"></div><button class="btn primary set-save" data-icon="circle-check">Save</button></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- DEVELOPER --------------------------------------------------------------------------------------------->
+      <div class="set-panel hidden" data-panel="developer" role="tabpanel">
+        <section class="set-group" data-find="webhook callback url verify token meta delivery status receiving events">
+          <header class="set-gh"><h3>Webhook</h3><p>Meta sends replies and delivery updates (<em>delivered</em>, <em>read</em>, <em>failed</em>) here. Add it in Meta App Dashboard → WhatsApp → Configuration → Webhook and subscribe to <code>messages</code>.</p></header>
+          <div class="card la-host set-gc">
+            <div class="wh-status" id="whStatus"></div>
+            <div class="setting-row set-wide" data-find="callback url webhook address">
+              <div><div class="setting-title">Callback URL</div><div class="sub">This app’s public HTTPS address.</div></div>
+              <div class="set-ctl"><div class="input-group"><input id="webhookUrl" readonly aria-label="Callback URL" /><button class="btn sm copy" data-copy="webhookUrl" data-icon="copy" data-icon-size="14">Copy</button></div></div>
+            </div>
+            <div class="setting-row set-wide" data-find="verify token password webhook">
+              <div><div class="setting-title">Verify token</div><div class="sub">Any text, the same here and in Meta.</div></div>
+              <div class="set-ctl"><div class="input-group"><input id="setVerify" aria-label="Verify token" /><button class="btn sm copy" data-copy="setVerify" data-icon="copy" data-icon-size="14">Copy</button></div></div>
+            </div>
+            <div class="setting-row" data-find="graph api version meta v25 retiring">
+              <div>
+                <div class="setting-title">Graph API version <span class="info-tip" tabindex="0" role="button" aria-label="About Graph API version"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span class="tip-card" role="tooltip"><b>Graph API version</b><span>Which version of Meta’s API this app talks to. It <b>doesn’t update itself</b>.</span><span>Meta supports each version for about two years, then retires it and requests start failing. Change it when Meta emails you about a retiring version, or if sending suddenly fails with a version error.</span><span>Use a recent version from Meta’s changelog, e.g. <code>v25.0</code> (supported until July 2028).</span></span></span></div>
+                <div class="sub">The version of Meta’s API this app talks to. It doesn’t update itself.</div>
+                <span class="gv-warn hidden" id="gvWarn"></span>
+              </div>
+              <div class="set-ctl sm"><input id="setGraph" placeholder="v25.0" aria-label="Graph API version" /></div>
+            </div>
+            <div class="card-actions"><button class="btn primary set-save" data-icon="circle-check">Save</button></div>
+          </div>
+        </section>
+
+        <section class="set-group" data-find="api credentials permanent token system user phone number id business account setup meta app messaging limit">
+          <header class="set-gh"><h3><span data-icon="rocket" data-icon-size="16"></span>Connecting to Meta</h3><p>Five steps to get your API credentials, once per business.</p></header>
+          <div class="card la-host set-gc">
+            <ol class="guide">
+              <li>Go to <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com/apps</a>, create an app of type <strong>Business</strong> and add the <strong>WhatsApp</strong> product.</li>
+              <li>In <strong>WhatsApp → API Setup</strong>, add and verify each business phone number. Copy each number's <strong>Phone number ID</strong>. The <strong>WhatsApp Business Account ID</strong> is found automatically when you add the number.</li>
+              <li>Create a <strong>permanent token</strong>: Business Settings → Users → System users → add an Admin system user → assign your app and WhatsApp account → Generate token with <code>whatsapp_business_messaging</code> and <code>whatsapp_business_management</code>.</li>
+              <li>Create message templates in <strong>WhatsApp Manager → Message templates</strong> and wait for approval.</li>
+              <li>Here: <strong>Numbers → Add number</strong> for each phone, <strong>Templates → Sync from Meta</strong>, then switch Demo mode off.</li>
+            </ol>
+            <p class="sub set-note">Meta limits how many unique people your business can message outside the 24-hour reply window in a rolling 24 hours. The limit is shared by every number in your business portfolio, starts at 250 and rises (2,000, 10,000, 100,000, unlimited) while your quality stays high. Only message people who opted in. Blocks and reports lower your quality rating and can get numbers restricted.</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- APPEARANCE -------------------------------------------------------------------------------------------->
+      <div class="set-panel hidden" data-panel="appearance" role="tabpanel">
+        <section class="set-group" data-find="theme dark light mode animations motion">
+          <header class="set-gh"><h3>Look &amp; feel</h3><p>Just for you, on this browser.</p></header>
+          <div class="card la-host set-gc">
+            <div class="setting-row" data-find="theme dark light mode system">
+              <div><div class="setting-title">Theme</div><div class="sub">Match system follows your computer’s light or dark mode.</div></div>
+              <div class="seg" id="setTheme" role="radiogroup" aria-label="Theme">
+                <button type="button" data-theme-set="light" role="radio" data-icon="sun" data-icon-size="15">Light</button>
+                <button type="button" data-theme-set="auto" role="radio" data-icon="sun-moon" data-icon-size="15">Match system</button>
+                <button type="button" data-theme-set="dark" role="radio" data-icon="moon" data-icon-size="15">Dark</button>
+              </div>
+            </div>
+            <div class="setting-row" data-find="animations motion reduced effects">
+              <div><div class="setting-title">Animations</div><div class="sub" id="motionHelp">Auto keeps them smooth, and turns them down on slower computers.</div></div>
+              <div class="seg" id="setMotion" role="radiogroup" aria-label="Animations">
+                <button type="button" data-motion="auto" role="radio">Auto</button>
+                <button type="button" data-motion="full" role="radio">Full</button>
+                <button type="button" data-motion="lite" role="radio">Reduced</button>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </section>
   </main>
@@ -949,27 +1014,28 @@
 
   <div id="toasts"></div>
   <div id="chartTip" class="chart-tip hidden" role="tooltip"></div>
-  <script src="vendor/d3.min.js"></script>
-  <script src="icons.js"></script>
-  <script src="motion.js"></script>
-  <script src="orb.js"></script>
-  <script src="countries.js"></script>
-  <script src="password-rules.js"></script>
-  <script src="app.js"></script>
-  <script src="datefilter.js"></script>
-  <script src="error-codes.js"></script>
-  <script src="inbox.js"></script>
-  <script src="sheet.js"></script>
-  <script src="select.js"></script>
-  <script src="send.js"></script>
-  <script src="campaign-setup.js"></script>
-  <script src="contacts.js"></script>
-  <script src="campaigns.js"></script>
-  <script src="notifications.js"></script>
-  <script src="assistant.js"></script>
-  <script type="module" src="thinking-orb.js"></script>
-  <script src="coin.js"></script>
-  <script src="billing.js"></script>
+  <script src="/vendor/d3.min.js"></script>
+  <script src="/icons.js"></script>
+  <script src="/motion.js"></script>
+  <script src="/orb.js"></script>
+  <script src="/countries.js"></script>
+  <script src="/password-rules.js"></script>
+  <script src="/app.js"></script>
+  <script src="/settings.js"></script>
+  <script src="/datefilter.js"></script>
+  <script src="/error-codes.js"></script>
+  <script src="/inbox.js"></script>
+  <script src="/sheet.js"></script>
+  <script src="/select.js"></script>
+  <script src="/send.js"></script>
+  <script src="/campaign-setup.js"></script>
+  <script src="/contacts.js"></script>
+  <script src="/campaigns.js"></script>
+  <script src="/notifications.js"></script>
+  <script src="/assistant.js"></script>
+  <script type="module" src="/thinking-orb.js"></script>
+  <script src="/coin.js"></script>
+  <script src="/billing.js"></script>
 </body>
 
 </html>

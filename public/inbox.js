@@ -1009,8 +1009,8 @@
       if (act === 'dismiss') setAi(await api(`/inbox/${enc(key)}/draft`, { method: 'DELETE' }));
       if (act === 'clear-handover') setAi(await api(`/inbox/${enc(key)}/ai`, { method: 'POST', body: { clearHandover: true } }));
       if (act === 'toggle') {
-        if (!ib.thread.ai.on && ib.thread.ai.master === false) { showTab('settings'); return toast('The lead assistant is off for the whole workspace. Turn it on under Settings → Lead assistant'); }
-        if (!ib.thread.ai.on && !ib.thread.ai.playbook?.draft) { showTab('settings'); return toast(ib.thread.ai.playbook ? `Turn on “Draft automatically” for the “${ib.thread.ai.playbook.name}” playbook under Settings → Lead assistant` : 'Give this number a playbook under Settings → Lead assistant'); }
+        if (!ib.thread.ai.on && ib.thread.ai.master === false) { window.SettingsTabs?.open('inbox'); return toast('The lead assistant is off for the whole workspace. Turn it on under Settings → Lead assistant'); }
+        if (!ib.thread.ai.on && !ib.thread.ai.playbook?.draft) { window.SettingsTabs?.open('inbox'); return toast(ib.thread.ai.playbook ? `Turn on “Draft automatically” for the “${ib.thread.ai.playbook.name}” playbook under Settings → Lead assistant` : 'Give this number a playbook under Settings → Lead assistant'); }
         setAi(await api(`/inbox/${enc(key)}/ai`, { method: 'POST', body: { off: ib.thread.ai.on } }));
       }
       loadList().catch(() => {});
@@ -1099,7 +1099,7 @@
         <p class="ib-hint">${
           demo
             ? 'In demo mode, <b>Overview → Load demo workspace</b> adds sample conversations.'
-            : 'Meta delivers replies through the webhook, so the app must be reachable on a public HTTPS address. Set the Callback URL and verify token from <a href="#" data-goto="settings">Settings</a> in your Meta app, and subscribe to the <code>messages</code> field.'
+            : 'Meta delivers replies through the webhook, so the app must be reachable on a public HTTPS address. Set the Callback URL and verify token from <a href="#" data-goto="settings/developer">Settings → Developer</a> in your Meta app, and subscribe to the <code>messages</code> field.'
         }</p>
       </div></div>`;
     }
@@ -1952,10 +1952,10 @@
     const cb = e.target.closest('[data-ai-switch]');
     if (!cb) return;
     const pbx = ib.thread?.ai?.playbook;
-    if (cb.checked && ib.thread?.ai?.master === false) { cb.checked = false; showTab('settings'); return toast('The lead assistant is off for the whole workspace. Turn it on under Settings → Lead assistant'); }
+    if (cb.checked && ib.thread?.ai?.master === false) { cb.checked = false; window.SettingsTabs?.open('inbox'); return toast('The lead assistant is off for the whole workspace. Turn it on under Settings → Lead assistant'); }
     if (cb.checked && !pbx?.draft) {
       cb.checked = false;
-      showTab('settings');
+      window.SettingsTabs?.open('inbox');
       return toast(pbx ? `Turn on “Draft automatically” for the “${pbx.name}” playbook under Settings → Lead assistant` : 'Give this number a playbook under Settings → Lead assistant');
     }
     const key = ib.key;

@@ -183,6 +183,7 @@ function showTab(name) {
   if (name === 'send') window.SendPage?.show();
   if (['credits', 'send', 'overview', 'campaigns', 'assistant'].includes(name)) window.Credits?.load(); // the balance may have changed (it shows on all of these)
   if (name === 'credits-activity') window.Credits?.showAll();
+  if (name === 'settings') window.SettingsTabs?.show();
   if (name === 'contacts') window.Contacts?.show();
   if (name === 'notifications') window.Notifications?.show();
   if (name === 'campaigns') loadCampaigns();
@@ -195,7 +196,8 @@ function showTab(name) {
   hideTip();
   // The address follows the page (/send, /inbox; the overview is just /), so Back and Forward move
   // between pages and a reload stays where you are.
-  const path = name === 'overview' ? '/' : '/' + name + (name === 'send' ? '?c=' + encodeURIComponent(window.SendPage.campaignId()) : '');
+  const setSub = name === 'settings' ? window.SettingsTabs?.current() : '';
+  const path = name === 'overview' ? '/' : '/' + name + (name === 'send' ? '?c=' + encodeURIComponent(window.SendPage.campaignId()) : '') + (setSub && setSub !== 'account' ? '/' + setSub : '');
   const here = name === 'send' ? location.pathname + location.search : location.pathname;
   if (here !== path || location.hash) history[showTab.replace ? 'replaceState' : 'pushState']({ tab: name }, '', path);
   showTab.replace = false;
@@ -203,7 +205,7 @@ function showTab(name) {
 // Which page an address means: /send → send; old #send links still work.
 const tabFromUrl = () => {
   const OLD = { 'error-codes': 'report' }; // pages that were renamed
-  const h0 = location.hash.slice(1), p0 = location.pathname.replace(/^\/+|\/+$/g, '');
+  const h0 = location.hash.slice(1), p0 = location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0]; // /settings/developer → settings
   const h = OLD[h0] || h0, p = OLD[p0] || p0;
   const t = (h && $('#tab-' + h) && h) || (p && $('#tab-' + p) && p) || 'overview';
   return t;
@@ -220,6 +222,7 @@ $$('.side-nav button[data-tab]').forEach((b) => b.addEventListener('click', () =
 window.addEventListener('popstate', () => {
   const tab = tabFromUrl();
   if ($('#tab-' + tab)?.classList.contains('hidden')) { showTab.replace = true; showTab(tab); }
+  else if (tab === 'settings') window.SettingsTabs?.fromUrl(); // Back/Forward between Settings tabs
 });
 window.addEventListener('hashchange', () => { const tab = tabFromUrl(); showTab.replace = true; showTab(tab); });
 
@@ -243,6 +246,41 @@ function syncNav() {
   // (the first time: the sidebar was already set before the first paint, without sliding; from now on it slides)
   if (document.body.classList.contains('nav-instant')) requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('nav-instant')));
 }
+// Collapsed sidebar: each icon shows its name in a tooltip beside it (on hover or keyboard focus), with its count if it
+// has one. The browser's own title hints go, so the two don't stack. Only while collapsed: open, the names are there.
+(() => {
+  const tip = document.createElement('div');
+  tip.className = 'nav-tip';
+  tip.setAttribute('role', 'tooltip');
+  document.body.append(tip);
+  const ITEMS = '#sidebar .side-nav button, #acctBtn, #navToggle';
+  $$(ITEMS).forEach((b) => { if (b.title && b.id !== 'navToggle') { b.dataset.tip = b.title; b.removeAttribute('title'); } });
+  const label = (b) => {
+    if (b.id === 'navToggle') return esc(b.getAttribute('aria-label'));
+    if (b.id === 'acctBtn') return esc([$('#acctWs')?.textContent, $('#acctUser')?.textContent].filter(Boolean).join(' · ') || 'Account');
+    const name = esc(b.querySelector('.nav-label')?.textContent.trim() || b.dataset.tip || '');
+    const badge = b.querySelector('.nav-badge:not(.hidden)')?.textContent.trim();
+    return badge ? `${name} <b>${esc(badge)}</b>` : name;
+  };
+  let on = null;
+  const show = (b) => {
+    if (!document.body.classList.contains('nav-mini') || matchMedia('(max-width: 900px)').matches) return;
+    on = b;
+    tip.innerHTML = label(b);
+    const r = b.getBoundingClientRect();
+    tip.style.left = r.right + 12 + 'px';
+    tip.style.top = r.top + r.height / 2 + 'px';
+    tip.classList.add('on');
+  };
+  const hide = () => { on = null; tip.classList.remove('on'); };
+  const sb = $('#sidebar');
+  sb.addEventListener('mouseover', (e) => { const b = e.target.closest(ITEMS); if (b && b !== on) show(b); else if (!b) hide(); });
+  sb.addEventListener('mouseleave', hide);
+  sb.addEventListener('focusin', (e) => { const b = e.target.closest(ITEMS); if (b && b.matches(':focus-visible')) show(b); });
+  sb.addEventListener('focusout', hide);
+  sb.addEventListener('click', hide);
+  addEventListener('scroll', hide, true);
+})();
 $('#navToggle').addEventListener('click', () => {
   if (state.tab === 'inbox') state.inboxNavOpen = !state.inboxNavOpen;
   else if (state.tab === 'send' && state.sendWide) state.sendNavOpen = !state.sendNavOpen;
@@ -284,7 +322,7 @@ $('#themeCycle').addEventListener('click', (e) => {
 renderThemeSeg();
 document.addEventListener('click', (e) => {
   const go = e.target.closest('[data-goto]');
-  if (go) { e.preventDefault(); if (go.dataset.goto === 'send') window.CampaignSetup.create(); else showTab(go.dataset.goto); }
+  if (go) { e.preventDefault(); const [pg, sub] = go.dataset.goto.split('/'); if (pg === 'send') window.CampaignSetup.create(); else if (pg === 'settings' && sub) window.SettingsTabs?.open(sub); else showTab(pg); }
   const copy = e.target.closest('.copy');
   if (copy) { navigator.clipboard.writeText($('#' + copy.dataset.copy).value); toast('Copied'); }
 });
@@ -609,8 +647,7 @@ const RR_HELP = {
 };
 function renderReadReceipts() {
   const v = state.settings.readReceipts || 'open';
-  Motion.patch($('#setRR'), [['open', 'When I open'], ['reply', 'Only when I reply'], ['off', 'Off']].map(([k, l]) => `<button type="button" data-rr="${k}" role="radio" aria-checked="${v === k}" class="${v === k ? 'active' : ''}">${l}</button>`).join(''));
-  Motion.segs($('#setRR').parentElement);
+  $('#setRR').value = v;
   $('#rrHelp').textContent = RR_HELP[v];
   // Replay the ticks' animation for the chosen mode.
   const t = $('#rrTicks');
@@ -618,14 +655,13 @@ function renderReadReceipts() {
   void t.offsetWidth;
   t.classList.add('play', 'mode-' + v);
 }
-$('#setRR').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-rr]');
-  if (!b || b.classList.contains('active')) return;
-  const prev = state.settings.readReceipts;
-  state.settings.readReceipts = b.dataset.rr;
+$('#setRR').addEventListener('change', (e) => {
+  const sel = e.target, v = sel.value, prev = state.settings.readReceipts || 'open';
+  if (v === prev) return;
+  state.settings.readReceipts = v;
   renderReadReceipts();
   guard(async () => {
-    try { state.settings = await api('/settings', { method: 'PUT', body: { readReceipts: b.dataset.rr } }); toast('Read receipts: ' + b.textContent); }
+    try { state.settings = await api('/settings', { method: 'PUT', body: { readReceipts: v } }); toast('Read receipts: ' + sel.selectedOptions[0].textContent); }
     catch (err) { state.settings.readReceipts = prev; renderReadReceipts(); throw err; }
   });
 });
@@ -649,7 +685,8 @@ async function saveSettings(extra = {}) {
   window.SendPage?.recheck();
 }
 
-$('#saveSettings').addEventListener('click', (e) => guard(async () => { await saveSettings(); toast('Settings saved'); }, e.target));
+// Each Settings tab with fields has its own Save; they all save the same workspace settings.
+document.addEventListener('click', (e) => { const b = e.target.closest('.set-save'); if (b) guard(async () => { await saveSettings(); toast('Settings saved'); }, b); });
 $('#setDemo').addEventListener('change', () =>
   guard(async () => {
     if (!$('#setDemo').checked) {
@@ -2271,7 +2308,7 @@ document.addEventListener('live', (e) => { if (e.detail?.kind === 'templates') l
 // --- Sticky page headers ---------------------------------------------------------------------------------
 // Every list page keeps its title row (and its search / filter bar just below) pinned while the content scrolls.
 // The bar sits right under the header: the header's height is measured into --head-h.
-const STICKY_BARS = '#ovFilters, .ct-bar, #tplBar, .cp-tools, .ec-bar, #tab-reports .list-bar, .nt-bar';
+const STICKY_BARS = '#ovFilters, .ct-bar, #tplBar, .cp-tools, .ec-bar, #tab-reports .list-bar, .nt-bar, #tab-settings .set-top';
 // Exact (fractional) heights of the pinned header (--head-h) and toolbar (--bar-h), for whatever pins below them.
 const stickyRO = new ResizeObserver((es) => { for (const e of es) e.target.closest('.tab')?.style.setProperty(e.target.classList.contains('sticky-bar') ? '--bar-h' : '--head-h', e.target.getBoundingClientRect().height + 'px'); });
 // (The Inbox, Assistant and Send pages have their own layouts: nothing pins there, so nothing is measured there.
@@ -4423,11 +4460,12 @@ async function loadMe() {
   document.body.classList.toggle('limited', limited);
   const ln = $('#limitedNote');
   if (ln) { ln.classList.toggle('hidden', !limited); if (limited) ln.innerHTML = `${icon('lock', 14)}<span>You work with <b>${state.me.senders.length} number${state.me.senders.length === 1 ? '' : 's'}</b> the owner picked for you. Workspace settings, numbers and templates are changed by the owner.</span>`; }
-  $$('#tab-settings .grid-2 input, #tab-settings .grid-2 select').forEach((x) => { if (x.closest('.card')?.querySelector('#saveSettings')) x.disabled = limited; });
+  ['#setGraph', '#setConc', '#setDelay', '#setVerify', '#ccPick'].forEach((q) => { if ($(q)) $(q).disabled = limited; }); // owner-only workspace settings
   $('#acctWs').textContent = workspace.name;
   $('#acctUser').textContent = user.name || user.email;
-  $('#wsName').value = workspace.name;
-  $('#wsName').disabled = $('#wsSave').disabled = state.me.role !== 'owner';
+  $('#wsNameV').textContent = workspace.name;
+  if (!wsNameEditing()) $('#wsName').value = workspace.name;
+  $('#wsSave').classList.toggle('hidden', state.me.role !== 'owner'); // only owners rename
   $('#acctMe').innerHTML = `<span class="acct-photo">${faceHtml(user, 'lg')}</span><span class="acct-text"><b>${esc(user.name || user.email)}</b><span>${esc(user.email)}</span></span><span class="pill ${state.me.role === 'owner' ? 'scheduled' : ''}">${state.me.role === 'owner' ? 'Owner' : 'Member'}</span>`;
   $('#acctPhotoRm').classList.toggle('hidden', !user.photo);
   const n = state.me.workspaces.length;
@@ -5012,7 +5050,7 @@ $('#acctBtn').addEventListener('click', (e) => {
       Sheet.Menu.close();
       if (ws.dataset.ws !== me.workspace.id) switchWorkspace(ws.dataset.ws);
     }
-    if (act === 'team') { Sheet.Menu.close(); showTab('settings'); scrollTo({ top: 0, behavior: 'smooth' }); } // Workspace & team is the first card
+    if (act === 'team') { Sheet.Menu.close(); window.SettingsTabs.open('account'); } // Workspace & team is on the Account tab
     if (act === 'admin') location.href = '/admin.html';
     if (act === 'credits') { Sheet.Menu.close(); showTab('credits'); }
   });
@@ -5049,7 +5087,39 @@ $('#acctEdit').addEventListener('click', () => {
   }, e.target);
 });
 
-$('#wsSave').addEventListener('click', (e) => guard(async () => { await api('/workspace', { method: 'PATCH', body: { name: $('#wsName').value } }); await loadMe(); toast('Workspace renamed'); }, e.target));
+// Workspace name: shown as text with Edit. Edit opens the box and the button turns into Save; only Save renames it.
+// Cancel or Escape puts the name back.
+const wsNameEditing = () => !$('#wsNameBox').classList.contains('hidden');
+// How many of the 40 characters are used: amber near the limit, red at it.
+function wsNameCount() {
+  const n = $('#wsName').value.length, max = Number($('#wsName').maxLength) || 40, el = $('#wsNameCount');
+  el.textContent = `${n}/${max}`;
+  el.className = 'ws-name-count' + (n >= max ? ' full' : n >= max - 5 ? ' near' : '');
+}
+$('#wsName').addEventListener('input', wsNameCount);
+function wsNameEdit(on) {
+  $('#wsNameBox').classList.toggle('hidden', !on);
+  $('#wsNameV').classList.toggle('hidden', on);
+  $('#wsCancel').classList.toggle('hidden', !on);
+  const b = $('#wsSave');
+  b.className = 'btn ' + (on ? 'primary' : '');
+  b.innerHTML = on ? `${icon('circle-check', 15)}Save` : `${icon('square-pen', 15)}Edit`;
+  if (on) { $('#wsName').value = state.me?.workspace?.name || ''; wsNameCount(); $('#wsName').focus(); $('#wsName').select(); }
+  else $('#wsName').value = state.me?.workspace?.name || '';
+}
+wsNameEdit(false);
+$('#wsSave').addEventListener('click', (e) => {
+  if (!wsNameEditing()) return wsNameEdit(true);
+  const name = $('#wsName').value.trim();
+  if (!name) return toast('Enter a name for the workspace', 'error');
+  if (name === state.me.workspace.name) return wsNameEdit(false);
+  guard(async () => { await api('/workspace', { method: 'PATCH', body: { name } }); await loadMe(); wsNameEdit(false); toast('Workspace renamed'); }, e.currentTarget);
+});
+$('#wsCancel').addEventListener('click', () => wsNameEdit(false));
+$('#wsName').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); $('#wsSave').click(); }
+  if (e.key === 'Escape') { e.stopPropagation(); wsNameEdit(false); }
+});
 // --- Workspaces: the list in Settings, creating one, switching -------------------------------
 // After a create or switch the page reloads into the other workspace; this note survives the reload
 // so it can say where you are now and how to get back.
