@@ -1866,6 +1866,21 @@ body.assistant-open main { padding-bottom: 0; }
 .ib-ai-ask { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border: 0; border-radius: 99px; cursor: pointer; background: var(--surface); color: var(--text); font: 500 13px Inter, sans-serif; box-shadow: var(--sh-raised); }
 .ib-ai-ask:hover { box-shadow: var(--sh-raised-hi); }
 .ib-ai-err { font-size: 12.5px; color: var(--danger); }
+/* "Let AI reply" / "Playbook & notes" side by side, and the panel the second one opens: a card like the suggested reply */
+.ib-ai-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ib-ai-opts { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 640px; padding: 14px 16px; border-radius: 14px; background: var(--surface); box-shadow: var(--sh-card), 0 0 0 1px color-mix(in srgb, var(--text) 8%, transparent); }
+.ib-ai-field { display: flex; flex-direction: column; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; }
+.ib-ai-field > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.ib-ai-field small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.ib-ai-field select, .ib-ai-field textarea { width: 100%; margin: 0; font: 400 13.5px/1.5 Inter, sans-serif; }
+.ib-ai-field textarea { min-height: 76px; max-height: 220px; resize: vertical; }
+.ib-ai-field textarea::placeholder { font-family: Inter, sans-serif; color: var(--faint); }
+.ib-ai-opts-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* What was added for this chat, shown under the buttons while the panel is closed; click to change it */
+.ib-ai-extra { align-self: flex-start; display: inline-flex; align-items: center; gap: 7px; max-width: min(640px, 100%); padding: 6px 12px; border: 0; border-radius: 12px; cursor: pointer; text-align: left; font: 400 12.5px/1.4 Inter, sans-serif; color: var(--muted); background: color-mix(in srgb, var(--surface) 72%, transparent); -webkit-backdrop-filter: blur(10px) saturate(1.3); backdrop-filter: blur(10px) saturate(1.3); box-shadow: var(--sh-raised); }
+.ib-ai-extra span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-ai-extra b { color: var(--text); font-weight: 600; }
+.ib-ai-extra:hover { box-shadow: var(--sh-raised-hi); }
 .ib-flag { margin-left: 6px; padding: 1px 7px; border-radius: 99px; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
 .ib-flag.need { background: var(--warn-soft); color: var(--warn); }
 .ib-flag.draft { background: var(--info-soft); color: var(--info); }
