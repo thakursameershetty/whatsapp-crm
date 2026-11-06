@@ -974,6 +974,17 @@ function tokenFor(body, existing) {
   const waba = String(body.wabaId || existing?.wabaId || '').trim();
   return (waba && db.senders.find((x) => x !== existing && x.wabaId === waba && x.accessToken)?.accessToken) || '';
 }
+// A phone number ID can be saved only once across all workspaces: webhooks (replies, delivered/read) are routed
+// by it to a single number, so a second copy would split or lose them and send twice from one number.
+function duplicateSenderError(phoneNumberId, self) {
+  const pnid = String(phoneNumberId || '').trim();
+  if (!pnid) return '';
+  const here = db.senders.find((x) => x !== self && x.phoneNumberId === pnid);
+  if (here) return `This number is already added here as "${here.label}"${here.displayPhone ? ` (${here.displayPhone})` : ''}. Edit that one instead of adding it again.`;
+  // Demo-mode workspaces (test copies of a real one) never talk to Meta, so they may hold the same number.
+  if (!db.settings.demoMode && tenants.allWorkspaces().some((w) => w.db.senders !== db.senders && !w.db.settings?.demoMode && w.db.senders.some((x) => x.phoneNumberId === pnid))) return 'This number is already connected to another workspace. A number can be in only one workspace; remove it there first.';
+  return '';
+}
 const NEED_TOKEN = 'Paste the access token for this number. It lets the app send from it; Meta Business Settings → System users → Generate token.';
 
 // The popup's "Test connection": checks what's typed without saving anything.
@@ -983,6 +994,7 @@ app.post('/api/senders/verify', wrap(async (req, res) => {
   const idErr = senderIdsError({ phoneNumberId: pnid, wabaId: waba });
   if (!pnid) throw fail('Enter the phone number ID first');
   if (idErr) throw fail(idErr);
+  { const e = duplicateSenderError(pnid, existing); if (e) throw fail(e); }
   const token = tokenFor(req.body, existing);
   if (!token) throw fail(NEED_TOKEN);
   res.json({ ok: true, info: await verifyWithMeta({ phoneNumberId: pnid, wabaId: waba, accessToken: token }), sharedToken: !req.body.accessToken && !existing?.accessToken });
@@ -994,7 +1006,7 @@ app.post('/api/senders/find-waba', wrap(async (req, res) => {
   const existing = req.body.senderId ? db.senders.find((x) => x.id === req.body.senderId) : null;
   const pnid = String(req.body.phoneNumberId || '').trim(), given = String(req.body.wabaId || '').trim();
   if (!pnid) throw fail('Enter the phone number ID first');
-  { const e = senderIdsError({ phoneNumberId: pnid, wabaId: given }); if (e) throw fail(e); }
+  { const e = senderIdsError({ phoneNumberId: pnid, wabaId: given }) || duplicateSenderError(pnid, existing); if (e) throw fail(e); }
   const token = tokenFor(req.body, existing);
   if (!token) throw fail(NEED_TOKEN);
   const who = { label: 'this number', accessToken: token };
@@ -1011,7 +1023,7 @@ app.post('/api/senders', wrap(async (req, res) => {
   credits.checkNumberLimit(); // the plan's number limit (credits.js)
   const { label, phoneNumberId, wabaId, displayPhone } = req.body;
   if (!label || !phoneNumberId) throw fail('Label and Phone Number ID are required');
-  const labelErr = senderLabelError(label) || senderIdsError(req.body);
+  const labelErr = senderLabelError(label) || senderIdsError(req.body) || duplicateSenderError(phoneNumberId);
   if (labelErr) throw fail(labelErr);
   const s = { id: id(), label: tidyLabel(label), phoneNumberId: String(phoneNumberId).trim(), wabaId: String(wabaId || '').trim(), accessToken: tokenFor(req.body), displayPhone: displayPhone || '', enabled: true, createdAt: new Date().toISOString() };
   if (!db.settings.demoMode) {
@@ -1027,7 +1039,7 @@ app.put('/api/senders/:id', wrap(async (req, res) => {
   const s = db.senders.find((x) => x.id === req.params.id);
   if (!s) throw fail('Not found', 404);
   if ('label' in req.body) { const e = senderLabelError(req.body.label); if (e) throw fail(e); req.body.label = tidyLabel(req.body.label); }
-  { const e = senderIdsError(req.body, s); if (e) throw fail(e); }
+  { const e = senderIdsError(req.body, s) || ('phoneNumberId' in req.body && String(req.body.phoneNumberId).trim() !== s.phoneNumberId ? duplicateSenderError(req.body.phoneNumberId, s) : ''); if (e) throw fail(e); }
   // A new token or different IDs are checked with Meta before anything changes (switching a number on/off isn't).
   const next = { phoneNumberId: String(req.body.phoneNumberId ?? s.phoneNumberId).trim(), wabaId: String(req.body.wabaId ?? s.wabaId ?? '').trim(), accessToken: tokenFor(req.body, s) };
   // A number still missing its Business Account is checked again too, so saving it can fill the account in.
