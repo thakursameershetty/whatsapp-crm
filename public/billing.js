@@ -11,9 +11,38 @@ window.Credits = (() => {
   async function load() {
     try { C.data = await api('/credits'); } catch { C.data = null; }
     render();
+    slots();
+    if (C.data) C.shown = C.data.balance; // the next change rolls from here
     if (state.tab === 'send') window.SendPage?.refresh?.();
     return C.data;
   }
+
+  // A balance that rolls digit by digit to its new value, like the campaign results (rollNum, app.js). A number that
+  // was just drawn starts at the last balance shown, so a drop or a top-up is seen ticking over.
+  function roll(el, value) {
+    if (!el) return;
+    if (el.dataset.v == null && C.shown != null) { el.dataset.v = Number(C.shown).toLocaleString(); el.dataset.n = C.shown; el.textContent = el.dataset.v; }
+    if (typeof rollNum === 'function') rollNum(el, value);
+    else el.textContent = Number(value).toLocaleString();
+  }
+  const lowOf = (d) => (d.balance === 0 ? 'out' : d.balance < Math.max(500, (d.packs?.[0]?.credits || 0) * 0.1) ? 'low' : '');
+
+  // --- The chip in the Overview, Campaigns and Assistant headers (any <span class="cr-slot">) ---------------------------
+  function slots() {
+    const d = C.data, on = charged();
+    document.querySelectorAll('.cr-slot').forEach((slot) => {
+      if (!on) { slot.innerHTML = ''; return; }
+      if (!slot.firstElementChild) {
+        slot.innerHTML = `<span class="cr-chip">${window.Coin ? Coin.html({ size: 24, label: 'Credits' }) : ''}<button type="button" class="cr-chip-t" data-goto="settings" title="Credits left in this workspace. Open Settings → Credits"><b class="cr-chip-v"></b><span>credits</span></button></span>`;
+      }
+      slot.firstElementChild.className = 'cr-chip ' + lowOf(d);
+      roll(slot.querySelector('.cr-chip-v'), d.balance);
+    });
+  }
+  // While a page with the balance on it is open, check it now and then (a campaign that's sending uses credits).
+  setInterval(() => {
+    if (charged() && document.visibilityState === 'visible' && ['overview', 'campaigns', 'assistant', 'settings'].includes(state.tab)) load();
+  }, 20000);
 
   // --- For the Send page ---------------------------------------------------------------------------------------------
   // "706 credits": what sending `count` messages of template t uses ('' when free).
@@ -39,7 +68,7 @@ window.Credits = (() => {
     card.classList.toggle('hidden', !d?.on);
     if (!d?.on) return;
     const next = d.packs.filter((p) => !p.expired && p.left > 0).sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))[0];
-    const low = d.balance === 0 ? 'out' : next && d.balance < Math.max(500, (d.packs[0]?.credits || 0) * 0.1) ? 'low' : '';
+    const low = d.balance === 0 ? 'out' : next && lowOf(d) ? 'low' : '';
     card.innerHTML = `
       <div class="card-head">
         <h2 data-icon="zap">Credits</h2>
@@ -47,7 +76,8 @@ window.Credits = (() => {
       </div>
       <div class="cr-top">
         <div class="cr-bal ${low}">
-          <b>${fmt(d.balance)}</b>
+          ${window.Coin ? Coin.html({ size: 92, label: `${fmt(d.balance)} credits` }) : ''}
+          <b class="cr-num"></b>
           <span>${low === 'out' ? 'No credits left: campaigns, template messages and AI are on hold' : 'credits left'}${next ? ` · ${fmt(next.left)} expire ${day(next.expiresAt)}` : ''}</span>
           ${d.demo ? '<span class="cr-demo">Demo mode is on: nothing uses credits</span>' : ''}
         </div>
@@ -64,6 +94,7 @@ window.Credits = (() => {
       <div class="field-label">Recent activity</div>
       <div class="cr-log">${d.ledger.length ? d.ledger.slice(0, 12).map(row).join('') : '<p class="sub">Nothing yet.</p>'}</div>`;
     LA.hydrate(card);
+    roll($('.cr-num', card), d.balance);
   }
   const numbersText = (n) => (n == null ? 'Unlimited numbers' : n === 1 ? '1 WhatsApp number' : `Up to ${n} WhatsApp numbers`);
   function row(l) {
@@ -88,5 +119,5 @@ window.Credits = (() => {
   }
   document.addEventListener('click', (e) => { if (e.target.closest('#crBuy')) buy(); });
 
-  return { load, render, costText, short, confirmText, get data() { return C.data; } };
+  return { load, render, slots, costText, short, confirmText, get data() { return C.data; } };
 })();

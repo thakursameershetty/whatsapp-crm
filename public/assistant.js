@@ -545,6 +545,7 @@
       turn.finish();
       syncSend();
       loadHistory();
+      window.Credits?.load(); // an answer uses credits: the balance in the header rolls down
     }
   }
 

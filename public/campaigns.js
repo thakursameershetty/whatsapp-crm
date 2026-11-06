@@ -194,7 +194,7 @@
           <button data-view="calendar" class="${CP.view === 'calendar' ? 'active' : ''}" title="Calendar" aria-label="Calendar" aria-checked="${CP.view === 'calendar'}" role="radio">${icon('calendar-days', 15)}</button>
         </div>
       </div>
-        <div class="row tight cp-head-actions"><button type="button" class="btn cp-drafts-btn" data-drafts-open title="Campaigns you started and haven't sent yet">${icon('file-text', 15)}Drafts${R.draftCount ? `<span class="cp-drafts-n">${R.draftCount}</span>` : ''}</button><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
+        <div class="row tight cp-head-actions"><span class="cr-slot"></span><button type="button" class="btn cp-drafts-btn" data-drafts-open title="Campaigns you started and haven't sent yet">${icon('file-text', 15)}Drafts${R.draftCount ? `<span class="cp-drafts-n">${R.draftCount}</span>` : ''}</button><button class="btn primary" data-goto="send">${icon('plus', 16)}New campaign</button></div></div>
       ${pinned.length ? `<div class="cp-pinned">${pinned.map(pinnedCard).join('')}</div>` : ''}
       ${CP.view === 'calendar' ? calendarHtml(calRows) : CP.view === 'cards'
         ? `<div class="cp-folders">${shown.map(folderHtml).join('')}</div>${!total ? `<p class="sub cp-none">${q || CP.date || CP.sender || CP.filter !== 'all' ? 'No campaigns match.' : 'Nothing here yet.'}</p>` : ''}${pager}`
@@ -204,6 +204,7 @@
           <tbody>${total ? shown.map(rowHtml).join('') : `<tr><td colspan="7" class="table-empty">${q ? 'No campaigns match.' : 'Nothing here yet.'}</td></tr>`}</tbody>
         </table>
       </div>${pager}`}`;
+    window.Credits?.slots(); // the credits chip in the header (billing.js): filled before fitHead measures it
     LA.hydrate(el);
     Motion.segs(el);
     window.fitHead?.($('#campaignList > .section-head'));

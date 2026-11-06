@@ -181,7 +181,7 @@ function showTab(name) {
   requestAnimationFrame(setupSticky);
   document.body.classList.toggle('send-open', name === 'send');
   if (name === 'send') window.SendPage?.show();
-  if (name === 'settings' || name === 'send') window.Credits?.load(); // the balance may have changed
+  if (['settings', 'send', 'overview', 'campaigns', 'assistant'].includes(name)) window.Credits?.load(); // the balance may have changed (it shows on all of these)
   if (name === 'contacts') window.Contacts?.show();
   if (name === 'notifications') window.Notifications?.show();
   if (name === 'campaigns') loadCampaigns();

@@ -233,7 +233,8 @@ html.ax-collapsed .ax-brand { flex: none; padding: 0; gap: 0; }
 .ax-danger > h3 { color: var(--danger); }
 
 /* Credits page */
-.ax-bal { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.ax-bal { display: flex; align-items: center; gap: 12px; margin: 4px 0 8px; }
+.ax-bal .coin { margin-right: 4px; }
 .ax-bal b { font-size: 34px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .ax-bal.low b { color: var(--warn); } .ax-bal.out b { color: var(--danger); }
 .ax-card .adm-cr-log { max-height: none; }

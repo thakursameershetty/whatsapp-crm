@@ -27,6 +27,7 @@
   <div id="toasts"></div>
   <script src="icons.js"></script>
   <script src="motion.js"></script>
+  <script src="coin.js"></script>
 <script>
 // The admin panel: tabs across the top (Overview, Workspaces, People, Issues, Deletion requests, System) and a page
 // per workspace with its own tabs. The address says where you are (#/workspaces, #/w/<id>/credits), so Back works.
@@ -469,7 +470,7 @@ async function wsCredits(w) {
     <div class="ax-grid2">
       <section class="ax-card"><h3>${ic('zap', 16)}Plan</h3>
         <div class="adm-cr-plan"><label><input type="radio" name="crPlan" value="free" ${c.on ? '' : 'checked'} /> Free plan</label><label><input type="radio" name="crPlan" value="credits" ${c.on ? 'checked' : ''} /> Credits plan</label></div>
-        ${c.on ? `<div class="ax-bal ${low}"><b>${n(c.balance)}</b><span class="ax-muted">credits left</span></div>
+        ${c.on ? `<div class="ax-bal ${low}">${Coin.html({ size: 52, label: `${n(c.balance)} credits` })}<b>${n(c.balance)}</b><span class="ax-muted">credits left</span></div>
           <p class="ax-muted" style="margin:0 0 4px;font-size:13px">WhatsApp numbers: ${c.numberLimit == null ? `${n(c.numbersUsed)} connected · no limit` : `${n(c.numbersUsed)} of ${n(c.numberLimit)}`}</p>` : '<p class="ax-muted" style="margin:0;font-size:13px">On the free plan nothing uses credits.</p>'}
         <p class="ax-faint" style="margin:10px 0 0;font-size:12.5px;line-height:1.5">Marketing message ${c.rates.marketing}, utility ${c.rates.utility}, AI reply or Assistant answer ${c.rates.ai} (any key), Assistant campaign plan ${c.rates.plan ?? 3}. Failed messages are refunded; packs last ${c.months} months.</p>
       </section>
