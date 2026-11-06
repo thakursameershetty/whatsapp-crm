@@ -23,7 +23,7 @@
       <a class="ax-tab" href="/" title="Back to the app"><span class="ax-ic" data-icon="arrow-left" data-icon-size="16"></span><span class="ax-lbl">Back to the app</span></a>
     </div>
   </aside>
-  <main class="ax-main" id="view"><div class="ax-loading">Loading…</div></main>
+  <main class="ax-main" id="view"><div class="ax-sk-kpis"><div class="ax-card"><span class="sk sk-line sm" style="width:50%"></span><span class="sk sk-line big" style="width:40%"></span><span class="sk sk-line xs" style="width:65%"></span></div><div class="ax-card"><span class="sk sk-line sm" style="width:50%"></span><span class="sk sk-line big" style="width:40%"></span><span class="sk sk-line xs" style="width:65%"></span></div><div class="ax-card"><span class="sk sk-line sm" style="width:50%"></span><span class="sk sk-line big" style="width:40%"></span><span class="sk sk-line xs" style="width:65%"></span></div><div class="ax-card"><span class="sk sk-line sm" style="width:50%"></span><span class="sk sk-line big" style="width:40%"></span><span class="sk sk-line xs" style="width:65%"></span></div></div></main>
   <div id="toasts"></div>
   <script src="icons.js"></script>
   <script src="motion.js"></script>
@@ -54,6 +54,36 @@ const DAY7 = 7 * 86400000;
 const isActive = (w) => !w.suspended && w.lastActivity && Date.now() - Date.parse(w.lastActivity) < DAY7;
 const failRate = (w) => (w.sent30d ? Math.round((100 * w.failed30d) / w.sent30d) : null);
 const rateCls = (r) => (r == null ? '' : r >= 20 ? 'bad' : r >= 8 ? 'warn' : 'good');
+
+// Skeleton placeholders while a page loads (the .sk shimmer from style.css).
+const skLine = (w, cls = '') => `<span class="sk sk-line ${cls}" style="width:${w}%"></span>`;
+const skRows = (k) => Array.from({ length: k }, (_, i) => `<div class="sk-row tr"><span class="sk-col">${skLine(30 + ((i * 13) % 25))}${skLine(18 + ((i * 7) % 12), 'xs')}</span>${skLine(10)}${skLine(8)}</div>`).join('');
+const skCard = (rows = 4, title = 28) => `<section class="ax-card">${skLine(title)}<div style="margin-top:14px">${skRows(rows)}</div></section>`;
+const SKEL = {
+  workspace: () => `${skLine(16, 'sm')}<section class="ax-hero"><span class="sk sk-circle"></span><div class="sk-col">${skLine(28, 'big')}${skLine(40, 'sm')}${skLine(55, 'xs')}</div></section><div class="ax-sk-tabs">${Array.from({ length: 6 }, () => '<span class="sk"></span>').join('')}</div>${SKEL.credits()}`,
+  credits: () => `<div class="ax-grid2">${skCard(3)}${skCard(3)}</div>${skCard(3, 18)}${skCard(5, 20)}`,
+};
+
+// A styled stand-in for the browser's confirm box: resolves true or false. Its own <dialog>, so it can sit over another one.
+function ask({ title, message = '', ok = 'OK', danger = false }) {
+  let d = document.getElementById('admAsk');
+  if (!d) { d = document.createElement('dialog'); d.id = 'admAsk'; d.className = 'adm-dlg adm-ask'; document.body.append(d); }
+  d.innerHTML = `<div class="adm-dlg-h"><b>${esc(title)}</b><button type="button" class="adm-x" data-v="0" aria-label="Close">×</button></div>
+    ${message ? `<p class="sub">${message}</p>` : ''}
+    <div class="adm-dlg-acts"><button type="button" class="btn quiet" data-v="0">Cancel</button><button type="button" class="btn ${danger ? 'danger-solid' : 'primary'}" data-v="1">${esc(ok)}</button></div>`;
+  return new Promise((resolve) => {
+    let v = false;
+    d.onclick = (e) => { const b = e.target.closest('[data-v]'); if (b || e.target === d) { v = b?.dataset.v === '1'; d.close(); } };
+    d.onclose = () => resolve(v); // Escape closes it too: that's a no
+    d.showModal();
+    d.querySelector(danger ? '.btn[data-v="0"]' : '.btn[data-v="1"]').focus();
+  });
+}
+// A button that's waiting on the server: disabled, with a spinner, until fn finishes.
+async function busy(btn, fn) {
+  if (btn) { btn.disabled = true; btn.classList.add('ax-busy'); }
+  try { return await fn(); } finally { if (btn?.isConnected) { btn.disabled = false; btn.classList.remove('ax-busy'); } }
+}
 
 // --- Data ------------------------------------------------------------------------------------------------------------
 const S = { all: [], reps: [], dels: [], gv: null, loaded: false, wsQ: '', wsF: '', open: new Set(), pQ: '', repF: 'open', detail: null }; // open: main workspaces unfolded on the Workspaces tab
@@ -124,7 +154,17 @@ async function render() {
   Motion.segs?.(document);
 }
 addEventListener('hashchange', () => { render(); scrollTo(0, 0); });
-async function reload() { S.loaded = false; S.detail = null; await render(); }
+// After a change: fetch the lists, this workspace and its credits together, then redraw once. The page stays on
+// screen meanwhile (no blank "Loading" between), and if a fetch fails the next render fetches it again.
+async function reload() {
+  const r = route();
+  await Promise.all([
+    loadAll().catch(() => { S.loaded = false; }),
+    r.ws ? api('/admin/workspaces/' + encodeURIComponent(r.ws)).then((d) => { S.detail = d; }, () => { S.detail = null; }) : (S.detail = null),
+    r.ws && r.sub === 'credits' ? api('/admin/workspaces/' + encodeURIComponent(r.ws) + '/credits').then((c) => { S.credits = c; }, () => { S.credits = null; }) : (S.credits = null),
+  ]);
+  await render();
+}
 
 // --- Overview --------------------------------------------------------------------------------------------------------
 function kpi(icon, label, value, sub, cls = '') { return `<div class="ax-kpi ${cls}"><i>${ic(icon, 15)}</i><span>${label}</span><b>${value}</b><small>${sub}</small></div>`; }
@@ -310,7 +350,7 @@ function prepaidDlg() {
     const body = pack === 'custom' ? { email, credits: d.querySelector('#ppCredits').value, price: d.querySelector('#ppPrice').value } : { email, pack };
     const amount = pack === 'custom' ? Number(body.credits) : { '10k': 10000, '20k': 22000, '25k': 30000 }[pack];
     if (!amount) return toast('Enter how many credits', true);
-    if (!confirm(`Add ${n(amount)} credits for ${email}? Only once they've paid.`)) return;
+    if (!(await ask({ title: `Add ${n(amount)} credits for ${email}?`, message: 'Only once they’ve paid.', ok: 'Add credits' }))) return;
     const go = d.querySelector('#ppGo');
     go.disabled = true;
     try {
@@ -414,7 +454,7 @@ const SUBS = [['overview', 'Overview', 'layout-grid'], ['numbers', 'Numbers', 'p
 async function renderWorkspace(id, sub) {
   const view = $('#view');
   if (S.detail?.id !== id) {
-    view.innerHTML = '<div class="ax-loading">Loading…</div>';
+    view.innerHTML = SKEL.workspace();
     try { S.detail = await api('/admin/workspaces/' + encodeURIComponent(id)); S.credits = null; }
     catch (e) { view.innerHTML = `<div class="ax-crumb"><a href="#/workspaces">Workspaces</a></div><section class="ax-card ax-empty"><b>Workspace not found</b>${esc(e.message)}</section>`; return; }
   }
@@ -439,7 +479,7 @@ async function renderWorkspace(id, sub) {
       <div class="ax-hero-side"><small>Created ${date(w.createdAt)}</small><small>Last active ${w.lastActivity ? ago(w.lastActivity) : 'never'}</small></div>
     </section>
     <nav class="ax-subtabs" aria-label="${esc(w.name)}">${SUBS.map(([k, l, icon]) => `<a href="#/w/${w.id}/${k}" class="${k === sub ? 'on' : ''}">${ic(icon, 14)}${l}${k === 'issues' && issuesOpen ? ` <span class="ax-count warn">${issuesOpen}</span>` : k === 'numbers' ? ` <span class="ax-count">${w.numbers.length}</span>` : k === 'people' ? ` <span class="ax-count">${w.members.length}</span>` : ''}</a>`).join('')}</nav>
-    <div id="wsBody">${sub === 'credits' ? '<div class="ax-loading">Loading…</div>' : ({ overview: wsOverview, numbers: wsNumbers, people: wsPeople, issues: wsIssues, settings: wsSettings }[sub])(w, rel)}</div>`;
+    <div id="wsBody">${sub === 'credits' ? (S.credits ? '' : SKEL.credits()) : ({ overview: wsOverview, numbers: wsNumbers, people: wsPeople, issues: wsIssues, settings: wsSettings }[sub])(w, rel)}</div>`;
   if (sub === 'credits') await wsCredits(w);
 }
 function wsOverview(w, rel) {
@@ -611,16 +651,16 @@ document.addEventListener('click', async (e) => {
   const sus = t.closest('#wsSuspend');
   if (sus && w) {
     const to = sus.dataset.to === 'true';
-    if (to && !confirm(`Suspend ${w.name}? Its members are locked out and sending stops.`)) return;
-    try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { suspended: to } }); toast(to ? 'Suspended' : 'Unsuspended'); await reload(); } catch (err) { toast(err.message, true); }
+    if (to && !(await ask({ title: `Suspend ${w.name}?`, message: 'Its members are locked out and sending stops.', ok: 'Suspend', danger: true }))) return;
+    await busy(sus, async () => { try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { suspended: to } }); toast(to ? 'Suspended' : 'Unsuspended'); await reload(); } catch (err) { toast(err.message, true); } });
     return;
   }
   if (t.closest('#wsDelete') && w) return deleteWorkspaceDlg(w);
   if (t.closest('#ppAdd')) return prepaidDlg();
   const ppc = t.closest('[data-pp-cancel]');
   if (ppc) {
-    if (!confirm('Cancel these waiting credits? Nothing has been added yet.')) return;
-    try { await api('/admin/prepaid/' + ppc.dataset.ppCancel, { method: 'DELETE' }); toast('Cancelled'); await reload(); } catch (err) { toast(err.message, true); }
+    if (!(await ask({ title: 'Cancel these waiting credits?', message: 'Nothing has been added yet.', ok: 'Cancel credits', danger: true }))) return;
+    await busy(ppc, async () => { try { await api('/admin/prepaid/' + ppc.dataset.ppCancel, { method: 'DELETE' }); toast('Cancelled'); await reload(); } catch (err) { toast(err.message, true); } });
     return;
   }
   // Credits
@@ -629,12 +669,15 @@ document.addEventListener('click', async (e) => {
   if ((prm || t.closest('#crRemove')) && w && S.credits) {
     const amount = prm ? Number(prm.dataset.left) : Math.floor(Number($('#crRmN').value));
     if (!amount) return toast('Enter how many credits to remove', true);
-    if (!confirm(prm ? `Remove the ${n(amount)} credits left in ${prm.dataset.name} from ${w.name}? They can't use them any more.` : `Remove ${n(amount)} credits from ${w.name}? They can't use them any more.`)) return;
-    try {
-      await api('/admin/workspaces/' + w.id + '/credits/remove', { method: 'POST', body: prm ? { packId: prm.dataset.packRm, note: '' } : { credits: amount, note: $('#crRmNote').value.trim() } });
-      toast(`Removed ${n(amount)} credits`);
-      await reload();
-    } catch (err) { toast(err.message, true); }
+    const note = prm ? '' : $('#crRmNote').value.trim();
+    if (!(await ask({ title: `Remove ${n(amount)} credits?`, message: `${prm ? `The ${n(amount)} credits left in <b>${esc(prm.dataset.name)}</b>` : `${n(amount)} credits`} come out of <b>${esc(w.name)}</b>. They can’t use them any more.`, ok: `Remove ${n(amount)}`, danger: true }))) return;
+    await busy(prm || $('#crRemove'), async () => {
+      try {
+        await api('/admin/workspaces/' + w.id + '/credits/remove', { method: 'POST', body: prm ? { packId: prm.dataset.packRm, note: '' } : { credits: amount, note } });
+        toast(`Removed ${n(amount)} credits`);
+        await reload();
+      } catch (err) { toast(err.message, true); }
+    });
     return;
   }
   const pack = t.closest('[data-pack]');
@@ -643,8 +686,9 @@ document.addEventListener('click', async (e) => {
     const body = pack ? { pack: pack.dataset.pack } : { credits: $('#crN').value, price: $('#crPrice').value };
     const amount = pack ? c.packOptions.find((p) => p.id === body.pack).credits : Number(body.credits);
     if (!amount) return toast('Enter how many credits', true);
-    if (!confirm(`Add ${n(amount)} credits to ${w.name}? Only once they’ve paid.`)) return;
-    try { await api('/admin/workspaces/' + w.id + '/credits', { method: 'POST', body: { ...body, note: $('#crNote').value } }); toast('Credits added'); await reload(); } catch (err) { toast(err.message, true); }
+    const note = $('#crNote').value;
+    if (!(await ask({ title: `Add ${n(amount)} credits to ${w.name}?`, message: 'Only once they’ve paid.', ok: 'Add credits' }))) return;
+    await busy(pack || $('#crCustom'), async () => { try { await api('/admin/workspaces/' + w.id + '/credits', { method: 'POST', body: { ...body, note } }); toast('Credits added'); await reload(); } catch (err) { toast(err.message, true); } });
   }
 });
 document.addEventListener('change', async (e) => {
@@ -656,7 +700,7 @@ document.addEventListener('change', async (e) => {
   }
   if (e.target.id === 'pfPricing') {
     const on = e.target.checked;
-    if (on && !confirm('Turn pricing on for every workspace? Workspaces on the Credits plan start using credits straight away, and see their balance. Those with 0 credits can’t send templates or use AI until you add some.')) { e.target.checked = false; return; }
+    if (on && !(await ask({ title: 'Turn pricing on for every workspace?', message: 'Workspaces on the Credits plan start using credits straight away, and see their balance. Those with 0 credits can’t send templates or use AI until you add some.', ok: 'Turn pricing on' }))) { e.target.checked = false; return; }
     try { S.platform = await api('/admin/platform', { method: 'PATCH', body: { pricing: on } }); toast(on ? 'Pricing is on' : 'Pricing is off'); await reload(); }
     catch (err) { e.target.checked = !on; toast(err.message, true); }
     return;
@@ -668,8 +712,8 @@ document.addEventListener('change', async (e) => {
   }
   if (e.target.name === 'crPlan' && w) {
     const v = e.target.value;
-    if (v === 'credits' && !confirm(`Switch ${w.name} to the credits plan? From now on, template messages and AI use credits, and sending stops when they run out.`)) { render(); return; }
-    if (v === 'unlimited' && !confirm(`Give ${w.name} unlimited credits? Nothing it does will be charged, and it can connect any number of WhatsApp numbers.`)) { render(); return; }
+    if (v === 'credits' && !(await ask({ title: `Switch ${w.name} to the credits plan?`, message: 'From now on, template messages and AI use credits, and sending stops when they run out.', ok: 'Switch' }))) { render(); return; }
+    if (v === 'unlimited' && !(await ask({ title: `Give ${w.name} unlimited credits?`, message: 'Nothing it does will be charged, and it can connect any number of WhatsApp numbers.', ok: 'Make unlimited' }))) { render(); return; }
     try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { billing: v } }); toast({ credits: 'On the credits plan', free: 'On the free plan', unlimited: 'Unlimited credits' }[v]); await reload(); } catch (err) { toast(err.message, true); }
   }
 });
@@ -678,7 +722,7 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id === 'pfBulk') {
     e.preventDefault();
     const to = $('#pfBulkTo').value, keep = $('#pfKeepUnl').checked, label = { credits: 'the Credits plan', free: 'the Free plan', unlimited: 'Unlimited' }[to];
-    if (!confirm(`Move every workspace${keep && to !== 'unlimited' ? ' (except Unlimited ones)' : ''} to ${label}?`)) return;
+    if (!(await ask({ title: `Move every workspace${keep && to !== 'unlimited' ? ' (except Unlimited ones)' : ''} to ${label}?`, ok: 'Move all' }))) return;
     try { const r = await api('/admin/platform/plans', { method: 'POST', body: { billing: to, keepUnlimited: keep } }); toast(r.moved ? `Moved ${r.moved} workspace${r.moved === 1 ? '' : 's'} to ${label}` : `Every workspace is already on ${label}`); await reload(); }
     catch (err) { toast(err.message, true); }
     return;
@@ -686,7 +730,7 @@ document.addEventListener('submit', async (e) => {
   if (e.target.id !== 'gvForm') return;
   e.preventDefault();
   const to = $('#gvTo').value.trim();
-  if (!confirm(`Move every workspace to ${to}? Each one's sending, Inbox and template sync will use it straight away.`)) return;
+  if (!(await ask({ title: `Move every workspace to ${to}?`, message: 'Each one’s sending, Inbox and template sync will use it straight away.', ok: 'Move all' }))) return;
   try { const r = await api('/admin/graph-version', { method: 'POST', body: { version: to } }); toast(r.moved.length ? `Moved ${r.moved.length} workspace(s) to ${to}` : `Every workspace already uses ${to}`); await reload(); }
   catch (err) { toast(err.message, true); }
 });
