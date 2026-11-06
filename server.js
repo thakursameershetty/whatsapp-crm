@@ -661,8 +661,19 @@ app.use('/api', (req, res, next) => {
 });
 app.use(security.rateLimit); // after sign-in, so limits are per user
 // An admin switching a workspace's AI on or off: tell that workspace's open pages (they reload who can use it).
+// Its plan (free / credits / unlimited): its pages reload the balance, so credits appear, change or disappear at once.
 app.patch('/api/admin/workspaces/:id', (req, res, next) => {
-  res.on('finish', () => { if (res.statusCode < 400 && 'ai' in (req.body || {})) broadcastTo(req.params.id, { kind: 'changed', area: 'team', tab: '' }); });
+  res.on('finish', () => {
+    if (res.statusCode >= 400) return;
+    if ('ai' in (req.body || {})) broadcastTo(req.params.id, { kind: 'changed', area: 'team', tab: '' });
+    if ('billing' in (req.body || {})) broadcastTo(req.params.id, { kind: 'changed', area: 'credits', tab: '' });
+  });
+  next();
+});
+// Pricing switched on or off, or plans changed for every workspace (admin → System): every workspace's open pages
+// reload their balance.
+app.use('/api/admin/platform', (req, res, next) => { // (also matches /api/admin/platform/plans)
+  if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 400) for (const ws of tenants.allWorkspaces()) broadcastTo(ws.meta.id, { kind: 'changed', area: 'credits', tab: '' }); });
   next();
 });
 // The AI features (the Assistant and the Inbox lead assistant): admins, and the people a workspace gave it to (req.ai).
@@ -693,7 +704,7 @@ const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 // Our keys (the server's environment) serve the original workspace, and any workspace on the credits plan that has AI
 // switched on. Everyone else brings their own key, and a workspace's own key always wins. AI answers use credits
 // either way (credits.js). platform = this answer comes from our key.
-const platformAi = () => tenants.isLegacy() || tenants.meta()?.billing === 'unlimited' && tenants.aiAllowed() || (require('./credits').LIVE && tenants.meta()?.billing === 'credits' && tenants.aiAllowed());
+const platformAi = () => tenants.isLegacy() || tenants.meta()?.billing === 'unlimited' && tenants.aiAllowed() || (require('./credits').isLive() && tenants.meta()?.billing === 'credits' && tenants.aiAllowed());
 function aiConfig() {
   const env = platformAi() ? process.env : {};
   const own = { claude: db.settings.anthropicApiKey || '', gemini: db.settings.geminiApiKey || '' };
@@ -1197,11 +1208,27 @@ app.post('/api/templates', wrap((req, res) => {
   res.json(publicTemplate(t));
 }));
 
-app.delete('/api/templates/:id', (req, res) => {
-  db.templates = db.templates.filter((x) => x.id !== req.params.id);
+// Deleting a template deletes it in Meta too (WhatsApp Manager), then here, so Sync can't bring it back. Only this
+// language is deleted when Meta's id is known (hsm_id); otherwise Meta deletes the name in every language. Templates
+// made only in this app (or in demo mode) are just removed here. If Meta refuses, nothing is removed.
+app.delete('/api/templates/:id', wrap(async (req, res) => {
+  const t = db.templates.find((x) => x.id === req.params.id);
+  if (!t) throw fail('Not found', 404);
+  let inMeta = false;
+  if (t.wabaId && t.source === 'synced' && !db.settings.demoMode) {
+    const s = db.senders.find((x) => x.wabaId === t.wabaId && x.accessToken);
+    if (!s) throw fail('No number with a saved access token is in this template’s WhatsApp Business Account, so it can’t be deleted in Meta. Add the token under Numbers, then try again.');
+    const q = new URLSearchParams({ name: t.name, ...(t.metaId ? { hsm_id: t.metaId } : {}) });
+    try { await graph(s, `${encodeURIComponent(t.wabaId)}/message_templates?${q}`, { method: 'DELETE' }); inMeta = true; }
+    catch (e) {
+      if (!/not.*(exist|found)|does not exist/i.test(e.message) && e.code !== 100) throw fail(`Meta didn’t delete it: ${e.message}`);
+      inMeta = true; // already gone in Meta: just remove it here
+    }
+  }
+  db.templates = db.templates.filter((x) => x !== t);
   save();
-  res.json({ ok: true });
-});
+  res.json({ ok: true, inMeta });
+}));
 
 // Pull approved templates from every WhatsApp Business Account we have a token for.
 app.post('/api/templates/sync', wrap(async (req, res) => {
@@ -1235,6 +1262,7 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
           return graph(sender, next);
         });
         for (const t of page.data || []) {
+          if (/^(DELETED|PENDING_DELETION)$/i.test(t.status || '')) continue; // being deleted in Meta: not brought back
           const existing = db.templates.find((x) => x.source === 'synced' && x.wabaId === wabaId && x.name === t.name && x.language === t.language);
           const data = { name: t.name, language: t.language, category: t.category, categoryChangedFrom: categoryChangedFrom(existing, t.category, t.previous_category), status: t.status, rejectedReason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : '', components: t.components, parameterFormat: t.parameter_format || 'POSITIONAL', source: 'synced', wabaId, metaId: t.id, updatedAt: new Date().toISOString() };
           // Meta doesn't say when a template was made or approved, so both are noted as this app sees them happen.

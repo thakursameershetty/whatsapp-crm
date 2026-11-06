@@ -1,6 +1,10 @@
-// Pricing is switched off until PRICING=on is set on the server: until then nothing below applies (no charges, no number
-// limits, no credits shown), while workspaces' plans and any credits added are kept for when it's switched on.
-const LIVE = /^(on|true|1|yes)$/i.test(String(process.env.PRICING || '').trim());
+// Pricing is switched on or off in the admin panel (System → Pricing), saved with the accounts. Until an admin has
+// chosen, the PRICING server variable decides (PRICING=on). While it's off nothing below applies (no charges, no number
+// limits, no credits shown), and workspaces' plans and any credits added are kept for when it's switched on.
+const ENV_LIVE = /^(on|true|1|yes)$/i.test(String(process.env.PRICING || '').trim());
+let liveSetting = null; // null: follow PRICING; true / false: the admin's choice (tenancy.js loads it at start)
+const isLive = () => liveSetting ?? ENV_LIVE;
+const setLive = (v) => { liveSetting = v == null ? null : Boolean(v); };
 
 // Credits: what SendON charges for. They're on top of Meta's own per-message fees, which Meta bills to each
 // customer's WhatsApp Business Account directly.
@@ -43,7 +47,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
   const day = () => new Date().toISOString().slice(0, 10);
   const book = () => (db.credits ||= { packs: [], ledger: [] });
   // Charged in this workspace? The credits plan, and not demo mode (or a demo campaign).
-  const on = (demo = db.settings.demoMode) => LIVE && meta()?.billing === 'credits' && !demo;
+  const on = (demo = db.settings.demoMode) => isLive() && meta()?.billing === 'credits' && !demo;
   const live = () => book().packs.filter((p) => p.left > 0 && valid(p)).sort((a, b) => a.expiresAt.localeCompare(b.expiresAt));
   const balance = () => live().reduce((s, p) => s + p.left, 0);
   // Enough for `n`? Always yes when this workspace isn't charged.
@@ -158,9 +162,9 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     sweep();
     const b = book();
     return {
-      on: LIVE && meta()?.billing === 'credits',
+      on: isLive() && meta()?.billing === 'credits',
       unlimited: meta()?.billing === 'unlimited', // never charged, shown as "Unlimited" (even while pricing is off)
-      live: LIVE,
+      live: isLive(),
       demo: Boolean(db.settings.demoMode),
       balance: balance(),
       packs: b.packs.slice().reverse().slice(0, 20).map(({ id: pid, name, credits, left, price, addedAt, expiresAt }) => ({ id: pid, name, credits, left, price, addedAt, expiresAt, expired: !valid({ expiresAt }) })),
@@ -195,4 +199,4 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
   return { on, enough, balance, charge, refund, addPack, summary, keys, rateFor, AI_RATE, PLAN_RATE, numberLimit, checkNumberLimit };
 }
 
-module.exports = { mount, balanceOf, rateFor, PACKS, RATES, AI_RATE, PLAN_RATE, LIVE };
+module.exports = { mount, balanceOf, rateFor, PACKS, RATES, AI_RATE, PLAN_RATE, isLive, setLive, ENV_LIVE };

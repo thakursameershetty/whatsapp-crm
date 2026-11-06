@@ -1818,9 +1818,14 @@ $('#templateList').addEventListener('click', (e) => {
   }
   if (b.dataset.del)
     guard(async () => {
-      const ok = await confirmDialog({ title: 'Remove this template?', message: 'It is removed from this app only. The template stays in your WhatsApp Manager.', confirmText: 'Remove', danger: true });
+      const t = state.templates.find((x) => x.id === b.dataset.del);
+      const meta = t?.source === 'synced' && t.wabaId && !state.settings.demoMode;
+      const ok = await confirmDialog(meta
+        ? { title: `Delete “${esc(t.name)}”?`, message: 'It’s deleted in Meta (WhatsApp Manager) too, for good: it can’t be sent from any app, and Meta won’t let you make a new template with this name for 30 days.', confirmText: 'Delete', danger: true }
+        : { title: 'Delete this template?', message: 'It’s only in this app, so it’s removed from here.', confirmText: 'Delete', danger: true });
       if (!ok) return;
-      await api('/templates/' + b.dataset.del, { method: 'DELETE' });
+      const r = await api('/templates/' + b.dataset.del, { method: 'DELETE' });
+      toast(r.inMeta ? `Deleted “${t.name}” in Meta and here` : 'Template deleted');
       await loadTemplates();
     }, b);
 });

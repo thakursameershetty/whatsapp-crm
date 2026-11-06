@@ -77,14 +77,15 @@ function structure() {
 const relTag = (kind) => ({ main: '<span class="ax-tag main">Main</span>', sub: '<span class="ax-tag sub">Sub-workspace</span>', sep: '<span class="ax-tag sep">Separate</span>' }[kind] || '');
 
 async function loadAll() {
-  const [all, reps, dels, gv, prepaid] = await Promise.all([
+  const [all, reps, dels, gv, prepaid, platform] = await Promise.all([
     api('/admin/workspaces'),
     api('/admin/reports').catch(() => []),
     api('/admin/deletion-requests').catch(() => []),
     api('/admin/graph-version').catch(() => null),
     api('/admin/prepaid').catch(() => []),
+    api('/admin/platform').catch(() => null),
   ]);
-  Object.assign(S, { all, reps, dels, gv, prepaid, loaded: true });
+  Object.assign(S, { all, reps, dels, gv, prepaid, platform, loaded: true });
 }
 
 // --- Tabs and routing ------------------------------------------------------------------------------------------------
@@ -129,7 +130,7 @@ async function reload() { S.loaded = false; S.detail = null; await render(); }
 function kpi(icon, label, value, sub, cls = '') { return `<div class="ax-kpi ${cls}"><i>${ic(icon, 15)}</i><span>${label}</span><b>${value}</b><small>${sub}</small></div>`; }
 function pricingNote() {
   const live = S.all[0]?.pricingLive;
-  return live || !S.all.length ? '' : '<div class="adm-pricing-off"><b>Pricing is off.</b> Nothing is charged and there are no number limits. Plans and credits you set are kept for when it’s switched on: add <code>PRICING=on</code> to the server’s variables (Railway → Variables) and redeploy.</div>';
+  return live || !S.all.length ? '' : '<div class="adm-pricing-off"><b>Pricing is off.</b> Nothing is charged, no credits show (except Unlimited) and there are no number limits. Plans and credits you set are kept for when it’s on. <a class="ax-link" href="#/system">Turn it on in System</a></div>';
 }
 function overviewHtml() {
   const all = S.all, st = structure();
@@ -383,13 +384,29 @@ function systemHtml() {
   }
   return `
     <div class="ax-h"><div><h1>System</h1><p>Settings that apply to every workspace on this server.</p></div></div>
-    <section class="ax-card"><h3>${ic('layers', 16)}Meta Graph API</h3>${gv}</section>
-    <section class="ax-card"><h3>${ic('zap', 16)}Pricing and credits</h3>
-      <div class="ax-sys"><i class="${live ? '' : 'warn'}">${ic('zap', 18)}</i><div>
-        <b>${live ? 'Pricing is on' : 'Pricing is off'}</b>
-        <span>${live ? 'Workspaces on the credits plan use credits for template messages and AI, and their number of WhatsApp numbers follows their pack. Set each workspace’s plan on its Credits tab.' : 'Nothing is charged and there are no number limits. Plans and credits you set on each workspace’s Credits tab are kept for when it’s on. To switch it on, add <code>PRICING=on</code> to the server’s variables (Railway → Variables) and redeploy.'}</span>
-      </div></div>
-    </section>`;
+    ${pricingCard()}
+    <section class="ax-card"><h3>${ic('layers', 16)}Meta Graph API</h3>${gv}</section>`;
+}
+
+// Pricing for the whole server, the plan new workspaces start on, and moving every workspace onto one plan.
+// Whether a workspace shows credits is its plan: Free (hidden), Credits (its balance), Unlimited ("Unlimited").
+function pricingCard() {
+  const P = S.platform;
+  if (!P) return `<section class="ax-card"><h3>${ic('zap', 16)}Pricing and credits</h3><p class="ax-muted" style="margin:0">Couldn’t load the pricing settings.</p></section>`;
+  const plan = (k, label, note) => `<div><b>${n(P.plans[k] || 0)}</b><span>${label}<small>${note}</small></span></div>`;
+  return `<section class="ax-card"><h3>${ic('zap', 16)}Pricing and credits</h3>
+    <div class="ax-set"><div><b>Pricing</b><span>${P.pricing ? 'On. Workspaces on the Credits plan see their balance, and template messages and AI use credits. Their number of WhatsApp numbers follows their pack.' : 'Off. Nothing is charged and no balances show (Unlimited workspaces still show “Unlimited”). Plans and credits are kept for when it’s on.'}${P.pricingSource === 'env' ? ` <span class="ax-faint">Following the server’s PRICING variable (${P.envPricing ? 'on' : 'off'}) until you change it here.</span>` : ''}</span></div>
+      <label class="adm-ai"><span class="toggle"><input type="checkbox" id="pfPricing" ${P.pricing ? 'checked' : ''} aria-label="Pricing" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span></label></div>
+    <div class="ax-set"><div><b>New workspaces start on</b><span>The plan a workspace gets when someone signs up or creates one. They start with 0 credits; you add credits once they’ve paid.</span></div>
+      <div class="adm-cr-plan" style="margin:0"><label><input type="radio" name="pfNew" value="credits" ${P.newBilling === 'credits' ? 'checked' : ''} /> Credits plan</label><label><input type="radio" name="pfNew" value="free" ${P.newBilling === 'free' ? 'checked' : ''} /> Free plan</label></div></div>
+    <div class="ax-set ax-set-col"><div><b>Plans across workspaces</b><span>A workspace’s plan decides what it sees. Change one on its Credits tab, or move them all here.</span></div>
+      <div class="ax-plans">${plan('credits', 'Credits plan', 'shows its balance, uses credits')}${plan('free', 'Free plan', 'credits hidden, nothing charged')}${plan('unlimited', 'Unlimited', 'shows “Unlimited”, never charged')}</div>
+      <form class="ax-bulk" id="pfBulk"><span>Move every workspace to</span>
+        <select id="pfBulkTo" aria-label="Plan"><option value="credits">the Credits plan</option><option value="free">the Free plan</option><option value="unlimited">Unlimited</option></select>
+        <label class="ax-bulk-keep"><input type="checkbox" class="cb" id="pfKeepUnl" checked /> Leave Unlimited ones as they are</label>
+        <button class="btn sm">Move all</button></form>
+    </div>
+  </section>`;
 }
 
 // --- One workspace -----------------------------------------------------------------------------------------------------
@@ -622,6 +639,18 @@ document.addEventListener('change', async (e) => {
     try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { ai: on } }); toast(on ? 'AI assistant on. The owners pick which members get it.' : 'AI assistant off for this workspace'); await reload(); }
     catch (err) { e.target.checked = !on; toast(err.message, true); }
   }
+  if (e.target.id === 'pfPricing') {
+    const on = e.target.checked;
+    if (on && !confirm('Turn pricing on for every workspace? Workspaces on the Credits plan start using credits straight away, and see their balance. Those with 0 credits can’t send templates or use AI until you add some.')) { e.target.checked = false; return; }
+    try { S.platform = await api('/admin/platform', { method: 'PATCH', body: { pricing: on } }); toast(on ? 'Pricing is on' : 'Pricing is off'); await reload(); }
+    catch (err) { e.target.checked = !on; toast(err.message, true); }
+    return;
+  }
+  if (e.target.name === 'pfNew') {
+    try { S.platform = await api('/admin/platform', { method: 'PATCH', body: { newBilling: e.target.value } }); toast(`New workspaces start on the ${e.target.value === 'credits' ? 'Credits' : 'Free'} plan`); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
   if (e.target.name === 'crPlan' && w) {
     const v = e.target.value;
     if (v === 'credits' && !confirm(`Switch ${w.name} to the credits plan? From now on, template messages and AI use credits, and sending stops when they run out.`)) { render(); return; }
@@ -631,6 +660,14 @@ document.addEventListener('change', async (e) => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'wsLimit') $('#wsLimitSave')?.click(); });
 document.addEventListener('submit', async (e) => {
+  if (e.target.id === 'pfBulk') {
+    e.preventDefault();
+    const to = $('#pfBulkTo').value, keep = $('#pfKeepUnl').checked, label = { credits: 'the Credits plan', free: 'the Free plan', unlimited: 'Unlimited' }[to];
+    if (!confirm(`Move every workspace${keep && to !== 'unlimited' ? ' (except Unlimited ones)' : ''} to ${label}?`)) return;
+    try { const r = await api('/admin/platform/plans', { method: 'POST', body: { billing: to, keepUnlimited: keep } }); toast(r.moved ? `Moved ${r.moved} workspace${r.moved === 1 ? '' : 's'} to ${label}` : `Every workspace is already on ${label}`); await reload(); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
   if (e.target.id !== 'gvForm') return;
   e.preventDefault();
   const to = $('#gvTo').value.trim();

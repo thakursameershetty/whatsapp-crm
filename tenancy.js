@@ -16,7 +16,7 @@ const { AsyncLocalStorage } = require('async_hooks');
 
 const mail = require('./mail');
 const passwordRules = require('./public/password-rules');
-const { balanceOf, LIVE: PRICING_LIVE } = require('./credits');
+const { balanceOf, isLive: pricingLive, setLive: setPricing, ENV_LIVE: PRICING_ENV } = require('./credits');
 
 const SESSION_DAYS = 30;
 // New workspaces may send this many template messages a day until an admin raises it.
@@ -88,7 +88,7 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   if (renamed) { console.log(`Shortened ${renamed} over-long name(s) to fit the limits.`); saveAccounts(); }
 
   function createWorkspace(name) {
-    const meta = { id: id(), name: tidyName(name).slice(0, NAME_MAX.workspace) || 'My workspace', createdAt: now(), dailyLimit: NEW_WORKSPACE_DAILY_LIMIT, billing: 'credits' };
+    const meta = { id: id(), name: tidyName(name).slice(0, NAME_MAX.workspace) || 'My workspace', createdAt: now(), dailyLimit: NEW_WORKSPACE_DAILY_LIMIT, billing: accounts.platform?.newBilling || 'credits' };
     accounts.workspaces.push(meta);
     const ws = loadWorkspace(meta);
     ws.db.settings.webhookVerifyToken = crypto.randomBytes(12).toString('hex');
@@ -157,6 +157,11 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
 
   const userByEmail = (email) => accounts.users.find((u) => u.email === String(email || '').trim().toLowerCase());
   const membershipsOf = (userId) => accounts.members.filter((m) => m.userId === userId);
+
+  // Server-wide settings an admin sets in the admin panel (System): pricing on or off (null: the PRICING variable
+  // decides) and the plan new workspaces start on.
+  accounts.platform ||= { pricing: null, newBilling: 'credits' };
+  setPricing(accounts.platform.pricing);
 
   // --- Prepaid credits: a customer who paid before signing up. An admin saves the pack against their email
   // (admin panel → People → Add credits for a customer); it's added to the workspace they own as soon as there is
@@ -960,7 +965,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const last = [...d.messages.filter((x) => !x.demo).map((x) => x.ts), ...d.campaigns.filter((c) => !c.demo).map((c) => c.startedAt || c.createdAt)].filter(Boolean).sort().at(-1) || null;
       return {
         id: m.id, name: m.name, createdAt: m.createdAt, suspended: Boolean(m.suspended), suspendedAt: m.suspendedAt || null, dailyLimit: m.dailyLimit ?? null, legacy: Boolean(m.legacy),
-        billing: ['credits', 'unlimited'].includes(m.billing) ? m.billing : 'free', credits: balanceOf(d), pricingLive: PRICING_LIVE,
+        billing: ['credits', 'unlimited'].includes(m.billing) ? m.billing : 'free', credits: balanceOf(d), pricingLive: pricingLive(),
         members: accounts.members.filter((x) => x.wsId === m.id).map((x) => { const u = accounts.users.find((y) => y.id === x.userId); return { id: u?.id, name: u?.name || '', email: u?.email, role: x.role, joinedAt: x.joinedAt || null, admin: isAdmin(u), createdAt: u?.createdAt || null }; }),
         ai: aiOn(ws), aiBuiltIn: ours(ws),
         demoMode: Boolean(d.settings.demoMode), numbers: d.senders.filter((s) => !s.seed).length, contacts: d.contacts.length,
@@ -1044,6 +1049,40 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       if (stranded.length) throw fail(`${stranded.join(', ')} ${stranded.length > 1 ? 'have' : 'has'} no other workspace, so deleting this one would leave ${stranded.length > 1 ? 'them' : 'them'} nothing to sign in to. Delete ${stranded.length > 1 ? 'their accounts' : 'their account'} instead (People), which removes this workspace too.`);
       await dropWorkspace(ws);
       res.json({ ok: true, name });
+    }));
+
+    // Pricing and plans for the whole server (admin → System).
+    const PLANS = ['free', 'credits', 'unlimited'];
+    const planOf = (ws) => (PLANS.includes(ws.meta.billing) ? ws.meta.billing : 'free');
+    const platformState = () => ({
+      pricing: pricingLive(), pricingSource: accounts.platform.pricing == null ? 'env' : 'admin', envPricing: PRICING_ENV,
+      newBilling: accounts.platform.newBilling || 'credits',
+      plans: Object.fromEntries(PLANS.map((p) => [p, allWorkspaces().filter((ws) => planOf(ws) === p).length])),
+    });
+    app.get('/api/admin/platform', wrap((req, res) => { adminOnly(req); res.json(platformState()); }));
+    app.patch('/api/admin/platform', wrap((req, res) => {
+      adminOnly(req);
+      if ('pricing' in req.body) { accounts.platform.pricing = req.body.pricing == null ? null : Boolean(req.body.pricing); setPricing(accounts.platform.pricing); }
+      if ('newBilling' in req.body) {
+        if (!['free', 'credits'].includes(req.body.newBilling)) throw fail('New workspaces start on the free or the credits plan');
+        accounts.platform.newBilling = req.body.newBilling;
+      }
+      saveAccounts();
+      res.json(platformState());
+    }));
+    // Every workspace onto one plan (keeping Unlimited ones as they are unless asked).
+    app.post('/api/admin/platform/plans', wrap((req, res) => {
+      adminOnly(req);
+      const to = req.body.billing;
+      if (!PLANS.includes(to)) throw fail('Pick a plan');
+      let moved = 0;
+      for (const ws of allWorkspaces()) {
+        if (planOf(ws) === to || (req.body.keepUnlimited !== false && planOf(ws) === 'unlimited')) continue;
+        ws.meta.billing = to;
+        moved++;
+      }
+      saveAccounts();
+      res.json({ ...platformState(), moved });
     }));
 
     // Prepaid credits (see applyPrepaid): waiting ones and those added in the last 90 days.
