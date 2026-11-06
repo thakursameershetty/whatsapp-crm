@@ -693,7 +693,7 @@ const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 // Our keys (the server's environment) serve the original workspace, and any workspace on the credits plan that has AI
 // switched on. Everyone else brings their own key, and a workspace's own key always wins. AI answers use credits
 // either way (credits.js). platform = this answer comes from our key.
-const platformAi = () => tenants.isLegacy() || (require('./credits').LIVE && tenants.meta()?.billing === 'credits' && tenants.aiAllowed());
+const platformAi = () => tenants.isLegacy() || tenants.meta()?.billing === 'unlimited' && tenants.aiAllowed() || (require('./credits').LIVE && tenants.meta()?.billing === 'credits' && tenants.aiAllowed());
 function aiConfig() {
   const env = platformAi() ? process.env : {};
   const own = { claude: db.settings.anthropicApiKey || '', gemini: db.settings.geminiApiKey || '' };

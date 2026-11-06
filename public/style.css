@@ -7584,3 +7584,7 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .auth-fields .auth-agree input.cb[type=checkbox]:checked { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 12.5 4 4 8-9'/%3E%3C/svg%3E") center / 14px no-repeat, linear-gradient(180deg, var(--accent-1), var(--accent-2)); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 .auth-fields .auth-agree input.cb[type=checkbox]:focus-visible { box-shadow: var(--sh-sunk), 0 0 0 3px var(--ring); }
 .auth-agree a { color: var(--text); font-weight: 600; }
+
+/* "Unlimited" (a workspace that's never charged): the Settings card is just the coin and the word */
+.cr-top.cr-top-unl { grid-template-columns: 1fr; }
+.cr-top-unl .cr-bal span { max-width: 460px; }

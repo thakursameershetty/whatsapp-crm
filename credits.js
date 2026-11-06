@@ -159,6 +159,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     const b = book();
     return {
       on: LIVE && meta()?.billing === 'credits',
+      unlimited: meta()?.billing === 'unlimited', // never charged, shown as "Unlimited" (even while pricing is off)
       live: LIVE,
       demo: Boolean(db.settings.demoMode),
       balance: balance(),

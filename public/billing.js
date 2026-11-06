@@ -5,6 +5,7 @@ window.Credits = (() => {
   const fmt = (n) => Number(n || 0).toLocaleString('en-IN');
   const day = (iso) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   const charged = () => Boolean(C.data?.on && !state.settings?.demoMode);
+  const unlimited = () => Boolean(C.data?.unlimited); // a workspace that's never charged: shows "Unlimited"
   const rate = (t) => (String(t?.category || '').toUpperCase() === 'MARKETING' || !t?.category ? C.data.rates.marketing : C.data.rates.utility);
   const kind = (t) => String(t?.category || 'marketing').toLowerCase();
 
@@ -31,6 +32,10 @@ window.Credits = (() => {
   function slots() {
     const d = C.data, on = charged();
     document.querySelectorAll('.cr-slot').forEach((slot) => {
+      if (unlimited()) {
+        slot.innerHTML = `<span class="cr-chip unl">${window.Coin ? Coin.html({ size: 24, label: 'Unlimited credits' }) : ''}<button type="button" class="cr-chip-t" data-goto="settings" title="This workspace has unlimited credits: nothing it does is charged"><b>Unlimited</b></button></span>`;
+        return;
+      }
       if (!on) { slot.innerHTML = ''; return; }
       if (!slot.firstElementChild) {
         slot.innerHTML = `<span class="cr-chip">${window.Coin ? Coin.html({ size: 24, label: 'Credits' }) : ''}<button type="button" class="cr-chip-t" data-goto="settings" title="Credits left in this workspace. Open Settings → Credits"><b class="cr-chip-v"></b><span>credits</span></button></span>`;
@@ -65,7 +70,14 @@ window.Credits = (() => {
     const card = $('#creditsCard');
     if (!card) return;
     const d = C.data;
-    card.classList.toggle('hidden', !d?.on);
+    card.classList.toggle('hidden', !d?.on && !d?.unlimited);
+    if (d?.unlimited) {
+      card.innerHTML = `<div class="card-head"><h2 data-icon="zap">Credits</h2></div>
+        <div class="cr-top cr-top-unl"><div class="cr-bal">${window.Coin ? Coin.html({ size: 92, label: 'Unlimited credits' }) : ''}<b>Unlimited</b><span>This workspace isn’t charged: campaigns, template messages and AI don’t use credits, and it can connect any number of WhatsApp numbers.</span></div></div>
+        <p class="sub cr-note">Meta still bills its own per-message fee to your WhatsApp Business Account.</p>`;
+      LA.hydrate(card);
+      return;
+    }
     if (!d?.on) return;
     const next = d.packs.filter((p) => !p.expired && p.left > 0).sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))[0];
     const low = d.balance === 0 ? 'out' : next && lowOf(d) ? 'low' : '';

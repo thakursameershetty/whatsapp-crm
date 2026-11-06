@@ -170,7 +170,7 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
     const mine = accounts.prepaid.filter((p) => !p.appliedAt && p.email === String(user.email).trim().toLowerCase());
     const ws = mine.length ? ownedWorkspace(user.id) : null;
     if (!ws) return null;
-    ws.meta.billing = 'credits'; // a prepaid pack only counts on the credits plan
+    if (ws.meta.billing !== 'unlimited') ws.meta.billing = 'credits'; // a prepaid pack only counts on the credits plan
     for (const p of mine) {
       addCredits(ws, { pack: p.pack, credits: p.credits, price: p.price, note: p.note ? `${p.note} (paid before sign-up)` : 'Paid before sign-up', by: p.by });
       Object.assign(p, { appliedAt: now(), wsId: ws.meta.id, wsName: ws.meta.name });
@@ -960,7 +960,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       const last = [...d.messages.filter((x) => !x.demo).map((x) => x.ts), ...d.campaigns.filter((c) => !c.demo).map((c) => c.startedAt || c.createdAt)].filter(Boolean).sort().at(-1) || null;
       return {
         id: m.id, name: m.name, createdAt: m.createdAt, suspended: Boolean(m.suspended), suspendedAt: m.suspendedAt || null, dailyLimit: m.dailyLimit ?? null, legacy: Boolean(m.legacy),
-        billing: m.billing === 'credits' ? 'credits' : 'free', credits: balanceOf(d), pricingLive: PRICING_LIVE,
+        billing: ['credits', 'unlimited'].includes(m.billing) ? m.billing : 'free', credits: balanceOf(d), pricingLive: PRICING_LIVE,
         members: accounts.members.filter((x) => x.wsId === m.id).map((x) => { const u = accounts.users.find((y) => y.id === x.userId); return { id: u?.id, name: u?.name || '', email: u?.email, role: x.role, joinedAt: x.joinedAt || null, admin: isAdmin(u), createdAt: u?.createdAt || null }; }),
         ai: aiOn(ws), aiBuiltIn: ours(ws),
         demoMode: Boolean(d.settings.demoMode), numbers: d.senders.filter((s) => !s.seed).length, contacts: d.contacts.length,
@@ -1016,7 +1016,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         if (req.body.ai) ws.meta.aiAllowed = true; else delete ws.meta.aiAllowed;
       }
       // Credits plan (credits.js) or free. Workspaces made before credits existed are free until switched here.
-      if (req.body.billing === 'credits' || req.body.billing === 'free') ws.meta.billing = req.body.billing;
+      // Unlimited: never charged, and the app shows "Unlimited" where the balance would be (e.g. our own workspaces).
+      if (['credits', 'free', 'unlimited'].includes(req.body.billing)) ws.meta.billing = req.body.billing;
       if ('dailyLimit' in req.body) {
         const n = req.body.dailyLimit === null || req.body.dailyLimit === '' ? null : Math.max(0, Math.floor(Number(req.body.dailyLimit)));
         if (n !== null && !Number.isFinite(n)) throw fail('Enter a number, or leave it empty for no limit');

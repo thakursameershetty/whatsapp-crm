@@ -115,6 +115,7 @@ html.ax-collapsed .ax-brand { flex: none; padding: 0; gap: 0; }
 .ax-plan { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .ax-plan.free { color: var(--muted); font-weight: 500; }
 .ax-plan.zero { color: var(--danger); }
+.ax-plan.unl { color: var(--info); }
 .ax-chev { color: var(--faint); display: grid; place-items: center; transform: rotate(-90deg); }
 .ax-row:hover .ax-chev { color: var(--text); }
 .ax-fail { display: grid; grid-template-columns: 1fr 38px; align-items: center; gap: 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }

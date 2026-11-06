@@ -189,7 +189,7 @@ const rowHead = () => `<div class="ax-row head"><span>Workspace</span><span clas
 // A main workspace starts with an arrow that unfolds its sub-workspaces underneath.
 function wsRow(w, rel, opts = {}) {
   const r = failRate(w), o = ownerOf(w);
-  const plan = w.billing === 'credits' ? `<span class="ax-plan ${w.credits ? '' : 'zero'}">${n(w.credits)} credits</span>` : '<span class="ax-plan free">Free plan</span>';
+  const plan = w.billing === 'unlimited' ? '<span class="ax-plan unl">Unlimited</span>' : w.billing === 'credits' ? `<span class="ax-plan ${w.credits ? '' : 'zero'}">${n(w.credits)} credits</span>` : '<span class="ax-plan free">Free plan</span>';
   const subs = rel.kind === 'main' ? rel.group.list.length - 1 : 0, open = S.open.has(w.id);
   const tags = [
     subs ? `<button type="button" class="ax-tag sub ax-subs" data-toggle="${w.id}" aria-expanded="${open}">${subs} sub-workspace${subs === 1 ? '' : 's'}</button>` : '',
@@ -416,7 +416,7 @@ async function renderWorkspace(id, sub) {
       ${av(w.name)}
       <div class="ax-hero-main">
         <h1>${esc(w.name)}</h1>
-        <div class="ax-hero-tags">${relTag(rel.kind)}${w.suspended ? '<span class="ax-tag bad">Suspended</span>' : isActive(w) ? '<span class="ax-tag good">Active</span>' : '<span class="ax-tag">Idle</span>'}${w.billing === 'credits' ? `<span class="ax-tag ${w.credits ? 'main' : 'bad'}">${n(w.credits)} credits</span>` : '<span class="ax-tag">Free plan</span>'}${w.demoMode ? '<span class="ax-tag warn">Demo mode</span>' : ''}${w.legacy ? '<span class="ax-tag">Original</span>' : ''}</div>
+        <div class="ax-hero-tags">${relTag(rel.kind)}${w.suspended ? '<span class="ax-tag bad">Suspended</span>' : isActive(w) ? '<span class="ax-tag good">Active</span>' : '<span class="ax-tag">Idle</span>'}${w.billing === 'unlimited' ? '<span class="ax-tag main">Unlimited</span>' : w.billing === 'credits' ? `<span class="ax-tag ${w.credits ? 'main' : 'bad'}">${n(w.credits)} credits</span>` : '<span class="ax-tag">Free plan</span>'}${w.demoMode ? '<span class="ax-tag warn">Demo mode</span>' : ''}${w.legacy ? '<span class="ax-tag">Original</span>' : ''}</div>
         <div class="ax-hero-rel">${relText}</div>
       </div>
       <div class="ax-hero-side"><small>Created ${date(w.createdAt)}</small><small>Last active ${w.lastActivity ? ago(w.lastActivity) : 'never'}</small></div>
@@ -447,7 +447,7 @@ function wsOverview(w, rel) {
       </section>
       <section class="ax-card"><h3>${ic('layers', 16)}${group.length ? 'This account’s workspaces' : 'About'}</h3>
         ${group.length ? `<div class="ax-rows ax-tree" style="margin:0 -20px">${group.map((x, i) => `<a class="ax-row ${i ? 'sub' : ''}" href="#/w/${x.id}" style="grid-template-columns:minmax(0,1fr) 90px 24px;${x.id === w.id ? 'background:color-mix(in srgb,var(--sunk) 60%,transparent)' : ''}"><span class="ax-who">${av(x.name, 'sm')}<div><b>${esc(x.name)}${x.id === w.id ? ' <span class="ax-faint" style="font-weight:400">(this one)</span>' : ''}</b><small>${relTag(i ? 'sub' : 'main')}</small></div></span><span class="num">${n(x.sent30d)} <span class="ax-faint" style="font-size:11.5px">30d</span></span><span class="ax-chev">${ic('chevron-down', 15)}</span></a>`).join('')}</div>`
-          : `<dl class="ax-kv"><dt>Owner</dt><dd>${esc(ownerOf(w)?.email || 'No owner')}</dd><dt>Numbers</dt><dd>${w.numbers.length}</dd><dt>Plan</dt><dd>${w.billing === 'credits' ? `Credits · ${n(w.credits)} left` : 'Free'}</dd><dt>AI assistant</dt><dd>${w.ai ? 'On' : 'Off'}</dd><dt>Meta API</dt><dd><code>${esc(w.graphVersion || '—')}</code></dd></dl>`}
+          : `<dl class="ax-kv"><dt>Owner</dt><dd>${esc(ownerOf(w)?.email || 'No owner')}</dd><dt>Numbers</dt><dd>${w.numbers.length}</dd><dt>Plan</dt><dd>${w.billing === 'unlimited' ? 'Unlimited' : w.billing === 'credits' ? `Credits · ${n(w.credits)} left` : 'Free'}</dd><dt>AI assistant</dt><dd>${w.ai ? 'On' : 'Off'}</dd><dt>Meta API</dt><dd><code>${esc(w.graphVersion || '—')}</code></dd></dl>`}
       </section>
     </div>
     <section class="ax-card"><h3>${ic('send', 16)}Recent campaigns</h3>
@@ -524,9 +524,10 @@ async function wsCredits(w) {
     ${c.live ? '' : '<div class="adm-pricing-off"><b>Pricing is off</b> (PRICING isn’t on), so nothing here applies yet. What you set is kept for when it’s on.</div>'}
     <div class="ax-grid2">
       <section class="ax-card"><h3>${ic('zap', 16)}Plan</h3>
-        <div class="adm-cr-plan"><label><input type="radio" name="crPlan" value="free" ${c.on ? '' : 'checked'} /> Free plan</label><label><input type="radio" name="crPlan" value="credits" ${c.on ? 'checked' : ''} /> Credits plan</label></div>
-        ${c.on ? `<div class="ax-bal ${low}">${Coin.html({ size: 52, label: `${n(c.balance)} credits` })}<b>${n(c.balance)}</b><span class="ax-muted">credits left</span></div>
-          <p class="ax-muted" style="margin:0 0 4px;font-size:13px">WhatsApp numbers: ${c.numberLimit == null ? `${n(c.numbersUsed)} connected · no limit` : `${n(c.numbersUsed)} of ${n(c.numberLimit)}`}</p>` : '<p class="ax-muted" style="margin:0;font-size:13px">On the free plan nothing uses credits.</p>'}
+        <div class="adm-cr-plan"><label><input type="radio" name="crPlan" value="free" ${w.billing === 'free' ? 'checked' : ''} /> Free plan</label><label><input type="radio" name="crPlan" value="credits" ${w.billing === 'credits' ? 'checked' : ''} /> Credits plan</label><label><input type="radio" name="crPlan" value="unlimited" ${w.billing === 'unlimited' ? 'checked' : ''} /> Unlimited</label></div>
+        ${w.billing === 'unlimited' ? '<div class="ax-bal"><b>Unlimited</b></div><p class="ax-muted" style="margin:0;font-size:13px">Never charged: no credits are used and there’s no number limit. The app shows “Unlimited” where the balance would be.</p>' : ''}
+        ${c.on && w.billing === 'credits' ? `<div class="ax-bal ${low}">${Coin.html({ size: 52, label: `${n(c.balance)} credits` })}<b>${n(c.balance)}</b><span class="ax-muted">credits left</span></div>
+          <p class="ax-muted" style="margin:0 0 4px;font-size:13px">WhatsApp numbers: ${c.numberLimit == null ? `${n(c.numbersUsed)} connected · no limit` : `${n(c.numbersUsed)} of ${n(c.numberLimit)}`}</p>` : w.billing === 'free' ? '<p class="ax-muted" style="margin:0;font-size:13px">On the free plan nothing uses credits.</p>' : ''}
         <p class="ax-faint" style="margin:10px 0 0;font-size:12.5px;line-height:1.5">Marketing message ${c.rates.marketing}, utility ${c.rates.utility}, AI reply or Assistant answer ${c.rates.ai} (any key), Assistant campaign plan ${c.rates.plan ?? 3}. Failed messages are refunded; packs last ${c.months} months.</p>
       </section>
       <section class="ax-card"><h3>${ic('plus', 16)}Add credits <span class="ax-faint" style="font-weight:400;font-size:12.5px">once they’ve paid</span></h3>
@@ -624,7 +625,8 @@ document.addEventListener('change', async (e) => {
   if (e.target.name === 'crPlan' && w) {
     const v = e.target.value;
     if (v === 'credits' && !confirm(`Switch ${w.name} to the credits plan? From now on, template messages and AI use credits, and sending stops when they run out.`)) { render(); return; }
-    try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { billing: v } }); toast(v === 'credits' ? 'On the credits plan' : 'On the free plan'); await reload(); } catch (err) { toast(err.message, true); }
+    if (v === 'unlimited' && !confirm(`Give ${w.name} unlimited credits? Nothing it does will be charged, and it can connect any number of WhatsApp numbers.`)) { render(); return; }
+    try { await api('/admin/workspaces/' + w.id, { method: 'PATCH', body: { billing: v } }); toast({ credits: 'On the credits plan', free: 'On the free plan', unlimited: 'Unlimited credits' }[v]); await reload(); } catch (err) { toast(err.message, true); }
   }
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'wsLimit') $('#wsLimitSave')?.click(); });
