@@ -399,7 +399,8 @@ function claudeProvider(key, { system = SYSTEM, tools = TOOLS } = {}) {
         role: 'user',
         content: [
           ...results.map((r) => ({ type: 'tool_result', tool_use_id: r.id, content: r.content, ...(r.isError ? { is_error: true } : {}) })),
-          { type: 'text', text },
+          // No empty text block after tool results: Claude's API refuses empty text content.
+          ...(text ? [{ type: 'text', text }] : []),
         ],
       });
     },
