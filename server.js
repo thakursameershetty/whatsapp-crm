@@ -1662,7 +1662,7 @@ function checkDailyLimit(count) {
   const limit = tenants.meta()?.dailyLimit;
   if (limit == null || db.settings.demoMode) return;
   const left = Math.max(0, limit - sentLast24h());
-  if (count > left) throw fail(`This workspace can send ${limit.toLocaleString()} messages a day, and ${left.toLocaleString()} are left right now. Send to fewer people, wait, or ask support to raise the limit.`);
+  if (count > left) throw fail(`This workspace can send ${limit.toLocaleString()} message${limit === 1 ? '' : 's'} a day, and ${left.toLocaleString()} ${left === 1 ? 'is' : 'are'} left right now. Send to fewer people, wait, or ask support to raise the limit.`);
 }
 
 // Meta only delivers approved templates; anything else would fail for every recipient. Templates made here in

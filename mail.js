@@ -23,7 +23,8 @@ ${url ? `<tr><td style="padding-bottom:24px"><a href="${esc(url)}" style="displa
 
 async function send({ to, subject, heading, body, button = '', url = '', footer = '', text }) {
   const html = layout({ heading, body, button, url, footer });
-  const plain = text || `${heading}\n\n${body.replace(/<[^>]+>/g, '')}\n${url ? `\n${button}: ${url}\n` : ''}`;
+  // Plain text for mail apps that show it: line breaks stay line breaks, then the other tags go.
+  const plain = text || `${heading}\n\n${body.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '')}\n${url ? `\n${button}: ${url}\n` : ''}`;
   const key = process.env.RESEND_API_KEY;
   if (!key) {
     console.log(`[email not sent: RESEND_API_KEY is not set] To: ${to} · ${subject}\n  ${url}`);
