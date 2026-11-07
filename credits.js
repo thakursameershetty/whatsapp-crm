@@ -140,7 +140,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     const bal = balance();
     if (bal < at && !b.lowWarned) {
       b.lowWarned = true;
-      notes?.add({ kind: 'credits_low', group: 'credits_low', title: `Credits running low: ${bal.toLocaleString('en-IN')} left`, body: 'Add a pack so campaigns and AI replies don’t stop. the Credits page.', link: { tab: 'credits' } });
+      notes?.add({ kind: 'credits_low', group: 'credits_low', title: `Credits running low: ${bal.toLocaleString('en-IN')} left`, body: 'Add a pack on the Credits page so campaigns and AI replies don’t stop.', link: { tab: 'credits' } });
     }
   }
 
@@ -222,7 +222,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     const lim = numberLimit();
     if (lim == null || numbersUsed() < lim) return;
     const more = lim < 3 ? 'The ₹20,000 pack includes 3 numbers, and the ₹25,000 pack has no limit.' : 'The ₹25,000 pack has no number limit.';
-    throw fail(`Your credits include ${lim} WhatsApp number${lim === 1 ? '' : 's'}, and this workspace has ${numbersUsed()}. ${more} the Credits page.`, 402);
+    throw fail(`Your credits include ${lim} WhatsApp number${lim === 1 ? '' : 's'}, and this workspace has ${numbersUsed()}. ${more} Add a pack on the Credits page.`, 402);
   }
 
   return { on, enough, balance, charge, refund, addPack, removeCredits, summary, keys, rateFor, AI_RATE, PLAN_RATE, numberLimit, checkNumberLimit };
