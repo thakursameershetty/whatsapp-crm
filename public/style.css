@@ -6915,20 +6915,25 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
   .te-actions { padding: 10px 26px; }
 }
 /* The template editor doesn't scroll as a whole (a hard scroll on a Mac bounced the window past its pinned bar):
-   the title, the action bar and the preview stay put, and the form and the preview each scroll in their own column. */
+   the title, the action bar and the phone stay put, and the form on the left and the message preview inside the phone each scroll. */
 .modal-box.te-box { display: flex; flex-direction: column; height: 90vh; max-height: 90vh; padding: 0; overflow: hidden; }
 .te-box .modal-head { flex: none; margin: 0; padding: 20px 26px 14px; }
 .te-box #modalBody { flex: 1; min-height: 0; display: flex; }
 .te-box .te { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr) auto; gap: 0 24px; align-items: stretch; }
 .te-box .te-form { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 6px 22px 26px; align-content: start; scrollbar-width: thin; }
-.te-box .te-preview { position: static; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 26px 22px 0; scrollbar-width: thin; }
-.te-box .te-preview .te-chat { max-height: none; }
+.te-box .te-preview { position: static; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 2px 26px 22px 0; overflow: hidden; }
+.te-box .te-phone { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.te-box .te-phone-bar { flex: none; }
+.te-box .te-preview .te-chat { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.te-box .te-preview .sub { flex: none; }
 .te-box .te-actions { grid-column: 1 / -1; position: static; margin: 0; padding: 12px 26px; }
 @media (max-width: 860px) {
   /* one column: it all scrolls together, the preview first, the actions pinned at the bottom */
   .te-box .te { display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
   .te-box .te-form, .te-box .te-preview { overflow: visible; padding: 2px 18px 16px; }
   .te-box .te-preview { order: -1; }
+  .te-box .te-phone { display: block; flex: none; }
+  .te-box .te-preview .te-chat { flex: none; min-height: 0; max-height: none; overflow-y: visible; }
   .te-box .te-actions { position: sticky; bottom: 0; order: 3; padding: 10px 18px; }
   .te-box .modal-head { padding: 16px 18px 10px; }
 }
