@@ -784,7 +784,6 @@ app.use('/api', (req, res, next) => {
     const filters = {
       '/api/senders': (b) => b.filter((s) => scope.has(s.id)),
       '/api/templates': (b) => b.filter((t) => !t.wabaId || wabas.has(t.wabaId)),
-      '/api/campaigns': (b) => b.filter((c) => (c.senderIds || []).some((x) => scope.has(x))),
       '/api/inbox': (b) => { const conversations = b.conversations.filter((c) => scope.has(keySender(c.key))); return { ...b, conversations, unread: conversations.reduce((n, c) => n + (c.unread || 0), 0) }; },
       '/api/notifications': (b) => { const notifications = b.notifications.filter(notesOk); return { ...b, notifications, unread: notifications.filter((n) => !n.read).length }; },
     };
@@ -1961,7 +1960,10 @@ const CP_FILTERS = {
 const cpLive = (c) => c.status === 'running' || c.status === 'queued';
 const cpDay = (c) => c.startedAt || c.scheduledAt || c.createdAt;
 app.get('/api/campaigns', (req, res) => {
-  const all = db.campaigns.filter((c) => c.status !== 'holding');
+  // A member limited to some numbers sees the campaigns that use one of them, in every view (list, page, calendar),
+  // and the counts and summary are of those.
+  const mine = (c) => !req.senderScope || (c.senderIds || []).some((x) => req.senderScope.has(x));
+  const all = db.campaigns.filter((c) => c.status !== 'holding' && mine(c));
   const paged = req.query.page != null || req.query.view === 'calendar';
   if (!paged) {
     const idx = inboundIndex();
