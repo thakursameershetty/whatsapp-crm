@@ -571,9 +571,15 @@ function handleWebhookChange(change) {
         if (im && im.dir === 'out') {
           const was = im.status;
           applyStatus(im, st);
-          broadcast({ kind: 'status', key: im.key });
-          if (im.status === 'failed' && was !== 'failed') credits?.refund(im.credit);
-          if (im.status === 'failed' && was !== 'failed') notes?.replyFailed({ key: im.key, name: db.chats[im.key]?.name || '+' + im.wa, error: im.error, demo: im.demo });
+          // Handled in the workspace that holds the message: a number moved to another workspace since has its webhooks
+          // routed there, but its older replies (their credits, chat and notification) stay where they were sent from.
+          const own = db.messages.includes(im) ? null : tenants.allWorkspaces().find((w) => w.db.messages.includes(im));
+          const inOwn = (fn) => (own ? tenants.forWorkspace(own, () => { fn(); save(); }) : fn());
+          inOwn(() => {
+            broadcast({ kind: 'status', key: im.key });
+            if (im.status === 'failed' && was !== 'failed') credits?.refund(im.credit);
+            if (im.status === 'failed' && was !== 'failed') notes?.replyFailed({ key: im.key, name: db.chats[im.key]?.name || '+' + im.wa, error: im.error, demo: im.demo });
+          });
           continue;
         }
         const ref = messageIndex.get(st.id);
