@@ -161,6 +161,7 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   // Server-wide settings an admin sets in the admin panel (System): pricing on or off (null: the PRICING variable
   // decides) and the plan new workspaces start on.
   accounts.platform ||= { pricing: null, newBilling: 'credits' };
+  accounts.enquiries ||= []; // the landing page's contact form (newest first)
   setPricing(accounts.platform.pricing);
 
   // --- Prepaid credits: a customer who paid before signing up. An admin saves the pack against their email
@@ -429,6 +430,32 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
 
   function mountAuth(app, express) {
     const form = express.urlencoded({ extended: false });
+
+    // The landing page's contact form. Public (no sign-in), so: same-origin only (server-wide check), a size cap,
+    // a hidden field bots fill in (accepted and dropped), and at most 10 sends per address in 15 minutes.
+    // Each enquiry is kept for the admin panel (Enquiries) and emailed to everyone in ADMIN_EMAILS.
+    const CONTACT_TOPICS = ['Starter pack', 'Growth pack', 'Scale pack', 'Enterprise', 'A demo', 'Something else'];
+    app.post('/api/contact', express.json({ limit: '32kb' }), (req, res) => {
+      const b = req.body || {};
+      const key = `${req.ip}|contact`;
+      if (tooMany(key)) return res.status(429).json({ error: 'Too many messages from here. Try again in a few minutes, or write to us on WhatsApp.' });
+      noteTry(key);
+      if (String(b.website || '').trim()) return res.json({ ok: true }); // the hidden field: a bot
+      const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, max);
+      const name = clean(b.name, 80), email = clean(b.email, 160).toLowerCase(), company = clean(b.company, 120);
+      const phone = clean(b.phone, 24).replace(/[^\d+\s()-]/g, ''), message = clean(b.message, 3000);
+      const topic = CONTACT_TOPICS.includes(b.topic) ? b.topic : 'Something else';
+      if (name.length < 2) return res.status(400).json({ error: 'Tell us your name', field: 'name' });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email', field: 'email' });
+      if (phone && phone.replace(/\D/g, '').length < 8) return res.status(400).json({ error: 'Check the WhatsApp number, or leave it empty', field: 'phone' });
+      if (message.length < 5) return res.status(400).json({ error: 'Tell us a little about what you need', field: 'message' });
+      const e = { id: id(), at: now(), name, email, phone, company, topic, message, status: 'new' };
+      accounts.enquiries.unshift(e);
+      accounts.enquiries = accounts.enquiries.slice(0, 1000);
+      saveAccounts();
+      for (const to of ADMIN_EMAILS) mail.contactReceived(to, e, `${mail.baseUrl(req)}/admin.html#/enquiries`);
+      res.json({ ok: true });
+    });
 
     // Sign-in pages are never kept by the browser: pressing Back from the app asks the server again,
     // which sends a signed-in person straight back into the app instead of showing the form.
@@ -1133,6 +1160,18 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       saveWorkspace(ws);
       for (const to of ADMIN_EMAILS) mail.issueReported(to, { ...r, workspace: ws.meta.name }, `${mail.baseUrl(req)}/admin.html`);
       res.json(publicReport(r));
+    }));
+    // --- Enquiries from the landing page's contact form (see /api/contact) --------------------------------------
+    app.get('/api/admin/enquiries', wrap((req, res) => { adminOnly(req); res.json(accounts.enquiries.slice(0, 300)); }));
+    app.post('/api/admin/enquiries/:id', wrap((req, res) => {
+      adminOnly(req);
+      const e = accounts.enquiries.find((x) => x.id === req.params.id);
+      if (!e) throw fail('That enquiry is gone', 404);
+      e.status = req.body.status === 'done' ? 'done' : 'new';
+      e.doneAt = e.status === 'done' ? now() : null;
+      e.doneBy = e.status === 'done' ? req.user.email : null;
+      saveAccounts();
+      res.json(e);
     }));
     app.get('/api/admin/reports', wrap((req, res) => {
       adminOnly(req);

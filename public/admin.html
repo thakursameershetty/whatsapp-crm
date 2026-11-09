@@ -86,7 +86,7 @@ async function busy(btn, fn) {
 }
 
 // --- Data ------------------------------------------------------------------------------------------------------------
-const S = { all: [], reps: [], dels: [], gv: null, loaded: false, wsQ: '', wsF: '', open: new Set(), pQ: '', repF: 'open', detail: null }; // open: main workspaces unfolded on the Workspaces tab
+const S = { all: [], reps: [], dels: [], enq: [], enqF: 'new', gv: null, loaded: false, wsQ: '', wsF: '', open: new Set(), pQ: '', repF: 'open', detail: null }; // open: main workspaces unfolded on the Workspaces tab
 
 // Who owns a workspace (its earliest owner), and how workspaces sit together under one owner.
 const ownerOf = (w) => w.members.filter((m) => m.role === 'owner').sort((a, b) => String(a.joinedAt || '').localeCompare(String(b.joinedAt || '')))[0] || null;
@@ -107,15 +107,16 @@ function structure() {
 const relTag = (kind) => ({ main: '<span class="ax-tag main">Main</span>', sub: '<span class="ax-tag sub">Sub-workspace</span>', sep: '<span class="ax-tag sep">Separate</span>' }[kind] || '');
 
 async function loadAll() {
-  const [all, reps, dels, gv, prepaid, platform] = await Promise.all([
+  const [all, reps, dels, gv, prepaid, platform, enq] = await Promise.all([
     api('/admin/workspaces'),
     api('/admin/reports').catch(() => []),
     api('/admin/deletion-requests').catch(() => []),
     api('/admin/graph-version').catch(() => null),
     api('/admin/prepaid').catch(() => []),
     api('/admin/platform').catch(() => null),
+    api('/admin/enquiries').catch(() => []),
   ]);
-  Object.assign(S, { all, reps, dels, gv, prepaid, platform, loaded: true });
+  Object.assign(S, { all, reps, dels, gv, prepaid, platform, enq, loaded: true });
 }
 
 // --- Tabs and routing ------------------------------------------------------------------------------------------------
@@ -124,6 +125,7 @@ const TABS = [
   ['workspaces', 'Workspaces', 'layers'],
   ['people', 'People', 'users'],
   ['issues', 'Issues', 'badge-alert'],
+  ['enquiries', 'Enquiries', 'message-circle'],
   ['requests', 'Deletion requests', 'delete'],
   ['system', 'System', 'settings'],
 ];
@@ -134,8 +136,9 @@ function route() {
 }
 function drawTabs(r) {
   const open = S.reps.filter((x) => x.status === 'open').length;
-  const count = { workspaces: S.all.length, people: people().length, issues: open, requests: S.dels.length };
-  const cls = { issues: open ? 'warn' : '', requests: S.dels.length ? 'bad' : '' };
+  const fresh = S.enq.filter((x) => x.status === 'new').length;
+  const count = { workspaces: S.all.length, people: people().length, issues: open, enquiries: fresh, requests: S.dels.length };
+  const cls = { issues: open ? 'warn' : '', enquiries: fresh ? 'warn' : '', requests: S.dels.length ? 'bad' : '' };
   // Collapsed, only the icons show: the name is the hover text, and a coloured dot stands in for an urgent count.
   $('#tabs').innerHTML = TABS.map(([k, label, icon]) => {
     const c = count[k] != null && (count[k] || k === 'workspaces' || k === 'people') ? count[k] : null;
@@ -148,7 +151,7 @@ async function render() {
   drawTabs(r);
   const view = $('#view');
   if (r.ws) await renderWorkspace(r.ws, r.sub);
-  else view.innerHTML = ({ overview: overviewHtml, workspaces: workspacesHtml, people: peopleHtml, issues: issuesHtml, requests: requestsHtml, system: systemHtml }[r.tab])();
+  else view.innerHTML = ({ overview: overviewHtml, workspaces: workspacesHtml, people: peopleHtml, issues: issuesHtml, enquiries: enquiriesHtml, requests: requestsHtml, system: systemHtml }[r.tab])();
   document.title = (r.ws ? (S.detail?.name || 'Workspace') : TABS.find(([k]) => k === r.tab)[1]) + ' · Admin · SendON';
   LA.hydrate(document);
   Motion.segs?.(document);
@@ -388,6 +391,25 @@ function issuesHtml() {
     <section class="ax-card">${list.length ? list.map((r) => repRow(r, r.wsId)).join('') : `<div class="ax-empty"><b>${S.repF === 'open' ? 'Nothing open' : 'No issues here'}</b>${S.repF === 'open' ? 'Every reported issue is resolved.' : ''}</div>`}</section>`;
 }
 
+// --- Enquiries: the landing page's contact form --------------------------------------------------------------------------
+function enquiriesHtml() {
+  const fresh = S.enq.filter((e) => e.status === 'new').length;
+  const F = [['new', 'New', fresh], ['done', 'Handled', S.enq.length - fresh], ['all', 'All', S.enq.length]];
+  const list = S.enq.filter((e) => S.enqF === 'all' || e.status === S.enqF);
+  const wa = (p) => String(p || '').replace(/\D/g, '');
+  return `
+    <div class="ax-h"><div><h1>Enquiries</h1><p>Messages from the contact form on the website. Reply by email or WhatsApp, then mark them handled.</p></div>
+      <div class="ax-tools"><div class="seg" id="enqF" role="tablist">${F.map(([k, l, c]) => `<button data-v="${k}" class="${k === S.enqF ? 'active' : ''}">${l} <span class="opt">${c}</span></button>`).join('')}</div></div></div>
+    <section class="ax-card">${list.length ? list.map((e) => `<div class="del-req">
+      <div class="del-req-head"><div><b>${esc(e.name)}</b>${e.company ? ` <span class="muted">· ${esc(e.company)}</span>` : ''}<br><span class="muted">${esc(e.email)}${e.phone ? ` · ${esc(e.phone)}` : ''} · ${ago(e.at)}${e.status === 'done' && e.doneBy ? ` · handled by ${esc(e.doneBy)}` : ''}</span></div><span class="pill">${esc(e.topic)}</span></div>
+      <blockquote style="white-space:pre-line">${esc(e.message)}</blockquote>
+      <div class="del-acts">
+        <a class="btn sm" href="mailto:${encodeURIComponent(e.email)}?subject=${encodeURIComponent('Re: your SendON enquiry')}">Reply by email</a>
+        ${wa(e.phone).length >= 8 ? `<a class="btn sm" href="https://wa.me/${wa(e.phone)}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
+        <button class="btn sm ${e.status === 'new' ? 'primary' : ''}" data-enq="${esc(e.id)}" data-to="${e.status === 'new' ? 'done' : 'new'}">${e.status === 'new' ? 'Mark handled' : 'Move back to new'}</button>
+      </div></div>`).join('') : `<div class="ax-empty"><b>${S.enqF === 'new' ? 'Nothing new' : 'No enquiries here'}</b>${S.enqF === 'new' ? 'Every enquiry has been handled.' : ''}</div>`}</section>`;
+}
+
 // --- Deletion requests -------------------------------------------------------------------------------------------------
 function requestsHtml() {
   return `
@@ -618,6 +640,7 @@ document.addEventListener('click', async (e) => {
     const id = seg.parentElement.id, v = seg.dataset.v;
     if (id === 'wsF') S.wsF = v;
     if (id === 'repF') S.repF = v;
+    if (id === 'enqF') S.enqF = v;
     return render();
   }
   const tog = t.closest('[data-toggle]');
@@ -633,6 +656,11 @@ document.addEventListener('click', async (e) => {
   const rep = t.closest('[data-rep]');
   if (rep) {
     try { await api('/admin/reports/' + rep.dataset.rep, { method: 'POST', body: { status: rep.dataset.to } }); toast(rep.dataset.to === 'resolved' ? 'Marked resolved' : 'Reopened'); await reload(); } catch (err) { toast(err.message, true); }
+    return;
+  }
+  const enq = t.closest('[data-enq]');
+  if (enq) {
+    try { await api('/admin/enquiries/' + enq.dataset.enq, { method: 'POST', body: { status: enq.dataset.to } }); toast(enq.dataset.to === 'done' ? 'Marked handled' : 'Moved back to new'); await reload(); } catch (err) { toast(err.message, true); }
     return;
   }
   const dis = t.closest('[data-dismiss]');

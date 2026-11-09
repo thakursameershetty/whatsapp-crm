@@ -21,7 +21,7 @@ ${url ? `<tr><td style="padding-bottom:24px"><a href="${esc(url)}" style="displa
 </table></td></tr></table></body></html>`;
 }
 
-async function send({ to, subject, heading, body, button = '', url = '', footer = '', text }) {
+async function send({ to, subject, heading, body, button = '', url = '', footer = '', text, replyTo = '' }) {
   const html = layout({ heading, body, button, url, footer });
   // Plain text for mail apps that show it: line breaks stay line breaks, then the other tags go.
   const plain = text || `${heading}\n\n${body.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '')}\n${url ? `\n${button}: ${url}\n` : ''}`;
@@ -33,7 +33,7 @@ async function send({ to, subject, heading, body, button = '', url = '', footer 
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: FROM(), to: [to], subject, html, text: plain }),
+    body: JSON.stringify({ from: FROM(), to: [to], subject, html, text: plain, ...(replyTo ? { reply_to: replyTo } : {}) }),
   });
   if (!r.ok) {
     const j = await r.json().catch(() => ({}));
@@ -89,6 +89,14 @@ module.exports = {
     heading: `We got your request${name ? `, ${name.split(' ')[0]}` : ''}`,
     body: "Your request to delete your SendON account has reached us. Someone from our team will get in touch before anything is deleted. Until then your account keeps working as usual, and you can cancel the request any time in Settings.",
     footer: "If you didn't ask for this, sign in, cancel the request in Settings and change your password.",
+  })),
+  // Someone filled in the contact form on the landing page. Replying to this email replies to them.
+  contactReceived: (to, e, url) => quietly(send({
+    to, replyTo: e.email, subject: `New enquiry: ${e.name}${e.company ? ` (${e.company})` : ''}`,
+    heading: 'Someone wrote in from the website',
+    body: `<b>${esc(e.name)}</b> (${esc(e.email)}${e.phone ? ` · ${esc(e.phone)}` : ''})${e.company ? ` from <b>${esc(e.company)}</b>` : ''} is asking about <b>${esc(e.topic)}</b>.<br><br>“${esc(e.message).replace(/\n/g, '<br>')}”<br><br>Reply to this email to answer them${e.phone ? ', or message them on WhatsApp' : ''}.`,
+    button: 'Open enquiries', url,
+    footer: 'You get this because your email is in ADMIN_EMAILS.',
   })),
   issueReported: (to, r, url) => quietly(send({
     to, subject: `Issue reported: ${r.area}${r.errorCode ? ` (Meta error ${r.errorCode})` : ''}`,

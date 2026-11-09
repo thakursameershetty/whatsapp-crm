@@ -635,7 +635,7 @@ app.get('/go/:code', (req, res) => {
   res.status(404).send('This link has expired or never existed.');
 });
 // The sign-in pages and the landing page use these files, so they load without signing in.
-const PUBLIC_FILES = new Set(['/style.css', '/icons.css', '/icons.js', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg', '/legal.css']);
+const PUBLIC_FILES = new Set(['/style.css', '/icons.css', '/icons.js', '/gradient-ascii.js', '/otp.js', '/password-rules.js', '/brand/logo.svg', '/brand/logo-small.svg', '/legal.css', '/thinking-orb.js']);
 // The home page: the landing page for visitors, the app for anyone signed in. (/welcome always shows the landing page.)
 const LANDING = path.join(__dirname, 'public', 'landing.html');
 app.get(['/', '/welcome'], (req, res, next) => {
@@ -647,8 +647,9 @@ app.get(['/', '/welcome'], (req, res, next) => {
 for (const [route, file] of [['/terms', 'terms.html'], ['/privacy', 'privacy.html']]) {
   app.get(route, (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', file)); });
 }
-// The landing page's company logos (public/brand/clients/) are public too.
-const PUBLIC_DIRS = ['/brand/clients/'];
+// The landing page's company logos (public/brand/clients/), its demo video (public/media/) and the AI's thinking orb
+// (thinking-orb.js and its engine in public/thinking-orbs/) are public too.
+const PUBLIC_DIRS = ['/brand/clients/', '/media/', '/thinking-orbs/'];
 const isPublic = (p) => PUBLIC_FILES.has(p) || PUBLIC_DIRS.some((d) => p.startsWith(d) && !p.includes('..'));
 app.use((req, res, next) => (isPublic(req.path) ? next() : tenants.requireAuth(req, res, next)));
 
