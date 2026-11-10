@@ -31,6 +31,14 @@ Anyone can sign up at `/signup` with their name, email, a password and their bus
 - **Upgrading from the single-password version:** on first start the old `data/db.json` becomes the first workspace (a copy is kept in `data/backups/`). Claim it by signing up and entering the old `APP_PASSWORD` in *Existing app password*, or with `OWNER_EMAIL`. On a hosted server (Railway) it stays unclaimed until one of them is set; only a local copy lets the first sign-up take it.
 - Server environment AI keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) only apply to that original workspace; other businesses add their own key in Settings.
 
+## Buying credits online (Razorpay)
+
+With these server variables set, **Buy credits** lets a workspace pay for a pack itself (UPI, card, netbanking, wallet) and the credits are added the moment the payment is confirmed. Without them, Buy credits shows how to contact you and an admin adds packs by hand.
+
+- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`: Razorpay → Account & Settings → API Keys (test keys `rzp_test_…` to try it, live keys `rzp_live_…` for real payments).
+- `RAZORPAY_WEBHOOK_SECRET`: Razorpay → Account & Settings → Webhooks → Add: URL `https://<your domain>/api/razorpay/webhook`, event **order.paid**, and any secret (the same value here). It adds the pack even if the buyer closes the page before the checkout reports back.
+- A pack is added once per order, whichever arrives first. Each paid order is kept in the workspace's credits (`db.credits.orders`), and the pack's note has the Razorpay payment id.
+
 ## Email
 
 Account emails: **confirm your email** (sent at sign-up, with a banner in the app until confirmed), **forgot password** (a one-hour reset link from *Forgot password?* on the sign-in page; resetting signs you out everywhere) and **invites** (emailed to the teammate; the link is still shown to copy). Uses [Resend](https://resend.com):

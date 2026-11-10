@@ -629,6 +629,20 @@ function handleWebhookChange(change) {
   for (const c of failedIn) if (!running.has(c.id)) notes?.deliveryFailed(c);
 }
 
+// Razorpay's webhook (Razorpay → Accounts & Settings → Webhooks: this URL, event order.paid, and the secret in
+// RAZORPAY_WEBHOOK_SECRET). Before sign-in: Razorpay isn't signed in. The raw body is needed to check its signature.
+// It adds the pack when the buyer closed the page before the checkout could report back (credits.js, fulfil).
+app.post('/api/razorpay/webhook', express.raw({ type: () => true, limit: '1mb' }), (req, res) => {
+  const ev = require('./credits').razorpayEvent(req.body, req.get('x-razorpay-signature'));
+  if (!ev) return res.status(400).json({ error: 'Not a valid Razorpay event' });
+  const ws = ev.workspace && tenants.workspaceById(ev.workspace);
+  if (ws && credits) {
+    try { if (tenants.forWorkspace(ws, () => credits.fulfil(ev.orderId, ev.paymentId))) creditsChanged(ws.meta.id); }
+    catch (e) { console.error('Razorpay webhook:', e.message); return res.status(500).end(); } // Razorpay tries again
+  }
+  res.json({ ok: true });
+});
+
 // Sign up, sign in, invites (tenancy.js). Everything after requireAuth needs a signed-in
 // member and runs inside their workspace.
 tenants.mountAuth(app, express);

@@ -37,6 +37,37 @@ const NUMBER_TIERS = [[30000, null], [22000, 3], [0, 1]];
 const PACK_MONTHS = 12;
 const LEDGER_MAX = 500;
 
+// Paying online with Razorpay (Standard Checkout). Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET (Razorpay → Account &
+// Settings → API keys) to turn it on; RAZORPAY_WEBHOOK_SECRET as well for the webhook. Without the keys, Buy credits
+// shows how to pay us instead. A pack is added once its payment is confirmed, either when the checkout reports back
+// (its signature checked) or by the webhook (order.paid), whichever comes first; an order is never added twice.
+const crypto = require('crypto');
+const RZP = { keyId: process.env.RAZORPAY_KEY_ID || '', secret: process.env.RAZORPAY_KEY_SECRET || '', webhook: process.env.RAZORPAY_WEBHOOK_SECRET || '' };
+const checkoutOn = () => Boolean(RZP.keyId && RZP.secret);
+const hmac = (secret, data) => crypto.createHmac('sha256', secret).update(data).digest('hex');
+const sameHex = (a, b) => { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || '')); return x.length === y.length && crypto.timingSafeEqual(x, y); };
+async function razorpay(path, body) {
+  const r = await fetch('https://api.razorpay.com/v1' + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Basic ' + Buffer.from(`${RZP.keyId}:${RZP.secret}`).toString('base64') },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error?.description || `Razorpay said no (${r.status})`);
+  return j;
+}
+// A webhook from Razorpay, checked against RAZORPAY_WEBHOOK_SECRET: the paid order, or null (bad signature, other event).
+function razorpayEvent(raw, signature) {
+  if (!RZP.webhook || !Buffer.isBuffer(raw) || !sameHex(hmac(RZP.webhook, raw), signature)) return null;
+  let e;
+  try { e = JSON.parse(raw.toString('utf8')); } catch { return null; }
+  if (e.event !== 'order.paid' && e.event !== 'payment.captured') return null;
+  const pay = e.payload?.payment?.entity, order = e.payload?.order?.entity;
+  const orderId = order?.id || pay?.order_id;
+  if (!orderId || !pay?.id) return null;
+  return { orderId, paymentId: pay.id, workspace: order?.notes?.workspace || pay.notes?.workspace || '' };
+}
+
 const valid = (p, now = Date.now()) => Date.parse(p.expiresAt) > now;
 // The balance of any workspace's data (used by the admin list, which reads every workspace).
 const balanceOf = (d) => (d?.credits?.packs || []).filter((p) => p.left > 0 && valid(p)).reduce((s, p) => s + p.left, 0);
@@ -203,8 +234,47 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
       months: PACK_MONTHS,
       numberLimit: numberLimit(),
       numbersUsed: numbersUsed(),
+      checkout: checkoutOn() && meta()?.billing === 'credits', // Buy credits pays online
     };
   }
+
+  // --- Buying a pack online (Razorpay) --------------------------------------------------------------
+  // 1. The page asks for an order for a pack; it's kept in db.credits.orders until paid.
+  app.post('/api/credits/order', wrap(async (req, res) => {
+    if (!checkoutOn()) throw fail('Online payment isn’t set up yet');
+    if (meta()?.billing !== 'credits') throw fail('This workspace doesn’t use credits');
+    const key = String(req.body?.pack || ''), pack = PACKS[key];
+    if (!pack) throw fail('Pick a pack');
+    const ws = meta();
+    const order = await razorpay('/orders', {
+      amount: pack.price * 100, currency: 'INR', receipt: `sendon_${Date.now()}`,
+      notes: { workspace: ws.id, workspaceName: String(ws.name || '').slice(0, 200), pack: key, by: req.user?.email || '' },
+    });
+    const b = book();
+    b.orders ||= {};
+    b.orders[order.id] = { pack: key, amount: pack.price, by: req.user?.email || '', at: new Date().toISOString(), status: 'created' };
+    // Unpaid orders older than a week go
+    for (const [oid, o] of Object.entries(b.orders)) if (o.status !== 'paid' && Date.now() - Date.parse(o.at) > 7 * 864e5) delete b.orders[oid];
+    save();
+    res.json({ key: RZP.keyId, orderId: order.id, amount: order.amount, currency: order.currency, pack: pack.name, workspace: ws.name, email: req.user?.email || '', name: req.user?.name || '' });
+  }));
+  // 2. Paid: add the pack, once. From the checkout (below) or the webhook (server.js), whichever arrives first.
+  function fulfil(orderId, paymentId) {
+    const o = book().orders?.[orderId];
+    if (!o) return null;
+    if (o.status === 'paid') return o;
+    const p = addPack({ pack: o.pack, note: `Paid online (Razorpay ${paymentId})`, by: o.by ? `${o.by} via Razorpay` : 'Razorpay' });
+    Object.assign(o, { status: 'paid', paymentId, packId: p.id, paidAt: new Date().toISOString() });
+    save();
+    return o;
+  }
+  // 3. The checkout reports a payment: its signature proves it came from Razorpay for this order.
+  app.post('/api/credits/verify', wrap((req, res) => {
+    const { razorpay_order_id: orderId, razorpay_payment_id: paymentId, razorpay_signature: sig } = req.body || {};
+    if (!checkoutOn() || !orderId || !paymentId || !sameHex(hmac(RZP.secret, `${orderId}|${paymentId}`), sig)) throw fail('We couldn’t confirm this payment. If money was taken, the credits will be added within a few minutes, or contact us.');
+    if (!fulfil(orderId, paymentId)) throw fail('This order isn’t from this workspace', 404);
+    res.json(summary());
+  }));
 
   app.get('/api/credits', (req, res) => res.json(summary({ all: req.query.all === '1' })));
 
@@ -225,7 +295,7 @@ function mount(app, { db, save, id, wrap, fail, meta, notes }) {
     throw fail(`Your credits include ${lim} WhatsApp number${lim === 1 ? '' : 's'}, and this workspace has ${numbersUsed()}. ${more} Add a pack on the Credits page.`, 402);
   }
 
-  return { on, enough, balance, charge, refund, addPack, removeCredits, summary, keys, rateFor, AI_RATE, PLAN_RATE, numberLimit, checkNumberLimit };
+  return { on, enough, balance, charge, refund, addPack, fulfil, removeCredits, summary, keys, rateFor, AI_RATE, PLAN_RATE, numberLimit, checkNumberLimit };
 }
 
-module.exports = { mount, balanceOf, rateFor, PACKS, RATES, AI_RATE, PLAN_RATE, isLive, setLive, ENV_LIVE };
+module.exports = { mount, razorpayEvent, balanceOf, rateFor, PACKS, RATES, AI_RATE, PLAN_RATE, isLive, setLive, ENV_LIVE };

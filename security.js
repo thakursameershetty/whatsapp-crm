@@ -10,15 +10,15 @@ function headers(req, res, next) {
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Opener-Policy': 'same-origin-allow-popups', // Razorpay's checkout opens bank and card (OTP) pages in pop-ups
   });
   if (hosted) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   next();
 }
 
-// Browsers send Origin on cross-site POSTs; refuse ones from other sites (the webhook is Meta's).
+// Browsers send Origin on cross-site POSTs; refuse ones from other sites (the webhooks are Meta's and Razorpay's).
 function sameOrigin(req, res, next) {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path === '/webhook') return next();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path === '/webhook' || req.path === '/api/razorpay/webhook') return next();
   const origin = req.get('origin');
   if (!origin) return next(); // scripts and same-origin form posts in some browsers
   let host;

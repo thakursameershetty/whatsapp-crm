@@ -305,7 +305,11 @@
     if (name !== peekName) {
       peekName = name;
       const meta = t ? [t.category && t.category.toLowerCase(), t.language].filter(Boolean).join(' · ') : '';
-      pv.innerHTML = `<div class="ct-tplpeek-h"><b>${esc(name)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>`
+      // Who it comes from, like a chat's header: the sending numbers' photos and names
+      const nums = (CT.templateSenders[name] || []).map((id) => state.senders.find((x) => x.id === id)).filter(Boolean);
+      const from = nums.length ? `<span class="fpx-stack ct-tplpeek-ph">${nums.slice(0, 3).map(senderPhotoHtml).join('')}</span>` : '';
+      const who = nums.length ? nums.map((x) => x.label).join(', ') : '';
+      pv.innerHTML = `<div class="ct-tplpeek-h">${from}<div class="ct-tplpeek-t"><b>${esc(name)}</b><small>${esc([who, meta].filter(Boolean).join(' · '))}</small></div></div>`
         + (t ? `<div class="phone"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>` : '<p class="ct-tplpeek-gone">This template has been deleted, so there is no preview.</p>');
     }
     // Beside the row, kept on screen

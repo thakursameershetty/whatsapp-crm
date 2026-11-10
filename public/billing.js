@@ -138,9 +138,11 @@ window.Credits = (() => {
     return `<div class="cr-row ${l.kind}"><span><b>${esc(l.what)}</b><small>${esc(detail)} · ${esc(relTime(l.at))}</small></span><em>${net}</em></div>`;
   }
 
-  // Buying: the packs, and how to pay. An admin adds the credits once it's paid.
+  // Buying. With online payment on (d.checkout): pick a pack, pay in Razorpay's checkout, and the credits are added
+  // as soon as it's confirmed. Otherwise: the packs, and how to reach us (an admin adds them once paid).
   function buy() {
     const d = C.data;
+    if (d.checkout) return buyOnline();
     openModal('Buy credits', `
       <div class="cr-packs">${d.packOptions.map((p) => `<div class="cr-pack">
         <b>₹${fmt(p.price)}</b><span>${fmt(p.credits)} credits</span><span class="cr-pack-n">${numbersText(p.numbers)}</span>${p.credits > p.price ? `<em>+${Math.round((100 * (p.credits - p.price)) / p.price)}% bonus</em>` : '<em class="plain">&nbsp;</em>'}
@@ -152,7 +154,56 @@ window.Credits = (() => {
       </div>`);
     LA.hydrate($('#modal'));
   }
-  document.addEventListener('click', (e) => { if (e.target.closest('#crBuy')) buy(); });
+  let rzpLoading = null;
+  const loadCheckout = () => (rzpLoading ||= new Promise((resolve, reject) => {
+    if (window.Razorpay) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = resolve;
+    s.onerror = () => { rzpLoading = null; reject(new Error('Couldn’t open the payment page. Check your internet and try again.')); };
+    document.head.append(s);
+  }));
+  function buyOnline() {
+    const d = C.data;
+    loadCheckout().catch(() => {}); // start loading while they choose
+    openModal('Buy credits', `
+      <div class="cr-packs">${d.packOptions.map((p) => `<button type="button" class="cr-pack cr-pack-buy" data-buy-pack="${esc(p.id)}">
+        <b>₹${fmt(p.price)}</b><span>${fmt(p.credits)} credits</span><span class="cr-pack-n">${numbersText(p.numbers)}</span>${p.credits > p.price ? `<em>+${Math.round((100 * (p.credits - p.price)) / p.price)}% bonus</em>` : '<em class="plain">&nbsp;</em>'}
+        <span class="cr-pack-pay">Pay ₹${fmt(p.price)}</span>
+      </button>`).join('')}</div>
+      <p class="sub">Pay by UPI, card, netbanking or wallet. The credits are added to <b>${esc(state.me?.workspace?.name || 'this workspace')}</b> as soon as the payment goes through, and last ${d.months} months.</p>`);
+  }
+  async function pay(btn) {
+    const all = [...document.querySelectorAll('[data-buy-pack]')];
+    all.forEach((b) => (b.disabled = true));
+    btn.classList.add('busy');
+    const done = () => { all.forEach((b) => (b.disabled = false)); btn.classList.remove('busy'); };
+    try {
+      await loadCheckout();
+      const o = await api('/credits/order', { method: 'POST', body: { pack: btn.dataset.buyPack } });
+      const rzp = new window.Razorpay({
+        key: o.key, order_id: o.orderId, amount: o.amount, currency: o.currency,
+        name: 'SendON', description: `${o.pack} · ${o.workspace}`,
+        prefill: { email: o.email, name: o.name },
+        theme: { color: '#1f7a4d' },
+        handler: async (r) => {
+          try {
+            C.data = await api('/credits/verify', { method: 'POST', body: r });
+            closeModal(); // the "credits added" notification shows the toast
+            load();
+          } catch (e) { toast(e.message, 'error', { duration: 12000 }); load(); }
+        },
+        modal: { ondismiss: done },
+      });
+      rzp.on('payment.failed', (r) => toast(r.error?.description || 'The payment didn’t go through. Nothing was charged.', 'error'));
+      rzp.open();
+    } catch (e) { toast(e.message, 'error'); done(); }
+  }
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#crBuy')) buy();
+    const p = e.target.closest('[data-buy-pack]');
+    if (p && !p.disabled) pay(p);
+  });
 
   return { load, render, slots, showAll, costText, short, confirmText, get data() { return C.data; } };
 })();
