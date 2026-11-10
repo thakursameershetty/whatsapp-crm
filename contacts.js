@@ -285,9 +285,10 @@ module.exports = function mountContacts(app, ctx) {
   }
 
   // A contact as sent to the page: each campaign in its history carries colorIndex, the campaign's place by creation date,
-  // which picks its folder colour (the same as on the Campaigns page). Not stored: worked out per request.
+  // which picks its folder colour (the same as on the Campaigns page), and template, the template it sent (so the page
+  // can scope its Not delivered badge to the Template filter). Not stored: worked out per request.
   const campOrder = () => new Map([...(db.campaigns || [])].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).map((x, i) => [x.id, i]));
-  const withColors = (list, order = campOrder()) => list.map((c) => (c.campaigns?.length ? { ...c, campaigns: c.campaigns.map((x) => ({ ...x, colorIndex: order.get(x.id) ?? -1 })) } : c));
+  const withColors = (list, order = campOrder(), tpl = campaignTemplates()) => list.map((c) => (c.campaigns?.length ? { ...c, campaigns: c.campaigns.map((x) => ({ ...x, colorIndex: order.get(x.id) ?? -1, template: tpl.get(x.id) || '' })) } : c));
 
   app.get('/api/contacts', (req, res) => {
     if (req.query.phones) return res.json({ phones: db.contacts.map((c) => c.phone) }); // the import's "new or already here"

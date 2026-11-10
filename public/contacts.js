@@ -144,10 +144,12 @@
     return `<span class="ct-errline">${e ? `<span class="ct-errline-t">${esc(e.title)}</span>` : ''}<code class="cd-ecode" tabindex="0" data-ecode="${esc(code)}">${esc(code)}</code></span>`;
   };
   // Not delivered in any campaign (not only the latest)
-  const failedIn = (c) => (c.campaigns || []).filter((x) => x.status === 'failed');
-  const everFailed = (c) => failedIn(c).length > 0 || c.delivery?.status === 'failed';
+  // With templates picked in Filters, only the campaigns that sent them count (as the server's filter does)
+  const inTplScope = (x) => !CT.fs.tpl.size || CT.fs.tpl.has(x.template);
+  const failedIn = (c) => (c.campaigns || []).filter((x) => x.status === 'failed' && inTplScope(x));
+  const everFailed = (c) => failedIn(c).length > 0 || (!CT.fs.tpl.size && c.delivery?.status === 'failed');
   // Reached: delivered (or read) in at least one campaign
-  const everDelivered = (c) => (c.campaigns || []).some((x) => x.status === 'delivered' || x.status === 'read') || ['delivered', 'read'].includes(c.delivery?.status);
+  const everDelivered = (c) => (c.campaigns || []).some((x) => (x.status === 'delivered' || x.status === 'read') && inTplScope(x)) || (!CT.fs.tpl.size && ['delivered', 'read'].includes(c.delivery?.status));
   const deliveryText = (c) => (c.delivery ? `${c.delivery.campaign || 'A campaign'} · ${DELIVERY[c.delivery.status] || c.delivery.status}${c.delivery.error ? ` (${c.delivery.error})` : ''}${c.delivery.at ? ` · ${relTime(c.delivery.at)}` : ''}` : '');
   const undelivered = (c) => { const f = failedIn(c); return everFailed(c) ? ` <span class="pill failed" title="${esc(`Not delivered: ${(f.length ? f.map((x) => x.name) : [c.delivery?.campaign || 'a campaign']).join(', ')}`)}">Not delivered${f.length > 1 ? ` ×${f.length}` : ''}</span>` : ''; };
   const statusPill = (c) => (c.optOut ? '<span class="pill failed">Opted out</span>' : `<span class="pill ${STATUS[c.status]?.cls || ''}">${esc(STATUS[c.status]?.label || c.status)}</span>`) + (c.phoneProblem ? ` <span class="pill failed" title="${esc(c.phoneProblem)}">Fix number</span>` : '') + undelivered(c);
