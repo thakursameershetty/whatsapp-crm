@@ -5387,13 +5387,6 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 .cr-pack span { font-size: 13px; color: var(--muted); }
 .cr-pack em { margin-top: 6px; font-style: normal; font-size: 12px; font-weight: 600; color: var(--good-text); }
 .cr-pack em.plain { visibility: hidden; }
-/* Online payment: each pack is a button that opens the checkout */
-.cr-pack-buy { border: 0; font: inherit; color: inherit; cursor: pointer; transition: transform 0.15s var(--ease-out), box-shadow 0.15s; }
-.cr-pack-buy:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 0 0 2px var(--accent); }
-.cr-pack-buy:disabled { cursor: default; opacity: 0.6; }
-.cr-pack-buy.busy { opacity: 1; }
-.cr-pack-pay { margin-top: 10px; padding: 7px 10px; border-radius: 9px; background: var(--accent); color: var(--on-accent) !important; font-weight: 600; }
-.cr-pack-buy.busy .cr-pack-pay { opacity: 0.7; }
 @media (max-width: 760px) { .cr-top { grid-template-columns: 1fr; } .cr-packs { grid-template-columns: 1fr; } }
 /* Admin → a workspace's credits (plan, add a pack, recent activity). */
 .adm-table .btn.danger-soft { color: var(--danger); background: var(--danger-soft); }
@@ -7807,3 +7800,65 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .side-nav.seg > button:not(.active):hover { background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); }
 .side-nav.seg > button:not(.active):active { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .side-nav.seg > button:not(.active):focus-visible { background: color-mix(in srgb, var(--text) 5%, transparent); }
+
+/* ---------- Buy credits page (/credits-buy): the packs as on the landing page ---------- */
+.bp-now { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px; padding: 14px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--sh-card), 0 0 0 1px var(--hair); }
+.bp-now-l { display: inline-flex; align-items: center; gap: 12px; font-size: 14.5px; color: var(--muted); }
+.bp-now-l b { color: var(--text); font-weight: 650; }
+.bp-now-r { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+.bp-now-r .bp-ck { color: var(--good-text); }
+.bp-plans { margin-top: 22px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+@media (max-width: 1280px) { .bp-plans { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .bp-plans { grid-template-columns: 1fr; } }
+.bp-plan { position: relative; display: flex; flex-direction: column; padding: 8px; border-radius: 26px; background: var(--surface); box-shadow: var(--sh-card), 0 0 0 1px var(--hair);
+  transition: transform 0.35s var(--ease-out), box-shadow 0.35s var(--ease-out); }
+.bp-plan:hover { transform: translateY(-5px); box-shadow: 0 22px 44px -24px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--hair); }
+.bp-top { position: relative; overflow: hidden; isolation: isolate; display: flex; flex-direction: column; justify-content: space-between; gap: 34px; min-height: 176px; padding: 18px 20px 22px; border-radius: 19px; background: var(--sunk); }
+.bp-chips { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bp-tier { display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 999px; background: var(--surface); font-size: 13px; font-weight: 600; box-shadow: 0 1px 2px rgba(17, 20, 23, 0.06); }
+.bp-price { font-size: clamp(32px, 2.7vw, 42px); font-weight: 600; line-height: 1; letter-spacing: -0.04em; }
+.bp-price small { display: block; margin-top: 8px; font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+.bp-body { display: flex; flex-direction: column; flex: 1; padding: 18px 12px 12px; }
+.bp-tag { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--muted); min-height: 3.1em; }
+.bp-cta { width: 100%; height: 46px; margin-top: 16px; border-radius: 13px; font-size: 14.5px; }
+.bp-cta .bp-cta-busy { display: none; }
+.bp-cta.busy .bp-cta-t { display: none; }
+.bp-cta.busy .bp-cta-busy { display: inline; }
+.bp-plan ul { list-style: none; margin: 20px 0 0; padding: 18px 0 0; box-shadow: inset 0 1px 0 var(--hair); display: grid; gap: 12px; }
+.bp-plan li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+.bp-plan li b { font-weight: 600; color: var(--text); }
+.bp-plan li em { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--good-text); background: var(--good-soft, rgba(31, 122, 77, 0.1)); padding: 2px 8px; border-radius: 99px; }
+.bp-ck { flex: none; color: #1f7a4d; }
+:root[data-mode="dark"] .bp-ck { color: var(--good-text); }
+/* The popular pack: green panel with stripes, a green ring, a shimmering badge, and a light sweeping across now and then */
+.bp-plan.featured { box-shadow: 0 0 0 1.5px #9fd8b8, 0 24px 50px -28px rgba(20, 90, 55, 0.45); }
+.bp-plan.featured:hover { box-shadow: 0 0 0 1.5px #6fc293, 0 30px 60px -28px rgba(20, 90, 55, 0.55); }
+.bp-plan.featured .bp-top { color: #10261b; background: radial-gradient(70% 80% at 100% 110%, rgba(246, 222, 120, 0.45), transparent 65%), linear-gradient(180deg, #b3dfc8 0%, #e2f4ea 45%, #a6dbbd 75%, #5fb88a 100%); }
+.bp-plan.featured .bp-tier { background: #fff; color: #10261b; }
+.bp-plan.featured .bp-price small { color: #1f5a3f; }
+.bp-plan.featured .bp-top::after { content: ""; position: absolute; inset: -20% -60%; z-index: -1; pointer-events: none; background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, 0.75) 50%, transparent 58%); transform: translateX(-60%); }
+.bp-stripes { position: absolute; left: 0; right: 0; top: 20%; height: 60%; z-index: -2; pointer-events: none; opacity: 0.5;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.75) 0 2px, transparent 2px 19px);
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 25%, #000 75%, transparent); mask-image: linear-gradient(180deg, transparent, #000 25%, #000 75%, transparent); }
+.bp-pop { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px; border-radius: 999px; color: #fff; font: 600 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 1px 0 rgba(10, 60, 35, 0.35);
+  background: linear-gradient(110deg, #1f7a4d 0%, #25d366 32%, #8eeab4 50%, #25d366 68%, #1f7a4d 100%); background-size: 250% 100%;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -1px 0 rgba(10, 60, 35, 0.3), 0 4px 12px -4px rgba(31, 122, 77, 0.6); }
+.bp-pop svg { flex: none; }
+.btn.bp-green { background: linear-gradient(180deg, #2a9a63, #1f7a4d); color: #fff; box-shadow: 0 1px 1px rgba(10, 60, 35, 0.3), 0 8px 18px -8px rgba(31, 122, 77, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.btn.bp-green:hover:not(:disabled) { filter: brightness(1.06); box-shadow: 0 1px 1px rgba(10, 60, 35, 0.3), 0 10px 22px -8px rgba(31, 122, 77, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+/* Enterprise: the dark panel */
+.bp-plan.custom .bp-top { background: #111417; color: #f1f3f5; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
+.bp-plan.custom .bp-tier { background: rgba(255, 255, 255, 0.1); color: #f1f3f5; box-shadow: none; }
+.bp-plan.custom .bp-price small { color: #8d959d; }
+.bp-rates { margin: 18px auto 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 22px; padding: 14px 20px; border-radius: 16px; border: 1px dashed var(--faint); font-size: 13.5px; color: var(--muted); text-align: center; }
+.bp-rates-h { font: 600 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.bp-rates b { font-weight: 600; color: var(--text); margin-right: 3px; }
+.bp-rates-note { flex-basis: 100%; font-size: 12.5px; color: var(--faint); }
+.bp-help { margin-top: 14px; text-align: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .bp-pop { animation: bp-shimmer 3.2s ease-in-out infinite; }
+  .bp-plan.featured .bp-top::after { animation: bp-sweep 4.8s ease-in-out 1s infinite; }
+  @keyframes bp-shimmer { 0% { background-position: 100% 0; } 60%, 100% { background-position: -50% 0; } }
+  @keyframes bp-sweep { 0% { transform: translateX(-60%); } 45%, 100% { transform: translateX(60%); } }
+}
+@media (prefers-reduced-motion: reduce) { .bp-plan, .bp-plan:hover { transition: none; transform: none; } }

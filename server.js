@@ -731,7 +731,7 @@ const aiManage = (req) => req.admin || (req.ai && req.role === 'owner');
 // Browsers must check for a newer copy every time, so an update shows on a normal refresh.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 // Each page has its own address (/send, /inbox…): they're all the one app page, which shows the right one.
-const APP_PAGES = ['overview', 'assistant', 'inbox', 'contacts', 'send', 'campaigns', 'numbers', 'templates', 'credits', 'credits-activity', 'notifications', 'settings', 'report', 'reports', 'error-codes'];
+const APP_PAGES = ['overview', 'assistant', 'inbox', 'contacts', 'send', 'campaigns', 'numbers', 'templates', 'credits', 'credits-activity', 'credits-buy', 'notifications', 'settings', 'report', 'reports', 'error-codes'];
 app.get([...APP_PAGES.map((p) => '/' + p), '/settings/:section'], (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, 'public', 'index.html')); });
 // D3 for the dashboard charts, served locally so it works offline.
 app.use('/vendor', express.static(path.join(__dirname, 'node_modules', 'd3', 'dist')));

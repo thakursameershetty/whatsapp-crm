@@ -162,14 +162,14 @@ function showTab(name) {
   }
   // The Send page always sends one campaign (New campaign makes it first); without one, Campaigns.
   if (name === 'send' && !window.SendPage?.campaignId()) name = 'campaigns';
-  const navFor = { reports: 'report', send: 'campaigns', 'credits-activity': 'credits' }[name] || name; // pages under another one keep its sidebar item lit
+  const navFor = { reports: 'report', send: 'campaigns', 'credits-activity': 'credits', 'credits-buy': 'credits' }[name] || name; // pages under another one keep its sidebar item lit
   $$('.side-nav button[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === navFor));
   const wasHidden = $('#tab-' + name)?.classList.contains('hidden');
   $$('.tab').forEach((t) => t.classList.toggle('hidden', t.id !== 'tab-' + name));
   if (wasHidden) { Motion.enter($('#tab-' + name)); scrollTo(0, 0); } // a new page starts at the top
   state.tab = name;
   // Narrow screens: the top bar names the page, and choosing a page closes the menu.
-  $('#mbarTitle').textContent = $(`.side-nav button[data-tab="${navFor}"] .nav-label`)?.textContent || { credits: 'Credits', 'credits-activity': 'Credits activity' }[name] || 'SendON';
+  $('#mbarTitle').textContent = $(`.side-nav button[data-tab="${navFor}"] .nav-label`)?.textContent || { credits: 'Credits', 'credits-activity': 'Credits activity', 'credits-buy': 'Buy credits' }[name] || 'SendON';
   setDrawer(false);
   // The inbox fills the window and starts with the sidebar shrunk to icons.
   document.body.classList.toggle('inbox-open', name === 'inbox');
@@ -183,6 +183,7 @@ function showTab(name) {
   if (name === 'send') window.SendPage?.show();
   if (['credits', 'send', 'overview', 'campaigns', 'assistant'].includes(name)) window.Credits?.load(); // the balance may have changed (it shows on all of these)
   if (name === 'credits-activity') window.Credits?.showAll();
+  if (name === 'credits-buy') window.Credits?.showBuy();
   if (name === 'settings') window.SettingsTabs?.show();
   if (name === 'contacts') window.Contacts?.show();
   if (name === 'notifications') window.Notifications?.show();

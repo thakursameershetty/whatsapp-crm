@@ -138,21 +138,76 @@ window.Credits = (() => {
     return `<div class="cr-row ${l.kind}"><span><b>${esc(l.what)}</b><small>${esc(detail)} · ${esc(relTime(l.at))}</small></span><em>${net}</em></div>`;
   }
 
-  // Buying. With online payment on (d.checkout): pick a pack, pay in Razorpay's checkout, and the credits are added
-  // as soon as it's confirmed. Otherwise: the packs, and how to reach us (an admin adds them once paid).
-  function buy() {
-    const d = C.data;
-    if (d.checkout) return buyOnline();
-    openModal('Buy credits', `
-      <div class="cr-packs">${d.packOptions.map((p) => `<div class="cr-pack">
-        <b>₹${fmt(p.price)}</b><span>${fmt(p.credits)} credits</span><span class="cr-pack-n">${numbersText(p.numbers)}</span>${p.credits > p.price ? `<em>+${Math.round((100 * (p.credits - p.price)) / p.price)}% bonus</em>` : '<em class="plain">&nbsp;</em>'}
-      </div>`).join('')}</div>
-      <p class="sub">Tell us which pack you want and we’ll send the payment details. Credits are added to <b>${esc(state.me?.workspace?.name || 'this workspace')}</b> as soon as it’s paid, and last ${d.months} months.</p>
-      <div class="modal-actions">
-        <a class="btn" href="tel:+917207333883" data-icon="phone" data-icon-size="15">+91 72073 33883</a>
-        <a class="btn primary" href="https://calendly.com/sendon-spotmies" target="_blank" rel="noopener" data-icon="calendar-days" data-icon-size="15">Book a call</a>
-      </div>`);
-    LA.hydrate($('#modal'));
+  // Buying: its own page (/credits-buy), the packs laid out as on the landing page. With online payment on
+  // (d.checkout) each pack's button opens Razorpay's checkout and the credits are added as soon as it's confirmed;
+  // otherwise the buttons say how to reach us (an admin adds the pack once paid).
+  function buy() { showTab('credits-buy'); }
+  // What the landing page calls each pack, and who it's for (custom packs added by an admin just show their numbers)
+  const TIERS = {
+    '10k': { tier: 'Starter', tag: 'For your first campaigns on one number.' },
+    '20k': { tier: 'Growth', tag: 'For teams sending every week.', featured: true },
+    '25k': { tier: 'Scale', tag: 'For high volume across many numbers.' },
+  };
+  const CHECK = '<svg class="bp-ck" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+  const STAR = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m12 2 2.9 6.6 7.1.7-5.4 4.8 1.6 7L12 17.3 5.8 21l1.6-7L2 9.3l7.1-.7Z"/></svg>';
+  async function showBuy() {
+    const box = $('#crBuyPage');
+    if (!box) return;
+    let d = C.data;
+    if (!d) { try { d = C.data = await api('/credits'); } catch (e) { box.innerHTML = `<p class="sub">${esc(e.message)}</p>`; return; } }
+    if (state.tab !== 'credits-buy') return;
+    if (!d.on || d.unlimited) { // nothing to buy here
+      box.innerHTML = `<div class="card"><div class="empty"><div class="empty-ico" data-icon="zap" data-icon-size="28"></div><h3>${d.unlimited ? 'This workspace is on Unlimited' : 'Credits aren’t used here'}</h3><p>${d.unlimited ? 'Nothing it does uses credits, so there’s nothing to buy.' : 'This workspace isn’t charged, so there’s nothing to buy.'}</p></div></div>`;
+      LA.hydrate(box);
+      return;
+    }
+    if (d.checkout) loadCheckout().catch(() => {}); // start loading while they choose
+    const ws = esc(state.me?.workspace?.name || 'this workspace');
+    const li = (html) => `<li>${CHECK}<span>${html}</span></li>`;
+    const plan = (p) => {
+      const t = TIERS[p.id] || { tier: p.name, tag: '' };
+      const bonus = p.credits > p.price ? ` <em>+${Math.round((100 * (p.credits - p.price)) / p.price)}% bonus</em>` : '';
+      const cta = d.checkout
+        ? `<button type="button" class="btn ${t.featured ? 'bp-green' : 'primary'} bp-cta" data-buy-pack="${esc(p.id)}"><span class="bp-cta-t">Buy ${esc(t.tier)}</span><span class="bp-cta-busy">Opening payment…</span></button>`
+        : `<a class="btn ${t.featured ? 'bp-green' : 'primary'} bp-cta" href="https://calendly.com/sendon-spotmies" target="_blank" rel="noopener">Talk to us to buy</a>`;
+      return `<div class="bp-plan ${t.featured ? 'featured' : ''}">
+        <div class="bp-top">${t.featured ? '<i class="bp-stripes" aria-hidden="true"></i>' : ''}
+          <div class="bp-chips"><span class="bp-tier">${esc(t.tier)}</span>${t.featured ? `<span class="bp-pop">${STAR}Most popular</span>` : ''}</div>
+          <div class="bp-price">₹${fmt(p.price)}<small>one-time</small></div>
+        </div>
+        <div class="bp-body">
+          ${t.tag ? `<p class="bp-tag">${esc(t.tag)}</p>` : ''}
+          ${cta}
+          <ul>${li(`<b>${fmt(p.credits)}</b> credits${bonus}`)}${li(numbersText(p.numbers))}${li('Every feature included')}${li(`Credits last ${d.months} months`)}</ul>
+        </div>
+      </div>`;
+    };
+    const custom = `<div class="bp-plan custom">
+        <div class="bp-top">
+          <div class="bp-chips"><span class="bp-tier">Enterprise</span></div>
+          <div class="bp-price">Custom<small>priced for your volume</small></div>
+        </div>
+        <div class="bp-body">
+          <p class="bp-tag">For agencies and large organisations.</p>
+          <a class="btn bp-cta" href="https://calendly.com/connect-sendon" target="_blank" rel="noopener">Contact sales</a>
+          <ul>${li('A credit volume built for you')}${li('Unlimited WhatsApp numbers')}${li('A workspace for every brand')}${li('Set up with our team')}</ul>
+        </div>
+      </div>`;
+    const r = d.rates;
+    box.innerHTML = `
+      <div class="bp-now"><span class="bp-now-l">${window.Coin ? Coin.html({ size: 34, label: 'Credits' }) : ''}<span><b>${fmt(d.balance)} credits</b> left in ${ws}</span></span>
+        <span class="bp-now-r">${d.checkout ? `${CHECK} Pay by UPI, card, netbanking or wallet. Credits are added the moment it’s paid.` : 'Pick a pack and we’ll send the payment details. Credits are added as soon as it’s paid.'}</span></div>
+      <div class="bp-plans">${d.packOptions.map(plan).join('')}${custom}</div>
+      <div class="bp-rates">
+        <span class="bp-rates-h">What a credit buys</span>
+        <span><b>${r.marketing}</b> a marketing message</span>
+        <span><b>${r.utility}</b> a utility or login message</span>
+        <span><b>${r.ai}</b> an AI reply</span>
+        <span><b>Free</b> replies you type</span>
+        <span class="bp-rates-note">Failed messages give their credits back. Meta bills its own per-message fee to your WhatsApp Business Account.</span>
+      </div>
+      ${d.checkout ? '' : '<p class="bp-help sub">Prefer to call? <a href="tel:+917207333883">+91 72073 33883</a></p>'}`;
+    LA.hydrate(box);
   }
   let rzpLoading = null;
   const loadCheckout = () => (rzpLoading ||= new Promise((resolve, reject) => {
@@ -163,16 +218,6 @@ window.Credits = (() => {
     s.onerror = () => { rzpLoading = null; reject(new Error('Couldn’t open the payment page. Check your internet and try again.')); };
     document.head.append(s);
   }));
-  function buyOnline() {
-    const d = C.data;
-    loadCheckout().catch(() => {}); // start loading while they choose
-    openModal('Buy credits', `
-      <div class="cr-packs">${d.packOptions.map((p) => `<button type="button" class="cr-pack cr-pack-buy" data-buy-pack="${esc(p.id)}">
-        <b>₹${fmt(p.price)}</b><span>${fmt(p.credits)} credits</span><span class="cr-pack-n">${numbersText(p.numbers)}</span>${p.credits > p.price ? `<em>+${Math.round((100 * (p.credits - p.price)) / p.price)}% bonus</em>` : '<em class="plain">&nbsp;</em>'}
-        <span class="cr-pack-pay">Pay ₹${fmt(p.price)}</span>
-      </button>`).join('')}</div>
-      <p class="sub">Pay by UPI, card, netbanking or wallet. The credits are added to <b>${esc(state.me?.workspace?.name || 'this workspace')}</b> as soon as the payment goes through, and last ${d.months} months.</p>`);
-  }
   async function pay(btn) {
     const all = [...document.querySelectorAll('[data-buy-pack]')];
     all.forEach((b) => (b.disabled = true));
@@ -189,7 +234,7 @@ window.Credits = (() => {
         handler: async (r) => {
           try {
             C.data = await api('/credits/verify', { method: 'POST', body: r });
-            closeModal(); // the "credits added" notification shows the toast
+            showTab('credits'); // back to the balance; the "credits added" notification shows the toast
             load();
           } catch (e) { toast(e.message, 'error', { duration: 12000 }); load(); }
         },
@@ -205,5 +250,5 @@ window.Credits = (() => {
     if (p && !p.disabled) pay(p);
   });
 
-  return { load, render, slots, showAll, costText, short, confirmText, get data() { return C.data; } };
+  return { load, render, slots, showAll, showBuy, costText, short, confirmText, get data() { return C.data; } };
 })();
