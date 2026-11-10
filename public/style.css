@@ -2195,9 +2195,25 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .fpx-opt:hover .fpx-edit, .fpx-edit:focus-visible { opacity: 1; }
 .fpx-edit:hover { background: var(--hair); color: var(--text); }
 .fpx-none { margin: 4px 8px; font-size: 13px; color: var(--muted); }
+.fpx-find { display: block; width: calc(100% - 16px); margin: 0 8px 6px; padding: 7px 10px; border: 0; border-radius: 9px; background: var(--field); box-shadow: var(--sh-sunk); font: inherit; font-size: 13px; color: var(--text); }
+.fpx-find:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.fpx-more { margin: 2px 8px 0; padding: 4px 0; border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--info); cursor: pointer; }
+.fpx-more:hover { text-decoration: underline; }
 .fpx-foot { display: flex; gap: 10px; padding: 12px 16px 16px; box-shadow: 0 -1px 0 var(--hair); }
 .fpx-foot .btn.primary { flex: 1; justify-content: center; }
-@media (prefers-reduced-motion: reduce) { .ct-fpanel, .ct-fpanel-wrap.closing .ct-fpanel { animation: none; } }
+/* A template's preview, beside the Filters panel while one is hovered: zooms and fades in, glides between rows */
+.ct-tplpeek { position: fixed; width: 320px; max-height: calc(100vh - 24px); overflow: hidden; padding: 14px; border-radius: 16px; background: var(--surface); box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.4); pointer-events: none;
+  opacity: 0; transform: scale(0.92) translateX(12px); transform-origin: right center; filter: blur(4px);
+  transition: opacity 0.18s ease, transform 0.22s var(--ease-out), filter 0.18s ease, top 0.22s var(--ease-out); }
+.ct-tplpeek.in { opacity: 1; transform: none; filter: none; transition: opacity 0.22s ease, transform 0.32s var(--ease-out), filter 0.22s ease, top 0.22s var(--ease-out); }
+.ct-tplpeek:not(.in) { transition-property: opacity, transform, filter; } /* fading out stays where it is */
+.ct-tplpeek-h { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 10px; min-width: 0; }
+.ct-tplpeek-h b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.ct-tplpeek-h small { flex: none; font-size: 11.5px; color: var(--muted); }
+.ct-tplpeek .phone { padding: 14px 12px; min-height: 0; }
+.ct-tplpeek .bubble { max-width: 100%; font-size: 13px; max-height: calc(100vh - 120px); overflow: hidden; }
+.ct-tplpeek-gone { margin: 0 2px; font-size: 13px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .ct-fpanel, .ct-fpanel-wrap.closing .ct-fpanel { animation: none; } .ct-tplpeek, .ct-tplpeek.in { transform: none; filter: none; transition: opacity 0.15s; } }
 /* The contact panel's Chat window: a collapsible section per number (photo, name, replied or not, how many templates,
    Open chat, arrow), and its templates as same-size cards whose message scrolls inside the card. A number they never
    replied to is faded; pointing at its cards says why it can't be opened. */

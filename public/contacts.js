@@ -10,7 +10,7 @@
   const PER_OPTS = [25, 50, 100, 200, 0]; // as on Campaigns; 0 = show all
   const perPref = () => { try { const v = localStorage.getItem('ctPer'); return v != null && PER_OPTS.includes(Number(v)) ? Number(v) : 100; } catch { return 100; } };
   // fs: the Filters panel's picks, one set per section (any of a section's picks; every section with picks must match)
-  const CT = { contacts: [], cache: new Map(), total: 0, all: 0, pages: 1, per: perPref(), facets: {}, facetTotals: {}, tags: [], counts: {}, q: '', fs: { stage: new Set(), delivery: new Set(), tpl: new Set(), num: new Set(), tag: new Set(), coll: new Set(), source: new Set() }, page: 0, selected: new Set(), chats: new Map(), loaded: false, collections: [], templates: [], col: null };
+  const CT = { contacts: [], cache: new Map(), total: 0, all: 0, pages: 1, per: perPref(), facets: {}, facetTotals: {}, tags: [], counts: {}, q: '', fs: { stage: new Set(), delivery: new Set(), tpl: new Set(), num: new Set(), tag: new Set(), coll: new Set(), source: new Set() }, page: 0, selected: new Set(), chats: new Map(), loaded: false, collections: [], templates: [], tplMore: false, tplQ: '', col: null };
   const STATUS = {
     new: { label: 'New', cls: '' },
     interested: { label: 'Interested', cls: 'sent' },
@@ -224,9 +224,16 @@
         const newTag = e.target.closest('[data-fnewtag]');
         if (newTag) return tagModal(null);
         if (e.target.closest('[data-fnewcol]')) return collectionModal(null, [...CT.selected]);
+        if (e.target.closest('[data-tplmore]')) { CT.tplMore = !CT.tplMore; return tplRows(el); }
         const editTag = e.target.closest('[data-fedit]');
         if (editTag) { e.preventDefault(); return tagModal(tagById(editTag.dataset.fedit)); }
       });
+      // Hovering (or tabbing to) a template shows it as a WhatsApp bubble in the space left of the panel
+      el.addEventListener('mouseover', (e) => tplPeek(e.target.closest('.fpx-opt[data-sec="tpl"]')));
+      el.addEventListener('focusin', (e) => tplPeek(e.target.closest('.fpx-opt[data-sec="tpl"]')));
+      el.addEventListener('mouseleave', () => tplPeek(null));
+      el.querySelector('.ct-fpanel').addEventListener('scroll', () => tplPeek(null), true);
+      el.addEventListener('input', (e) => { if (e.target.matches('[data-tplfind]')) { CT.tplQ = e.target.value; tplRows(el); } });
       el.addEventListener('change', (e) => {
         const cb = e.target.closest('input[data-fsec]');
         if (!cb) return;
@@ -240,7 +247,7 @@
     el.classList.remove('hidden', 'closing');
     requestAnimationFrame(() => el.querySelector('input, button')?.focus({ preventScroll: true }));
   }
-  function closeFilters() { const el = $('#ctFilters'); if (el) hideOverlay(el); $('#ctFilterBtn').focus({ preventScroll: true }); }
+  function closeFilters() { const el = $('#ctFilters'); if (el) hideOverlay(el); $('#ctTplPeek')?.classList.remove('in'); peekName = ''; $('#ctFilterBtn').focus({ preventScroll: true }); }
   function applyFilters() { CT.page = 0; CT.enter = true; reload(); }
   function drawFilters() {
     const box = $('#ctFilters .ct-fpanel');
@@ -252,8 +259,13 @@
       const rows = opts[key].map(([k, label, lead, tip]) => {
         const n = CT.facets[key]?.[k] || 0;
         const on = CT.fs[key].has(k);
-        return `<label class="fpx-opt ${on ? 'on' : ''} ${!n && !on ? 'zero' : ''}" ${tip ? `title="${esc(tip)}"` : ''}><input type="checkbox" class="cb" data-fsec="${key}" value="${esc(k)}" ${on ? 'checked' : ''} />${lead}<span class="fpx-t">${esc(label)}</span>${key === 'tag' && k !== 'none' ? `<button type="button" class="fpx-edit" data-fedit="${esc(k)}" title="Edit tag" aria-label="Edit ${esc(label)}">${icon('square-pen', 13)}</button>` : ''}<b>${n.toLocaleString()}</b></label>`;
+        return `<label class="fpx-opt ${on ? 'on' : ''} ${!n && !on ? 'zero' : ''}" data-name="${esc(label)}" data-sec="${key}" ${tip ? `title="${esc(tip)}"` : ''}><input type="checkbox" class="cb" data-fsec="${key}" value="${esc(k)}" ${on ? 'checked' : ''} />${lead}<span class="fpx-t">${esc(label)}</span>${key === 'tag' && k !== 'none' ? `<button type="button" class="fpx-edit" data-fedit="${esc(k)}" title="Edit tag" aria-label="Edit ${esc(label)}">${icon('square-pen', 13)}</button>` : ''}<b>${n.toLocaleString()}</b></label>`;
       }).join('');
+      // Templates: the latest few (and any ticked), with Show all and, for a long list, a search
+      const many = key === 'tpl' && opts.tpl.length > TPL_SHOW;
+      const tplTop = many && opts.tpl.length > TPL_FIND ? `<input type="search" class="fpx-find" data-tplfind placeholder="Search ${opts.tpl.length} templates" value="${esc(CT.tplQ)}" aria-label="Search templates" />` : '';
+      const tplEnd = many ? `<p class="fpx-none hidden" data-tplnone>No template matches.</p><button type="button" class="fpx-more" data-tplmore></button>` : '';
+      if (many) return `<section class="fpx-sec" data-tplsec><div class="fpx-h"><span>${FILTERS[key].title}</span>${CT.fs[key].size ? `<span class="fpx-n">${CT.fs[key].size}</span><button type="button" class="fpx-clr" data-fclearsec="${key}" title="Clear ${esc(FILTERS[key].title)}">Clear</button>` : ''}</div>${tplTop}${rows}${tplEnd}</section>`;
       return `<section class="fpx-sec"><div class="fpx-h"><span>${FILTERS[key].title}</span>${CT.fs[key].size ? `<span class="fpx-n">${CT.fs[key].size}</span><button type="button" class="fpx-clr" data-fclearsec="${key}" title="Clear ${esc(FILTERS[key].title)}">Clear</button>` : ''}${key === 'tag' ? '<button type="button" class="fpx-add" data-fnewtag>+ New tag</button>' : key === 'coll' ? '<button type="button" class="fpx-add" data-fnewcol>+ New collection</button>' : ''}</div>${rows || `<p class="fpx-none">No ${key === 'coll' ? 'collections' : 'tags'} yet.</p>`}</section>`;
     };
     const keep = box.querySelector('.fpx-body')?.scrollTop || 0;
@@ -261,6 +273,58 @@
       <div class="fpx-body">${['stage', 'delivery', 'tpl', 'num', 'tag', 'coll', 'source'].map(sec).join('')}</div>
       <footer class="fpx-foot"><button type="button" class="btn quiet" data-fclear ${filterCount() ? '' : 'disabled'}>Clear all</button><button type="button" class="btn primary" data-fclose>Show ${results.toLocaleString()} contact${results === 1 ? '' : 's'}</button></footer>`;
     box.querySelector('.fpx-body').scrollTop = keep;
+    tplRows(box);
+  }
+  // The template preview beside the Filters panel: fades and zooms in next to the hovered row, follows it from row to
+  // row, and fades out when the pointer leaves the templates. Only where there's room for it and a pointer that hovers.
+  let peekHide = 0, peekName = '';
+  function tplPeek(row) {
+    const wrap = $('#ctFilters');
+    let pv = $('#ctTplPeek');
+    if (!row) { clearTimeout(peekHide); peekHide = setTimeout(() => { pv?.classList.remove('in'); peekName = ''; }, 120); return; }
+    clearTimeout(peekHide);
+    const panel = wrap.querySelector('.ct-fpanel').getBoundingClientRect();
+    if (panel.left < 360 || !matchMedia('(hover: hover)').matches) return;
+    const name = row.dataset.name;
+    const ts = (state.templates || []).filter((t) => t.name === name);
+    const t = ts.find((x) => x.status === 'APPROVED') || ts[0];
+    if (!pv) {
+      pv = document.createElement('div');
+      pv.id = 'ctTplPeek';
+      pv.className = 'ct-tplpeek';
+      pv.setAttribute('aria-hidden', 'true');
+      wrap.append(pv);
+    }
+    if (name !== peekName) {
+      peekName = name;
+      const meta = t ? [t.category && t.category.toLowerCase(), t.language].filter(Boolean).join(' · ') : '';
+      pv.innerHTML = `<div class="ct-tplpeek-h"><b>${esc(name)}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</div>`
+        + (t ? `<div class="phone"><div class="bubble">${bubbleHtml(t, {}, true)}</div></div>` : '<p class="ct-tplpeek-gone">This template has been deleted, so there is no preview.</p>');
+    }
+    // Beside the row, kept on screen
+    const r = row.getBoundingClientRect();
+    pv.style.right = `${innerWidth - panel.left + 20}px`;
+    const h = pv.offsetHeight;
+    pv.style.top = `${Math.max(12, Math.min(innerHeight - h - 12, r.top + r.height / 2 - h / 2))}px`;
+    requestAnimationFrame(() => pv.classList.add('in'));
+  }
+  // Which template rows show: matching the search, else the first TPL_SHOW (and ticked ones) unless Show all is on
+  const TPL_SHOW = 5, TPL_FIND = 6;
+  function tplRows(box) {
+    const sec = box.querySelector('[data-tplsec]');
+    if (!sec) return;
+    const q = CT.tplQ.trim().toLowerCase();
+    const rows = [...sec.querySelectorAll('.fpx-opt')];
+    let shown = 0;
+    rows.forEach((r, i) => {
+      const vis = q ? r.dataset.name.toLowerCase().includes(q) : CT.tplMore || i < TPL_SHOW || r.classList.contains('on');
+      r.classList.toggle('hidden', !vis);
+      if (vis) shown++;
+    });
+    const more = sec.querySelector('[data-tplmore]');
+    more.classList.toggle('hidden', Boolean(q));
+    more.textContent = CT.tplMore ? 'Show fewer' : `Show all ${rows.length}`;
+    sec.querySelector('[data-tplnone]').classList.toggle('hidden', !q || shown > 0);
   }
 
   // How a contact got here: you added it, it was imported, or it was added automatically when the person messaged
