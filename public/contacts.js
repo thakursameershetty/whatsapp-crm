@@ -10,7 +10,7 @@
   const PER_OPTS = [25, 50, 100, 200, 0]; // as on Campaigns; 0 = show all
   const perPref = () => { try { const v = localStorage.getItem('ctPer'); return v != null && PER_OPTS.includes(Number(v)) ? Number(v) : 100; } catch { return 100; } };
   // fs: the Filters panel's picks, one set per section (any of a section's picks; every section with picks must match)
-  const CT = { contacts: [], cache: new Map(), total: 0, all: 0, pages: 1, per: perPref(), facets: {}, facetTotals: {}, tags: [], counts: {}, q: '', fs: { stage: new Set(), delivery: new Set(), num: new Set(), tag: new Set(), coll: new Set(), source: new Set() }, page: 0, selected: new Set(), chats: new Map(), loaded: false, collections: [], col: null };
+  const CT = { contacts: [], cache: new Map(), total: 0, all: 0, pages: 1, per: perPref(), facets: {}, facetTotals: {}, tags: [], counts: {}, q: '', fs: { stage: new Set(), delivery: new Set(), tpl: new Set(), num: new Set(), tag: new Set(), coll: new Set(), source: new Set() }, page: 0, selected: new Set(), chats: new Map(), loaded: false, collections: [], templates: [], col: null };
   const STATUS = {
     new: { label: 'New', cls: '' },
     interested: { label: 'Interested', cls: 'sent' },
@@ -36,7 +36,7 @@
     const seq = ++loadSeq;
     const [r, inbox] = await Promise.all([api('/contacts?' + listQuery()), CT.chatsLoaded ? null : api('/inbox').catch(() => ({ conversations: [] }))]);
     if (seq !== loadSeq) return false; // a newer request (typing, another filter) has taken over
-    Object.assign(CT, { contacts: r.contacts, tags: r.tags, counts: r.counts, total: r.total, all: r.all, opted: r.opted, untagged: r.untagged, pages: r.pages, page: r.page, facets: r.facets, facetTotals: r.facetTotals, collections: r.collections || [], loaded: true });
+    Object.assign(CT, { contacts: r.contacts, tags: r.tags, counts: r.counts, total: r.total, all: r.all, opted: r.opted, untagged: r.untagged, pages: r.pages, page: r.page, facets: r.facets, facetTotals: r.facetTotals, collections: r.collections || [], templates: r.templates || [], loaded: true });
     if (CT.col && !CT.collections.some((x) => x.id === CT.col)) CT.col = null; // deleted (here or in another tab)
     for (const k of CT.fs.coll) if (k !== 'none' && !CT.collections.some((x) => x.id === k)) CT.fs.coll.delete(k); // a filter on a deleted collection goes too
     for (const c of r.contacts) CT.cache.set(c.id, c);
@@ -159,6 +159,7 @@
   const FILTERS = {
     stage: { title: 'Stage', match: (c, k) => !c.optOut && c.status === k },
     delivery: { title: 'Delivery', match: (c, k) => (k === 'delivered' ? everDelivered(c) : k === 'undelivered' ? everFailed(c) : c.optOut) },
+    tpl: { title: 'Template', match: () => true }, // matched on the server, which knows which template each campaign sent
     num: { title: 'Added by number', match: (c, k) => (c.via || 'none') === k },
     tag: { title: 'Tags', match: (c, k) => (k === 'none' ? !c.tags.length : c.tags.includes(k)) },
     coll: { title: 'Collections', match: () => true }, // matched on the server, which knows who is in which collection
@@ -174,7 +175,10 @@
     const gone = Object.keys(CT.facets.num || {}).filter((v) => v !== 'none' && !state.senders.some((x) => x.id === v));
     return {
       stage: Object.entries(STATUS).map(([k, v]) => [k, v.label, dot('st-' + k)]),
-      delivery: [['delivered', 'Delivered', dot('st-won'), 'Delivered in at least one campaign'], ['undelivered', 'Not delivered', dot('st-bad'), 'Not delivered in at least one campaign'], ['optout', 'Opted out', dot('st-optout')]],
+      delivery: CT.fs.tpl.size
+        ? [['delivered', 'Delivered', dot('st-won'), 'Delivered in a campaign with the picked template'], ['undelivered', 'Not delivered', dot('st-bad'), 'Not delivered in a campaign with the picked template'], ['optout', 'Opted out', dot('st-optout')]]
+        : [['delivered', 'Delivered', dot('st-won'), 'Delivered in at least one campaign'], ['undelivered', 'Not delivered', dot('st-bad'), 'Not delivered in at least one campaign'], ['optout', 'Opted out', dot('st-optout')]],
+      tpl: [...new Set([...CT.templates, ...CT.fs.tpl])].map((k) => [k, k, `<span class="fpx-ic">${icon('file-text', 14)}</span>`, 'Sent this template in a campaign']),
       num: state.senders.length ? [...state.senders.map((x) => [x.id, x.label, `<span class="fpx-ph">${senderPhotoHtml(x)}</span>`, x.displayPhone]), ...gone.map((v) => [v, senderName(v), `<span class="fpx-ic">${icon('phone', 14)}</span>`]), ['none', 'By hand or import', `<span class="fpx-ic">${icon('upload', 14)}</span>`]] : [],
       tag: [...CT.tags.map((t) => [t.id, t.name, `<i class="ct-dot tag-${esc(t.color)}"></i>`]), ...(CT.tags.length ? [['none', 'No tag', dot('')]] : [])],
       coll: [...CT.collections.map((x) => [x.id, x.name, `<span class="fpx-ic">${colFolder(x, 'xs')}</span>`]), ...(CT.collections.length ? [['none', 'Not in a collection', dot('')]] : [])],
@@ -192,7 +196,7 @@
     b.innerHTML = `${icon('sliders-horizontal', 16)}${n ? `<b class="ct-fbadge">${n}</b>` : ''}`; // just the icon (and how many are on)
     b.classList.toggle('on', n > 0);
     b.setAttribute('aria-label', n ? `Filters, ${n} on` : 'Filters');
-    b.title = n ? `Filters (${n} on)` : 'Filters: stage, delivery, number, tag, collection or who added them';
+    b.title = n ? `Filters (${n} on)` : 'Filters: stage, delivery, template, number, tag, collection or who added them';
     const bar = $('#ctActive');
     const all = CT.total > 0 && CT.selected.size >= CT.total && list.every((c) => CT.selected.has(c.id));
     const chips = Object.entries(CT.fs).flatMap(([sec, set]) => [...set].map((k) => `<span class="ct-chip"><span class="ct-chip-s">${esc(FILTERS[sec].title)}:</span>${esc(optLabel(sec, k))}<button type="button" data-unf="${sec}" data-k="${esc(k)}" aria-label="Remove ${esc(optLabel(sec, k))}">${icon('x', 12)}</button></span>`));
@@ -254,7 +258,7 @@
     };
     const keep = box.querySelector('.fpx-body')?.scrollTop || 0;
     box.innerHTML = `<header class="fpx-head"><h2>Filters</h2><button type="button" class="icon-btn" data-fclose aria-label="Close">${icon('x', 18)}</button></header>
-      <div class="fpx-body">${['stage', 'delivery', 'num', 'tag', 'coll', 'source'].map(sec).join('')}</div>
+      <div class="fpx-body">${['stage', 'delivery', 'tpl', 'num', 'tag', 'coll', 'source'].map(sec).join('')}</div>
       <footer class="fpx-foot"><button type="button" class="btn quiet" data-fclear ${filterCount() ? '' : 'disabled'}>Clear all</button><button type="button" class="btn primary" data-fclose>Show ${results.toLocaleString()} contact${results === 1 ? '' : 's'}</button></footer>`;
     box.querySelector('.fpx-body').scrollTop = keep;
   }

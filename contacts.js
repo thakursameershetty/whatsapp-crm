@@ -182,15 +182,22 @@ module.exports = function mountContacts(app, ctx) {
 
   // --- The Contacts page, one page at a time --------------------------------------------------------------
   // GET /api/contacts?page=0&per=100 with q (search), sort + dir, and the Filters panel's picks as comma lists: stage,
-  // delivery (delivered | undelivered | optout), num (a number's id, or none), tag (a tag id, or none), source. Within a
-  // list: any of them; across lists: all. Returns that page, how many match, and per filter section how many each option
+  // delivery (delivered | undelivered | optout), tpl (a template name the contact was sent in a campaign), num (a number's
+  // id, or none), tag (a tag id, or none), source. Within a list: any of them; across lists: all. With templates picked,
+  // Delivered / Not delivered look only at the campaigns that sent those templates ("who didn't get the Diwali offer"),
+  // not at every campaign. Returns that page, how many match, and per filter section how many each option
   // would give with the other sections' picks (facets). ids=1 adds every matching id (Select all). Without page, the
   // whole book as before (the Send page uses that).
-  const everFailed = (c) => (c.campaigns || []).some((x) => x.status === 'failed') || c.delivery?.status === 'failed';
-  const everDelivered = (c) => (c.campaigns || []).some((x) => x.status === 'delivered' || x.status === 'read') || ['delivered', 'read'].includes(c.delivery?.status);
+  // `inTpl`: limits the check to campaigns that sent one of the picked templates (null: every campaign). The latest
+  // delivery is only a fallback for contacts from before the campaign history was kept.
+  const everFailed = (c, inTpl = null) => (c.campaigns || []).some((x) => x.status === 'failed' && (!inTpl || inTpl(x))) || (!inTpl && c.delivery?.status === 'failed');
+  const everDelivered = (c, inTpl = null) => (c.campaigns || []).some((x) => (x.status === 'delivered' || x.status === 'read') && (!inTpl || inTpl(x))) || (!inTpl && ['delivered', 'read'].includes(c.delivery?.status));
+  // The template a campaign sent, by name (the same template has a different id in each Business Account)
+  const campaignTemplates = () => new Map((db.campaigns || []).filter((x) => !x.demo).map((x) => [x.id, x.templateName || db.templates.find((t) => t.id === x.templateId)?.name || '']));
   const MATCH = {
     stage: (c, k) => !c.optOut && c.status === k,
-    delivery: (c, k) => (k === 'delivered' ? everDelivered(c) : k === 'undelivered' ? everFailed(c) : k === 'optout' && Boolean(c.optOut)),
+    delivery: (c, k, inTpl) => (k === 'delivered' ? everDelivered(c, inTpl) : k === 'undelivered' ? everFailed(c, inTpl) : k === 'optout' && Boolean(c.optOut)),
+    tpl: null, // needs which template each campaign sent, so it's set up per query below
     num: (c, k) => (c.via || 'none') === k,
     tag: (c, k) => (k === 'none' ? !c.tags.length : c.tags.includes(k)),
     coll: null, // a collection's id, or none: needs who is in which collection, so it's set up per query below
@@ -205,7 +212,16 @@ module.exports = function mountContacts(app, ctx) {
     // contact id -> the collections it's in
     const colsOf = new Map();
     for (const x of db.collections) for (const cid of x.contactIds) colsOf.has(cid) ? colsOf.get(cid).push(x.id) : colsOf.set(cid, [x.id]);
-    const match = { ...MATCH, coll: (c, k) => (k === 'none' ? !colsOf.has(c.id) : Boolean(colsOf.get(c.id)?.includes(k))) };
+    const tplOf = campaignTemplates();
+    const templatesOf = (c) => new Set((c.campaigns || []).map((x) => tplOf.get(x.id)).filter(Boolean));
+    // Delivery, looked at only in campaigns that sent one of `names` (none picked: every campaign)
+    const scope = (names) => (names.size ? (x) => names.has(tplOf.get(x.id)) : null);
+    const match = {
+      ...MATCH,
+      coll: (c, k) => (k === 'none' ? !colsOf.has(c.id) : Boolean(colsOf.get(c.id)?.includes(k))),
+      tpl: (c, k) => templatesOf(c).has(k),
+      delivery: (c, k) => MATCH.delivery(c, k, scope(fs.tpl)),
+    };
     const q = String(qs.q || '').trim().toLowerCase(), qd = q.replace(/\D/g, '');
     const inSearch = (c) => !q || [c.name, c.email, c.company, c.lead?.summary, fmtPhone(c.phone)].some((v) => String(v || '').toLowerCase().includes(q)) || (qd.length >= 3 && c.phone.includes(qd));
     const passes = (c, skip) => Object.entries(fs).every(([sec, set]) => sec === skip || !set.size || [...set].some((k) => match[sec](c, k)));
@@ -217,11 +233,16 @@ module.exports = function mountContacts(app, ctx) {
     // How many each option would give, with the other sections' picks
     const facets = {}, facetTotals = {};
     for (const sec of Object.keys(MATCH)) {
-      const base = searched.filter((c) => passes(c, sec)), n = {};
+      // Template counts leave Delivery out here and apply it per template below
+      const base = searched.filter((c) => (sec === 'tpl' ? Object.entries(fs).every(([s, set]) => s === 'tpl' || s === 'delivery' || !set.size || [...set].some((k) => match[s](c, k))) : passes(c, sec))), n = {};
       const bump = (k) => { n[k] = (n[k] || 0) + 1; };
       for (const c of base) {
         if (sec === 'stage') { if (!c.optOut) bump(c.status); }
-        else if (sec === 'delivery') { if (everDelivered(c)) bump('delivered'); if (everFailed(c)) bump('undelivered'); if (c.optOut) bump('optout'); }
+        else if (sec === 'delivery') { const s = scope(fs.tpl); if (everDelivered(c, s)) bump('delivered'); if (everFailed(c, s)) bump('undelivered'); if (c.optOut) bump('optout'); }
+        else if (sec === 'tpl') {
+          // Each template's count respects the Delivery picks for that template alone
+          for (const t of templatesOf(c)) if (!fs.delivery.size || [...fs.delivery].some((k) => MATCH.delivery(c, k, scope(new Set([t]))))) bump(t);
+        }
         else if (sec === 'num') bump(c.via || 'none');
         else if (sec === 'tag') { if (!c.tags.length) bump('none'); else c.tags.forEach(bump); }
         else if (sec === 'coll') { const l = colsOf.get(c.id); if (!l) bump('none'); else l.forEach(bump); }
@@ -256,6 +277,8 @@ module.exports = function mountContacts(app, ctx) {
     return {
       contacts: per ? matching.slice(page * per, page * per + per) : matching,
       total: matching.length, page, per, pages, facets, facetTotals,
+      // The templates campaigns have sent, most recently used first (the Template filter's options)
+      templates: [...new Map([...(db.campaigns || [])].filter((x) => !x.demo).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map((x) => [tplOf.get(x.id), 1])).keys()].filter(Boolean),
       all: db.contacts.length, opted: db.contacts.filter((c) => c.optOut).length, untagged: db.contacts.filter((c) => !c.tags.length).length,
       ...(qs.ids ? { ids: matching.map((c) => c.id) } : {}),
     };
