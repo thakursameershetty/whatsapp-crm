@@ -2595,18 +2595,29 @@ function loadXlsxLib() {
 
 const looksLikePhone = (v) => /^\+?[\d\s\-().]{8,}$/.test(String(v).trim());
 
+// An extension at the end ("080-26304050 Ext. 4500", "x 12") isn't part of the number.
+const EXTENSION = /(?:\bext(?:n|ension)?\b\.?|\bx)\s*:?\s*\d+\s*$/i;
+// India (+91): only 10-digit mobile numbers, starting 6, 7, 8 or 9, can be on WhatsApp. "+91 22 6836 7900" and
+// "+91 124 480 2222" are landlines; so is a number written with its STD code split off ("080-26304050",
+// "044 2829 6117"), which catches Bangalore's 080 landlines that otherwise look like 80… mobiles.
+// `part` is the number as written, `d` its digits with the country code.
+function indianLandline(part, d) {
+  if (d.length < 11 || !d.startsWith('91')) return false;
+  return !/^91[6-9]\d{9}$/.test(d) || /^\(?0\d{2,4}\)?[\s-]+\d/.test(part.replace(/^[^\d(+]*/, ''));
+}
 // Every phone number in a cell, best first. Lead sheets often hold several ("98450 08573 / 99805 17082",
 // "Mobile: … ⏎ Telephone: …"); each part is read on its own, notes in brackets are ignored, and fewer than
-// 10 or more than 15 digits isn't a phone number. Office/landline numbers go last (they rarely have WhatsApp).
+// 10 or more than 15 digits isn't a phone number, nor is an Indian landline. Other numbers marked office/landline
+// go last (they rarely have WhatsApp).
 // Keep in step with phoneCandidates in server.js.
 function phoneCandidates(input) {
   const cc = state.settings.defaultCountryCode;
   const best = [], last = [];
   for (const part of String(input ?? '').split(/[\n,;|]+|\s*\/\s*|\s+(?:or|and|&)\s+/i)) {
-    let d = part.replace(/\([^)]*\)/g, ' ').replace(/\D/g, '').replace(/^00/, '');
+    let d = part.replace(/\([^)]*\)/g, ' ').replace(EXTENSION, ' ').replace(/\D/g, '').replace(/^00/, '');
     if (cc && d.length === 10) d = cc + d;
     else if (cc && d.length === 11 && d.startsWith('0')) d = cc + d.slice(1);
-    if (d.length < 10 || d.length > 15) continue;
+    if (d.length < 10 || d.length > 15 || d.startsWith('0') || indianLandline(part, d)) continue;
     (/\b(tel|telephone|office|landline|fax|board)\b/i.test(part) ? last : best).push(d);
   }
   return [...new Set([...best, ...last])];

@@ -10,7 +10,7 @@ const TAG_COLORS = ['blue', 'green', 'violet', 'orange', 'teal', 'pink', 'gray',
 const STOP_RE = /^\s*(stop|stop all|unsubscribe|opt[ -]?out|cancel|remove me)\s*[.!]*\s*$/i;
 
 module.exports = function mountContacts(app, ctx) {
-  const { db, save, id, wrap, fail, normalizePhone, normalizeTypedPhone, phoneInputError, broadcast } = ctx;
+  const { db, save, id, wrap, fail, normalizePhone, normalizeTypedPhone, phoneInputError, phoneRejectReason, LANDLINE_MSG, broadcast } = ctx;
   db.contacts ||= [];
   db.tags ||= [];
   db.collections ||= [];
@@ -107,7 +107,7 @@ module.exports = function mountContacts(app, ctx) {
     for (const c of db.contacts || []) {
       const p = normalizePhone(c.phone);
       let problem = '';
-      if (!p) problem = 'This number is too short or too long for WhatsApp. Add the country code or correct it.';
+      if (!p) problem = phoneRejectReason(c.phone) === 'Invalid number' ? 'This number is too short or too long for WhatsApp. Add the country code or correct it.' : LANDLINE_MSG;
       else if (p !== c.phone && byPhone(p)) problem = `Another contact already has +${p}. Check which one is right.`;
       else if (p !== c.phone) { c.phone = p; c.updatedAt = now(); fixed++; }
       if (problem) { if (c.phoneProblem !== problem) { c.phoneProblem = problem; flagged++; } }

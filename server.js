@@ -101,7 +101,8 @@ function phoneInputError(input) {
   const digits = v.replace(/\D/g, '').replace(/^00/, '');
   if (digits.length < 10) return 'That number is too short. Enter 10 digits, or the full number with the country code.';
   if (digits.length > 15) return 'That number is too long. Phone numbers have at most 15 digits.';
-  return normalizeTypedPhone(v) ? '' : 'Enter a valid phone number';
+  if (normalizeTypedPhone(v)) return '';
+  return phoneRejectReason(v.replace(/[()]/g, ' ')) === 'Invalid number' ? 'Enter a valid phone number' : LANDLINE_MSG;
 }
 // A number typed into a form, cleaned. Brackets there are punctuation ("(987) 650-0100", "(020) 7946 0958"),
 // so their digits are kept. Sheet cells go through normalizePhone instead, where brackets hold notes to drop.
@@ -109,24 +110,44 @@ function normalizeTypedPhone(input) {
   return normalizePhone(String(input ?? '').replace(/[()]/g, ' '));
 }
 
+// An extension at the end ("080-26304050 Ext. 4500", "x 12") isn't part of the number.
+const EXTENSION = /(?:\bext(?:n|ension)?\b\.?|\bx)\s*:?\s*\d+\s*$/i;
+// India (+91): only 10-digit mobile numbers, starting 6, 7, 8 or 9, can be on WhatsApp. "+91 22 6836 7900" and
+// "+91 124 480 2222" are landlines; so is a number written with its STD code split off ("080-26304050",
+// "044 2829 6117"), which catches Bangalore's 080 landlines that otherwise look like 80… mobiles.
+// `part` is the number as written, `d` its digits with the country code.
+function indianLandline(part, d) {
+  if (d.length < 11 || !d.startsWith('91')) return false;
+  return !/^91[6-9]\d{9}$/.test(d) || /^\(?0\d{2,4}\)?[\s-]+\d/.test(part.replace(/^[^\d(+]*/, ''));
+}
 // Every phone number in a cell, best first. Lead sheets often hold several ("98450 08573 / 99805 17082",
 // "Mobile: … ⏎ Telephone: …"); each part is read on its own, notes in brackets are ignored, and fewer than
-// 10 or more than 15 digits isn't a phone number. Office/landline numbers go last (they rarely have WhatsApp).
+// 10 or more than 15 digits isn't a phone number, nor is an Indian landline. Other numbers marked office/landline
+// go last (they rarely have WhatsApp).
 // Keep in step with phoneCandidates in public/app.js.
-function phoneCandidates(input) {
+// `seen.landline` is set when a number was dropped for being an Indian landline, so the reason can be shown.
+function phoneCandidates(input, seen = {}) {
   const cc = db.settings.defaultCountryCode;
   const best = [], last = [];
   for (const part of String(input ?? '').split(/[\n,;|]+|\s*\/\s*|\s+(?:or|and|&)\s+/i)) {
-    let d = part.replace(/\([^)]*\)/g, ' ').replace(/\D/g, '').replace(/^00/, '');
+    let d = part.replace(/\([^)]*\)/g, ' ').replace(EXTENSION, ' ').replace(/\D/g, '').replace(/^00/, '');
     if (cc && d.length === 10) d = cc + d;
     else if (cc && d.length === 11 && d.startsWith('0')) d = cc + d.slice(1);
-    if (d.length < 10 || d.length > 15) continue;
+    if (indianLandline(part, d)) { seen.landline = true; continue; }
+    if (d.length < 10 || d.length > 15 || d.startsWith('0')) continue;
     (/\b(tel|telephone|office|landline|fax|board)\b/i.test(part) ? last : best).push(d);
   }
   return [...new Set([...best, ...last])];
 }
 function normalizePhone(input) {
   return phoneCandidates(input)[0] || null;
+}
+// Why a cell has no usable number: a landline, or just not a valid number.
+const LANDLINE_MSG = 'This is an Indian landline. WhatsApp needs a mobile number (10 digits starting with 6, 7, 8 or 9).';
+function phoneRejectReason(input) {
+  const seen = {};
+  if (phoneCandidates(input, seen).length) return '';
+  return seen.landline ? 'Landline, not a mobile number' : 'Invalid number';
 }
 
 // A sheet value for a {{variable}}: bracketed notes dropped ("Sourceways (unclear)" → "Sourceways"), and
@@ -1608,7 +1629,7 @@ function resolveRecipients(body, template) {
   const skipped = [];
   for (const row of rows) {
     const phone = normalizePhone(row[phoneColumn]);
-    if (!phone) { skipped.push({ raw: row[phoneColumn], reason: 'Invalid number' }); continue; }
+    if (!phone) { skipped.push({ raw: row[phoneColumn], reason: phoneRejectReason(row[phoneColumn]) }); continue; }
     if (seen.has(phone)) { skipped.push({ raw: row[phoneColumn], reason: 'Duplicate' }); continue; }
     if (contactsApi.isOptedOut(phone)) { seen.add(phone); skipped.push({ raw: row[phoneColumn], reason: 'Opted out' }); continue; }
     seen.add(phone);
@@ -3263,7 +3284,7 @@ app.post('/api/admin/workspaces/:id/credits', wrap((req, res) => {
   creditsChanged(ws.meta.id);
   res.json(summary);
 }));
-const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, normalizeTypedPhone, phoneInputError, broadcast });
+const contactsApi = require('./contacts')(app, { db, save, id, wrap, fail, normalizePhone, normalizeTypedPhone, phoneInputError, phoneRejectReason, LANDLINE_MSG, broadcast });
 // Templates saved before their dates were kept: created = when it was sent to Meta from here, approved = the
 // latest "was approved" notification about it. Templates made in WhatsApp Manager have neither until they change.
 for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
