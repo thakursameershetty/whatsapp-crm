@@ -279,6 +279,8 @@ module.exports = function mountContacts(app, ctx) {
       total: matching.length, page, per, pages, facets, facetTotals,
       // The templates campaigns have sent, most recently used first (the Template filter's options)
       templates: [...new Map([...(db.campaigns || [])].filter((x) => !x.demo).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).map((x) => [tplOf.get(x.id), 1])).keys()].filter(Boolean),
+      // The numbers that have sent each template (their photos go beside it in the filter)
+      templateSenders: (db.campaigns || []).filter((x) => !x.demo && tplOf.get(x.id)).reduce((m, x) => { const l = (m[tplOf.get(x.id)] ||= []); for (const s of x.senderIds || []) if (!l.includes(s)) l.push(s); return m; }, {}),
       all: db.contacts.length, opted: db.contacts.filter((c) => c.optOut).length, untagged: db.contacts.filter((c) => !c.tags.length).length,
       ...(qs.ids ? { ids: matching.map((c) => c.id) } : {}),
     };

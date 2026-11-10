@@ -2189,6 +2189,13 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .fpx-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fpx-opt b { flex: none; font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .fpx-ph .sender-photo { width: 22px; height: 22px; font-size: 10px; }
+/* A template's numbers: their photos, overlapping */
+/* One width for every row (photos at its right end), so the template names line up */
+.fpx-stack { display: inline-flex; flex: none; align-items: center; justify-content: flex-end; width: 42px; }
+.fpx-stack .sender-photo { width: 22px; height: 22px; font-size: 10px; flex: none; box-shadow: 0 0 0 2px var(--surface); }
+.fpx-stack .sender-photo + .sender-photo { margin-left: -12px; }
+.fpx-opt:hover .fpx-stack .sender-photo { box-shadow: 0 0 0 2px var(--sunk); }
+.fpx-opt.on .fpx-stack .sender-photo { box-shadow: 0 0 0 2px var(--field); }
 .fpx-ph, .fpx-ic { display: inline-grid; place-items: center; flex: none; width: 22px; height: 22px; color: var(--muted); }
 .fpx-opt .ct-lab-dot, .fpx-opt .ct-dot { margin: 0 7px; }
 .fpx-edit { display: grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--muted); cursor: pointer; opacity: 0; }
