@@ -95,6 +95,8 @@ create table if not exists workspaces (id text primary key, data jsonb not null,
 create table if not exists members (id text primary key, ws_id text not null references workspaces(id) on delete cascade, user_id text not null references users(id) on delete cascade, data jsonb not null, updated_at timestamptz not null default now(), unique (ws_id, user_id));
 create table if not exists invites (id text primary key, ws_id text not null references workspaces(id) on delete cascade, data jsonb not null, updated_at timestamptz not null default now());
 create table if not exists sessions (id text primary key, user_id text not null references users(id) on delete cascade, data jsonb not null, updated_at timestamptz not null default now());
+-- The rest of the accounts object (platform settings, prepaid packs, contact-form enquiries…), one row per key.
+create table if not exists account_misc (id text primary key, data jsonb not null, updated_at timestamptz not null default now());
 create table if not exists ws_items (
   workspace_id text not null references workspaces(id) on delete cascade,
   kind text not null,
@@ -123,6 +125,7 @@ async function pgStore(url, dataDir) {
       const { rows } = await pool.query(`select id, data from ${t}`);
       for (const r of rows) { accounts[t].push(r.data); saved.set(`${t}|${r.id}`, JSON.stringify(r.data)); }
     }
+    for (const r of (await pool.query('select id, data from account_misc')).rows) { accounts[r.id] = r.data.value; saved.set(`account_misc|${r.id}`, JSON.stringify(r.data)); }
     accounts.users.sort((a, b) => cmp(a.createdAt, b.createdAt));
     accounts.workspaces.sort((a, b) => cmp(a.createdAt, b.createdAt));
     const data = new Map(accounts.workspaces.map((w) => [w.id, {}]));
@@ -209,6 +212,25 @@ async function pgStore(url, dataDir) {
         saved.delete(key);
       }
     }
+    // Everything else on the accounts object (platform, prepaid, enquiries…): one row per key, so it survives a restart.
+    const misc = new Set();
+    for (const [k, v] of Object.entries(acc)) {
+      if (ACCOUNT_TABLES[k] || v === undefined) continue;
+      misc.add(k);
+      const json = JSON.stringify({ value: v });
+      if (saved.get(`account_misc|${k}`) === json) continue;
+      await client.query(
+        `insert into account_misc (id, data, updated_at) values ($1, $2, now())
+         on conflict (id) do update set data = excluded.data, updated_at = now()`,
+        [k, json],
+      );
+      saved.set(`account_misc|${k}`, json);
+    }
+    for (const key of [...saved.keys()]) {
+      if (!key.startsWith('account_misc|') || misc.has(key.slice(13))) continue;
+      await client.query('delete from account_misc where id = $1', [key.slice(13)]);
+      saved.delete(key);
+    }
   }
 
   async function inTx(fn) {
@@ -231,6 +253,7 @@ async function pgStore(url, dataDir) {
   async function loadKeysOnly() {
     const m = new Map();
     for (const t of Object.keys(ACCOUNT_TABLES)) for (const r of (await pool.query(`select id, data from ${t}`)).rows) m.set(`${t}|${r.id}`, JSON.stringify(r.data));
+    for (const r of (await pool.query('select id, data from account_misc')).rows) m.set(`account_misc|${r.id}`, JSON.stringify(r.data));
     for (const r of (await pool.query('select workspace_id, kind, id, data from ws_items')).rows) m.set(`${r.workspace_id}|${r.kind}|${r.id}`, JSON.stringify(r.data));
     return m;
   }
