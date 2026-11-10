@@ -443,7 +443,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
       if (String(b.website || '').trim()) return res.json({ ok: true }); // the hidden field: a bot
       const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, max);
       const name = clean(b.name, 80), email = clean(b.email, 160).toLowerCase(), company = clean(b.company, 120);
-      const phone = clean(b.phone, 24).replace(/[^\d+\s()-]/g, ''), message = clean(b.message, 3000);
+      const phone = clean(b.phone, 24).replace(/[^\d+\s()-]/g, '').trim(), message = clean(b.message, 3000);
       const topic = CONTACT_TOPICS.includes(b.topic) ? b.topic : 'Something else';
       if (name.length < 2) return res.status(400).json({ error: 'Tell us your name', field: 'name' });
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email', field: 'email' });

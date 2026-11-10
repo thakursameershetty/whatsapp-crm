@@ -95,7 +95,8 @@ function publicSender(s) {
 // 10 digits (the default country code is added) or the full number with country code (up to 15).
 // Returns an error message, or '' when it's fine. (Imported sheets go through normalizePhone, which is forgiving.)
 function phoneInputError(input) {
-  const v = String(input ?? '').trim();
+  // An extension at the end ("98765 00301 Ext. 45") isn't part of the number: dropped, as in sheet cells.
+  const v = String(input ?? '').trim().replace(EXTENSION, '').trim();
   if (!v) return 'Enter a phone number';
   if (!/^\+?[\d\s\-().]+$/.test(v)) return 'A phone number can only have digits (and a + at the start)';
   const digits = v.replace(/\D/g, '').replace(/^00/, '');

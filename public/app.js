@@ -331,7 +331,7 @@ document.addEventListener('click', (e) => {
 // Phone fields (any input with inputmode="tel"): letters can't be typed, a + only at the start, at most
 // 15 digits; the same message as the server explains anything else. phoneError() is the shared check.
 function phoneError(v) {
-  v = String(v ?? '').trim();
+  v = String(v ?? '').trim().replace(EXTENSION, '').trim(); // an extension at the end isn't part of the number
   if (!v) return 'Enter a phone number';
   if (!/^\+?[\d\s\-().]+$/.test(v)) return 'A phone number can only have digits (and a + at the start)';
   const digits = v.replace(/\D/g, '').replace(/^00/, '');
@@ -343,7 +343,8 @@ document.addEventListener('input', (e) => {
   const inp = e.target;
   if (!inp.matches?.('input[inputmode="tel"]')) return;
   const at = inp.selectionStart, before = inp.value;
-  let v = before.replace(/[^\d+\s\-()]/g, '').replace(/(?!^)\+/g, '');
+  // A pasted extension ("98765 00301 Ext. 45") goes first, or its digits would join the number once the letters go
+  let v = before.replace(EXTENSION, '').replace(/[^\d+\s\-()]/g, '').replace(/(?!^)\+/g, '');
   let n = 0;
   v = v.replace(/\d/g, (d) => (++n > 15 ? '' : d));
   if (v !== before) { inp.value = v; const p = Math.max(0, at - (before.length - v.length)); inp.setSelectionRange(p, p); }
