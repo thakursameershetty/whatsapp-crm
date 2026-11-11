@@ -109,7 +109,11 @@ module.exports = function tenancy({ store, defaultDb, appPassword = '', ownerEma
   const save = () => { const ws = current(); if (ws) saveWorkspace(ws); };
   const forWorkspace = (ws, fn) => als.run(ws, fn);
   const allWorkspaces = () => [...loaded.values()];
-  const byPhoneNumberId = (pnid) => allWorkspaces().find((ws) => ws.db.senders.some((s) => s.phoneNumberId === pnid));
+  // A demo copy may hold the same number as the real workspace; Meta's webhooks belong to the real one.
+  const byPhoneNumberId = (pnid) => {
+    const has = allWorkspaces().filter((ws) => ws.db.senders.some((s) => s.phoneNumberId === String(pnid)));
+    return has.find((ws) => !ws.db.settings?.demoMode) || has[0];
+  };
 
   // Outside any workspace (e.g. while modules are being set up) reads and writes go to a
   // throwaway object, so nothing leaks between workspaces.

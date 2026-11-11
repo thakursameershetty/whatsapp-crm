@@ -606,6 +606,13 @@ function handleWebhookChange(change) {
         }
         const ref = messageIndex.get(st.id);
         if (!ref) continue;
+        // The campaign may live in another workspace than the one this number routed to (a number moved, or also saved
+        // in a demo copy): update it where it is, not silently drop the status.
+        if (!db.campaigns.some((x) => x.id === ref.campaignId)) {
+          const home = tenants.allWorkspaces().find((w) => w.db.campaigns.some((x) => x.id === ref.campaignId));
+          if (home) tenants.forWorkspace(home, () => { handleWebhookChange({ value: { statuses: [st] } }); });
+          continue;
+        }
         const c = db.campaigns.find((x) => x.id === ref.campaignId);
         const r = c?.recipients[ref.index];
         if (!r) continue;
