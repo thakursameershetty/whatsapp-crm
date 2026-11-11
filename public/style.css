@@ -2126,7 +2126,7 @@ html.vt-camp::view-transition-group(root) { animation-duration: 0.3s; }
 .ct-lab:first-child + .ct-lab-h { display: none; }
 .ct-lab-dot { flex: none; width: 7px; height: 7px; margin: 0 1px; border-radius: 50%; background: var(--faint); }
 .ct-lab-dot.st-interested { background: var(--info); } .ct-lab-dot.st-qualified { background: var(--violet); } .ct-lab-dot.st-won { background: var(--good, #1f9d55); }
-.ct-lab-dot.st-lost { background: var(--muted); } .ct-lab-dot.st-optout { background: var(--muted); } .ct-lab-dot.st-bad { background: var(--danger); }
+.ct-lab-dot.st-lost { background: var(--muted); } .ct-lab-dot.st-optout { background: var(--muted); } .ct-lab-dot.st-bad { background: var(--danger); } .ct-lab-dot.st-nowa { background: var(--warn, #d97706); }
 .ct-lab-ic { display: grid; place-items: center; flex: none; width: 18px; height: 18px; color: inherit; }
 .ct-lab-ph .sender-photo { width: 22px; height: 22px; font-size: 10px; margin-left: -2px; }
 /* Added by: the number dropdown in the Contacts toolbar (and its menu) shows each number's photo */

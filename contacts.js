@@ -182,7 +182,7 @@ module.exports = function mountContacts(app, ctx) {
 
   // --- The Contacts page, one page at a time --------------------------------------------------------------
   // GET /api/contacts?page=0&per=100 with q (search), sort + dir, and the Filters panel's picks as comma lists: stage,
-  // delivery (delivered | undelivered | optout), tpl (a template name the contact was sent in a campaign), num (a number's
+  // delivery (delivered | undelivered | nowa | optout), tpl (a template name the contact was sent in a campaign), num (a number's
   // id, or none), tag (a tag id, or none), source. Within a list: any of them; across lists: all. With templates picked,
   // Delivered / Not delivered look only at the campaigns that sent those templates ("who didn't get the Diwali offer"),
   // not at every campaign. Returns that page, how many match, and per filter section how many each option
@@ -192,11 +192,19 @@ module.exports = function mountContacts(app, ctx) {
   // delivery is only a fallback for contacts from before the campaign history was kept.
   const everFailed = (c, inTpl = null) => (c.campaigns || []).some((x) => x.status === 'failed' && (!inTpl || inTpl(x))) || (!inTpl && c.delivery?.status === 'failed');
   const everDelivered = (c, inTpl = null) => (c.campaigns || []).some((x) => (x.status === 'delivered' || x.status === 'read') && (!inTpl || inTpl(x))) || (!inTpl && ['delivered', 'read'].includes(c.delivery?.status));
+  // Not on WhatsApp: a campaign failed with a code that means the number can't get WhatsApp messages (131026 not on
+  // WhatsApp / app can't receive, 130472 Meta's experiment), and nothing has ever reached them. Sending to these again
+  // only adds failures that hurt the number's quality, so they get their own filter and leave Not delivered.
+  const NO_WA_CODES = new Set(['131026', '130472']);
+  const errCodeOf = (e) => { const t = String(e || ''); return (t.match(/^(\d{1,6}):/) || t.match(/\(#(\d+)\)/) || t.match(/\b(1\d{5})\b/) || [])[1] || ''; };
+  const noWaError = (e) => NO_WA_CODES.has(errCodeOf(e)) || /not on whatsapp/i.test(String(e || ''));
+  const notOnWa = (c) => !everDelivered(c) && ((c.campaigns || []).some((x) => x.status === 'failed' && noWaError(x.error)) || (c.delivery?.status === 'failed' && noWaError(c.delivery.error)));
+  const undelivered = (c, inTpl = null) => everFailed(c, inTpl) && !notOnWa(c);
   // The template a campaign sent, by name (the same template has a different id in each Business Account)
   const campaignTemplates = () => new Map((db.campaigns || []).filter((x) => !x.demo).map((x) => [x.id, x.templateName || db.templates.find((t) => t.id === x.templateId)?.name || '']));
   const MATCH = {
     stage: (c, k) => !c.optOut && c.status === k,
-    delivery: (c, k, inTpl) => (k === 'delivered' ? everDelivered(c, inTpl) : k === 'undelivered' ? everFailed(c, inTpl) : k === 'optout' && Boolean(c.optOut)),
+    delivery: (c, k, inTpl) => (k === 'delivered' ? everDelivered(c, inTpl) : k === 'undelivered' ? undelivered(c, inTpl) : k === 'nowa' ? notOnWa(c) : k === 'optout' && Boolean(c.optOut)),
     tpl: null, // needs which template each campaign sent, so it's set up per query below
     num: (c, k) => (c.via || 'none') === k,
     tag: (c, k) => (k === 'none' ? !c.tags.length : c.tags.includes(k)),
@@ -238,7 +246,7 @@ module.exports = function mountContacts(app, ctx) {
       const bump = (k) => { n[k] = (n[k] || 0) + 1; };
       for (const c of base) {
         if (sec === 'stage') { if (!c.optOut) bump(c.status); }
-        else if (sec === 'delivery') { const s = scope(fs.tpl); if (everDelivered(c, s)) bump('delivered'); if (everFailed(c, s)) bump('undelivered'); if (c.optOut) bump('optout'); }
+        else if (sec === 'delivery') { const s = scope(fs.tpl); if (everDelivered(c, s)) bump('delivered'); if (undelivered(c, s)) bump('undelivered'); if (notOnWa(c)) bump('nowa'); if (c.optOut) bump('optout'); }
         else if (sec === 'tpl') {
           // Each template's count respects the Delivery picks for that template alone
           for (const t of templatesOf(c)) if (!fs.delivery.size || [...fs.delivery].some((k) => MATCH.delivery(c, k, scope(new Set([t]))))) bump(t);
