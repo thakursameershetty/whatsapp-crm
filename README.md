@@ -10,7 +10,6 @@ npm start            # → http://localhost:3000
 ```
 
 Options (environment variables):
-
 | Variable | Purpose |
 |---|---|
 | `PORT` | Port to listen on (default `3000`) |
