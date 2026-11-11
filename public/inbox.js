@@ -1196,6 +1196,7 @@
     }
     const src = m.media?.local || (m.media?.id ? `/api/media/${enc(m.media.id)}` : '');
     let textInside = true;
+    if (m.elsewhere && m.dir === 'out') h += `<div class="ib-label" title="Sent from another workspace that uses this number">${icon('layers', 11)}From “${esc(m.elsewhere)}”</div>`;
     if (m.auto) h += `<div class="ib-label ib-auto"><svg class="orb-icon" data-orb-icon="11"></svg>Auto-reply · AI</div>`;
     switch (m.type) {
       case 'template': {

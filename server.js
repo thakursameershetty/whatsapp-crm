@@ -2459,6 +2459,39 @@ function sendJson(req, res, body) {
   res.send(require('zlib').gzipSync(text, { level: 6 }));
 }
 
+// A number saved in more than one workspace: the same chat as the other workspaces have it (what they sent, campaigns
+// included, and replies they got that this one doesn't have), so every workspace with the number sees the whole thread.
+// Read-only copies, marked with the workspace they came from. Live workspaces only share with live ones.
+function sharedMessages(key) {
+  const { senderId, wa } = splitKey(key);
+  const pnid = db.senders.find((x) => x.id === senderId)?.phoneNumberId;
+  if (!pnid) return [];
+  const demo = Boolean(db.settings.demoMode);
+  const others = tenants.allWorkspaces().filter((w) => w.db.senders !== db.senders && Boolean(w.db.settings?.demoMode) === demo && w.db.senders.some((x) => x.phoneNumberId === pnid));
+  if (!others.length) return [];
+  const have = new Set(db.messages.filter((m) => m.key === key && m.wamid).map((m) => m.wamid));
+  const digits = (v) => String(v || '').replace(/\D/g, '');
+  const tplHere = (id, name) => (db.templates.find((t) => t.id === id) || db.templates.find((t) => t.name === name))?.id || id;
+  const out = [];
+  for (const w of others) {
+    const ids = new Set(w.db.senders.filter((x) => x.phoneNumberId === pnid).map((x) => x.id));
+    const from = w.meta?.name || 'another workspace';
+    const add = (m) => { if (m.wamid && have.has(m.wamid)) return; if (m.wamid) have.add(m.wamid); out.push({ ...m, key, senderId, elsewhere: from }); };
+    for (const m of w.db.messages) {
+      if (!ids.has(m.senderId) || digits(m.wa) !== wa || (m.demo && !demo)) continue;
+      add(m.type === 'template' ? { ...m, templateId: tplHere(m.templateId, m.templateName) } : m);
+    }
+    for (const c of w.db.campaigns) {
+      if (Boolean(c.demo) !== demo) continue;
+      for (const r of c.recipients) {
+        if (!ids.has(r.senderId) || digits(r.phone) !== wa || !(r.sentAt || r.failedAt)) continue;
+        add({ id: r.messageId || c.id + wa, wamid: r.messageId, wa, dir: 'out', type: 'template', templateId: tplHere(c.templateId, c.templateName), templateName: c.templateName, values: r.values, campaign: c.name, ts: r.sentAt || r.failedAt, status: r.status, error: r.error, demo: Boolean(c.demo) });
+      }
+    }
+  }
+  return out;
+}
+
 app.get('/api/inbox/:key', wrap((req, res) => {
   const key = req.params.key;
   const { senderId, wa } = splitKey(key);
@@ -2473,7 +2506,7 @@ app.get('/api/inbox/:key', wrap((req, res) => {
       sent.push({ id: r.messageId || c.id + wa, wamid: r.messageId, dir: 'out', type: 'template', templateId: c.templateId, templateName: c.templateName, values: r.values, campaign: c.name, ts: r.sentAt || r.failedAt, status: r.status, error: r.error, resentAt: r.resentAt, demo: Boolean(c.demo), seed: Boolean(c.seed) });
     }
   }
-  const all = [...own, ...sent].sort((a, b) => a.ts.localeCompare(b.ts));
+  const all = [...own, ...sent, ...sharedMessages(key)].sort((a, b) => a.ts.localeCompare(b.ts));
   // The latest `limit` messages (default 150); the chat asks for more when you scroll back to the top.
   const limit = Math.max(20, Math.min(5000, Number(req.query.limit) || 150));
   const messages = all.slice(-limit);
@@ -3408,7 +3441,7 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
   const r = contactsApi.recheckPhones();
   if (r.fixed || r.flagged) console.log(`Contacts in ${ws.meta.name}: ${r.fixed} number(s) cleaned, ${r.flagged} newly flagged (${r.problems} need fixing).`);
 });
-const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts) });
+const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key) });
 
 // --- AI assistant -------------------------------------------------------------
 

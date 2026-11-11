@@ -6340,8 +6340,8 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 @media (max-width: 760px) { .pb-ed { grid-template-columns: 1fr; } }
 /* Numbers page: a number's playbooks */
 .dd-pb { display: flex; flex-wrap: wrap; gap: 4px; }
-.pb-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 99px; font-size: 11.5px; font-weight: 600; background: var(--sunk); color: var(--text); }
-.pb-chip.def::after { content: 'default'; margin-left: 5px; font-weight: 500; color: var(--muted); }
+.dd-pb .pb-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 99px; font-size: 11.5px; font-weight: 600; background: var(--sunk); color: var(--text); }
+.dd-pb .pb-chip.def::after { content: 'default'; margin-left: 5px; font-weight: 500; color: var(--muted); }
 .pb-num-list { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 4px; }
 .pb-num-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 10px; border-radius: 10px; }
 .pb-num-row:hover { background: var(--sunk); }
