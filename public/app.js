@@ -1147,6 +1147,7 @@ function renderSenders() {
         ${s.qualityRating ? `<dt>Quality</dt><dd class="dd-pop">${qualityTag(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
         ${numberPlaybooksHtml(s.id)}
+        ${dupOf(s) ? `<dt>Duplicate</dt><dd><span class="tag-chip tag-red" title="Replies and delivery updates go to only one copy">Same number as “${esc(dupOf(s).label)}”</span></dd>` : ''}
         ${s.lastCheckedAt ? `<dt>Connection</dt><dd class="dd-conn" title="Last checked ${esc(new Date(s.lastCheckedAt).toLocaleString())}"><span class="tag good">Connected</span><span class="tag-note">${esc(shortAgo(s.lastCheckedAt))}</span></dd>` : ''}
       </dl>
       <div class="row tight">
@@ -1160,6 +1161,8 @@ function renderSenders() {
   Motion.values(list);
   askPhotos();
 }
+// A number saved twice (before the server blocked it): the later copy names the first, so it can be deleted.
+const dupOf = (s) => { const first = state.senders.find((x) => x.phoneNumberId === s.phoneNumberId); return first !== s ? first : null; };
 // Numbers whose photo hasn't been read yet: ask Meta once, quietly (Numbers and Templates pages show them).
 const photoAsked = new Set();
 function askPhotos() {
@@ -1801,7 +1804,8 @@ function tplGroupHead(w, ts, pick, solo) {
   const right = `<div class="tpl-num-stats">${count}${solo ? '' : `<span class="tpl-num-chev">${icon('chevron-down', 18)}</span>`}</div>`;
   const toggle = solo ? '' : ` data-toggle role="button" tabindex="0" aria-expanded="${(tplOpen().has(w || 'other'))}"`;
   if (!w) return `<header class="tpl-num-h other"${toggle}><span class="tpl-num-ic">${icon('file-text', 18)}</span><div class="tpl-num-main"><b>Other templates</b><span class="tpl-num-sub">Not tied to one of your numbers</span></div>${right}</header>`;
-  const ss = pick ? [pick] : state.senders.filter((x) => x.wabaId === w);
+  // one row per phone number, even if the same number was saved twice
+  const ss = pick ? [pick] : state.senders.filter((x, i, all) => x.wabaId === w && all.findIndex((y) => y.phoneNumberId === x.phoneNumberId) === i);
   const one = (s) => {
     const q = QUALITY[s.qualityRating];
     const bits = [s.displayPhone && `<span class="tpl-num-phone">${esc(s.displayPhone)}</span>`,

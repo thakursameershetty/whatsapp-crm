@@ -1095,6 +1095,9 @@ app.post('/api/senders', wrap(async (req, res) => {
     if (!s.accessToken) throw fail(NEED_TOKEN);
     Object.assign(s, await verifyWithMeta(s), { lastCheckedAt: new Date().toISOString() });
   }
+  // Checked again after the wait for Meta: a second save sent meanwhile (another tab, a double submit) has passed the
+  // first check too, and only one of them may land.
+  { const e = duplicateSenderError(s.phoneNumberId); if (e) throw fail(e); }
   db.senders.push(s);
   save();
   res.json({ ...publicSender(s), warning: await linkWebhooks(s) });
@@ -1114,6 +1117,7 @@ app.put('/api/senders/:id', wrap(async (req, res) => {
     if (!next.accessToken) throw fail(NEED_TOKEN);
     checked = await verifyWithMeta(next);
   }
+  if (next.phoneNumberId !== s.phoneNumberId) { const e = duplicateSenderError(next.phoneNumberId, s); if (e) throw fail(e); } // again, after the wait
   for (const k of ['label', 'phoneNumberId', 'wabaId', 'displayPhone', 'enabled']) if (k in req.body) s[k] = typeof req.body[k] === 'string' ? req.body[k].trim() : req.body[k];
   // Blank token on edit means "keep the existing one".
   if (req.body.accessToken) s.accessToken = req.body.accessToken.trim();
