@@ -567,6 +567,20 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
       }
       const ws = tenants.byPhoneNumberId(change.value?.metadata?.phone_number_id);
       if (!ws) continue;
+      // A number saved in more than one live workspace: every one of them gets the reply in its inbox, but only the
+      // workspace that last wrote to that person (else the usual one) lets the AI answer, so nobody gets two replies.
+      if (change.value.messages?.length) {
+        const pnid = String(change.value.metadata.phone_number_id);
+        const homes = tenants.allWorkspaces().filter((w) => !w.db.settings?.demoMode && w.db.senders.some((x) => x.phoneNumberId === pnid));
+        if (homes.length > 1) {
+          const answerer = new Map(change.value.messages.map((m) => [m.id, lastWroteTo(homes, pnid, m.from) || ws]));
+          for (const w of homes) {
+            const value = { ...change.value, statuses: w === ws ? change.value.statuses : undefined };
+            tenants.forWorkspace(w, () => handleWebhookChange({ ...change, value }, { silentAi: (m) => answerer.get(m.id) !== w }));
+          }
+          continue;
+        }
+      }
       // The entry is the number's Business Account, so a number saved without one learns it here.
       const s = ws.db.senders.find((x) => x.phoneNumberId === String(change.value.metadata.phone_number_id) && !x.wabaId);
       if (s && /^\d{10,17}$/.test(String(entry.id))) tenants.forWorkspace(ws, () => { s.wabaId = String(entry.id); save(); });
@@ -575,7 +589,23 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
   }
 });
 
-function handleWebhookChange(change) {
+// Of these workspaces, the one that most recently sent to this person (digits) from the number with this phone number ID.
+function lastWroteTo(workspaces, pnid, wa) {
+  const digits = String(wa || '').replace(/\D/g, '');
+  let best = null, bestAt = '';
+  for (const w of workspaces) {
+    const ids = new Set(w.db.senders.filter((x) => x.phoneNumberId === pnid).map((x) => x.id));
+    let at = '';
+    for (const m of w.db.messages) if (m.dir === 'out' && ids.has(m.senderId) && m.ts > at && String(m.wa || '').replace(/\D/g, '') === digits) at = m.ts;
+    for (const c of w.db.campaigns) for (const r of c.recipients) {
+      if (r.sentAt && r.sentAt > at && ids.has(r.senderId || c.senderId) && String(r.phone || '').replace(/\D/g, '') === digits) at = r.sentAt;
+    }
+    if (at > bestAt) { best = w; bestAt = at; }
+  }
+  return best;
+}
+
+function handleWebhookChange(change, opts = {}) {
   // When Meta last reached this workspace, for the Settings → Webhook status.
   const v = change.value || {};
   const hook = (db.settings.webhookSeen ||= {});
@@ -629,7 +659,7 @@ function handleWebhookChange(change) {
         contactsApi.noteDelivery(c, r);
         recount(c);
       }
-      if (change.value?.messages) ingestMessages(change.value);
+      if (change.value?.messages) ingestMessages(change.value, opts);
     }
   }
   save();
@@ -2238,25 +2268,26 @@ function parseIncoming(m) {
 }
 const UNSUPPORTED_LABEL = { view_once: 'View-once message', poll: 'Poll', edit: 'Edited a message', live_location: 'Live location', event: 'Event', video_note: 'Video note', call: 'Call', ephemeral: 'Disappearing message' };
 
-function ingestMessages(value) {
+function ingestMessages(value, { silentAi } = {}) {
   const pnid = value.metadata?.phone_number_id;
   const sender = db.senders.find((s) => s.phoneNumberId === pnid);
   const senderId = sender?.id || 'pn_' + pnid;
   const names = Object.fromEntries((value.contacts || []).map((c) => [c.wa_id, c.profile?.name]));
   for (const m of value.messages || []) {
-    if (inboxIndex.has(m.id)) continue; // Meta can deliver the same webhook more than once
+    // Meta can deliver the same webhook more than once. A number shared by workspaces gets a copy in each, so the check is per workspace.
+    if (inboxIndex.has(m.id) && (!silentAi || db.messages.some((x) => x.wamid === m.id))) continue;
     const key = chatKey(senderId, m.from);
     const chat = (db.chats[key] ||= { lastReadAt: null });
     if (names[m.from]) chat.name = names[m.from];
     const msg = { id: id(), wamid: m.id, key, senderId, wa: m.from, dir: 'in', ts: new Date(Number(m.timestamp) * 1000).toISOString(), context: m.context?.id, ...parseIncoming(m) };
     db.messages.push(msg);
-    inboxIndex.set(m.id, msg);
+    if (!inboxIndex.has(m.id) || !silentAi?.(m)) inboxIndex.set(m.id, msg);
     // Everyone who writes in becomes a contact; STOP opts them out straight away.
     const contact = contactsApi.onInbound(m.from, { name: names[m.from], text: msg.text, ts: msg.ts, senderId });
     const who = chat.name || contact?.name || '+' + m.from;
     if (contact?.optOut && contact.optOutAt && Date.now() - Date.parse(contact.optOutAt) < 5000) notes?.optout({ name: who, phone: contact.phone, key });
     else if (msg.type !== 'reaction') notes?.message({ key, name: who, text: msg.text, type: msg.type });
-    if (msg.type !== 'reaction') leadApi.onInbound(key);
+    if (msg.type !== 'reaction' && !silentAi?.(m)) leadApi.onInbound(key);
     broadcast({ kind: 'message', key, dir: 'in' });
   }
 }
