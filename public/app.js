@@ -1152,6 +1152,7 @@ function renderSenders() {
         <dt>WABA ID</dt><dd>${esc(s.wabaId || '—')}</dd>
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
         ${nameStatusHtml(s)}
+        ${s.nameBlockedAt || unreviewed555(s) ? `<dt>Display name</dt><dd class="dd-conn"><span class="tag ${nameInfo(s)[0]}" title="${esc(nameInfo(s)[2])}">${esc(nameInfo(s)[1])}</span>${s.hasToken && !state.settings.demoMode ? `<button type="button" class="dd-act" data-register="${s.id}" title="Register the number with Meta again: the usual fix for error 131037">${icon('refresh-cw', 13)}Re-register</button>` : ''}</dd>` : ''}
         ${s.qualityRating ? `<dt>Quality</dt><dd class="dd-pop">${qualityTag(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
         ${numberPlaybooksHtml(s.id)}
@@ -1161,7 +1162,6 @@ function renderSenders() {
       <div class="row tight">
         <button class="btn sm" data-test="${s.id}">${icon('zap', 15)}Test connection</button>
         <button class="btn quiet sm" data-edit="${s.id}">${icon('square-pen', 15)}Edit</button>
-        ${s.hasToken && !state.settings.demoMode && (s.nameBlockedAt || unreviewed555(s)) ? `<button class="btn quiet sm" data-register="${s.id}" title="Register the number with Meta again: the usual fix for error 131037">${icon('refresh-cw', 15)}Re-register</button>` : ''}
         ${numberAccessHtml(s)}
       </div>
     </div>`
@@ -4375,6 +4375,19 @@ const QUALITY_NONE = {
   means: 'No restrictions. It starts at the default messaging limit.',
   todo: 'Start with people who opted in, so its first rating comes out High.',
 };
+// A tag's popover (quality…) opens to the right of the tag; near the screen's right edge it would run off it, so slide
+// it left just enough to fit, with its arrow still pointing at the tag.
+function fitTagPop(e, tries = 0) {
+  const pop = e.target.closest?.('.tag.has-pop')?.querySelector('.tag-pop');
+  if (!pop) return;
+  pop.style.left = ''; pop.style.removeProperty('--pop-arrow');
+  const r = pop.getBoundingClientRect();
+  if (!r.width) return void (tries < 3 && requestAnimationFrame(() => fitTagPop(e, tries + 1))); // not opened (displayed) yet
+  const over = r.right - (document.documentElement.clientWidth - 12);
+  if (over > 0) { pop.style.left = `${-8 - over}px`; pop.style.setProperty('--pop-arrow', `${18 + over}px`); }
+}
+document.addEventListener('mouseover', fitTagPop);
+document.addEventListener('focusin', fitTagPop);
 function qualityTag(rating) {
   const q = QUALITY[rating] || QUALITY_NONE;
   return `<span class="tag ${q.cls} has-pop" tabindex="0">${q.label}
