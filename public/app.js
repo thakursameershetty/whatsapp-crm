@@ -5273,6 +5273,8 @@ function showLockScreen() {
 function renderWorkspaces() {
   const me = state.me, lim = me.workspaceLimit;
   $('#wsCount').textContent = lim == null ? `${me.workspaces.length}` : `${me.workspacesOwned} of ${lim} you can own`;
+  // The team sits inside the current workspace's row (below), so the redraw would delete it: keep hold of it first.
+  const team = $('#wsTeam');
   $('#wsList').innerHTML = me.workspaces.map((w) => {
     const cur = w.id === me.workspace.id;
     return `<div class="ws-row ${cur ? 'current' : ''}">
@@ -5282,7 +5284,7 @@ function renderWorkspaces() {
     </div>`;
   }).join('');
   // The team belongs to the workspace you're in: show it inside that row.
-  $('#wsList .ws-team-slot')?.append($('#wsTeam'));
+  if (team) $('#wsList .ws-team-slot')?.append(team);
   $('#wsSettings').classList.toggle('hidden', me.role !== 'owner'); // password and deleting are for owners
   const full = lim != null && me.workspacesOwned >= lim;
   $('#wsNew').disabled = full;
