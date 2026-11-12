@@ -340,8 +340,33 @@ async function sendTemplate(sender, template, to, values, demo = db.settings.dem
     type: 'template',
     template: { name: template.name, language: { code: template.language }, components: buildComponents(template, values) },
   };
-  const json = await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify(body) });
+  let json;
+  try { json = await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify(body) }); }
+  catch (e) { if (Number(e.code) === 131037) noteNameBlocked(sender, true); throw e; }
   return json.messages?.[0]?.id;
+}
+
+// What Meta actually does with a number's messages, which can disagree with its name_status: a Meta-provided
+// +1 555 number reads AVAILABLE_WITHOUT_REVIEW ("approved" by the API) yet every send fails with 131037. So a 131037
+// marks the number blocked (red on Numbers, a warning before sending), and only a delivered message clears it,
+// since Meta accepts some sends and fails them a moment later in the status webhook.
+function noteNameBlocked(sender, blocked) {
+  if (!sender) return;
+  if (blocked) {
+    if (sender.nameBlockedAt) return;
+    sender.nameBlockedAt = new Date().toISOString();
+    notes?.add({
+      kind: 'number_problem',
+      title: `${sender.verifiedName || sender.label}: Meta is rejecting its messages`,
+      body: `Messages from ${sender.displayPhone || sender.label} fail with error 131037 (display name not approved), even if WhatsApp Manager shows the name. Try Re-register on its card under Numbers; if that doesn't help, ask Meta support to review the display name.`,
+      link: { tab: 'numbers' },
+    });
+  } else {
+    sender.deliveredOkAt = new Date().toISOString();
+    if (!sender.nameBlockedAt) return;
+    delete sender.nameBlockedAt;
+    notes?.add({ kind: 'number_ok', title: `${sender.verifiedName || sender.label}: messages are getting through again`, body: `Meta delivered a message from ${sender.displayPhone || sender.label}, so error 131037 is resolved.`, link: { tab: 'numbers' } });
+  }
 }
 
 // Rate-limit / throughput errors worth retrying with backoff.
@@ -619,6 +644,10 @@ function handleWebhookChange(change, opts = {}) {
   {
     {
       for (const st of change.value?.statuses || []) {
+        // the number's real standing with Meta: a 131037 failure blocks it, a delivered message proves it works
+        const fromNumber = db.senders.find((x) => x.phoneNumberId === String(v.metadata?.phone_number_id || ''));
+        if (fromNumber && st.status === 'failed' && st.errors?.some((e) => Number(e.code) === 131037)) noteNameBlocked(fromNumber, true);
+        else if (fromNumber && (st.status === 'delivered' || st.status === 'read') && (fromNumber.nameBlockedAt || !fromNumber.deliveredOkAt)) noteNameBlocked(fromNumber, false);
         const im = inboxIndex.get(st.id);
         if (im && im.dir === 'out') {
           const was = im.status;
@@ -1205,6 +1234,27 @@ app.post('/api/senders/:id/test', wrap(async (req, res) => {
   await readProfilePhoto(s);
   save();
   res.json({ ok: true, info, sender: publicSender(s) });
+}));
+
+// Register the number with the Cloud API again. Meta re-issues the display name certificate this way, the usual fix
+// for a number that keeps failing with 131037 although its name shows in WhatsApp Manager. The PIN is the number's
+// two-step verification PIN; on a number without one, the PIN given here becomes it.
+app.post('/api/senders/:id/register', wrap(async (req, res) => {
+  const s = db.senders.find((x) => x.id === req.params.id);
+  if (!s) throw fail('Not found', 404);
+  if (!s.accessToken) throw fail('No access token saved for this number');
+  const pin = String(req.body?.pin ?? '').trim();
+  if (!/^\d{6}$/.test(pin)) throw fail('Enter the 6-digit PIN');
+  try {
+    await graph(s, `${encodeURIComponent(s.phoneNumberId)}/register`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', pin }) });
+  } catch (e) {
+    if (Number(e.code) === 133005) throw fail('That PIN doesn’t match the number’s two-step verification PIN. Reset it in WhatsApp Manager → Phone numbers → the number → Two-step verification, then try again.');
+    throw e;
+  }
+  s.registeredAt = new Date().toISOString();
+  applyNumberStatus(s, await readNumberStatus(s, s.phoneNumberId));
+  save();
+  res.json({ ok: true, sender: publicSender(s) });
 }));
 
 // --- WhatsApp profile photo -------------------------------------------------

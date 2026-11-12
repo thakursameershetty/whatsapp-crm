@@ -1083,11 +1083,19 @@ const NUMBER_STATUS = {
   PENDING: 'Setup not finished', UNVERIFIED: 'Not verified', DISCONNECTED: 'Disconnected', FLAGGED: 'Flagged by Meta',
   RESTRICTED: 'Restricted by Meta', BANNED: 'Banned by Meta', RATE_LIMITED: 'Rate limited', DELETED: 'Deleted at Meta', MIGRATED: 'Moved to another account',
 };
-const nameBlocked = (s) => ['PENDING_REVIEW', 'DECLINED', 'EXPIRED', 'NONE'].includes(s.nameStatus); // sends from it will fail
+// A Meta-provided US number (+1 555…). For these, AVAILABLE_WITHOUT_REVIEW isn't enough: Meta fails every send with
+// 131037 until the name is really approved, so until one of its messages is delivered it shows as not reviewed.
+const isMeta555 = (s) => /^1555/.test(String(s.displayPhone || '').replace(/\D/g, ''));
+const unreviewed555 = (s) => s.nameStatus === 'AVAILABLE_WITHOUT_REVIEW' && isMeta555(s) && !s.deliveredOkAt
+  && !(state.stats?.senders?.find((x) => x.id === s.id)?.delivered > 0); // already delivered messages: it works
+const NAME_BLOCKED = ['bad', 'Rejecting messages', 'Meta is rejecting this number’s messages with error 131037 (display name not approved), even if WhatsApp Manager shows the name. Click Re-register on this card; if messages still fail, ask Meta support to review the display name.'];
+const NAME_UNREVIEWED = ['warn', 'Not reviewed', 'Meta lists this display name as “available without review”. Meta’s free +1 555 numbers usually can’t send until the name is really approved (error 131037). Send one test message first; if it fails, click Re-register.'];
+const nameInfo = (s) => (s.nameBlockedAt ? NAME_BLOCKED : unreviewed555(s) ? NAME_UNREVIEWED : NAME_STATUS[s.nameStatus]);
+const nameBlocked = (s) => Boolean(s.nameBlockedAt) || unreviewed555(s) || ['PENDING_REVIEW', 'DECLINED', 'EXPIRED', 'NONE'].includes(s.nameStatus); // sends from it will (likely) fail
 // The display name's status as a dot beside the name (green approved, amber waiting, red rejected / expired); hover or
 // focus it for what it means and what to do.
 function nameDotHtml(s) {
-  const n = NAME_STATUS[s.nameStatus];
+  const n = nameInfo(s);
   if (!n) return '';
   const tip = `Display name: ${n[1].toLowerCase()}. ${n[2]}`
     + (s.newNameStatus === 'PENDING_REVIEW' && s.nameStatus !== 'PENDING_REVIEW' ? ' A new name is in review.' : '')
@@ -1153,6 +1161,7 @@ function renderSenders() {
       <div class="row tight">
         <button class="btn sm" data-test="${s.id}">${icon('zap', 15)}Test connection</button>
         <button class="btn quiet sm" data-edit="${s.id}">${icon('square-pen', 15)}Edit</button>
+        ${s.hasToken && !state.settings.demoMode && (s.nameBlockedAt || unreviewed555(s)) ? `<button class="btn quiet sm" data-register="${s.id}" title="Register the number with Meta again: the usual fix for error 131037">${icon('refresh-cw', 15)}Re-register</button>` : ''}
         ${numberAccessHtml(s)}
       </div>
     </div>`
@@ -1366,7 +1375,34 @@ $('#senderList').addEventListener('click', (e) => {
       toast(`✓ Connected: ${r.info.display_phone_number} (${r.info.verified_name || 'unverified'})`);
       await loadSenders();
     }, b);
+  if (b.dataset.register) registerNumber(state.senders.find((x) => x.id === b.dataset.register));
 });
+
+// Re-register a number with Meta (fixes error 131037 when the name shows as approved but sends still fail).
+function registerNumber(s) {
+  if (!s) return;
+  const body = openModal('Re-register number', `
+    <form id="regForm" novalidate>
+      <p>Registers <b>${esc(s.verifiedName || s.label)}</b> (${esc(s.displayPhone || s.phoneNumberId)}) with Meta again. That re-issues its display name certificate, the usual fix when messages fail with error 131037 even though WhatsApp Manager shows the name.</p>
+      <label>Two-step verification PIN<span class="opt">6 digits</span><input name="pin" required inputmode="numeric" data-digits maxlength="6" autocomplete="off" placeholder="••••••" /></label>
+      <p class="sub">Use the number’s current PIN. If it never had one, the PIN you enter here becomes it, so write it down. Forgot it? Reset it in WhatsApp Manager → Phone numbers → the number → Two-step verification.</p>
+      <p class="sub">Afterwards, send one test message from this number before resuming a campaign.</p>
+      <div class="modal-actions"><button type="button" class="btn quiet" onclick="closeModal()">Cancel</button><button class="btn primary">Re-register</button></div>
+    </form>`);
+  const form = body.querySelector('#regForm');
+  form.pin.focus();
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const pin = form.pin.value.trim();
+    if (!/^\d{6}$/.test(pin)) return toast('Enter the 6-digit PIN', 'error');
+    guard(async () => {
+      await api(`/senders/${s.id}/register`, { method: 'POST', body: { pin } });
+      closeModal();
+      toast('✓ Re-registered with Meta. Send one test message to check it works.');
+      await loadSenders();
+    }, form.querySelector('.btn.primary'));
+  });
+}
 
 // What each field of the number form is, and where to find it in Meta (the ? beside its name).
 const SF_HELP = {

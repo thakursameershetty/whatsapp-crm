@@ -1503,7 +1503,7 @@
     const list = state.senders.filter((x) => state.selectedSenders.has(x.id));
     // a number whose display name isn't approved: Meta rejects every message from it (131037), so say so before sending
     const blocked = state.settings.demoMode ? [] : list.filter(nameBlocked);
-    const warn = blocked.length ? `<p class="cf-warn">${icon('badge-alert', 15)}<span><b>${esc(blocked.map((x) => x.verifiedName || x.label).join(', '))}</b>: display name ${esc(blocked.length === 1 ? NAME_STATUS[blocked[0].nameStatus][1].toLowerCase() : 'not approved')}. Meta will reject these messages (error 131037) until it's approved. See Numbers.</span></p>` : '';
+    const warn = blocked.length ? `<p class="cf-warn">${icon('badge-alert', 15)}<span><b>${esc(blocked.map((x) => x.verifiedName || x.label).join(', '))}</b>: ${blocked.some((x) => x.nameBlockedAt) ? 'Meta is already rejecting messages from this number' : `display name ${esc(blocked.length === 1 ? nameInfo(blocked[0])[1].toLowerCase() : 'not approved')}`}. Meta will likely reject these messages (error 131037). Send one test message first, or see Numbers.</span></p>` : '';
     return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>${warn}`;
   }
   $('#sendAll').addEventListener('click', (e) => {
