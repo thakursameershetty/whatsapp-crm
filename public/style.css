@@ -733,23 +733,6 @@ html:has(.modal:not(.hidden)) { overflow: hidden; }
 .btn.is-off { color: var(--faint); cursor: not-allowed; box-shadow: none; background: var(--sunk); }
 .btn.is-off:hover:not(:disabled) { transform: none; box-shadow: none; }
 .btn.is-off svg.la, .btn.is-off svg.la * { animation: none !important; }
-.btn[data-tip]::before, .btn[data-tip]::after, .cat-flag[data-tip]::before, .cat-flag[data-tip]::after {
-  position: absolute; left: 14px; z-index: 20; pointer-events: none;
-  opacity: 0; transform: translateY(4px); transition: opacity 0.16s, transform 0.16s var(--ease-out);
-}
-.btn[data-tip]::after, .cat-flag[data-tip]::after {
-  content: attr(data-tip); left: 0; bottom: calc(100% + 9px);
-  width: max-content; max-width: 230px; padding: 8px 11px; border-radius: 9px;
-  background: #1c1f22; color: #fff; font: 500 12.5px/1.45 Inter, sans-serif; white-space: normal; text-align: left;
-  box-shadow: 0 8px 24px rgba(16, 24, 32, 0.22);
-}
-.btn[data-tip]::before, .cat-flag[data-tip]::before { content: ''; bottom: calc(100% + 4px); width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
-.btn[data-tip]:hover::before, .btn[data-tip]:hover::after, .btn[data-tip]:focus-visible::before, .btn[data-tip]:focus-visible::after,
-.btn[data-tip].tip-show::before, .btn[data-tip].tip-show::after,
-.cat-flag[data-tip]:hover::before, .cat-flag[data-tip]:hover::after, .cat-flag[data-tip]:focus-visible::before, .cat-flag[data-tip]:focus-visible::after { opacity: 1; transform: none; }
-/* .tip-end: for buttons at the right edge (like Find in the number form), the tooltip lines up with the button's right side. */
-.btn[data-tip].tip-end::after { left: auto; right: 0; }
-.btn[data-tip].tip-end::before { left: auto; right: 14px; }
 .tpl-chat .bubble { font-size: 13px; max-width: 100%; }
 .var-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .var-chip { font: 600 11.5px ui-monospace, Menlo, monospace; padding: 3px 8px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-text); }
@@ -4130,16 +4113,7 @@ body.ws-hint .acct-btn { animation: ws-glow 1.4s ease-in-out 3; }
 .name-dot.warn { background: var(--warn); color: var(--warn); }
 .name-dot.bad { background: var(--danger); color: var(--danger); }
 .name-dot:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
-/* its tooltip: the same dark card as a button's (.btn[data-tip]), opening below the dot (above, it went under the
-   page's sticky header on the first row of cards) */
 .name-dot { position: relative; cursor: default; }
-.name-dot::before, .name-dot::after { position: absolute; z-index: 30; pointer-events: none; opacity: 0; transform: translateY(-4px); transition: opacity 0.16s, transform 0.16s var(--ease-out); }
-.name-dot::after {
-  content: attr(data-tip); left: -14px; top: calc(100% + 11px); width: max-content; max-width: 260px; padding: 8px 11px; border-radius: 9px;
-  background: #1c1f22; color: #fff; font: 500 12.5px/1.45 Inter, sans-serif; letter-spacing: 0; white-space: normal; text-align: left; box-shadow: 0 8px 24px rgba(16, 24, 32, 0.22);
-}
-.name-dot::before { content: ''; left: -1px; top: calc(100% + 6px); width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
-.name-dot:hover::before, .name-dot:hover::after, .name-dot:focus-visible::before, .name-dot:focus-visible::after { opacity: 1; transform: none; }
 .sender-vname { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sender-num { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sender-card .sender-photo { width: 40px; height: 40px; font-size: 16px; }
@@ -4515,10 +4489,10 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
   padding: 12px 14px; border-radius: 10px; background: #1c1f22; color: #e8eaec; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   font: 400 12.5px/1.45 var(--font-ui, Inter, system-ui, sans-serif); white-space: normal; text-align: left; cursor: default;
   /* display:none while closed: an invisible popover still takes space, and on the right-most card that made the page scroll sideways */
-  display: none; opacity: 0; visibility: hidden; transform: translateY(-3px);
+  display: none; opacity: 0; visibility: hidden; transform: translateY(-3px); translate: var(--pop-shift, 0px) 0;
   transition: opacity 0.15s, transform 0.15s, visibility 0.15s, display 0.15s allow-discrete;
 }
-.tag-pop::before { content: ''; position: absolute; top: -5px; left: var(--pop-arrow, 18px); width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
+.tag-pop::before { content: ''; position: absolute; top: -5px; left: 18px; translate: calc(-1 * var(--pop-shift, 0px)) 0; width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
 .tag.has-pop:hover .tag-pop, .tag.has-pop:focus-visible .tag-pop, .tag.has-pop:focus-within .tag-pop { display: flex; opacity: 1; visibility: visible; transform: none; }
 @starting-style { .tag.has-pop:hover .tag-pop, .tag.has-pop:focus-visible .tag-pop, .tag.has-pop:focus-within .tag-pop { opacity: 0; transform: translateY(-3px); } }
 .tag-pop .qp-head { display: flex; flex-direction: column; gap: 1px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
@@ -4887,16 +4861,18 @@ tr.cp-back-hl { animation: cp-back-hl-row 1.6s ease-out; }
 .info-tip:hover, .info-tip:focus-visible { color: var(--text); outline: 0; }
 .info-tip:focus-visible { box-shadow: 0 0 0 2px var(--ring); }
 .tip-card {
-  position: absolute; z-index: 40; top: calc(100% + 8px); left: -14px; width: 300px; display: flex; flex-direction: column; gap: 7px;
+  position: absolute; z-index: 40; top: calc(100% + 8px); left: -14px; width: min(300px, calc(100vw - 24px)); display: none; flex-direction: column; gap: 7px; translate: var(--pop-shift, 0px) 0;
   padding: 12px 14px; border-radius: 10px; background: #1c1f22; color: #c9ced3; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   font: 400 12.5px/1.5 var(--font-ui, Inter, system-ui, sans-serif); text-align: left; text-transform: none; letter-spacing: 0; white-space: normal; cursor: default;
-  opacity: 0; visibility: hidden; transform: translateY(-3px); transition: opacity 0.15s, transform 0.15s, visibility 0.15s; pointer-events: none;
+  /* display:none while closed: an invisible card still takes space, and near the right edge that made the page scroll sideways */
+  opacity: 0; visibility: hidden; transform: translateY(-3px); transition: opacity 0.15s, transform 0.15s, visibility 0.15s, display 0.15s allow-discrete; pointer-events: none;
 }
-.tip-card::before { content: ''; position: absolute; top: -5px; left: 18px; width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
+.tip-card::before { content: ''; position: absolute; top: -5px; left: 18px; translate: calc(-1 * var(--pop-shift, 0px)) 0; width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
 .tip-card > b { color: #fff; font-size: 13px; font-weight: 600; }
 .tip-card b { color: #fff; font-weight: 600; }
 .tip-card code { padding: 0 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.1); color: #fff; font: 600 11.5px ui-monospace, Menlo, monospace; }
-.info-tip:hover .tip-card, .info-tip:focus-visible .tip-card, .info-tip:focus .tip-card { opacity: 1; visibility: visible; transform: none; } /* never catches the mouse, so it can't cover the next ⓘ */
+.info-tip:hover .tip-card, .info-tip:focus-visible .tip-card, .info-tip:focus .tip-card { display: flex; opacity: 1; visibility: visible; transform: none; }
+@starting-style { .info-tip:hover .tip-card, .info-tip:focus-visible .tip-card, .info-tip:focus .tip-card { opacity: 0; transform: translateY(-3px); } } /* never catches the mouse, so it can't cover the next ⓘ */
 /* Tips near the right edge of a card open leftward */
 .set-row label:last-child .tip-card, .rr-row .tip-card { left: auto; right: -14px; }
 .set-row label:last-child .tip-card::before { left: auto; right: 18px; }
@@ -5812,7 +5788,7 @@ body.no-ai-manage .ai-settings, body.no-ai-manage .lead-settings { display: none
 /* The ? beside a field's name: what it is and where to find it, in the app's dark tooltip */
 .sf-help { position: relative; display: inline-grid; place-items: center; width: 15px; height: 15px; margin: 0 4px 0 1px; border-radius: 50%; background: var(--sunk); box-shadow: inset 0 0 0 1px var(--hair); color: var(--muted); font: 700 10px/1 Inter, sans-serif; vertical-align: 1px; cursor: help; }
 .sf-help:hover, .sf-help:focus-visible { color: var(--text); background: var(--surface); outline: 0; }
-.help-tip { position: fixed; z-index: 80; max-width: 300px; padding: 9px 12px; border-radius: 9px; background: #1c1f22; color: #fff; font: 500 12.5px/1.5 Inter, sans-serif; box-shadow: 0 8px 24px rgba(16, 24, 32, 0.22); pointer-events: none; animation: help-in 0.14s var(--ease-out, ease-out); }
+.help-tip { position: fixed; z-index: 80; max-width: min(300px, calc(100vw - 16px)); white-space: pre-line; overflow-wrap: anywhere; padding: 9px 12px; border-radius: 9px; background: #1c1f22; color: #fff; font: 500 12.5px/1.5 Inter, sans-serif; box-shadow: 0 8px 24px rgba(16, 24, 32, 0.22); pointer-events: none; animation: help-in 0.14s var(--ease-out, ease-out); }
 .help-tip.hidden { display: none; }
 .help-tip::after { content: ''; position: absolute; left: var(--arrow-x, 12px); bottom: -5px; width: 10px; height: 10px; background: #1c1f22; border-radius: 2px; rotate: 45deg; }
 .help-tip.below::after { bottom: auto; top: -5px; }
@@ -6745,9 +6721,6 @@ html.vt-day::view-transition-old(root), html.vt-day::view-transition-new(root) {
 .ct-empty .empty { margin: 0 auto; text-align: center; }
 /* A chart with nothing to show: no grid lines or axis numbers behind the note */
 .chart-is-empty svg.d3chart g.grid, .chart-is-empty svg.d3chart g.yticks, .chart-is-empty svg.d3chart g.xlabels { opacity: 0; transition: opacity 0.2s; }
-/* The category-changed flag sits mid-line: centre its tooltip arrow on the icon, and let the bubble run right. */
-.cat-flag[data-tip]::before { left: 2px; }
-.cat-flag[data-tip]::after { left: -10px; max-width: 260px; }
 /* API keys and tokens: dotted like a password, but a text field so the browser's password manager
    doesn't take the page for a login form and fill the saved email into a search box. */
 input.secret { -webkit-text-security: disc; text-security: disc; font-family: inherit; }
@@ -6982,20 +6955,10 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
 .tpl-card .tpl-title { flex: 1; min-width: 0; display: block; position: relative; line-height: 22px; outline: none; }
 .tpl-card .tpl-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
 .tpl-title[data-tip] { cursor: default; }
-.tpl-title[data-tip]::after {
-  content: attr(data-tip); position: absolute; left: -6px; top: calc(100% + 6px); z-index: 20; pointer-events: none;
-  width: max-content; max-width: min(340px, 80vw); padding: 8px 11px; border-radius: 9px;
-  background: #1c1f22; color: #fff; font: 500 12.5px/1.45 Inter, sans-serif; white-space: normal; word-break: break-all;
-  box-shadow: 0 8px 24px rgba(16, 24, 32, 0.22);
-  opacity: 0; transform: translateY(-4px); transition: opacity 0.16s, transform 0.16s var(--ease-out);
-}
-.tpl-title[data-tip]:hover::after, .tpl-title[data-tip]:focus-visible::after { opacity: 1; transform: none; }
 .tpl-title[data-tip]:focus-visible .tpl-name { text-decoration: underline dotted; }
 .tpl-head-r { display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .tpl-head-r .cat-flag { margin: 0; vertical-align: 0; padding: 3px; border-radius: 8px; transition: background-color 0.15s; }
 .tpl-head-r .cat-flag:hover, .tpl-head-r .cat-flag:focus-visible { background: var(--warn-soft); }
-.tpl-head-r .cat-flag[data-tip]::after { left: auto; right: -8px; bottom: auto; top: calc(100% + 9px); max-width: 280px; }
-.tpl-head-r .cat-flag[data-tip]::before { left: auto; right: 7px; bottom: auto; top: calc(100% + 4px); }
 /* the template name's helper line: no room taken until there's something to say */
 .te-name .te-inline { display: block; }
 .te-name-hint { max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.2s, opacity 0.2s; }
@@ -7868,3 +7831,6 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 /* A small text action inside a number card's details row (Display name → Re-register). */
 .kv dd .dd-act { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--accent, #2563eb); font: 500 12.5px var(--font-ui, Inter, system-ui, sans-serif); cursor: pointer; }
 .kv dd .dd-act:hover { text-decoration: underline; }
+/* A number card's Display name row: the status tag and Re-register wrap onto two lines when the card is narrow. */
+.kv dd.dd-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; overflow: visible; white-space: normal; }
+.kv dd .dd-act { white-space: nowrap; }

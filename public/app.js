@@ -1152,7 +1152,7 @@ function renderSenders() {
         <dt>WABA ID</dt><dd>${esc(s.wabaId || '—')}</dd>
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
         ${nameStatusHtml(s)}
-        ${s.nameBlockedAt || unreviewed555(s) ? `<dt>Display name</dt><dd class="dd-conn"><span class="tag ${nameInfo(s)[0]}" title="${esc(nameInfo(s)[2])}">${esc(nameInfo(s)[1])}</span>${s.hasToken && !state.settings.demoMode ? `<button type="button" class="dd-act" data-register="${s.id}" title="Register the number with Meta again: the usual fix for error 131037">${icon('refresh-cw', 13)}Re-register</button>` : ''}</dd>` : ''}
+        ${s.nameBlockedAt || unreviewed555(s) ? `<dt>Display name</dt><dd class="dd-name"><span class="tag ${nameInfo(s)[0]}" title="${esc(nameInfo(s)[2])}">${esc(nameInfo(s)[1])}</span>${s.hasToken && !state.settings.demoMode ? `<button type="button" class="dd-act" data-register="${s.id}" title="Register the number with Meta again: the usual fix for error 131037">${icon('refresh-cw', 13)}Re-register</button>` : ''}</dd>` : ''}
         ${s.qualityRating ? `<dt>Quality</dt><dd class="dd-pop">${qualityTag(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
         ${numberPlaybooksHtml(s.id)}
@@ -1413,31 +1413,42 @@ const SF_HELP = {
   displayPhone: 'The number customers see, with the country code (e.g. +91 98765 43210). Click Find to read it from Meta.',
 };
 const sfHelp = (k) => `<span class="sf-help" tabindex="0" role="img" aria-label="Help: ${esc(SF_HELP[k])}" data-help="${esc(SF_HELP[k])}">?</span>`;
-// The dark help tooltip for any [data-help] (the ? icons): drawn on top of everything, modals included, so nothing
-// clips it; above its icon, or below when there's no room above, and kept inside the window.
+// The one dark tooltip for every [data-help] (the ? icons) and [data-tip] (buttons, status dots, flags, cut-off names),
+// except the sidebar's (its own nav-tip). Drawn on top of everything, modals included, so nothing clips it; placed
+// above its element (below for status dots and names, whose row sits under the sticky header), flipped when there's no
+// room, and always kept inside the window, so a tooltip never runs off the page or makes it scroll sideways.
 {
   const tip = document.createElement('div');
   tip.className = 'help-tip hidden';
   tip.setAttribute('role', 'tooltip');
   document.body.append(tip);
-  let at = null;
+  const SEL = '[data-help], [data-tip]';
+  const target = (node) => { const el = node?.closest?.(SEL); return el && !el.closest('#sidebar') && (el.dataset.help || el.dataset.tip) ? el : null; };
+  const BELOW_FIRST = '.name-dot, .tpl-title, .tpl-head-r .cat-flag';
+  let at = null, flash = 0;
   const show = (el) => {
     at = el;
-    tip.textContent = el.dataset.help;
+    tip.textContent = el.dataset.help || el.dataset.tip;
     tip.classList.remove('hidden', 'below');
-    const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight, vw = document.documentElement.clientWidth;
-    const below = r.top - h - 10 < 8;
+    const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    const roomAbove = r.top - h - 10 >= 8, roomBelow = r.bottom + h + 10 <= vh - 8;
+    const below = el.matches(BELOW_FIRST) ? roomBelow || !roomAbove : !roomAbove;
     tip.classList.toggle('below', below);
     const left = Math.max(8, Math.min(r.left + r.width / 2 - 22, vw - w - 8));
     tip.style.left = left + 'px';
     tip.style.top = (below ? r.bottom + 10 : r.top - h - 10) + 'px';
     tip.style.setProperty('--arrow-x', Math.max(10, Math.min(w - 20, r.left + r.width / 2 - left - 5)) + 'px');
   };
-  const hide = () => { at = null; tip.classList.add('hidden'); };
-  document.addEventListener('pointerover', (e) => { const el = e.target.closest?.('[data-help]'); if (el && el !== at) show(el); else if (!el && at) hide(); });
-  document.addEventListener('focusin', (e) => { const el = e.target.closest?.('[data-help]'); if (el) show(el); });
+  const hide = () => { at = null; clearTimeout(flash); tip.classList.add('hidden'); };
+  // show an element's tooltip for a moment (e.g. tapping a disabled button explains why)
+  window.flashTip = (el, ms = 2600) => { show(el); clearTimeout(flash); flash = setTimeout(hide, ms); };
+  document.addEventListener('pointerover', (e) => { const el = target(e.target); if (el && el !== at) show(el); else if (!el && at) hide(); });
+  document.addEventListener('focusin', (e) => { const el = target(e.target); if (el) show(el); });
   document.addEventListener('focusout', (e) => { if (e.target === at) hide(); });
+  document.addEventListener('pointerdown', (e) => { if (at && !at.contains(e.target)) hide(); });
   addEventListener('scroll', hide, true);
+  addEventListener('resize', hide);
 }
 
 function senderForm(s = null) {
@@ -1893,7 +1904,7 @@ $('#templateList').addEventListener('click', (e) => {
   if (b.dataset.tedit) return templateEditor(state.templates.find((x) => x.id === b.dataset.tedit));
   if (b.dataset.use) {
     // An unapproved template can't be sent: clicking just shows why (the same note as on hover).
-    if (b.dataset.tip) { b.classList.add('tip-show'); clearTimeout(b._tip); b._tip = setTimeout(() => b.classList.remove('tip-show'), 2600); return; }
+    if (b.dataset.tip) { window.flashTip(b); return; }
     window.CampaignSetup.create({ templateId: b.dataset.use });
   }
   if (b.dataset.del)
@@ -4375,19 +4386,22 @@ const QUALITY_NONE = {
   means: 'No restrictions. It starts at the default messaging limit.',
   todo: 'Start with people who opted in, so its first rating comes out High.',
 };
-// A tag's popover (quality…) opens to the right of the tag; near the screen's right edge it would run off it, so slide
-// it left just enough to fit, with its arrow still pointing at the tag.
-function fitTagPop(e, tries = 0) {
-  const pop = e.target.closest?.('.tag.has-pop')?.querySelector('.tag-pop');
+// The rich popovers drawn in CSS (a quality tag's .tag-pop, an info icon's .tip-card) open beside their trigger; near
+// a screen edge they'd run off it, so slide them sideways just enough to fit, the arrow still pointing at the trigger.
+const POPOVERS = [['.tag.has-pop', '.tag-pop'], ['.info-tip', '.tip-card']];
+function fitPopover(e, tries = 0) {
+  let pop = null;
+  for (const [trigger, card] of POPOVERS) { pop = e.target.closest?.(trigger)?.querySelector(card); if (pop) break; }
   if (!pop) return;
-  pop.style.left = ''; pop.style.removeProperty('--pop-arrow');
+  pop.style.removeProperty('--pop-shift');
   const r = pop.getBoundingClientRect();
-  if (!r.width) return void (tries < 3 && requestAnimationFrame(() => fitTagPop(e, tries + 1))); // not opened (displayed) yet
-  const over = r.right - (document.documentElement.clientWidth - 12);
-  if (over > 0) { pop.style.left = `${-8 - over}px`; pop.style.setProperty('--pop-arrow', `${18 + over}px`); }
+  if (!r.width) return void (tries < 3 && requestAnimationFrame(() => fitPopover(e, tries + 1))); // not opened (displayed) yet
+  const vw = document.documentElement.clientWidth;
+  const dx = r.right > vw - 12 ? vw - 12 - r.right : r.left < 12 ? 12 - r.left : 0;
+  if (dx) pop.style.setProperty('--pop-shift', `${Math.round(dx)}px`);
 }
-document.addEventListener('mouseover', fitTagPop);
-document.addEventListener('focusin', fitTagPop);
+document.addEventListener('mouseover', fitPopover);
+document.addEventListener('focusin', fitPopover);
 function qualityTag(rating) {
   const q = QUALITY[rating] || QUALITY_NONE;
   return `<span class="tag ${q.cls} has-pop" tabindex="0">${q.label}
