@@ -1143,6 +1143,7 @@ function renderSenders() {
           <span class="sender-vrow"><b class="sender-vname" title="${s.verifiedName ? 'The business name customers see on WhatsApp' : esc(s.label)}">${esc(s.verifiedName || s.label)}</b>${nameDotHtml(s)}</span>
           <span class="sender-num">${esc(s.displayPhone || '—')}</span>
         </div>
+        ${s.hasToken && !state.settings.demoMode && (s.nameBlockedAt || unreviewed555(s)) ? `<button type="button" class="btn quiet sm icon-only" data-register="${s.id}" aria-label="Re-register with Meta" data-tip="Re-register with Meta: the usual fix when messages fail with error 131037 (display name not approved)">${icon('refresh-cw', 15)}</button>` : ''}
         <label title="${s.enabled ? 'Number is in use' : 'Number is switched off'}">${toggleHtml({ checked: s.enabled, attrs: `data-enable="${s.id}"`, size: 'sm' })}</label>
       </div>
       ${numStats(s)}
@@ -1152,7 +1153,7 @@ function renderSenders() {
         <dt>WABA ID</dt><dd>${esc(s.wabaId || '—')}</dd>
         <dt>Access token</dt><dd>${s.hasToken ? esc(s.accessTokenMasked) : '<span class="muted">not set</span>'}</dd>
         ${nameStatusHtml(s)}
-        ${s.nameBlockedAt || unreviewed555(s) ? `<dt>Display name</dt><dd class="dd-name"><span class="tag ${nameInfo(s)[0]}" title="${esc(nameInfo(s)[2])}">${esc(nameInfo(s)[1])}</span>${s.hasToken && !state.settings.demoMode ? `<button type="button" class="dd-act" data-register="${s.id}" title="Register the number with Meta again: the usual fix for error 131037">${icon('refresh-cw', 13)}Re-register</button>` : ''}</dd>` : ''}
+        ${s.nameBlockedAt || unreviewed555(s) ? `<dt>Display name</dt><dd class="dd-name"><span class="tag ${nameInfo(s)[0]}" title="${esc(nameInfo(s)[2])}">${esc(nameInfo(s)[1])}</span></dd>` : ''}
         ${s.qualityRating ? `<dt>Quality</dt><dd class="dd-pop">${qualityTag(s.qualityRating)}</dd>` : ''}
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
         ${numberPlaybooksHtml(s.id)}

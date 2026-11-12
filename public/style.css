@@ -7828,9 +7828,6 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
   @keyframes bp-sweep { 0% { transform: translateX(-60%); } 45%, 100% { transform: translateX(60%); } }
 }
 @media (prefers-reduced-motion: reduce) { .bp-plan, .bp-plan:hover { transition: none; transform: none; } }
-/* A small text action inside a number card's details row (Display name → Re-register). */
-.kv dd .dd-act { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--accent, #2563eb); font: 500 12.5px var(--font-ui, Inter, system-ui, sans-serif); cursor: pointer; }
-.kv dd .dd-act:hover { text-decoration: underline; }
-/* A number card's Display name row: the status tag and Re-register wrap onto two lines when the card is narrow. */
+/* A number card's Display name row (its status tag). */
 .kv dd.dd-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; overflow: visible; white-space: normal; }
-.kv dd .dd-act { white-space: nowrap; }
+.sender-id > [data-register] { flex: none; margin-right: -4px; }
