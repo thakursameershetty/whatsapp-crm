@@ -4350,7 +4350,6 @@ input.bad, .sp-map .m-val.bad { box-shadow: 0 0 0 1.5px var(--danger) inset !imp
 .wss-danger { background: color-mix(in srgb, var(--danger) 6%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 25%, transparent); }
 .wss-danger .wss-ic { color: var(--danger); }
 /* Templates: the number filter stays compact in the header; with all numbers, one section per number. */
-#tplSender { width: auto; min-width: 160px; max-width: 220px; margin: 0; }
 .tpl-groups { display: grid; gap: 14px; }
 /* Sync in progress: spinning icon on the button, a running bar with a note above the list, the cards dimmed */
 #syncTemplates.syncing { pointer-events: none; }
@@ -6171,9 +6170,6 @@ html.lite ::view-transition-group(*), html.lite ::view-transition-old(*), html.l
 
 /* Templates header: one line like the Overview's (search, category, status, then number, Sync, New template) */
 #tplBar.in-head { gap: 10px; }
-#tplBar #tplCat { width: 172px; min-width: 0; }
-#tplBar #tplStatus { width: 132px; min-width: 0; margin-left: 0; }
-#tplSender { width: 172px; min-width: 0; }
 .section-head.has-tools:not(.tools-below) > .in-head .search-wrap { flex-basis: 210px; }
 
 /* Contacts: the tag filter as a dropdown in the one-line header */
@@ -7850,15 +7846,36 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .sf-item.sf-locked small { color: var(--danger); }
 .tag.bad svg { margin-right: 4px; vertical-align: -1px; }
 
-/* The automatic check's status under the Numbers and Templates titles (syncNote in app.js). */
-.sync-note { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 4px 10px 4px 8px; border-radius: 99px; font-size: 12.5px; font-weight: 500; color: var(--muted); background: color-mix(in srgb, var(--muted) 9%, transparent); }
-.sync-note svg { flex: none; }
+/* The automatic check's status at the right of the Numbers and Templates headers (syncNote in app.js): a ring with a
+   number in it and the words beside it. Done, the words fold away and only the ring stays; hover or focus opens it. */
+.sync-note { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px 0 7px; border-radius: 99px; font-size: 12.5px; font-weight: 500; color: var(--muted); background: var(--field, color-mix(in srgb, var(--muted) 9%, transparent)); box-shadow: var(--sh-sunk, none); cursor: default; outline: none; transition: padding 0.3s var(--ease-out, ease-out); }
+.sync-note:focus-visible { box-shadow: 0 0 0 2px var(--ring); }
+.sn-ring { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--muted); }
+.sn-ring svg { position: absolute; inset: 0; width: 24px; height: 24px; transform: rotate(-90deg); fill: none; stroke-width: 2.4; }
+.sn-track { stroke: color-mix(in srgb, currentColor 22%, transparent); }
+.sn-bar { stroke: currentColor; stroke-linecap: round; stroke-dasharray: calc(var(--p, 0) * 100) 100; transition: stroke-dasharray 0.45s var(--ease-out, ease-out); }
+.sn-ring b { position: relative; font: 700 10.5px/1 Inter, sans-serif; color: var(--text); font-variant-numeric: tabular-nums; }
+.sn-ring > svg + svg { position: relative; inset: auto; width: 11px; height: 11px; transform: none; stroke-width: 3; }
+.sn-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px; transition: max-width 0.35s var(--ease-out, ease-out), opacity 0.25s; }
 .sync-note.busy { color: var(--text); }
-.sync-note.busy svg { animation: spin 0.9s linear infinite; color: var(--muted); }
-.sync-note.ok svg { color: var(--good); }
-.sync-note.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
-.sync-note.err { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
-@media (prefers-reduced-motion: reduce) { .sync-note.busy svg { animation-duration: 3s; } }
+.sync-note.busy .sn-ring { color: var(--info); }
+.sync-note.spin .sn-ring svg:first-child { animation: spin 0.9s linear infinite; }
+.sync-note.ok .sn-ring { color: var(--good); }
+.sync-note.warn { color: var(--warn); }
+.sync-note.warn .sn-ring { color: var(--warn); }
+.sync-note.err { color: var(--danger); }
+.sync-note.err .sn-ring { color: var(--danger); }
+.sync-note.ok .sn-ring::before, .sync-note.warn .sn-ring::before, .sync-note.err .sn-ring::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: color-mix(in srgb, currentColor 14%, transparent); }
+.sync-note.mini { padding: 0 6px; }
+.sync-note.mini .sn-text { max-width: 0; opacity: 0; }
+.sync-note.mini:hover, .sync-note.mini:focus-visible { padding: 0 12px 0 7px; }
+.sync-note.mini:hover .sn-text, .sync-note.mini:focus-visible .sn-text { max-width: 420px; opacity: 1; }
+@media (max-width: 760px) { .sync-note:not(:hover):not(:focus-visible) { padding: 0 6px; } .sync-note:not(:hover):not(:focus-visible) .sn-text { max-width: 0; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sync-note.spin .sn-ring svg:first-child { animation-duration: 3s; } .sn-text, .sn-bar, .sync-note { transition: none; } }
+/* The Templates filter button sits in the bar beside the search, like Contacts'. */
+#tplBar .ct-filterbtn { width: 36px; min-width: 36px; height: 36px; padding: 0; justify-content: center; color: var(--text); background: var(--field); box-shadow: var(--sh-sunk); border-radius: var(--r-md); }
+#tplBar .ct-filterbtn.on { background: var(--surface); box-shadow: var(--sh-raised); }
+#tplActive { margin-top: -6px; }
 /* A card you were sent to (focusNumber / focusTemplate): a ring that fades. */
 .card-flash { animation: card-flash 2.4s var(--ease-out, ease-out); }
 @keyframes card-flash { 0%, 55% { box-shadow: 0 0 0 3px var(--info), 0 8px 30px color-mix(in srgb, var(--info) 25%, transparent); } 100% { box-shadow: none; } }

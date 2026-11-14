@@ -554,9 +554,9 @@
         <div>
           <h1>Sender numbers</h1>
           <p class="sub">Each WhatsApp number from your Meta Business account. Add as many as you have.</p>
-          <p class="sync-note hidden" id="numSync" role="status" aria-live="polite"></p>
         </div>
         <div class="row tight num-head">
+          <span class="sync-note hidden" id="numSync" role="status" aria-live="polite" tabindex="0"></span>
           <div class="search-wrap num-search hidden" id="numBar" data-icon="search" data-icon-size="15">
             <input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="numSearch" type="search" placeholder="Search by name or number" autocomplete="off" />
             <button type="button" class="num-filter" id="numFilter" aria-haspopup="menu" title="Filter by quality"></button>
@@ -607,23 +607,19 @@
         <div>
           <h1>Templates</h1>
           <p class="sub">Create templates here and Meta reviews them, or sync the ones you made in Meta. Only approved templates can be sent.</p>
-          <p class="sync-note hidden" id="tplSync" role="status" aria-live="polite"></p>
         </div>
         <div class="in-head list-bar hidden" id="tplBar">
         <div class="search-wrap" data-icon="search" data-icon-size="15"><input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="tplSearch" type="search"
             placeholder="Search templates" autocomplete="off" /></div>
-        <select id="tplCat" aria-label="Category" title="Category"></select>
-        <select id="tplStatus" aria-label="Status" title="Review status">
-          <option value="">Any status</option><option value="APPROVED">Approved</option><option value="PENDING">In review</option>
-          <option value="REJECTED">Rejected</option><option value="PAUSED">Paused</option><option value="DISABLED">Disabled</option>
-        </select>
+        <button type="button" class="ct-sortbtn ct-filterbtn" id="tplFilterBtn" aria-haspopup="dialog" aria-controls="tplFilters" title="Filters"></button>
       </div>
         <div class="row tight">
-          <select id="tplSender" class="hidden" aria-label="Number"></select>
+          <span class="sync-note hidden" id="tplSync" role="status" aria-live="polite" tabindex="0"></span>
           <button class="btn" id="syncTemplates" data-icon="refresh-cw" title="Sync from Meta: bring in the templates you made or edited there, with their latest review status">Sync</button>
           <button class="btn primary" id="addTemplate" data-icon="plus">New template</button>
         </div>
       </div>
+      <div class="ct-active hidden" id="tplActive" aria-live="polite"></div>
       <div id="templateList" class="cards" data-skel="card:3"></div>
     </section>
 

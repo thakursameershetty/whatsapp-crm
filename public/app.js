@@ -1231,13 +1231,15 @@ async function autoCheckNumbers(gap = 30000) {
   autoCheckNumbers.at = Date.now();
   list.forEach((s) => checkingNumbers.add(s.id));
   if (state.tab === 'numbers') renderSenders();
-  syncNote('numSync', 'busy', `Checking ${list.length === 1 ? 'your number' : `your ${list.length} numbers`} with Meta…`);
-  await Promise.all(list.map((s) => api(`/senders/${s.id}/test`, { method: 'POST' }).catch(() => {}).finally(() => checkingNumbers.delete(s.id))));
+  let done = 0;
+  const progress = () => syncNote('numSync', 'busy', `Checking ${list.length === 1 ? 'your number' : `your ${list.length} numbers`} with Meta… ${done} of ${list.length} done`, { count: list.length - done, done, total: list.length });
+  progress();
+  await Promise.all(list.map((s) => api(`/senders/${s.id}/test`, { method: 'POST' }).catch(() => {}).finally(() => { checkingNumbers.delete(s.id); done++; progress(); })));
   await loadSenders().catch(() => {});
   const cant = state.senders.filter((s) => s.hasToken && numBlock(s));
   syncNote('numSync', cant.length ? 'warn' : 'ok', cant.length
-    ? `${cant.map((s) => s.verifiedName || s.label).join(', ')} can’t send right now`
-    : list.length === 1 ? 'Your number is connected' : `All ${list.length} numbers are connected`);
+    ? (cant.length === 1 ? `${cant[0].verifiedName || cant[0].label} can’t send right now` : `${cant.length} numbers can’t send right now`)
+    : list.length === 1 ? 'Your number is connected' : `All ${list.length} numbers are connected`, { count: cant.length });
 }
 // A number saved twice (before the server blocked it): the later copy names the first, so it can be deleted.
 const dupOf = (s) => { const first = state.senders.find((x) => x.phoneNumberId === s.phoneNumberId); return first !== s ? first : null; };
@@ -1451,17 +1453,28 @@ $('#senderList').addEventListener('click', (e) => {
 // The line under the Numbers and Templates titles: what the automatic check with Meta is doing. mode: busy (checking
 // now), ok, warn (done, but something needs a look) or err (Meta couldn't be reached). The time is redrawn when the
 // page opens, so it always says how fresh the page is.
+// It sits at the right of the page's header: a ring with a number in it, and the words beside it. While checking, the
+// ring fills as each item is done (or spins, when there's no count to go by); once done, the words fold away after a
+// few seconds and just the ring stays (a tick, or how many need a look); hover or focus it to read them again.
+// opts: { count: the number in the ring, done / total: how far the ring is filled }
 const syncNotes = {};
-function syncNote(id, mode, text) {
-  syncNotes[id] = { mode, text, at: mode === 'busy' ? 0 : Date.now() };
-  drawSyncNote(id);
+function syncNote(id, mode, text, opts = {}) {
+  const was = syncNotes[id];
+  syncNotes[id] = { mode, text, at: mode === 'busy' ? 0 : Date.now(), ...opts };
+  clearTimeout(was?.fold);
+  drawSyncNote(id, mode !== 'busy');
+  if (mode !== 'busy') syncNotes[id].fold = setTimeout(() => $('#' + id)?.classList.add('mini'), 4000);
 }
-function drawSyncNote(id) {
+function drawSyncNote(id, open = false) {
   const n = syncNotes[id], el = $('#' + id);
   if (!n || !el) return;
-  el.className = 'sync-note ' + n.mode;
-  const ico = { busy: 'refresh-cw', ok: 'circle-check', warn: 'triangle-alert', err: 'badge-alert' }[n.mode];
-  el.innerHTML = `${icon(ico, 13)}<span>${esc(n.text)}${n.at ? ` · checked ${esc(shortAgo(new Date(n.at).toISOString()))}` : ''}</span>`;
+  const words = `${n.text}${n.at ? ` · checked ${shortAgo(new Date(n.at).toISOString())}` : ''}`;
+  const busy = n.mode === 'busy', p = busy ? (n.total ? n.done / n.total : null) : 1;
+  const inner = busy || n.mode === 'warn' || n.mode === 'err' ? (n.count != null ? String(n.count) : '') : '';
+  el.className = `sync-note ${n.mode}${!busy && !open ? ' mini' : ''}${busy && p == null ? ' spin' : ''}`;
+  el.title = words;
+  el.setAttribute('aria-label', words);
+  el.innerHTML = `<span class="sn-ring" style="--p:${p ?? 0.3}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle class="sn-track" cx="12" cy="12" r="10"/><circle class="sn-bar" cx="12" cy="12" r="10" pathLength="100"/></svg>${inner ? `<b>${esc(inner)}</b>` : n.mode === 'ok' ? icon('check-one', 11) : ''}</span><span class="sn-text">${esc(words)}</span>`;
 }
 
 // Go to one number: its card scrolled into view and lit up for a moment (from a locked chat, or a notification).
@@ -1478,9 +1491,9 @@ function focusTemplate(id) {
   if (!t) return;
   const set = tplOpen(), sec = state.senders.some((x) => x.wabaId === t.wabaId) ? t.wabaId : 'other';
   if (!set.has(sec)) { set.add(sec); try { localStorage.setItem('tplOpen', JSON.stringify([...set])); } catch {} renderTemplates(); }
-  if (state.tplQ || state.tplCat || state.tplStatus || state.tplSender) {
-    state.tplQ = state.tplCat = state.tplStatus = state.tplSender = '';
-    $('#tplSearch').value = ''; $('#tplStatus').value = '';
+  if (state.tplQ || tplFilterCount()) {
+    state.tplQ = ''; $('#tplSearch').value = '';
+    tplClearFilters();
     renderTemplates();
   }
   flashCard($(`#templateList .tpl-card[data-tid="${CSS.escape(id)}"]`));
@@ -1754,7 +1767,113 @@ window.templateSenders = (t, list = state.senders) => list.filter((s) => canSend
 // The numbers in a template's account, for labels: "Spotmies · +91 93467 85644".
 const accountLabel = (wabaId) => state.senders.filter((s) => s.wabaId === wabaId).map((s) => s.label).join(', ');
 window.accountLabel = accountLabel;
-state.tplSender = '';
+// --- Templates: the Filters panel (like Contacts'): ticks in sections; any tick within a section, all sections together.
+// Each option says how many templates it would show with the other sections' ticks (and the search) applied.
+state.tplFs = { status: new Set(), cat: new Set(), num: new Set(), lang: new Set(), header: new Set(), buttons: new Set(), more: new Set() };
+const tplComp = (t, type) => (t.components || []).find((c) => String(c.type).toUpperCase() === type);
+const tplHeadType = (t) => String(tplComp(t, 'HEADER')?.format || 'NONE').toUpperCase();
+const tplBtnTypes = (t) => { const b = tplComp(t, 'BUTTONS')?.buttons || []; return b.length ? [...new Set(b.map((x) => String(x.type).toUpperCase()))] : ['NONE']; };
+const tplHasVars = (t) => (t.components || []).some((c) => /\{\{\s*\w+\s*\}\}/.test(c.text || '') || (c.buttons || []).some((b) => /\{\{/.test(b.url || '')));
+const tplMadeHere = (t) => Boolean(t.submittedAt) || t.source === 'manual';
+const TPL_FILTERS = {
+  status: { title: 'Review status', match: (t, k) => String(t.status).toUpperCase() === k },
+  cat: { title: 'Category', match: (t, k) => String(t.category || '').toUpperCase() === k },
+  num: { title: 'Can be sent from', match: (t, k) => { const s = state.senders.find((x) => x.id === k); return Boolean(s && canSend(t, s)); } },
+  lang: { title: 'Language', match: (t, k) => t.language === k },
+  header: { title: 'Header', match: (t, k) => tplHeadType(t) === k },
+  buttons: { title: 'Buttons', match: (t, k) => tplBtnTypes(t).includes(k) },
+  more: { title: 'More', match: (t, k) => ({ vars: tplHasVars(t), novars: !tplHasVars(t), moved: Boolean(t.categoryChangedFrom), here: tplMadeHere(t), meta: !tplMadeHere(t) })[k] },
+};
+const tplFilterCount = () => Object.values(state.tplFs).reduce((n, set) => n + set.size, 0);
+const tplClearFilters = () => Object.values(state.tplFs).forEach((set) => set.clear());
+const tplSearchText = (t) => [t.name, t.language, t.category, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase();
+// A template passes when every section with ticks matches (skip: leave one section out, for that section's counts).
+function tplPasses(t, skip = '') {
+  const q = (state.tplQ || '').trim().toLowerCase();
+  if (q && !tplSearchText(t).includes(q)) return false;
+  return Object.entries(state.tplFs).every(([sec, set]) => sec === skip || !set.size || [...set].some((k) => TPL_FILTERS[sec].match(t, k)));
+}
+// Each section's options as [key, label, leading html]: only what your templates have (and anything ticked).
+function tplFilterOptions() {
+  const T = state.templates;
+  const has = (sec, k) => T.some((t) => TPL_FILTERS[sec].match(t, k)) || state.tplFs[sec].has(k);
+  const ic = (name) => `<span class="fpx-ic">${icon(name, 14)}</span>`;
+  const tone = { APPROVED: 'good', PENDING: 'warn', IN_APPEAL: 'warn', FLAGGED: 'warn', REJECTED: 'bad', PAUSED: 'bad', DISABLED: 'bad' };
+  const langName = (code) => TPL_LANGS.find(([c]) => c === code)?.[1] || code;
+  return {
+    status: Object.keys(TPL_STATUS).filter((k) => has('status', k)).map((k) => [k, TPL_STATUS[k], `<i class="num-dot ${tone[k] || ''}"></i>`]),
+    cat: ['MARKETING', 'UTILITY', 'AUTHENTICATION'].filter((k) => has('cat', k)).map((k) => [k, catLabel(k), ic(k === 'MARKETING' ? 'sparkles' : k === 'UTILITY' ? 'settings' : 'shield-check')]),
+    num: state.senders.filter((s) => s.wabaId || state.tplFs.num.has(s.id)).map((s) => [s.id, s.verifiedName || s.label, `<span class="fpx-ph">${senderPhotoHtml(s)}</span>`, s.displayPhone]),
+    lang: [...new Set(T.map((t) => t.language).filter(Boolean))].sort((a, b) => langName(a).localeCompare(langName(b))).map((k) => [k, langName(k), ic('message-circle')]),
+    header: [['TEXT', 'Text', 'type'], ['IMAGE', 'Image', 'image'], ['VIDEO', 'Video', 'video'], ['DOCUMENT', 'Document', 'file-text'], ['LOCATION', 'Location', 'map-pin'], ['NONE', 'No header', 'ban']].filter(([k]) => has('header', k)).map(([k, l, i]) => [k, l, ic(i)]),
+    buttons: [['URL', 'Website link', 'link'], ['PHONE_NUMBER', 'Call', 'phone'], ['QUICK_REPLY', 'Quick reply', 'reply'], ['COPY_CODE', 'Copy code', 'copy'], ['OTP', 'One-time code', 'shield-check'], ['NONE', 'No buttons', 'ban']].filter(([k]) => has('buttons', k)).map(([k, l, i]) => [k, l, ic(i)]),
+    more: [['vars', 'Has variables', 'square-pen'], ['novars', 'No variables', 'square'], ['moved', 'Category changed by Meta', 'triangle-alert'], ['here', 'Created in SendON', 'plus'], ['meta', 'Made in WhatsApp Manager', 'cloud-upload']].filter(([k]) => has('more', k)).map(([k, l, i]) => [k, l, ic(i)]),
+  };
+}
+const tplOptLabel = (sec, k) => tplFilterOptions()[sec].find(([x]) => x === k)?.[1] || k;
+// The Filters button (with how many are ticked) and, under the header, the ticked ones as chips you can remove.
+function renderTplFilterBar(shownCount) {
+  const n = tplFilterCount(), b = $('#tplFilterBtn');
+  b.innerHTML = `${icon('sliders-horizontal', 16)}${n ? `<b class="ct-fbadge">${n}</b>` : ''}`;
+  b.classList.toggle('on', n > 0);
+  b.setAttribute('aria-label', n ? `Filters, ${n} on` : 'Filters');
+  b.title = n ? `Filters (${n} on)` : 'Filters: status, category, number, language, header, buttons and more';
+  const bar = $('#tplActive');
+  bar.classList.toggle('hidden', !n);
+  bar.innerHTML = n ? Object.entries(state.tplFs).flatMap(([sec, set]) => [...set].map((k) => `<span class="ct-chip"><span class="ct-chip-s">${esc(TPL_FILTERS[sec].title)}:</span>${esc(tplOptLabel(sec, k))}<button type="button" data-tunf="${sec}" data-k="${esc(k)}" aria-label="Remove ${esc(tplOptLabel(sec, k))}">${icon('x', 12)}</button></span>`)).join('')
+    + `<button type="button" class="ct-clear" data-tunf="all">Clear all</button><span class="ct-count">${shownCount} of ${state.templates.length}</span>` : '';
+  if ($('#tplFilters') && !$('#tplFilters').classList.contains('hidden')) drawTplFilters();
+}
+// The panel slides over the page from the right; ticks apply at once (the list behind updates).
+function openTplFilters() {
+  let el = $('#tplFilters');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'tplFilters';
+    el.className = 'ct-fpanel-wrap hidden';
+    el.innerHTML = '<div class="ct-fpanel" role="dialog" aria-modal="true" aria-label="Template filters"></div>';
+    document.body.append(el);
+    el.addEventListener('click', (e) => {
+      if (e.target === el || e.target.closest('[data-fclose]')) return closeTplFilters();
+      if (e.target.closest('[data-fclear]')) { tplClearFilters(); return renderTemplates(); }
+      const one = e.target.closest('[data-fclearsec]');
+      if (one) { state.tplFs[one.dataset.fclearsec].clear(); return renderTemplates(); }
+    });
+    el.addEventListener('change', (e) => {
+      const cb = e.target.closest('input[data-fsec]');
+      if (!cb) return;
+      const set = state.tplFs[cb.dataset.fsec];
+      cb.checked ? set.add(cb.value) : set.delete(cb.value);
+      renderTemplates();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !el.classList.contains('hidden') && $('#modal').classList.contains('hidden')) { e.stopPropagation(); closeTplFilters(); } }, true);
+  }
+  drawTplFilters();
+  el.classList.remove('hidden', 'closing');
+  requestAnimationFrame(() => el.querySelector('input, button')?.focus({ preventScroll: true }));
+}
+function closeTplFilters() { const el = $('#tplFilters'); if (el) hideOverlay(el); $('#tplFilterBtn').focus({ preventScroll: true }); }
+function drawTplFilters() {
+  const box = $('#tplFilters .ct-fpanel');
+  if (!box) return;
+  const opts = tplFilterOptions();
+  const results = state.templates.filter((t) => tplPasses(t)).length;
+  const sec = (key) => {
+    if (opts[key].length < 2 && !state.tplFs[key].size) return ''; // one option (or none) is nothing to choose between
+    const rows = opts[key].map(([k, label, lead, tip]) => {
+      const n = state.templates.filter((t) => tplPasses(t, key) && TPL_FILTERS[key].match(t, k)).length;
+      const on = state.tplFs[key].has(k);
+      return `<label class="fpx-opt ${on ? 'on' : ''} ${!n && !on ? 'zero' : ''}" ${tip ? `title="${esc(tip)}"` : ''}><input type="checkbox" class="cb" data-fsec="${key}" value="${esc(k)}" ${on ? 'checked' : ''} />${lead}<span class="fpx-t">${esc(label)}</span>${key === 'num' ? numDotHtml(state.senders.find((s) => s.id === k)) : ''}<b>${n.toLocaleString()}</b></label>`;
+    }).join('');
+    const size = state.tplFs[key].size;
+    return `<section class="fpx-sec"><div class="fpx-h"><span>${TPL_FILTERS[key].title}</span>${size ? `<span class="fpx-n">${size}</span><button type="button" class="fpx-clr" data-fclearsec="${key}" title="Clear ${esc(TPL_FILTERS[key].title)}">Clear</button>` : ''}</div>${rows}</section>`;
+  };
+  const keep = box.querySelector('.fpx-body')?.scrollTop || 0;
+  box.innerHTML = `<header class="fpx-head"><h2>Filters</h2><button type="button" class="icon-btn" data-fclose aria-label="Close">${icon('x', 18)}</button></header>
+    <div class="fpx-body">${Object.keys(TPL_FILTERS).map(sec).join('') || '<p class="fpx-none">Nothing to filter by yet.</p>'}</div>
+    <footer class="fpx-foot"><button type="button" class="btn quiet" data-fclear ${tplFilterCount() ? '' : 'disabled'}>Clear all</button><button type="button" class="btn primary" data-fclose>Show ${results.toLocaleString()} template${results === 1 ? '' : 's'}</button></footer>`;
+  box.querySelector('.fpx-body').scrollTop = keep;
+}
 // One short date at the end of the card's grey line ("· Approved 4 Nov"; the year only when it isn't this year), with
 // every date in full on hover. Templates made in WhatsApp Manager show when they were first synced instead of
 // created, since Meta doesn't share that.
@@ -1857,33 +1976,22 @@ function renderTemplates() {
   renderPlaybooks(); // its cards count the templates each playbook answers
   requestAnimationFrame(() => tipLongTemplateNames());
   const list = $('#templateList');
-  // With several numbers: a "which number" filter, showing the templates each one can send.
   const nums = state.senders.filter((s) => s.wabaId);
-  const filt = $('#tplSender');
-  filt.classList.toggle('hidden', nums.length < 2);
-  filt.innerHTML = '<option value="">All numbers</option>' + nums.map((s) => `<option value="${s.id}" data-sender="${s.id}">${esc(s.label)}${s.displayPhone ? ' · ' + esc(s.displayPhone) : ''}</option>`).join('');
-  if (!nums.some((s) => s.id === state.tplSender)) state.tplSender = '';
-  filt.value = state.tplSender;
-  const pick = state.senders.find((s) => s.id === state.tplSender);
-  const byNumber = pick ? state.templates.filter((t) => canSend(t, pick)) : state.templates;
-  // Search, category and status filters (the bar shows once there's something to filter).
+  // Numbers ticked in Filters → "Can be sent from": with one, the page shows just that number's account.
+  for (const id of [...state.tplFs.num]) if (!state.senders.some((s) => s.id === id)) state.tplFs.num.delete(id);
+  const pickNums = [...state.tplFs.num].map((id) => state.senders.find((s) => s.id === id)).filter(Boolean);
+  const pick = pickNums.length === 1 ? pickNums[0] : null;
+  // Search and the Filters button (the bar shows once there's something to filter).
   $('#tplBar').classList.toggle('hidden', state.templates.length < 2);
-  const cats = [...new Set(byNumber.map((t) => catLabel(t.category)))].sort();
-  if (!cats.includes(state.tplCat)) state.tplCat = ''; // also turns the first-load undefined into '' (All)
-  // a dropdown rather than a row of pills, so the filters fit beside the title in the one-line header
-  $('#tplCat').innerHTML = ['', ...cats].map((c) => `<option value="${esc(c)}">${esc(c || 'All categories')} (${byNumber.filter((t) => !c || catLabel(t.category) === c).length})</option>`).join('');
-  $('#tplCat').value = state.tplCat;
   const q = (state.tplQ || '').trim().toLowerCase();
-  const text = (t) => [t.name, t.language, t.category, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase();
-  const shown = byNumber.filter((t) => (!state.tplCat || catLabel(t.category) === state.tplCat)
-    && (!state.tplStatus || String(t.status).toUpperCase() === state.tplStatus)
-    && (!q || text(t).includes(q)));
+  const shown = state.templates.filter((t) => tplPasses(t));
+  renderTplFilterBar(shown.length);
   // Newest first: when it was made here (or first synced), else approved. Templates with no date go last, newest
   // Meta ID first (Meta's IDs grow over time).
   const when = (t) => Date.parse(t.createdAt || t.firstSeenAt || t.approvedAt || '') || 0;
   const metaNum = (t) => (/^\d+$/.test(t.metaId || '') ? BigInt(t.metaId) : 0n);
   shown.sort((a, b) => when(b) - when(a) || (metaNum(b) > metaNum(a) ? 1 : metaNum(b) < metaNum(a) ? -1 : 0) || a.name.localeCompare(b.name));
-  const filtering = q || state.tplCat || state.tplStatus;
+  const filtering = q || tplFilterCount();
   if (!state.templates.length) {
     list.innerHTML = emptyState({
       icon: 'template',
@@ -1914,10 +2022,10 @@ function renderTemplates() {
   // All numbers, with numbers in different Business Accounts: one titled section per account.
   // One section per WhatsApp Business Account, headed by its number(s) as WhatsApp shows them: profile photo, name,
   // number, Meta's quality rating and limit, and how its templates stand. Picking a number shows just its section.
-  const accounts = pick ? [pick.wabaId] : [...new Set(nums.map((x) => x.wabaId))];
+  const accounts = pick ? [pick.wabaId] : pickNums.length ? [...new Set(pickNums.map((x) => x.wabaId).filter(Boolean))] : [...new Set(nums.map((x) => x.wabaId))];
   if (!accounts.length) { list.className = 'cards'; list.innerHTML = shown.map(card).join(''); bindTplWheel(list); reflash(list); return; }
   const groups = accounts.map((w) => ({ w, ts: shown.filter((t) => t.wabaId === w) })).filter((g) => !filtering || g.ts.length);
-  const other = pick ? [] : shown.filter((t) => !accounts.includes(t.wabaId));
+  const other = pickNums.length ? [] : shown.filter((t) => !accounts.includes(t.wabaId));
   if (other.length) groups.push({ w: '', ts: other });
   askPhotos();
   list.className = 'tpl-groups';
@@ -1997,7 +2105,13 @@ function tplGroupHead(w, ts, pick, solo) {
   return `<header class="tpl-num-h"${toggle}><div class="tpl-num-list">${ss.map(one).join('')}</div>${right}</header>`;
 }
 
-$('#tplSender').addEventListener('change', (e) => { state.tplSender = e.target.value; renderTemplates(); });
+$('#tplFilterBtn').addEventListener('click', openTplFilters);
+$('#tplActive').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tunf]');
+  if (!b) return;
+  if (b.dataset.tunf === 'all') tplClearFilters(); else state.tplFs[b.dataset.tunf].delete(b.dataset.k);
+  renderTemplates();
+});
 $('#numSearch').addEventListener('input', (e) => { state.numQ = e.target.value; renderSenders(); });
 // The filter button inside the Numbers search: by Meta quality rating.
 const numQualityLabel = (k) => (k === 'NONE' ? 'Not rated' : QUALITY[k]?.label || 'Any');
@@ -2022,13 +2136,11 @@ $('#senderList').addEventListener('click', (e) => {
   renderSenders();
 });
 $('#tplSearch').addEventListener('input', (e) => { state.tplQ = e.target.value; clearTimeout(renderTemplates.q); renderTemplates.q = setTimeout(renderTemplates, 140); });
-$('#tplStatus').addEventListener('change', (e) => { state.tplStatus = e.target.value; renderTemplates(); });
-$('#tplCat').addEventListener('change', (e) => { state.tplCat = e.target.value; renderTemplates(); });
 $('#templateList').addEventListener('click', (e) => {
   if (!e.target.closest('[data-clear-tpl]')) return;
   e.preventDefault();
-  state.tplQ = state.tplCat = state.tplStatus = '';
-  $('#tplSearch').value = ''; $('#tplStatus').value = '';
+  state.tplQ = ''; $('#tplSearch').value = '';
+  tplClearFilters();
   renderTemplates();
 });
 $('#templateList').addEventListener('click', (e) => {
@@ -2065,7 +2177,7 @@ async function syncTemplates({ quiet = false } = {}) {
   btn.classList.add('syncing');
   btn.setAttribute('aria-busy', 'true');
   btn.innerHTML = `${icon('refresh-cw', 16)}${quiet ? 'Checking Meta…' : 'Syncing…'}`;
-  syncNote('tplSync', 'busy', 'Checking your templates’ review status with Meta…');
+  syncNote('tplSync', 'busy', 'Checking your templates’ review status with Meta…', { count: state.templates.length || null });
   let bar = null;
   if (!quiet) {
     bar = document.createElement('div');
@@ -2076,11 +2188,11 @@ async function syncTemplates({ quiet = false } = {}) {
     list.classList.add('tpl-syncing');
   }
   const run = async () => {
-    const r = await api('/templates/sync', { method: 'POST' }).catch((e) => { syncNote('tplSync', 'err', `Couldn’t reach Meta: ${e.message}`); throw e; });
+    const r = await api('/templates/sync', { method: 'POST' }).catch((e) => { syncNote('tplSync', 'err', `Couldn’t reach Meta: ${e.message}`, { count: '!' }); throw e; });
     await loadTemplates(); // the list as this person may see it (a member limited to some numbers sees only theirs)
     syncTemplates.at = Date.now();
     syncNote('tplSync', r.errors.length ? 'warn' : 'ok', r.errors.length ? `Up to date, but ${r.errors.length === 1 ? 'one account' : `${r.errors.length} accounts`} couldn’t be read (see Sync from Meta)`
-      : r.changed ? `Up to date · ${r.changed} change${r.changed === 1 ? '' : 's'} found (see notifications)` : 'Up to date with Meta');
+      : r.changed ? `Up to date · ${r.changed} change${r.changed === 1 ? '' : 's'} found (see notifications)` : 'Up to date with Meta', { count: r.errors.length || null });
     if (!quiet) toast(r.errors.length ? `Synced ${r.synced} template${r.synced === 1 ? '' : 's'}, with problems below` : `Up to date: ${r.synced} template${r.synced === 1 ? '' : 's'} from Meta`);
     if (!quiet || !syncTemplates.warned) r.errors.forEach((er) => toast(er, 'error'));
     if (quiet && r.errors.length) syncTemplates.warned = true; // the same problem isn't repeated on every visit
