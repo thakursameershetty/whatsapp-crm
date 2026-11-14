@@ -72,7 +72,7 @@
     const raw = s.replace(/^\d+:\s*/, '').replace(/^\(#\d+\)\s*/, '');
     const end = current()?.windowEndsAt;
     const windowOpen = end && new Date(end) > new Date();
-    const canResend = !m.local && m.id && !NO_RESEND.has(code) && (m.type === 'template' || (m.type === 'text' && windowOpen));
+    const canResend = !m.local && m.id && !NO_RESEND.has(code) && !chatBlock() && (m.type === 'template' || (m.type === 'text' && windowOpen));
     const action = m.resentAt
       ? `<span class="ib-resent">Sent again</span>`
       : canResend ? `<button class="ib-resend" data-resend="${esc(m.id)}">${icon('refresh-cw', 12)}Resend</button>` : '';
@@ -251,7 +251,7 @@
     const chats = (n) => `${n} chat${n === 1 ? '' : 's'}`;
     // Each number shows its WhatsApp profile photo (or its first letter), in the list and on the closed filter.
     const pic = (id, label) => { const s = state.senders.find((x) => x.id === id); return { photo: s?.photoUrl || '', letter: (label || '?').trim().charAt(0).toUpperCase() }; };
-    sel.innerHTML = `<option value="" data-icon="layers">All numbers</option>` + senders.map(([id, label]) => { const p = pic(id, label); return `<option value="${esc(id)}" data-photo="${esc(p.photo)}" data-letter="${esc(p.letter)}" data-count="${esc(chats(R.senders[id] || 0))}">${esc(label)}</option>`; }).join('');
+    sel.innerHTML = `<option value="" data-icon="layers">All numbers</option>` + senders.map(([id, label]) => { const p = pic(id, label); return `<option value="${esc(id)}" data-sender="${esc(id)}" data-photo="${esc(p.photo)}" data-letter="${esc(p.letter)}" data-count="${esc(chats(R.senders[id] || 0))}">${esc(label)}</option>`; }).join('');
     sel.value = senders.some(([id]) => id === ib.sender) ? ib.sender : '';
     const cur = senders.find(([id]) => id === sel.value);
     $('#ibSenderPic').innerHTML = cur ? senderPhotoHtml(state.senders.find((x) => x.id === cur[0]) || { label: cur[1] }) : icon('layers', 15);
@@ -635,7 +635,8 @@
       ${ct?.optOut ? '<span class="pill failed">Opted out</span>' : leadPill(ct)}
       ${ct ? ct.tags.map(tagOf).filter(Boolean).slice(0, 3).map((x) => `<span class="tag-chip tag-${esc(x.color)}" title="${esc(x.name)}">${esc(x.name)}</span>`).join('') : ''}
       ${ai?.playbook ? pbChip(ai) : ''}
-      ${ai ? `<label class="ib-ai-switch ${ai.on ? 'on' : ''}" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Switch off to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Switch off to stop for this chat.' : ai.off ? 'AI is off for this chat. Switch on to let it help.' : ai.master === false ? 'The lead assistant is off for the whole workspace (Settings → Lead assistant).' : 'This chat’s playbook only drafts when you ask. Turn on “Draft automatically” for it in Settings → Lead assistant.'}"><span class="ibx-l">${ai.playbook?.auto ? 'AI auto-reply' : 'AI drafts'}</span>${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm', knob: '<svg class="orb-icon" data-orb-icon="14"></svg>' })}</label>` : ''}` : '';
+      ${ai?.locked ? `<span class="ib-ai-paused" title="Meta locked this number, so the AI can’t send replies. It starts again by itself once Meta unlocks it.">${icon('lock', 12)}AI paused · number locked</span>` : ''}
+      ${ai && !ai.locked ? `<label class="ib-ai-switch ${ai.on ? 'on' : ''}" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Switch off to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Switch off to stop for this chat.' : ai.off ? 'AI is off for this chat. Switch on to let it help.' : ai.master === false ? 'The lead assistant is off for the whole workspace (Settings → Lead assistant).' : 'This chat’s playbook only drafts when you ask. Turn on “Draft automatically” for it in Settings → Lead assistant.'}"><span class="ibx-l">${ai.playbook?.auto ? 'AI auto-reply' : 'AI drafts'}</span>${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm', knob: '<svg class="orb-icon" data-orb-icon="14"></svg>' })}</label>` : ''}` : '';
     Orb.hydrate(hx);
     // This chat's own notes (the server keeps them per chat: the same person may talk to several of our numbers).
     const lead = t?.chatLead || {};
@@ -928,7 +929,7 @@
     aiOrb = null;
     const t = ib.thread;
     const ai = t?.ai;
-    if (!ai) { el.innerHTML = ''; return; }
+    if (!ai || ai.locked) { el.innerHTML = ''; return; } // Meta locked the number: nothing the AI writes could be sent
     const w = windowInfo(current());
     const last = (t.messages || []).filter((m) => m.type !== 'reaction').at(-1);
     let html = '';
@@ -2238,12 +2239,25 @@
     guard(() => api('/demo/inbound', { method: 'POST', body: { key: ib.key, text } }), $('#ibSimSend'));
   });
 
+  // The open chat's number: why nothing can be sent from it (Meta locked it, or refused its token), or null.
+  const chatBlock = () => (ib.key ? window.NumStatus?.block(ib.key.slice(0, ib.key.lastIndexOf(":"))) : null);
+  const chatHealth = () => (ib.key ? window.NumStatus?.health(ib.key.slice(0, ib.key.lastIndexOf(":"))) : null);
   function renderFoot(open) {
     const foot = $('#ibFoot');
-    const mode = (open ? 'open' : 'closed') + (state.settings.demoMode ? ':sim' : '');
+    const block = chatBlock(), low = !block && chatHealth()?.[1] === 'Low quality';
+    const mode = (block ? 'locked:' + block.title : open ? 'open' + (low ? ':low' : '') : 'closed') + (state.settings.demoMode ? ':sim' : '');
     if (foot.dataset.mode === mode && foot.dataset.key === ib.key) return renderReplyBar();
     foot.dataset.mode = mode;
     foot.dataset.key = ib.key;
+    if (block) {
+      // Nothing from this number gets delivered: no reply box, just why and what to do (the server refuses too).
+      foot.innerHTML = simBar() + `<div class="ib-closed ib-locked" role="status">
+        <span class="ib-locked-ico">${icon(block.icon, 18)}</span>
+        <div><b>${esc(block.title)}: replies are locked</b><span>${esc(block.text)}</span></div>
+        <button class="btn sm" data-goto="numbers">${icon('phone', 14)}See number</button>
+      </div>`;
+      return;
+    }
     if (!open) {
       foot.innerHTML = simBar() + `<div class="ib-closed">
         <div><b>Reply window closed</b><span>WhatsApp only allows free-form replies within 24 hours of the customer's last message. Send an approved template to restart the conversation.</span></div>
@@ -2254,6 +2268,7 @@
       return;
     }
     foot.innerHTML = simBar() + `<div class="ib-compose">
+      ${low ? `<div class="ib-qwarn" title="${esc(chatHealth()[2])}">${icon('badge-alert', 14)}<span><b>This number’s quality is low.</b> Replies still go through: answer what they asked and avoid promotional messages.</span></div>` : ''}
       <div class="ib-replybar hidden" id="ibReplyBar"></div>
       <div class="ib-compose-row">
         <button class="icon-btn la-host" id="ibAttachBtn" title="Attach a photo, video, document or audio" aria-label="Attach" aria-haspopup="menu">${icon('paperclip', 18)}</button>
@@ -3035,7 +3050,7 @@
       'New chat',
       `<p class="sub ib-modal-sub">WhatsApp only lets you start a conversation with an approved template. Free-form messages open up once they reply.</p>
       <label>Phone number<input id="ncPhone" inputmode="tel" maxlength="22" placeholder="98765 43210 or +91 98765 43210" /></label>
-      <label>From<select id="ncSender">${senders.map((s) => `<option value="${esc(s.id)}">${esc(s.label)}${s.displayPhone ? ' · ' + esc(s.displayPhone) : ''}</option>`).join('')}</select></label>
+      <label>From<select id="ncSender">${senders.map((s) => `<option value="${esc(s.id)}" data-sender="${esc(s.id)}"${window.NumStatus?.block(s.id) ? ' disabled' : ''}>${esc(s.label)}${s.displayPhone ? ' · ' + esc(s.displayPhone) : ''}</option>`).join('')}</select></label>
       <div class="modal-actions"><button class="btn quiet" id="ncCancel">Cancel</button><button class="btn primary" id="ncGo">Open chat</button></div>`
     );
     $('#ncPhone', body).focus();
@@ -3109,6 +3124,15 @@
 
   window.Inbox = {
     open: (key) => openConversation(key),
+    // Numbers were reloaded (one may have been locked or unlocked): redraw the open chat's reply box, and ask for its
+    // AI state again (the server pauses auto-reply on a locked number).
+    numbersChanged() {
+      if (!ib.key || !visible()) return;
+      const sig = ib.key + String(Boolean(chatBlock())) + (chatHealth()?.[1] || "");
+      if (sig === ib.numSig) return;
+      ib.numSig = sig;
+      loadThread().catch(() => {});
+    },
     // The conversation on screen right now, if any.
     viewing: () => (visible() && !document.hidden ? ib.key : null),
     async show() {

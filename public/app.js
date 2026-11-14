@@ -191,7 +191,8 @@ function showTab(name) {
   if (name !== 'campaigns') stopPolling();
   if (name === 'overview') loadOverview().catch((e) => toast(e.message, 'error'));
   else stopOverviewPolling();
-  if (name === 'numbers') { refreshStats().then(renderSenders).catch(() => {}); if (!state.team) loadTeam().catch(() => {}); }
+  if (name === 'numbers') { refreshStats().then(renderSenders).catch(() => {}); if (!state.team) loadTeam().catch(() => {}); autoCheckNumbers(); }
+  if (name === 'templates') autoSyncTemplates();
   if (name === 'report') window.MetaErrors?.render();
   if (name === 'reports') window.MetaErrors?.showReports();
   hideTip();
@@ -1036,6 +1037,7 @@ async function loadSenders() {
   renderSenderChecks();
   if (state.templates.length) { renderTemplates(); renderTemplateSelect(); } // both depend on which numbers exist
   window.Assistant?.senders();
+  window.Inbox?.numbersChanged?.(); // a number locked or unlocked: the open chat's reply box follows
 }
 
 // Meta's messaging limit as the stats give it: unique people reached in the last 24h against the business
@@ -1103,6 +1105,42 @@ function nameDotHtml(s) {
     + (s.statusCheckedAt ? ` Checked ${shortAgo(s.statusCheckedAt)}.` : '');
   return `<i class="name-dot ${n[0]}" tabindex="0" role="img" aria-label="${esc(`Display name ${n[1].toLowerCase()}`)}" data-tip="${esc(tip)}"></i>`;
 }
+// A number's standing with Meta in one look, for the dot shown wherever numbers are listed (dropdowns, the Send page,
+// the Inbox): [tone, short label, what it means]. Red: Meta won't deliver (locked, blocked, token refused, 131037)
+// or low quality (Meta still delivers, but a lock is close). Amber: medium quality, limited, name not approved yet.
+const BAD_NUMBER = /^(BANNED|DISCONNECTED|FLAGGED|RESTRICTED|DELETED)$/;
+function numHealth(s) {
+  if (!s || state.settings?.demoMode) return null;
+  const l = numBlock(s);
+  if (l) return ['bad', l.title, l.text];
+  if (s.nameBlockedAt) return ['bad', NAME_BLOCKED[1], NAME_BLOCKED[2]];
+  if (s.qualityRating === 'RED') return ['bad', 'Low quality', 'Meta still delivers its messages, but many people blocked or reported it. Pause marketing sends from it for a while, or Meta may lock the account (error 131031).'];
+  if (s.canSend === 'LIMITED') return ['warn', 'Limited by Meta', s.healthNote || 'Meta limits what this number can send. See WhatsApp Manager → Account quality.'];
+  if (s.qualityRating === 'YELLOW') return ['warn', 'Medium quality', QUALITY.YELLOW.todo];
+  if (nameBlocked(s) && nameInfo(s)) return ['warn', `Display name ${nameInfo(s)[1].toLowerCase()}`, nameInfo(s)[2]];
+  if (!s.hasToken) return ['warn', 'No access token', 'Add its access token under Numbers to send from it.'];
+  return ['good', 'Can send', `Meta delivers this number’s messages${s.lastCheckedAt ? ` (checked ${shortAgo(s.lastCheckedAt)})` : ''}.`];
+}
+// Why nothing can be sent from a number at all (Meta locked it, or refused its token), or null. Chats from it are
+// locked and AI auto-reply waits; the server refuses the same sends.
+function numBlock(s) {
+  if (!s || state.settings?.demoMode) return null;
+  if (s.lock) return { title: s.lock.title, text: `${s.lock.text} ${s.lock.fix}`, icon: 'lock' };
+  if (s.connError) return { title: 'Not connected', text: `Meta refused this number’s access token (${s.connError}). Edit the number under Numbers and paste a new one.`, icon: 'badge-alert' };
+  if (BAD_NUMBER.test(s.numberStatus || '')) return { title: NUMBER_STATUS[s.numberStatus], text: 'Meta reports this number can’t send. Check it in WhatsApp Manager → Phone numbers.', icon: 'lock' };
+  return null;
+}
+function numDotHtml(s) {
+  const h = numHealth(s);
+  return h ? `<i class="num-dot ${h[0]}" role="img" aria-label="${esc(h[1])}" title="${esc(`${h[1]}: ${h[2]}`)}"></i>` : '';
+}
+// For the dropdowns (select.js draws a dot for each <option data-sender="id">) and the other pages' scripts.
+window.NumStatus = {
+  dot: (id) => numDotHtml(state.senders?.find((x) => x.id === id)),
+  block: (id) => numBlock(state.senders?.find((x) => x.id === id)),
+  health: (id) => numHealth(state.senders?.find((x) => x.id === id)),
+  opened: () => autoCheckNumbers(10 * 60000), // a number list was opened: check again if the last check is 10+ min old
+};
 // Card rows: the number itself, when it isn't simply connected (the display name is the dot by the name).
 function nameStatusHtml(s) {
   const out = [];
@@ -1158,7 +1196,7 @@ function renderSenders() {
         ${s.messagingLimit ? `<dt>Meta limit</dt><dd>${esc(tierText(s.messagingLimit))}</dd>` : ''}
         ${numberPlaybooksHtml(s.id)}
         ${dupOf(s) ? `<dt>Duplicate</dt><dd><span class="tag-chip tag-red" title="Replies and delivery updates go to only one copy">Same number as “${esc(dupOf(s).label)}”</span></dd>` : ''}
-        ${s.lastCheckedAt ? `<dt>Connection</dt><dd class="dd-conn" title="Last checked ${esc(new Date(s.lastCheckedAt).toLocaleString())}"><span class="tag good">Connected</span><span class="tag-note">${esc(shortAgo(s.lastCheckedAt))}</span></dd>` : ''}
+        ${connRowHtml(s)}
       </dl>
       <div class="row tight">
         <button class="btn sm" data-test="${s.id}">${icon('zap', 15)}Test connection</button>
@@ -1170,6 +1208,29 @@ function renderSenders() {
     .join('');
   Motion.values(list);
   askPhotos();
+}
+// The card's Connection row: being checked now, connected (and when), or why Meta refused.
+function connRowHtml(s) {
+  if (checkingNumbers.has(s.id)) return `<dt>Connection</dt><dd class="dd-conn"><span class="tag">Checking…</span></dd>`;
+  if (s.lock && !state.settings?.demoMode) return `<dt>Sending</dt><dd class="dd-conn" title="${esc(`${s.lock.text} ${s.lock.fix}`)}"><span class="tag bad">${icon('lock', 12)}${esc(s.lock.title)}</span><span class="tag-note">${esc(shortAgo(s.lock.at))}</span></dd>`;
+  if (s.connError) return `<dt>Connection</dt><dd class="dd-conn" title="${esc(`Meta said: ${s.connError}`)}"><span class="tag bad">Not connected</span><span class="tag-note">${esc(shortAgo(s.lastCheckedAt))}</span></dd>`;
+  if (s.lastCheckedAt) return `<dt>Connection</dt><dd class="dd-conn" title="Last checked ${esc(new Date(s.lastCheckedAt).toLocaleString())}"><span class="tag good">Connected</span><span class="tag-note">${esc(shortAgo(s.lastCheckedAt))}</span></dd>`;
+  return '';
+}
+// Test every number by itself, the way Test connection does: when the app opens and when the Numbers page opens
+// (not again within 30s, so going back and forth between pages doesn't ask Meta each time). Quiet: each card shows
+// its result, and a number that stops connecting gets a notification (the server sends it).
+const checkingNumbers = new Set();
+async function autoCheckNumbers(gap = 30000) {
+  if (state.settings?.demoMode || checkingNumbers.size) return;
+  if (Date.now() - (autoCheckNumbers.at || 0) < gap) return;
+  const list = (state.senders || []).filter((s) => s.hasToken);
+  if (!list.length) return;
+  autoCheckNumbers.at = Date.now();
+  list.forEach((s) => checkingNumbers.add(s.id));
+  if (state.tab === 'numbers') renderSenders();
+  await Promise.all(list.map((s) => api(`/senders/${s.id}/test`, { method: 'POST' }).catch(() => {}).finally(() => checkingNumbers.delete(s.id))));
+  await loadSenders().catch(() => {});
 }
 // A number saved twice (before the server blocked it): the later copy names the first, so it can be deleted.
 const dupOf = (s) => { const first = state.senders.find((x) => x.phoneNumberId === s.phoneNumberId); return first !== s ? first : null; };
@@ -1372,7 +1433,8 @@ $('#senderList').addEventListener('click', (e) => {
     }, b);
   if (b.dataset.test)
     guard(async () => {
-      const r = await api(`/senders/${b.dataset.test}/test`, { method: 'POST' });
+      // A failed check is saved on the number too, so its card shows it: reload either way.
+      const r = await api(`/senders/${b.dataset.test}/test`, { method: 'POST' }).catch(async (e) => { await loadSenders().catch(() => {}); throw e; });
       toast(`✓ Connected: ${r.info.display_phone_number} (${r.info.verified_name || 'unverified'})`);
       await loadSenders();
     }, b);
@@ -1924,33 +1986,48 @@ $('#templateList').addEventListener('click', (e) => {
 
 // Sync can take a while (every Business Account, then the header samples): the button spins and says "Syncing…",
 // a bar runs above the list and the cards dim until it's done.
-$('#syncTemplates').addEventListener('click', async (e) => {
-  const btn = e.currentTarget, list = $('#templateList');
+// quiet (opening the Templates page, or the app): only the button spins, the cards stay as they are, and nothing pops
+// up unless something went wrong. Status changes still arrive as notifications (the server sends them).
+async function syncTemplates({ quiet = false } = {}) {
+  const btn = $('#syncTemplates'), list = $('#templateList');
   if (btn.classList.contains('syncing')) return;
   const label = btn.innerHTML;
   btn.classList.add('syncing');
   btn.setAttribute('aria-busy', 'true');
-  btn.innerHTML = `${icon('refresh-cw', 16)}Syncing…`;
-  const bar = document.createElement('div');
-  bar.className = 'tpl-sync-bar';
-  bar.setAttribute('role', 'status');
-  bar.innerHTML = `<i></i><span>Getting your templates and their latest review status from Meta…</span>`;
-  list.before(bar);
-  list.classList.add('tpl-syncing');
-  await guard(async () => {
+  btn.innerHTML = `${icon('refresh-cw', 16)}${quiet ? 'Checking Meta…' : 'Syncing…'}`;
+  let bar = null;
+  if (!quiet) {
+    bar = document.createElement('div');
+    bar.className = 'tpl-sync-bar';
+    bar.setAttribute('role', 'status');
+    bar.innerHTML = `<i></i><span>Getting your templates and their latest review status from Meta…</span>`;
+    list.before(bar);
+    list.classList.add('tpl-syncing');
+  }
+  const run = async () => {
     const r = await api('/templates/sync', { method: 'POST' });
-    state.templates = r.templates;
-    renderTemplates();
-    renderTemplateSelect();
-    toast(r.errors.length ? `Synced ${r.synced} template${r.synced === 1 ? '' : 's'}, with problems below` : `Up to date: ${r.synced} template${r.synced === 1 ? '' : 's'} from Meta`);
-    r.errors.forEach((er) => toast(er, 'error'));
-  }, btn);
-  bar.remove();
+    await loadTemplates(); // the list as this person may see it (a member limited to some numbers sees only theirs)
+    syncTemplates.at = Date.now();
+    if (!quiet) toast(r.errors.length ? `Synced ${r.synced} template${r.synced === 1 ? '' : 's'}, with problems below` : `Up to date: ${r.synced} template${r.synced === 1 ? '' : 's'} from Meta`);
+    if (!quiet || !syncTemplates.warned) r.errors.forEach((er) => toast(er, 'error'));
+    if (quiet && r.errors.length) syncTemplates.warned = true; // the same problem isn't repeated on every visit
+  };
+  if (quiet) await run().catch(() => {}); // no numbers yet, Meta down…: the manual Sync button says why
+  else await guard(run, btn);
+  bar?.remove();
   list.classList.remove('tpl-syncing');
   btn.classList.remove('syncing');
   btn.removeAttribute('aria-busy');
   btn.innerHTML = label;
-});
+}
+$('#syncTemplates').addEventListener('click', () => syncTemplates());
+// By itself: when the Templates page opens and when the app opens (not again within 30s, so going back and forth
+// between pages doesn't ask Meta each time). Only for live workspaces with a number that has a token.
+function autoSyncTemplates() {
+  if (state.settings?.demoMode || !state.senders?.some((s) => s.hasToken && s.wabaId)) return;
+  if (Date.now() - (syncTemplates.at || 0) < 30000) return;
+  syncTemplates({ quiet: true });
+}
 
 // --- Template editor: create a template in Meta, or edit one ------------------------------------------
 // One popup for both: the form on the left, the message as WhatsApp shows it on the right (with the
@@ -3085,6 +3162,7 @@ function renderFilters(st) {
     sel.value = items.some(([v]) => v === current) ? current : '';
   };
   fill($('#fSender'), st.senders.map((s) => [s.id, s.label]), st.filters.sender);
+  $$('#fSender option:not([value=""])').forEach((o) => { o.dataset.sender = o.value; }); // its status dot
   $('#fSender').closest('label').classList.toggle('hidden', st.senders.length < 2 && !st.filters.sender); // nothing to choose between
   fill($('#fTemplate'), st.options.templates.map((t) => [t, t]), st.filters.template);
   $('#fReset').classList.toggle('hidden', !st.filters.sender && !st.filters.template);
@@ -5478,6 +5556,8 @@ $('#pwChange').addEventListener('click', () => {
     await window.SendPage?.restoreDraft().catch(() => false); // the Send page's sheets and settings from last time
     showTab.replace = true; // the first page replaces the address (e.g. an old #send link becomes /send)
     showTab(tabFromUrl());
+    autoCheckNumbers(); // every number's connection, and templates' review status, checked with Meta on every visit
+    autoSyncTemplates();
     window.CampaignSetup?.whatsNew(); // once per browser: Send moved into Campaigns
   } catch (e) {
     toast('Could not reach the server: ' + e.message, 'error');

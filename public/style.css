@@ -7831,3 +7831,21 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 /* A number card's Display name row (its status tag). */
 .kv dd.dd-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; overflow: visible; white-space: normal; }
 .sender-id > [data-register] { flex: none; margin-right: -4px; }
+
+/* A number's standing with Meta (numHealth in app.js): a dot beside it in dropdowns, the Send page and the Inbox. */
+.num-dot { flex: none; display: inline-block; width: 7px; height: 7px; margin: 0 0 1px 6px; border-radius: 50%; vertical-align: middle; background: var(--muted); color: var(--muted); box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent); }
+.num-dot.good { background: var(--good); color: var(--good); }
+.num-dot.warn { background: var(--warn); color: var(--warn); }
+.num-dot.bad { background: var(--danger); color: var(--danger); }
+.ss-opt .num-dot { margin: 0 2px 0 -2px; }
+.ss-opt > span:has(+ .num-dot) { flex: 1; min-width: 0; }
+/* Inbox: a number Meta locked has no reply box, just why and what to do. */
+.ib-locked { background: color-mix(in srgb, var(--danger) 7%, var(--surface)); box-shadow: 0 -1px 0 color-mix(in srgb, var(--danger) 30%, transparent); }
+.ib-locked b { color: var(--danger); }
+.ib-locked-ico { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.ib-qwarn { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 8px; padding: 7px 10px; border-radius: 9px; font-size: 12.5px; line-height: 1.4; color: var(--text); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.ib-qwarn svg { flex: none; margin-top: 1px; color: var(--warn); }
+.ib-ai-paused { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; padding: 3px 9px; border-radius: 99px; font: 600 12px Inter, sans-serif; white-space: nowrap; color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.sf-item.sf-locked { opacity: 0.7; cursor: not-allowed; }
+.sf-item.sf-locked small { color: var(--danger); }
+.tag.bad svg { margin-right: 4px; vertical-align: -1px; }

@@ -88,7 +88,7 @@ const maskWaToken = (t) => (t ? '••••' + t.slice(-8) : '');
 
 function publicSender(s) {
   const { accessToken, ...rest } = s;
-  return { ...rest, accessTokenMasked: maskWaToken(accessToken), hasToken: Boolean(accessToken) };
+  return { ...rest, lock: lockOf(s) || undefined, accessTokenMasked: maskWaToken(accessToken), hasToken: Boolean(accessToken) };
 }
 
 // A number someone typed in a form: digits with optional +, spaces, dashes or brackets, and either
@@ -318,6 +318,8 @@ async function graph(sender, pathname, options = {}) {
     err.code = json.error?.code;
     err.subcode = json.error?.error_subcode;
     err.status = res.status;
+    // Meta refusing to send because the account or number is locked: lock it here too (see lockFromSend).
+    if (LOCK_CODES[err.code] && sender?.phoneNumberId && /\/messages$/.test(pathname)) lockFromSend(sender, err.code);
     throw err;
   }
   return json;
@@ -369,6 +371,84 @@ function noteNameBlocked(sender, blocked) {
   }
 }
 
+// --- A number Meta won't let send (account locked, number blocked) ------------------------------------------------
+// Two sources. Meta's health_status, read with every number check (when the app opens, on the Numbers page, and when
+// Meta's account_update / phone_number_quality_update webhooks say something changed): it says plainly whether the
+// number can send. And a send failing with one of LOCK_CODES, which locks at once (131031 is the whole Business
+// Account, so every number in it). A lock from a failure lasts an hour unless a later check confirms or clears it;
+// one Meta confirmed lasts until Meta says the number can send again. While locked: no chat replies, no AI
+// auto-reply, no campaigns from it. A red quality rating alone isn't a lock: Meta still delivers.
+const LOCK_CODES = {
+  131031: { title: 'Account locked by Meta', text: 'Meta locked the WhatsApp Business Account behind this number, so nothing it sends is delivered.', fix: 'Open WhatsApp Manager → Account quality to see why and request a review. It unlocks here by itself once Meta lifts it.' },
+  368: { title: 'Temporarily blocked by Meta', text: 'Meta blocked this number for a while over a policy problem, so nothing it sends is delivered.', fix: 'Open WhatsApp Manager → Account quality for the reason and how long it lasts. It unlocks here by itself.' },
+};
+const SEND_LOCK_MS = 3600000; // a lock only a failed send knows about
+const SEND_LOCK_TRUST_MS = 5 * 60000; // Meta's health check can lag a fresh lock: it can't clear one younger than this
+const HEALTH_TITLES = { WABA: 'Account locked by Meta', BUSINESS: 'Business portfolio blocked by Meta', PHONE_NUMBER: 'Number blocked by Meta', APP: 'Meta app blocked' };
+const senderName = (s) => s.verifiedName || s.label;
+function lockOf(s) {
+  const l = s?.lock;
+  if (!l || db.settings.demoMode) return null;
+  if (l.source === 'send' && Date.now() - Date.parse(l.at) > SEND_LOCK_MS) return null;
+  return l;
+}
+// lock: { source: 'send' | 'health', code, title, text, fix }, or null to unlock. A notification when it changes.
+function setLock(s, lock) {
+  const was = lockOf(s);
+  if (lock && was && was.source === lock.source && was.code === lock.code && was.text === lock.text) {
+    if (lock.source === 'send') s.lock.at = new Date().toISOString(); // still failing: the hour starts again
+    return; // nothing new to show (a campaign's 500 failures are one lock, not 500 updates)
+  }
+  if (lock) {
+    const now = new Date().toISOString();
+    s.lock = { ...lock, at: was && lock.source === 'health' && was.source === 'health' ? was.at : now };
+    if (!was) notes?.add({ kind: 'number_problem', title: `${senderName(s)}: ${lock.title.toLowerCase()}`, body: `${lock.text} ${lock.fix} Until then its chats are locked and AI auto-reply is paused.`, link: { tab: 'numbers' }, group: 'lock:' + s.id, count: 1 });
+  } else {
+    if (!s.lock) return;
+    delete s.lock;
+    notes?.add({ kind: 'number_ok', title: `${senderName(s)} can send again`, body: 'Meta says this number can send messages. Its chats and AI auto-reply work again.', link: { tab: 'numbers' }, group: 'lock:' + s.id, count: 1 });
+  }
+  save();
+  broadcast({ kind: 'changed', area: 'senders', tab: '' });
+}
+function lockFromSend(sender, code) {
+  const s = db.senders.find((x) => x.id === sender.id) || sender;
+  const all = Number(code) === 131031 && s.wabaId ? db.senders.filter((x) => x.wabaId === s.wabaId) : [s];
+  for (const x of all) {
+    if (lockOf(x)?.source !== 'health') setLock(x, { source: 'send', code: Number(code), ...LOCK_CODES[code] }); // Meta's own word wins
+    recheckNumber(x); // ask Meta's health check for the details (and whether it's already over)
+  }
+}
+// Meta's own answer to "can this number send?": AVAILABLE, LIMITED (it can, with limits) or BLOCKED, with why.
+// null when it can't be read (an older token or API version): then only failed sends lock.
+async function readHealth(who, phoneNumberId) {
+  let h;
+  try { h = (await graph(who, `${encodeURIComponent(phoneNumberId)}?fields=health_status`)).health_status; } catch { return null; }
+  if (!h?.can_send_message) return null;
+  const canSend = String(h.can_send_message).toUpperCase();
+  const ents = h.entities || [];
+  const bad = ents.find((e) => String(e.can_send_message).toUpperCase() === canSend && e.errors?.length) || ents.find((e) => e.errors?.length);
+  const err = bad?.errors?.[0] || {};
+  return { canSend, entity: String(bad?.entity_type || ''), code: err.error_code || '', text: String(err.error_description || '').slice(0, 400), fix: String(err.possible_solution || '').slice(0, 400) };
+}
+function applyHealth(s, h) {
+  if (!h) return;
+  s.canSend = h.canSend;
+  s.healthNote = h.canSend === 'LIMITED' ? [h.text, h.fix].filter(Boolean).join(' ') : '';
+  if (h.canSend === 'BLOCKED') {
+    const known = LOCK_CODES[s.lock?.code];
+    setLock(s, { source: 'health', code: h.code || s.lock?.code || '', title: HEALTH_TITLES[h.entity] || known?.title || 'Blocked by Meta',
+      text: h.text || known?.text || 'Meta says this number can’t send messages right now.', fix: h.fix || known?.fix || 'Open WhatsApp Manager → Account quality to see why.' });
+  } else if (s.lock && !(s.lock.source === 'send' && Date.now() - Date.parse(s.lock.at) < SEND_LOCK_TRUST_MS)) setLock(s, null);
+}
+// Everything Meta says about a number (what Test connection does), in the background: at most every 2 minutes each.
+const recheckedAt = new Map(); // sender id → when it was last checked in the background
+function recheckNumber(s, { now = false } = {}) {
+  if (!s?.accessToken || db.settings.demoMode || (!now && Date.now() - (recheckedAt.get(s.id) || 0) < 120000)) return;
+  recheckedAt.set(s.id, Date.now());
+  checkNumber(s).catch(() => {});
+}
+
 // Rate-limit / throughput errors worth retrying with backoff.
 const RETRYABLE = new Set([4, 80007, 130429, 131048, 131056]);
 
@@ -415,6 +495,15 @@ async function runCampaign(campaign) {
     campaign.pausedReason = `Not sent: ${creditsShort(toSend, tpl)} Add credits on the Credits page, then resume it.`;
     save();
     notes?.add({ kind: 'credits_out', group: 'credits_out', title: `“${campaign.name}” didn’t start: not enough credits`, body: campaign.pausedReason, link: { tab: 'campaigns', id: campaign.id } });
+    return;
+  }
+  // A number Meta has locked: every message would fail, so don't start (it can be resumed once it's unlocked).
+  const lockedNum = db.senders.find((s) => (campaign.senderIds || []).includes(s.id) && lockOf(s));
+  if (lockedNum && !campaign.demo) {
+    campaign.status = 'stopped';
+    campaign.pausedReason = `Not sent: ${senderName(lockedNum)} is ${lockOf(lockedNum).title.toLowerCase().replace(/ by meta$/, '')} by Meta. Resume once it’s unlocked.`;
+    save();
+    notes?.add({ kind: 'number_problem', group: 'lockcamp:' + campaign.id, title: `“${campaign.name}” didn’t start: ${senderName(lockedNum)} is locked`, body: campaign.pausedReason, link: { tab: 'campaigns', id: campaign.id } });
     return;
   }
   const control = { stop: false };
@@ -573,6 +662,16 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
         if (ws) tenants.forWorkspace(ws, () => handle(String(entry.id), change.value || {}));
         continue;
       }
+      // Something changed on the Business Account (locked, unlocked, restricted…) or a number's quality / limit
+      // (subscribe to "account_update" and "phone_number_quality_update"): check those numbers again with Meta.
+      if (change.field === 'account_update' || change.field === 'phone_number_quality_update') {
+        const digits = String(change.value?.display_phone_number || change.value?.phone_number || '').replace(/\D/g, '');
+        const mine = (x) => (digits && change.field === 'phone_number_quality_update' ? String(x.displayPhone || '').replace(/\D/g, '') === digits : x.wabaId === String(entry.id));
+        for (const ws of tenants.allWorkspaces().filter((w) => w.db.senders.some(mine))) {
+          tenants.forWorkspace(ws, () => db.senders.filter(mine).forEach((x) => recheckNumber(x, { now: true })));
+        }
+        continue;
+      }
       // Meta decided on a number's display name (subscribe to "phone_number_name_update" in the app's webhook fields).
       // The entry is the Business Account; the number comes as display_phone_number.
       if (change.field === 'phone_number_name_update') {
@@ -646,6 +745,9 @@ function handleWebhookChange(change, opts = {}) {
       for (const st of change.value?.statuses || []) {
         // the number's real standing with Meta: a 131037 failure blocks it, a delivered message proves it works
         const fromNumber = db.senders.find((x) => x.phoneNumberId === String(v.metadata?.phone_number_id || ''));
+        const lockErr = st.status === 'failed' && st.errors?.find((e) => LOCK_CODES[Number(e.code)]);
+        if (fromNumber && lockErr) lockFromSend(fromNumber, Number(lockErr.code));
+        else if (fromNumber?.lock?.source === 'send' && (st.status === 'delivered' || st.status === 'read') && Number(st.timestamp) * 1000 > Date.parse(fromNumber.lock.at)) setLock(fromNumber, null);
         if (fromNumber && st.status === 'failed' && st.errors?.some((e) => Number(e.code) === 131037)) noteNameBlocked(fromNumber, true);
         else if (fromNumber && (st.status === 'delivered' || st.status === 'read') && (fromNumber.nameBlockedAt || !fromNumber.deliveredOkAt)) noteNameBlocked(fromNumber, false);
         const im = inboxIndex.get(st.id);
@@ -993,6 +1095,7 @@ async function readNumberStatus(who, phoneNumberId) {
   return {
     numberStatus: String(info.status || ''), nameStatus: String(info.name_status || ''), newNameStatus: String(info.new_name_status || ''),
     codeVerification: String(info.code_verification_status || ''), statusCheckedAt: new Date().toISOString(),
+    health: await readHealth(who, phoneNumberId),
   };
 }
 const NAME_WORDS = { APPROVED: 'approved', AVAILABLE_WITHOUT_REVIEW: 'approved', DECLINED: 'rejected', EXPIRED: 'expired', PENDING_REVIEW: 'in review', NONE: 'not submitted' };
@@ -1000,7 +1103,9 @@ const NAME_WORDS = { APPROVED: 'approved', AVAILABLE_WITHOUT_REVIEW: 'approved',
 function applyNumberStatus(s, st) {
   if (!st?.statusCheckedAt) return;
   const before = s.nameStatus;
-  Object.assign(s, st);
+  const { health, ...rest } = st;
+  Object.assign(s, rest);
+  applyHealth(s, health);
   if (before && st.nameStatus && before !== st.nameStatus && NAME_WORDS[st.nameStatus] !== NAME_WORDS[before]) {
     const ok = NAME_WORDS[st.nameStatus] === 'approved';
     notes?.add({
@@ -1187,7 +1292,7 @@ app.put('/api/senders/:id', wrap(async (req, res) => {
   for (const k of ['label', 'phoneNumberId', 'wabaId', 'displayPhone', 'enabled']) if (k in req.body) s[k] = typeof req.body[k] === 'string' ? req.body[k].trim() : req.body[k];
   // Blank token on edit means "keep the existing one".
   if (req.body.accessToken) s.accessToken = req.body.accessToken.trim();
-  if (checked) Object.assign(s, checked, { lastCheckedAt: new Date().toISOString() });
+  if (checked) { Object.assign(s, checked, { lastCheckedAt: new Date().toISOString() }); delete s.connError; } // new details that Meta accepted
   save();
   res.json({ ...publicSender(s), warning: checked ? await linkWebhooks(s) : '' });
 }));
@@ -1224,7 +1329,23 @@ app.post('/api/senders/:id/test', wrap(async (req, res) => {
   const s = db.senders.find((x) => x.id === req.params.id);
   if (!s) throw fail('Not found', 404);
   if (!s.accessToken) throw fail('No access token saved for this number');
-  const info = await graph(s, `${s.phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,status`);
+  const info = await checkNumber(s);
+  res.json({ ok: true, info, sender: publicSender(s) });
+}));
+// Everything Meta says about a number: its details, quality, limit, status, health (can it send?) and photo.
+async function checkNumber(s) {
+  let info;
+  try { info = await graph(s, `${s.phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,status`); }
+  catch (e) {
+    // Kept on the number so its card shows it; a notification only when it was working before (not on every check).
+    const wasOk = !s.connError;
+    Object.assign(s, { connError: String(e.message || 'Meta refused the request').slice(0, 300).replace(/\.\s*$/, ''), lastCheckedAt: new Date().toISOString() });
+    save();
+    if (wasOk) notes?.add({ kind: 'number_problem', title: `${s.verifiedName || s.label} can't connect to Meta`, body: `Meta said: ${s.connError}. Messages from this number will fail until it's fixed (often an expired or replaced access token: Edit the number and paste a new one).`, link: { tab: 'numbers' }, group: 'conn:' + s.id, count: 1 });
+    throw e;
+  }
+  if (s.connError) notes?.add({ kind: 'number_ok', title: `${info.verified_name || s.label} is connected again`, body: 'Meta accepted its access token.', link: { tab: 'numbers' }, group: 'conn:' + s.id, count: 1 });
+  delete s.connError;
   s.displayPhone = info.display_phone_number || s.displayPhone;
   s.verifiedName = info.verified_name;
   s.qualityRating = info.quality_rating;
@@ -1233,8 +1354,9 @@ app.post('/api/senders/:id/test', wrap(async (req, res) => {
   s.lastCheckedAt = s.limitCheckedAt = new Date().toISOString();
   await readProfilePhoto(s);
   save();
-  res.json({ ok: true, info, sender: publicSender(s) });
-}));
+  broadcast({ kind: 'changed', area: 'senders', tab: '' }); // number dropdowns in other tabs show the fresh status
+  return info;
+}
 
 // Register the number with the Cloud API again. Meta re-issues the display name certificate this way, the usual fix
 // for a number that keeps failing with 131037 although its name shows in WhatsApp Manager. The PIN is the number's
@@ -1389,7 +1511,7 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
       : 'Add a sender number with a WABA ID and access token first');
   }
 
-  let synced = 0;
+  let synced = 0, changed = 0;
   const errors = [];
   for (const [wabaId, sender] of accounts) {
     try {
@@ -1408,8 +1530,20 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
           const data = { name: t.name, language: t.language, category: t.category, categoryChangedFrom: categoryChangedFrom(existing, t.category, t.previous_category), status: t.status, rejectedReason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : '', components: t.components, parameterFormat: t.parameter_format || 'POSITIONAL', source: 'synced', wabaId, metaId: t.id, updatedAt: new Date().toISOString() };
           // Meta doesn't say when a template was made or approved, so both are noted as this app sees them happen.
           const approvedNow = t.status === 'APPROVED' && (!existing || existing.status !== 'APPROVED');
+          const was = existing && { status: String(existing.status || '').toUpperCase(), category: String(existing.category || '').toUpperCase() };
           if (existing) Object.assign(existing, data, approvedNow && existing.status ? { approvedAt: data.updatedAt } : {});
           else db.templates.push({ id: id(), ...data, firstSeenAt: data.updatedAt });
+          // What changed since we last knew (the webhook may have missed it): the same notifications it would give.
+          // Templates seen for the first time aren't news.
+          if (was) {
+            const now = String(t.status || '').toUpperCase();
+            if (was.status && now !== was.status) { noteTemplateStatus(existing, now === 'APPROVED' && /^(PAUSED|DISABLED|FLAGGED)$/.test(was.status) ? 'REINSTATED' : now); changed++; }
+            const cat = String(t.category || '').toUpperCase();
+            if (was.category && cat && cat !== was.category && existing.categoryChangedFrom) {
+              notes?.add({ kind: 'template_problem', title: `Meta changed ${t.name} from ${was.category.toLowerCase()} to ${cat.toLowerCase()}`, body: `It's now charged and treated as a ${cat.toLowerCase()} message. If you think that's wrong, request a review in WhatsApp Manager → Business Support Home.`, link: { tab: 'templates', id: existing.id }, group: 'tplcat:' + existing.id, count: 1 });
+              changed++;
+            }
+          }
           synced++;
         }
         next = page.paging?.next ? page.paging.next.replace(/^https:\/\/graph\.facebook\.com\/v[\d.]+\//, '') : null;
@@ -1420,7 +1554,8 @@ app.post('/api/templates/sync', wrap(async (req, res) => {
   }
   await fetchMetaSamples(db.templates.filter((t) => t.source === 'synced' && accounts.has(t.wabaId)));
   save();
-  res.json({ synced, errors, templates: db.templates.map(publicTemplate) });
+  if (changed) broadcast({ kind: 'templates' }); // other open tabs show the new statuses too
+  res.json({ synced, changed, errors, templates: db.templates.map(publicTemplate) });
 }));
 
 // The category the template had before Meta moved it (e.g. picked Utility, Meta made it Marketing), or ''.
@@ -1667,7 +1802,7 @@ app.put('/api/templates/:id/meta', wrap(async (req, res) => {
 }));
 
 // Meta's review results arrive on the webhook (field message_template_status_update), keyed by Business Account.
-const TEMPLATE_EVENT_TEXT = { APPROVED: 'approved', REJECTED: 'rejected', PAUSED: 'paused', DISABLED: 'disabled', FLAGGED: 'flagged for low quality', PENDING_DELETION: 'being deleted', REINSTATED: 'approved again' };
+const TEMPLATE_EVENT_TEXT = { APPROVED: 'approved', REJECTED: 'rejected', PAUSED: 'paused', DISABLED: 'disabled', FLAGGED: 'flagged for low quality', PENDING_DELETION: 'being deleted', REINSTATED: 'approved again', IN_APPEAL: 'sent for appeal' };
 function handleTemplateStatus(wabaId, v) {
   const t = db.templates.find((x) => x.metaId === String(v.message_template_id)) ||
     db.templates.find((x) => x.wabaId === wabaId && x.name === v.message_template_name && x.language === v.message_template_language);
@@ -1678,8 +1813,21 @@ function handleTemplateStatus(wabaId, v) {
   t.updatedAt = new Date().toISOString();
   if (event === 'APPROVED') t.approvedAt = t.updatedAt;
   save();
-  if (TEMPLATE_EVENT_TEXT[event]) notes?.add({ kind: event === 'APPROVED' || event === 'REINSTATED' ? 'template_approved' : 'template_problem', title: `Template ${t.name} was ${TEMPLATE_EVENT_TEXT[event]}`, body: t.rejectedReason ? `Meta's reason: ${t.rejectedReason.toLowerCase().replace(/_/g, ' ')}` : event === 'APPROVED' ? 'It can be used for sending now.' : '', link: { tab: 'templates', id: t.id } });
+  noteTemplateStatus(t, event);
   broadcast({ kind: 'templates' });
+}
+// One notification per template while unread (grouped), so a template that goes In review → Approved shows its latest
+// news once, not a pile. Used by the webhook and by Sync, which notices changes the webhook missed.
+function noteTemplateStatus(t, event) {
+  if (!TEMPLATE_EVENT_TEXT[event]) return;
+  const good = event === 'APPROVED' || event === 'REINSTATED';
+  const why = t.rejectedReason ? `Meta's reason: ${t.rejectedReason.toLowerCase().replace(/_/g, ' ')}.` : '';
+  const body = why || (good ? 'It can be used for sending now.'
+    : event === 'PAUSED' ? 'Meta paused it after low-quality feedback. Campaigns can’t use it until it’s active again.'
+    : event === 'DISABLED' ? 'Meta disabled it for repeated low quality. Make a new template instead.'
+    : event === 'FLAGGED' ? 'If its quality doesn’t improve, Meta may pause it.'
+    : event === 'IN_APPEAL' ? 'Meta is looking at your appeal.' : '');
+  notes?.add({ kind: good ? 'template_approved' : event === 'IN_APPEAL' ? 'template_update' : 'template_problem', title: `Template ${t.name} was ${TEMPLATE_EVENT_TEXT[event]}`, body, link: { tab: 'templates', id: t.id }, group: 'tpl:' + t.id, count: 1 });
 }
 
 // Meta re-categorising a template (field template_category_update). With new_category the change has happened;
@@ -1902,6 +2050,8 @@ app.post('/api/campaigns', wrap((req, res) => {
   const { skipped, source, ...body } = req.body;
   // People must have agreed to get these messages (WhatsApp policy, and it keeps the number healthy).
   if (body.consent !== true && !db.settings.demoMode) throw fail('Confirm that these contacts agreed to receive messages from you');
+  const locked = db.senders.filter((s) => (body.senderIds || []).includes(s.id) && lockOf(s));
+  if (locked.length) throw fail(`${locked.map(senderName).join(', ')}: ${lockOf(locked[0]).title.toLowerCase()}, so nothing would be delivered. Choose other numbers, or wait until Meta unlocks it.`, 423);
   res.json(summary(createCampaign(body)));
 }));
 
@@ -2563,6 +2713,13 @@ app.get('/api/inbox/:key', wrap((req, res) => {
   const contact = contactsApi.byPhone(wa) || null;
   sendJson(req, res, { conversation: conversationInfo(key, own, recipientNames()), messages, earlier: all.length - messages.length, ai: req.ai ? leadApi.stateFor(key) : null, contact, chatLead: leadApi.chatLead(key, contact), tags: db.tags });
 }));
+
+// Replies, reactions, resends, media and stickers: not from a number Meta has locked (they'd only fail).
+app.post(/^\/api\/inbox\/([^/]+)\/(send|react|resend|media|sticker)$/, (req, res, next) => {
+  const l = lockOf(db.senders.find((s) => s.id === splitKey(decodeURIComponent(req.params[0])).senderId));
+  if (l) return res.status(423).json({ error: `${l.title}: nothing can be sent from this number until Meta unlocks it. ${l.fix}` });
+  next();
+});
 
 // Mark a conversation read here, and (live) send blue ticks to the person.
 app.post('/api/inbox/:key/read', wrap(async (req, res) => {
@@ -3491,7 +3648,7 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
   const r = contactsApi.recheckPhones();
   if (r.fixed || r.flagged) console.log(`Contacts in ${ws.meta.name}: ${r.fixed} number(s) cleaned, ${r.flagged} newly flagged (${r.problems} need fixing).`);
 });
-const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key) });
+const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key), numberLocked: (senderId) => Boolean(lockOf(db.senders.find((s) => s.id === senderId))) });
 
 // --- AI assistant -------------------------------------------------------------
 

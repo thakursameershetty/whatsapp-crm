@@ -13,6 +13,8 @@ const CATEGORY = {
   message: 'messages', optout: 'messages', reply_failed: 'messages',
   campaign_done: 'campaigns', campaign_started: 'campaigns', delivery_failed: 'campaigns',
   ai_draft: 'ai', ai_auto: 'ai', ai_handover: 'ai', ai_qualified: 'ai', ai_error: 'ai',
+  template_approved: 'templates', template_problem: 'templates', template_update: 'templates',
+  number_ok: 'numbers', number_problem: 'numbers',
 };
 
 module.exports = function mountNotifications(app, ctx) {
@@ -48,7 +50,8 @@ module.exports = function mountNotifications(app, ctx) {
 
   // ?page=…: one page (newest first) after the kind and days, with the counts the page shows. Without it, everything
   // (the badge and older callers).
-  const CATS = new Set(['messages', 'campaigns', 'ai']);
+  const CATS = new Set(['messages', 'campaigns', 'ai', 'templates', 'numbers']);
+  const catOf = (n) => CATEGORY[n.kind] || n.category; // older ones were saved before their kind had a category
   app.get('/api/notifications', (req, res) => {
     const all = visible();
     if (req.query.page == null) return res.json({ notifications: all, unread: unread() });
@@ -64,13 +67,13 @@ module.exports = function mountNotifications(app, ctx) {
       return true;
     };
     const f = String(req.query.filter || 'all');
-    const kindOk = (n) => (f === 'unread' ? !n.read : CATS.has(f) ? n.category === f : true);
+    const kindOk = (n) => (f === 'unread' ? !n.read : CATS.has(f) ? catOf(n) === f : true);
     const rows = all.filter((n) => kindOk(n) && dayOk(n));
     const per = Math.min(500, Math.max(0, Math.round(Number(req.query.per ?? 50)) || 0)); // 0 = all
     const pages = per ? Math.max(1, Math.ceil(rows.length / per)) : 1;
     const page = Math.min(Math.max(0, Math.round(Number(req.query.page)) || 0), pages - 1);
     const counts = { all: all.length, unread: unread(), read: all.filter((n) => n.read).length };
-    for (const c of CATS) counts[c] = all.filter((n) => n.category === c).length;
+    for (const c of CATS) counts[c] = all.filter((n) => catOf(n) === c).length;
     const days = {};
     for (const n of all) { const k = dayKey(n.ts); days[k] = (days[k] || 0) + 1; }
     res.json({ notifications: per ? rows.slice(page * per, page * per + per) : rows, total: rows.length, page, pages, per, counts, days, unread: counts.unread });

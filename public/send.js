@@ -886,14 +886,16 @@
     const t = currentTemplate();
     const all = state.senders.filter((s) => s.enabled);
     const enabled = t ? templateSenders(t, all) : all;
-    const ok = new Set(enabled.map((s) => s.id));
+    const blocked = (s) => window.NumStatus?.block(s.id);
+    const ok = new Set(enabled.filter((s) => !blocked(s)).map((s) => s.id));
     for (const id of [...state.selectedSenders]) if (!ok.has(id)) state.selectedSenders.delete(id);
-    if (!state.selectedSenders.size) enabled.forEach((s) => state.selectedSenders.add(s.id));
+    if (!state.selectedSenders.size) enabled.filter((s) => ok.has(s.id)).forEach((s) => state.selectedSenders.add(s.id));
     $('#sendFromHint').textContent = enabled.length > 1 ? 'split evenly across the numbers you pick' : enabled.length ? 'every message goes from this number' : '';
     $('#senderChecks').innerHTML = enabled.length
       ? enabled.map((s) => {
-        const on = state.selectedSenders.has(s.id), many = enabled.length > 1;
-        return `<button type="button" class="sf-item ${on ? 'on' : ''} ${many ? 'pick' : ''}" data-sid="${s.id}" ${many ? `aria-pressed="${on}" title="${on ? 'Sending from this number. Click to leave it out.' : 'Click to send from this number too'}"` : 'tabindex="-1"'}>${senderPhotoHtml(s)}<span class="sf-who"><b>${esc(s.verifiedName || s.label)}</b><small>${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</small></span>${many ? `<span class="sf-tick">${on ? icon('check-one', 14) : ''}</span>` : ''}</button>`;
+        const on = state.selectedSenders.has(s.id), many = enabled.length > 1, b = blocked(s);
+        if (b) return `<button type="button" class="sf-item sf-locked" data-sid="${s.id}" disabled title="${esc(`${b.title}: ${b.text}`)}">${senderPhotoHtml(s)}<span class="sf-who"><b>${esc(s.verifiedName || s.label)}${numDotHtml(s)}</b><small>${icon('lock', 11)} ${esc(b.title)}</small></span></button>`;
+        return `<button type="button" class="sf-item ${on ? 'on' : ''} ${many ? 'pick' : ''}" data-sid="${s.id}" ${many ? `aria-pressed="${on}" title="${on ? 'Sending from this number. Click to leave it out.' : 'Click to send from this number too'}"` : 'tabindex="-1"'}>${senderPhotoHtml(s)}<span class="sf-who"><b>${esc(s.verifiedName || s.label)}${numDotHtml(s)}</b><small>${esc(s.displayPhone || 'ID ' + s.phoneNumberId)}</small></span>${many ? `<span class="sf-tick">${on ? icon('check-one', 14) : ''}</span>` : ''}</button>`;
       }).join('')
       : all.length ? `<div class="empty-note">None of your numbers can send this template: it belongs to another WhatsApp Business Account.</div>`
         : `<div class="empty-note">No numbers yet. <a href="#" data-goto="numbers">Add one</a> to start sending.</div>`;
@@ -1504,7 +1506,7 @@
     // a number whose display name isn't approved: Meta rejects every message from it (131037), so say so before sending
     const blocked = state.settings.demoMode ? [] : list.filter(nameBlocked);
     const warn = blocked.length ? `<p class="cf-warn">${icon('badge-alert', 15)}<span><b>${esc(blocked.map((x) => x.verifiedName || x.label).join(', '))}</b>: ${blocked.some((x) => x.nameBlockedAt) ? 'Meta is already rejecting messages from this number' : `display name ${esc(blocked.length === 1 ? nameInfo(blocked[0])[1].toLowerCase() : 'not approved')}`}. Meta will likely reject these messages (error 131037). Send one test message first, or see Numbers.</span></p>` : '';
-    return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>${warn}`;
+    return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}${numDotHtml(x)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>${warn}`;
   }
   $('#sendAll').addEventListener('click', (e) => {
     if (e.currentTarget.classList.contains('sp-go-next')) {

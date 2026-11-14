@@ -30,11 +30,14 @@
     credits_added: { icon: 'zap', tone: 'good' }, // an admin added credits (after payment)
     credits_low: { icon: 'zap', tone: 'warn' },
     credits_out: { icon: 'zap', tone: 'danger' },
+    template_approved: { icon: 'file-text', tone: 'good' }, // Meta approved (or reinstated) a template
+    template_problem: { icon: 'file-text', tone: 'danger' }, // …rejected, paused, disabled, flagged or re-categorised it
+    template_update: { icon: 'file-text', tone: 'info' }, // …anything else worth knowing (an appeal is being looked at)
   };
-  const FILTERS = [['all', 'All'], ['unread', 'Unread'], ['messages', 'Messages'], ['campaigns', 'Campaigns'], ['ai', 'AI assistant']];
+  const FILTERS = [['all', 'All'], ['unread', 'Unread'], ['messages', 'Messages'], ['campaigns', 'Campaigns'], ['ai', 'AI assistant'], ['templates', 'Templates'], ['numbers', 'Numbers']];
   // Which new notifications also pop a toast. (Everything lands on the page either way.)
-  const TOAST = new Set(['message', 'optout', 'reply_failed', 'campaign_started', 'campaign_done', 'delivery_failed', 'ai_draft', 'ai_auto', 'ai_handover', 'ai_qualified', 'ai_error', 'credits_added']);
-  const ERROR_KINDS = new Set(['reply_failed', 'delivery_failed', 'ai_error']);
+  const TOAST = new Set(['message', 'optout', 'reply_failed', 'campaign_started', 'campaign_done', 'delivery_failed', 'ai_draft', 'ai_auto', 'ai_handover', 'ai_qualified', 'ai_error', 'credits_added', 'template_approved', 'template_problem', 'template_update', 'number_ok', 'number_problem']);
+  const ERROR_KINDS = new Set(['reply_failed', 'delivery_failed', 'ai_error', 'template_problem', 'number_problem']);
 
   const visible = () => !$('#tab-notifications').classList.contains('hidden');
   // One page from the server (GET /api/notifications?page=…): the kind and days are applied there, with the counts.

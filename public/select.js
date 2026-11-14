@@ -19,6 +19,7 @@
       else if (node.tagName === 'OPTION' && !node.hidden) items.push({ o: node });
     }
     const opts = items.filter((x) => x.o);
+    if (opts.some((x) => x.o.dataset.sender)) window.NumStatus?.opened(); // numbers: re-check with Meta if it's been a while
     // <select data-chips> with options tagged data-tag="…": a row of filter chips (All, then each tag with its count).
     const tags = 'chips' in sel.dataset ? [...new Set(opts.map((x) => x.o.dataset.tag).filter(Boolean))] : [];
     let tag = '';
@@ -47,7 +48,9 @@
         const pic = d.photo != null || d.letter != null || d.icon
           ? `<span class="ss-av">${d.icon ? window.LA?.icon(d.icon, 14) || '' : `${d.photo ? `<img src="${esc(d.photo)}" alt="" onerror="this.remove()">` : ''}<b>${esc(d.letter || '')}</b>`}</span>`
           : '';
-        html += `<button type="button" role="option" class="ss-opt ${on ? 'on' : ''} ${pic ? 'has-av' : ''}" data-i="${o.index}" aria-selected="${on}" ${o.disabled ? 'disabled' : ''}><i class="ss-check">${on ? TICK : ''}</i>${pic}<span>${esc(o.textContent)}</span>${d.count ? `<small class="ss-count">${esc(d.count)}</small>` : ''}</button>`;
+        // A WhatsApp number (data-sender="its id"): a dot for its standing with Meta, explained on hover.
+        const dot = d.sender ? window.NumStatus?.dot(d.sender) || '' : '';
+        html += `<button type="button" role="option" class="ss-opt ${on ? 'on' : ''} ${pic ? 'has-av' : ''}" data-i="${o.index}" aria-selected="${on}" ${o.disabled ? 'disabled' : ''}><i class="ss-check">${on ? TICK : ''}</i>${pic}<span>${esc(o.textContent)}</span>${dot}${d.count ? `<small class="ss-count">${esc(d.count)}</small>` : ''}</button>`;
       }
       list.innerHTML = html || '<p class="ss-none">Nothing matches.</p>';
     };
