@@ -559,11 +559,12 @@
           <span class="sync-note hidden" id="numSync" role="status" aria-live="polite" tabindex="0"></span>
           <div class="search-wrap num-search hidden" id="numBar" data-icon="search" data-icon-size="15">
             <input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" id="numSearch" type="search" placeholder="Search by name or number" autocomplete="off" />
-            <button type="button" class="num-filter" id="numFilter" aria-haspopup="menu" title="Filter by quality"></button>
           </div>
+          <button type="button" class="ct-sortbtn ct-filterbtn hidden" id="numFilterBtn" aria-haspopup="dialog" aria-controls="numFilters" title="Filters"></button>
           <button class="btn primary" id="addSender" data-icon="plus">Add number</button>
         </div>
       </div>
+      <div class="ct-active hidden" id="numActive" aria-live="polite"></div>
       <div id="senderList" class="cards" data-skel="card:3"></div>
     </section>
 

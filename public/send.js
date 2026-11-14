@@ -121,11 +121,25 @@
 
   // --- Phone checks ----------------------------------------------------------------
 
-  // Each row: st = 'empty' | 'invalid' | 'duplicate' | 'valid', phone = normalised number.
+  // Numbers earlier campaigns showed aren't on WhatsApp (failed with 131026, never delivered), from the server
+  // (/api/send/nowa), asked for again whenever the Send page opens. Meta can't be asked beforehand, so this is the list.
+  let noWa = new Set();
+  async function loadNoWa() {
+    const next = state.settings.demoMode ? [] : (await api('/send/nowa').catch(() => ({ phones: [...noWa] }))).phones;
+    const same = next.length === noWa.size && next.every((p) => noWa.has(p));
+    noWa = new Set(next);
+    if (same) return;
+    SP.sheets.forEach(recheck);
+    if (current()) grid.redraw();
+    renderChrome();
+  }
+
+  // Each row: st = 'empty' | 'invalid' | 'duplicate' | 'nowa' | 'valid', phone = normalised number. A 'nowa' row (every
+  // number in it known not to be on WhatsApp) is left out the first time it's seen; ticking it sends it anyway.
   function recheck(sh) {
     const col = sh.headers.indexOf(sh.phoneName);
     const seen = new Set();
-    const counts = { valid: 0, invalid: 0, duplicate: 0, rows: 0 };
+    const counts = { valid: 0, invalid: 0, duplicate: 0, nowa: 0, rows: 0 };
     for (const row of sh.rows) {
       if (row.cells.every((v) => !String(v ?? '').trim())) { row.st = 'empty'; row.phone = null; continue; }
       counts.rows++;
@@ -134,7 +148,8 @@
       const picked = (row.pick || []).filter((p) => row.phones.includes(p));
       row.send = picked.length ? picked : row.phones.slice(0, 1);
       row.phone = row.send[0] || null;
-      row.st = !row.phone ? 'invalid' : row.send.every((p) => seen.has(p)) ? 'duplicate' : (row.send.forEach((p) => seen.add(p)), 'valid');
+      row.st = !row.phone ? 'invalid' : row.send.every((p) => seen.has(p)) ? 'duplicate' : (row.send.forEach((p) => seen.add(p)), row.send.every((p) => noWa.has(p)) ? 'nowa' : 'valid');
+      if (row.st === 'nowa' && row.nowaSeen !== row.phone) { row.nowaSeen = row.phone; row.on = false; } // left out once; a tick sticks
       counts[row.st]++;
       if (row.phones.length > 1) counts.multi = (counts.multi || 0) + 1;
     }
@@ -149,7 +164,8 @@
     valid: { label: 'Valid', test: (r) => r.st === 'valid' },
     invalid: { label: 'Invalid', test: (r) => r.st === 'invalid' },
     duplicate: { label: 'Duplicates', test: (r) => r.st === 'duplicate' },
-    off: { label: 'Left out', test: (r) => !r.on && r.st !== 'invalid' && r.st !== 'empty' },
+    nowa: { label: 'Not on WhatsApp', test: (r) => r.st === 'nowa' },
+    off: { label: 'Left out', test: (r) => !r.on && r.st !== 'invalid' && r.st !== 'empty' && r.st !== 'nowa' },
     multi: { label: 'Several numbers', test: (r) => (r.phones?.length || 0) > 1 },
   };
 
@@ -165,7 +181,7 @@
         cls: row.st === 'empty' ? 'empty' : row.on && can ? '' : 'off',
         checked: row.on && can,
         disabled: !can,
-        checkTitle: row.st === 'invalid' ? "Can't send: not a valid phone number" : row.st === 'empty' ? '' : row.on ? 'Will be sent · click to leave out' : 'Left out · click to include',
+        checkTitle: row.st === 'invalid' ? "Can't send: not a valid phone number" : row.st === 'empty' ? '' : row.st === 'nowa' ? (row.on ? 'Not on WhatsApp before, but will be sent anyway · click to leave out' : 'Not on WhatsApp: left out · click to send anyway') : row.on ? 'Will be sent · click to leave out' : 'Left out · click to include',
       };
     },
     cellInfo(sh, row, c) {
@@ -176,6 +192,7 @@
         : {};
       const sending = row.send.map((p) => '+' + p).join(' and ');
       if (row.st === 'duplicate') return { cls: `ph dup${multi.badge ? ' multi' : ''}`, title: `${sending} appears earlier in this sheet; it's sent once`, ...multi };
+      if (row.st === 'nowa') return { cls: `ph nowa${multi.badge ? ' multi' : ''}`, title: `${sending}: an earlier message failed because ${row.send.length > 1 ? 'they aren’t' : 'it isn’t'} on WhatsApp (131026), and nothing ever reached ${row.send.length > 1 ? 'them' : 'it'}. Left out unless you tick the row.`, ...multi };
       return { cls: `ph${multi.badge ? ' multi' : ''}`, title: row.phones.length > 1 ? `Sending to ${sending}${row.pick?.length ? '' : ' (the first number, suggested)'}` : `+${row.phone}`, ...multi };
     },
     headerTag: (sh, c) => (sh.headers[c] === sh.phoneName ? `<span class="sg-tag" title="Phone column">${icon('phone', 11)}</span>` : ''),
@@ -641,7 +658,7 @@
     const vars = currentTemplate()?.variables || [];
     const seen = new Set();
     const out = [];
-    const skip = { invalid: 0, duplicate: 0, unticked: 0, filtered: 0, missing: {} };
+    const skip = { invalid: 0, duplicate: 0, nowa: 0, unticked: 0, filtered: 0, missing: {} };
     let sheets = 0;
     for (const sh of SP.sheets) {
       if (!sh.included) continue;
@@ -651,7 +668,7 @@
         if (row.st === 'empty') continue;
         if (!shown.has(row)) { skip.filtered++; continue; }
         if (row.st === 'invalid') { skip.invalid++; continue; }
-        if (!row.on) { skip.unticked++; continue; }
+        if (!row.on) { skip[row.st === 'nowa' ? 'nowa' : 'unticked']++; continue; }
         const nums = row.send.filter((p) => !seen.has(p));
         if (!nums.length) { skip.duplicate++; continue; }
         const obj = {};
@@ -1277,13 +1294,13 @@
 
   // When most numbers in the chosen column fail but another column is full of numbers, offer it.
   function phoneHint(sh) {
-    if (!sh.counts.rows || sh.counts.valid / sh.counts.rows >= 0.3) return '';
+    if (!sh.counts.rows || (sh.counts.valid + (sh.counts.nowa || 0)) / sh.counts.rows >= 0.3) return '';
     const better = guessPhoneColumn(sh.headers, sh.rows, (r, i) => r.cells[i]);
     return better && better !== sh.phoneName ? `<button type="button" class="link sp-phone-hint" data-use-phone="${esc(better)}">Numbers look like they're in “${esc(better)}”. Use it?</button>` : '';
   }
   function renderStrip(sh, filtered) {
     const off = sh.rows.filter(SHOW.off.test).length;
-    const n = { all: sh.counts.rows, valid: sh.counts.valid, invalid: sh.counts.invalid, duplicate: sh.counts.duplicate, off, multi: sh.counts.multi || 0 };
+    const n = { all: sh.counts.rows, valid: sh.counts.valid, invalid: sh.counts.invalid, duplicate: sh.counts.duplicate, nowa: sh.counts.nowa || 0, off, multi: sh.counts.multi || 0 };
     const cur = sh.show || 'all';
     const shown = sh.view.filter((r) => r.st !== 'empty').length;
     $('#spStrip').innerHTML = `
@@ -1383,6 +1400,7 @@
       sheets > 1 ? `from ${sheets} sheets` : '',
       skip.invalid ? `${skip.invalid.toLocaleString()} invalid` : '',
       skip.duplicate ? `${skip.duplicate.toLocaleString()} duplicate${skip.duplicate > 1 ? 's' : ''} skipped` : '',
+      skip.nowa ? `${skip.nowa.toLocaleString()} not on WhatsApp` : '',
       skip.unticked ? `${skip.unticked.toLocaleString()} left out` : '',
       skip.filtered ? `${skip.filtered.toLocaleString()} hidden by filters` : '',
       ...missing.map(([k, n]) => `${n.toLocaleString()} with no ${missLabel(k)}`),
@@ -1506,8 +1524,46 @@
     // a number whose display name isn't approved: Meta rejects every message from it (131037), so say so before sending
     const blocked = state.settings.demoMode ? [] : list.filter(nameBlocked);
     const warn = blocked.length ? `<p class="cf-warn">${icon('badge-alert', 15)}<span><b>${esc(blocked.map((x) => x.verifiedName || x.label).join(', '))}</b>: ${blocked.some((x) => x.nameBlockedAt) ? 'Meta is already rejecting messages from this number' : `display name ${esc(blocked.length === 1 ? nameInfo(blocked[0])[1].toLowerCase() : 'not approved')}`}. Meta will likely reject these messages (error 131037). Send one test message first, or see Numbers.</span></p>` : '';
-    return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}${numDotHtml(x)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>${warn}`;
+    // locked by Meta or not connected: nothing it sends is delivered (the server won't start the campaign)
+    const cant = state.settings.demoMode ? [] : list.filter((x) => window.NumStatus?.block(x.id));
+    const lockWarn = cant.map((x) => `<p class="cf-warn bad">${icon('lock', 15)}<span><b>${esc(x.verifiedName || x.label)}</b>: ${esc(window.NumStatus.block(x.id).title.toLowerCase())}, so nothing it sends is delivered. Leave it out of this campaign.</span></p>`).join('');
+    const low = state.settings.demoMode ? [] : list.filter((x) => !window.NumStatus?.block(x.id) && x.qualityRating === 'RED');
+    const lowWarn = low.length ? `<p class="cf-warn">${icon('triangle-alert', 15)}<span><b>${esc(low.map((x) => x.verifiedName || x.label).join(', '))}</b>: quality is low. A big marketing send from it can get the account locked; send to people who opted in, or a smaller batch.</span></p>` : '';
+    return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}${numDotHtml(x)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>${lockWarn}${warn}${lowWarn}`;
   }
+
+  // --- The pre-send check (server: /api/send/precheck) --------------------------------------------------------------
+  // Meta can't say beforehand whether a number has WhatsApp, so each person is checked against what happened in earlier
+  // campaigns: not on WhatsApp (131026, never delivered), held back by Meta's experiment (130472), Meta's per-person
+  // marketing limit (131049), already got this template, opted out. Each group can be skipped or kept (opted out is
+  // always skipped); the campaign is created with the same choice (precheckSkip), so the server skips the same people.
+  const PC_ROWS = [
+    ['nowa', 'not on WhatsApp', 'ban', 'bad', 'Earlier messages failed with 131026 and nothing ever reached them.'],
+    ['experiment', 'held back by Meta’s experiment', 'sparkles', 'warn', 'Meta held back marketing to them in the last 30 days (130472), and likely will again. Not charged.'],
+    ['capped', 'hit Meta’s marketing limit recently', 'clock', 'warn', 'Meta’s per-person marketing limit stopped a message to them in the last 7 days (131049).'],
+    ['recent', 'already got this template', 'history', 'warn', 'They got this template from you in the last 7 days. Repeats lead to blocks.'],
+  ];
+  function precheckHtml(pc, skip) {
+    if (!pc) return '';
+    const g = pc.groups;
+    const n = (k) => g[k]?.n || 0;
+    const who = (k) => `<details class="pc-who"><summary>See who</summary><ul>${g[k].sample.map((p) => `<li>${p.name ? `<b>${esc(p.name)}</b> ` : ''}+${esc(p.phone)}</li>`).join('')}${g[k].n > g[k].sample.length ? `<li class="muted">and ${(g[k].n - g[k].sample.length).toLocaleString()} more</li>` : ''}</ul></details>`;
+    const rows = PC_ROWS.filter(([k]) => n(k)).map(([k, label, ic, tone, why]) => `
+      <div class="pc-row ${tone}">
+        <span class="pc-ic">${icon(ic, 15)}</span>
+        <div class="pc-main"><b>${n(k).toLocaleString()} ${label}</b><small>${why}</small>${who(k)}</div>
+        <label class="pc-skip" title="Leave them out of this campaign"><input type="checkbox" class="cb" data-pc="${k}" ${skip.has(k) ? 'checked' : ''} /> Skip</label>
+      </div>`).join('');
+    const opt = n('optout') ? `<div class="pc-row muted"><span class="pc-ic">${icon('bell-off', 15)}</span><div class="pc-main"><b>${n('optout').toLocaleString()} opted out</b><small>They asked not to get messages. Always left out.</small>${who('optout')}</div></div>` : '';
+    const clean = !rows && !opt;
+    return `<div class="pc">
+      <div class="pc-head">${icon(clean ? 'circle-check' : 'shield-check', 15)}<b>${clean ? `All ${pc.total.toLocaleString()} passed the check` : 'Checked against your earlier campaigns'}</b><span class="pc-count" data-pc-count></span></div>
+      ${rows}${opt}
+      <p class="pc-note">${clean ? 'None of them failed before, opted out, or got this template recently. ' : ''}Meta doesn’t let anyone check for WhatsApp before sending, so people you’ve never messaged can’t be checked; their results teach this check for next time.</p>
+    </div>`;
+  }
+  // How many will go out with these choices.
+  const pcSending = (pc, skip) => pc.total - (pc.groups.optout?.n || 0) - [...skip].reduce((sum, k) => sum + (pc.groups[k]?.n || 0), 0);
   $('#sendAll').addEventListener('click', (e) => {
     if (e.currentTarget.classList.contains('sp-go-next')) {
       if (!SP.panel) { SP.panel = true; try { localStorage.setItem('sendPanel', '1'); } catch { } renderChrome(); }
@@ -1525,18 +1581,34 @@
         scheduledAt = when.toISOString();
       }
       const demo = state.settings.demoMode;
-      const ok = await confirmDialog({
-        title: scheduledAt ? `Schedule ${list.length.toLocaleString()} messages?` : `Send ${list.length.toLocaleString()} messages now?`,
-        message: `${fromHtml()}Template <strong>${esc(t.name)}</strong> from ${nums} number${nums === 1 ? '' : 's'}${sheets > 1 ? `, to rows from ${sheets} sheets` : ''}${scheduledAt ? `, on <strong>${esc(new Date(scheduledAt).toLocaleString())}</strong>` : ''}.<br><br>${demo ? 'Demo mode: sending is simulated.' : '<strong>Live:</strong> real WhatsApp messages will be sent.'}${window.Credits?.confirmText(t, list.length) || ''}`,
+      // The pre-send check (live only; a failure to check never stops the send).
+      const pc = demo ? null : await api('/send/precheck', { method: 'POST', body: { templateId: t.id, phones: list.map((x) => x.obj.__phone) } }).catch(() => null);
+      const skip = new Set(pc ? Object.entries(pc.rules).filter(([, r]) => r.skip).map(([k]) => k) : []);
+      if (list.some((x) => x.row.st === 'nowa')) skip.delete('nowa'); // ticked in the sheet on purpose: keep them
+      const count = () => (pc ? pcSending(pc, skip) : list.length);
+      const titleFor = () => (scheduledAt ? `Schedule ${count().toLocaleString()} message${count() === 1 ? '' : 's'}?` : `Send ${count().toLocaleString()} message${count() === 1 ? '' : 's'} now?`);
+      const skippedNote = () => { const k = (pc ? pc.total : list.length) - count(); return k > 0 ? `${k.toLocaleString()} left out` : ''; };
+      const asking = confirmDialog({
+        title: titleFor(),
+        message: `${fromHtml()}${precheckHtml(pc, skip)}Template <strong>${esc(t.name)}</strong> from ${nums} number${nums === 1 ? '' : 's'}${sheets > 1 ? `, to rows from ${sheets} sheets` : ''}${scheduledAt ? `, on <strong>${esc(new Date(scheduledAt).toLocaleString())}</strong>` : ''}.<br><br>${demo ? 'Demo mode: sending is simulated.' : '<strong>Live:</strong> real WhatsApp messages will be sent.'}${window.Credits?.confirmText(t, list.length) || ''}`,
         confirmText: scheduledAt ? 'Schedule' : 'Send now',
         check: demo ? '' : 'These people agreed to get WhatsApp messages from my business, and can reply STOP to opt out.',
         safe: true,
       });
+      // Skip / keep a group: the title and the count follow at once.
+      const box = $('#confirmMsg');
+      const drawCount = () => { $('#confirmTitle').textContent = titleFor(); const el = box.querySelector('[data-pc-count]'); if (el) el.textContent = skippedNote(); };
+      const onPick = (e) => { const cb = e.target.closest('[data-pc]'); if (!cb) return; cb.checked ? skip.add(cb.dataset.pc) : skip.delete(cb.dataset.pc); drawCount(); };
+      box.addEventListener('change', onPick);
+      drawCount();
+      const ok = await asking;
+      box.removeEventListener('change', onPick);
       if (!ok) return;
+      if (pc && !count()) throw new Error('Everyone in this list was left out by the check. Keep a group, or choose other people.');
       const c = await api('/campaigns', {
         method: 'POST',
         // "Send now" waits 5 seconds on the server, so it can be undone (it still goes if this page is closed)
-        body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, test: $('#spTest').checked, tz: new Date().getTimezoneOffset(), ...(scheduledAt ? {} : { hold: 5 }) },
+        body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, precheckSkip: [...skip], test: $('#spTest').checked, tz: new Date().getTimezoneOffset(), ...(scheduledAt ? {} : { hold: 5 }) },
       });
       SP.sending = true; // (leaving during the undo countdown isn't leaving a draft)
       const undone = !scheduledAt && !(await undoToast({ title: `Sending ${c.total.toLocaleString()} message${c.total === 1 ? '' : 's'}`, msg: t.name }).finally(() => { SP.sending = false; }));
@@ -1887,7 +1959,7 @@
       return false;
     },
     loadXlsx: () => loadXlsxLib(),
-    show() { fitSend(); renderChrome(); if (current()) grid.focus(); },
+    show() { fitSend(); renderChrome(); if (current()) grid.focus(); loadNoWa(); },
     // The default country code changes which numbers are valid.
     recheck() { SP.sheets.forEach(recheck); if (current()) grid.redraw(); renderChrome(); },
   };

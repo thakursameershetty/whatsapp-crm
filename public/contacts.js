@@ -150,8 +150,9 @@
   const everFailed = (c) => failedIn(c).length > 0 || (!CT.fs.tpl.size && c.delivery?.status === 'failed');
   // Reached: delivered (or read) in at least one campaign
   const everDelivered = (c) => (c.campaigns || []).some((x) => (x.status === 'delivered' || x.status === 'read') && inTplScope(x)) || (!CT.fs.tpl.size && ['delivered', 'read'].includes(c.delivery?.status));
-  // Not on WhatsApp (as the server works it out): failed with 131026 / 130472 and never reached. They leave Not delivered.
-  const NO_WA_CODES = new Set(['131026', '130472']);
+  // Not on WhatsApp (as the server works it out): failed with 131026 and never reached. They leave Not delivered.
+  // (130472 is Meta's marketing experiment: they're on WhatsApp, so it stays a plain Not delivered.)
+  const NO_WA_CODES = new Set(['131026']);
   const noWaError = (e) => NO_WA_CODES.has(errCode(e)) || /not on whatsapp/i.test(String(e || ''));
   const notOnWa = (c) => !(c.campaigns || []).some((x) => x.status === 'delivered' || x.status === 'read') && !['delivered', 'read'].includes(c.delivery?.status) && ((c.campaigns || []).some((x) => x.status === 'failed' && noWaError(x.error)) || (c.delivery?.status === 'failed' && noWaError(c.delivery.error)));
   const isUndelivered = (c) => everFailed(c) && !notOnWa(c);
@@ -183,8 +184,8 @@
     return {
       stage: Object.entries(STATUS).map(([k, v]) => [k, v.label, dot('st-' + k)]),
       delivery: CT.fs.tpl.size
-        ? [['delivered', 'Delivered', dot('st-won'), 'Delivered in a campaign with the picked template'], ['undelivered', 'Not delivered', dot('st-bad'), 'Not delivered in a campaign with the picked template'], ['nowa', 'Not on WhatsApp', dot('st-nowa'), "Not on WhatsApp, or can't receive it (131026, 130472). Don't send to these again"], ['optout', 'Opted out', dot('st-optout')]]
-        : [['delivered', 'Delivered', dot('st-won'), 'Delivered in at least one campaign'], ['undelivered', 'Not delivered', dot('st-bad'), 'Not delivered in at least one campaign'], ['nowa', 'Not on WhatsApp', dot('st-nowa'), "Not on WhatsApp, or can't receive it (131026, 130472). Don't send to these again"], ['optout', 'Opted out', dot('st-optout')]],
+        ? [['delivered', 'Delivered', dot('st-won'), 'Delivered in a campaign with the picked template'], ['undelivered', 'Not delivered', dot('st-bad'), 'Not delivered in a campaign with the picked template'], ['nowa', 'Not on WhatsApp', dot('st-nowa'), "Not on WhatsApp, or can't receive it (131026). Don't send to these again"], ['optout', 'Opted out', dot('st-optout')]]
+        : [['delivered', 'Delivered', dot('st-won'), 'Delivered in at least one campaign'], ['undelivered', 'Not delivered', dot('st-bad'), 'Not delivered in at least one campaign'], ['nowa', 'Not on WhatsApp', dot('st-nowa'), "Not on WhatsApp, or can't receive it (131026). Don't send to these again"], ['optout', 'Opted out', dot('st-optout')]],
       tpl: [...new Set([...CT.templates, ...CT.fs.tpl])].map((k) => {
         // The photos of the numbers that sent it (up to 3, overlapping), else a template icon
         const nums = (CT.templateSenders[k] || []).map((id) => state.senders.find((x) => x.id === id)).filter(Boolean);

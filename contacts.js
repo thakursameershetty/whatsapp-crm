@@ -192,10 +192,10 @@ module.exports = function mountContacts(app, ctx) {
   // delivery is only a fallback for contacts from before the campaign history was kept.
   const everFailed = (c, inTpl = null) => (c.campaigns || []).some((x) => x.status === 'failed' && (!inTpl || inTpl(x))) || (!inTpl && c.delivery?.status === 'failed');
   const everDelivered = (c, inTpl = null) => (c.campaigns || []).some((x) => (x.status === 'delivered' || x.status === 'read') && (!inTpl || inTpl(x))) || (!inTpl && ['delivered', 'read'].includes(c.delivery?.status));
-  // Not on WhatsApp: a campaign failed with a code that means the number can't get WhatsApp messages (131026 not on
-  // WhatsApp / app can't receive, 130472 Meta's experiment), and nothing has ever reached them. Sending to these again
-  // only adds failures that hurt the number's quality, so they get their own filter and leave Not delivered.
-  const NO_WA_CODES = new Set(['131026', '130472']);
+  // Not on WhatsApp: a campaign failed with 131026 (not on WhatsApp, or the app can't receive it), and nothing has ever
+  // reached them. Sending to these again only adds failures, so they get their own filter and leave Not delivered.
+  // (130472 isn't this: the person is on WhatsApp, Meta is just holding back marketing to them for its experiment.)
+  const NO_WA_CODES = new Set(['131026']);
   const errCodeOf = (e) => { const t = String(e || ''); return (t.match(/^(\d{1,6}):/) || t.match(/\(#(\d+)\)/) || t.match(/\b(1\d{5})\b/) || [])[1] || ''; };
   const noWaError = (e) => NO_WA_CODES.has(errCodeOf(e)) || /not on whatsapp/i.test(String(e || ''));
   const notOnWa = (c) => !everDelivered(c) && ((c.campaigns || []).some((x) => x.status === 'failed' && noWaError(x.error)) || (c.delivery?.status === 'failed' && noWaError(c.delivery.error)));

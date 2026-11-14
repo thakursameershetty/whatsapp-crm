@@ -1657,6 +1657,7 @@ body.assistant-open main { padding-bottom: 0; }
 .sg td.ph.bad { color: var(--danger); background-image: linear-gradient(var(--danger-soft), var(--danger-soft)); }
 .sg td.ph.bad.sel { background-image: linear-gradient(color-mix(in srgb, var(--info) 11%, var(--danger-soft)), color-mix(in srgb, var(--info) 11%, var(--danger-soft))); }
 .sg td.ph.dup { color: var(--warn); }
+.sg td.ph.nowa { color: var(--warn); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .sg .sg-spacer td { padding: 0; height: auto; box-shadow: none; }
 .sg .sg-none { height: auto; padding: 48px 16px; text-align: center; color: var(--muted); box-shadow: none; white-space: normal; }
 /* The cell editor sits exactly on the cell, as in a spreadsheet: same size, font and padding, the selected cell's
@@ -1704,6 +1705,7 @@ body.assistant-open main { padding-bottom: 0; }
 .sp-show .st-valid .n { color: var(--good-text); }
 .sp-show .st-invalid .n { color: var(--danger); }
 .sp-show .st-duplicate .n { color: var(--warn); }
+.sp-show .st-nowa .n { color: var(--danger); }
 .sp-filtered { font-size: 12.5px; color: var(--muted); }
 .sp-filtered .link { font-size: inherit; }
 .sp-alert { font-size: 12.5px; color: var(--danger); font-weight: 500; }
@@ -7873,10 +7875,34 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 /* Good news (a number can send again, a template approved, a campaign done…) pops up green. */
 .toast.good { background: color-mix(in srgb, var(--good) 78%, #000); color: #fff; }
 /* The Templates filter button sits in the bar beside the search, like Contacts'. */
-#tplBar .ct-filterbtn { width: 36px; min-width: 36px; height: 36px; padding: 0; justify-content: center; color: var(--text); background: var(--field); box-shadow: var(--sh-sunk); border-radius: var(--r-md); }
-#tplBar .ct-filterbtn.on { background: var(--surface); box-shadow: var(--sh-raised); }
-#tplActive { margin-top: -6px; }
+/* The Filters button on Templates and Numbers sits beside the search box, like Contacts'. */
+:is(#tplBar, .num-head) .ct-filterbtn { width: 36px; min-width: 36px; height: 36px; padding: 0; justify-content: center; color: var(--text); background: var(--field); box-shadow: var(--sh-sunk); border-radius: var(--r-md); }
+:is(#tplBar, .num-head) .ct-filterbtn.on { background: var(--surface); box-shadow: var(--sh-raised); }
+:is(#tplActive, #numActive) { margin-top: -6px; }
+.num-search .search { padding-right: 12px; }
 /* A card you were sent to (focusNumber / focusTemplate): a ring that fades. */
 .card-flash { animation: card-flash 2.4s var(--ease-out, ease-out); }
 @keyframes card-flash { 0%, 55% { box-shadow: 0 0 0 3px var(--info), 0 8px 30px color-mix(in srgb, var(--info) 25%, transparent); } 100% { box-shadow: none; } }
 @media (prefers-reduced-motion: reduce) { .card-flash { animation: none; outline: 3px solid var(--info); } }
+
+/* The pre-send check in the Send confirmation (precheckHtml in send.js): one row per group, with Skip and See who. */
+.pc { margin: 12px 0 14px; padding: 12px 12px 10px; border-radius: 12px; background: var(--sunk, var(--field)); text-align: left; white-space: normal; color: var(--text); }
+.confirm-box:has(.pc) { max-width: 540px; }
+.pc-head b { flex: 1; }
+.pc-head { display: flex; align-items: center; gap: 8px; margin: 0 2px 8px; font-size: 13.5px; }
+.pc-head svg { flex: none; color: var(--good); }
+.pc-count { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.pc-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px; border-radius: 10px; background: var(--surface); box-shadow: var(--sh-raised); }
+.pc-row + .pc-row { margin-top: 6px; }
+.pc-ic { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--muted); background: color-mix(in srgb, currentColor 12%, transparent); }
+.pc-row.bad .pc-ic { color: var(--danger); }
+.pc-row.warn .pc-ic { color: var(--warn); }
+.pc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.4; }
+.pc-main small { color: var(--muted); font-size: 12px; }
+.pc-skip { flex: none; display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.pc-who { margin-top: 4px; font-size: 12px; }
+.pc-who summary { width: max-content; color: var(--info); font-weight: 600; cursor: pointer; }
+.pc-who ul { max-height: 140px; overflow-y: auto; margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; background: var(--sunk, var(--field)); list-style: none; font-variant-numeric: tabular-nums; }
+.pc-who li { padding: 2px 0; }
+.pc-note { margin: 8px 2px 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.cf-warn.bad { color: var(--danger); }

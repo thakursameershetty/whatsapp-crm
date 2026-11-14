@@ -1163,15 +1163,13 @@ function renderSenders() {
     return;
   }
   // Search by name (label or the business name customers see) or number, once there are a few numbers.
-  $('#numBar').classList.toggle('hidden', state.senders.length < 2);
-  const q = (state.numQ || '').trim().toLowerCase();
-  const digits = q.replace(/\D/g, '');
-  const qf = state.numQuality || '';
-  const ratingOf = (s) => (QUALITY[s.qualityRating] ? s.qualityRating : 'NONE');
-  drawNumFilter();
-  const shown = state.senders.filter((s) => (!qf || ratingOf(s) === qf)
-    && (!q || `${s.label} ${s.verifiedName || ''}`.toLowerCase().includes(q) || (digits && String(s.displayPhone || '').replace(/\D/g, '').includes(digits))));
-  if (!shown.length) { list.innerHTML = `<div class="card list-empty"><b>No numbers match</b><p>${q ? `Nothing for “${esc(state.numQ)}”${qf ? ` with ${esc(numQualityLabel(qf).toLowerCase())} quality` : ''}.` : `No numbers with ${esc(numQualityLabel(qf).toLowerCase())} quality.`} <a href="#" data-clear-num>Clear search</a></p></div>`; return; }
+  // Search and Filters once there are a few numbers (or something is already searched or ticked).
+  const tools = state.senders.length >= 2 || Boolean(state.numQ) || numFP.count() > 0;
+  $('#numBar').classList.toggle('hidden', !tools);
+  $('#numFilterBtn').classList.toggle('hidden', !tools);
+  const shown = state.senders.filter((s) => numFP.passes(s));
+  numFP.bar(shown.length);
+  if (!shown.length) { list.innerHTML = `<div class="card list-empty"><b>No numbers match</b><p>${state.numQ ? `Nothing for “${esc(state.numQ)}”${numFP.count() ? ' with these filters' : ''}.` : 'No numbers with these filters.'} <a href="#" data-clear-num>Clear search and filters</a></p></div>`; return; }
   list.innerHTML = shown
     .map(
       (s) => `
@@ -1482,7 +1480,7 @@ function drawSyncNote(id) {
 function focusNumber(id) {
   showTab('numbers');
   if (!state.senders.some((s) => s.id === id)) return;
-  if (state.numQ || state.numQuality) { state.numQ = ''; state.numQuality = ''; $('#numSearch').value = ''; renderSenders(); }
+  if (state.numQ || numFP.count()) { state.numQ = ''; numFP.clear(); $('#numSearch').value = ''; renderSenders(); }
   flashCard($(`#senderList .sender-card[data-sid="${CSS.escape(id)}"]`));
 }
 function focusTemplate(id) {
@@ -1784,16 +1782,93 @@ const TPL_FILTERS = {
   buttons: { title: 'Buttons', match: (t, k) => tplBtnTypes(t).includes(k) },
   more: { title: 'More', match: (t, k) => ({ vars: tplHasVars(t), novars: !tplHasVars(t), moved: Boolean(t.categoryChangedFrom), here: tplMadeHere(t), meta: !tplMadeHere(t) })[k] },
 };
-const tplFilterCount = () => Object.values(state.tplFs).reduce((n, set) => n + set.size, 0);
-const tplClearFilters = () => Object.values(state.tplFs).forEach((set) => set.clear());
-const tplSearchText = (t) => [t.name, t.language, t.category, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase();
-// A template passes when every section with ticks matches (skip: leave one section out, for that section's counts).
-function tplPasses(t, skip = '') {
-  const q = (state.tplQ || '').trim().toLowerCase();
-  if (q && !tplSearchText(t).includes(q)) return false;
-  return Object.entries(state.tplFs).every(([sec, set]) => sec === skip || !set.size || [...set].some((k) => TPL_FILTERS[sec].match(t, k)));
+// --- One Filters side panel (like Contacts'), for the Templates and Numbers pages ----------------------------------
+// Ticks in sections: any tick within a section, every section together. Each option says how many it would show with
+// the other sections' ticks (and the search) applied. Ticks apply at once; the ticked ones also show as chips under the
+// header, and the Filters button shows how many are on.
+// cfg: { id, label, noun: [one, many], btn, bar, sets: { section: Set }, filters: { section: { title, match(item, key) } },
+//        items(), search(item), options() → { section: [[key, label, leading html, hover text, trailing html]] }, hint,
+//        onChange() }
+function filterPanel(cfg) {
+  const { sets, filters } = cfg;
+  const count = () => Object.values(sets).reduce((n, set) => n + set.size, 0);
+  const clear = () => Object.values(sets).forEach((set) => set.clear());
+  const passes = (it, skip = '') => cfg.search(it) && Object.entries(sets).every(([sec, set]) => sec === skip || !set.size || [...set].some((k) => filters[sec].match(it, k)));
+  const optLabel = (sec, k) => cfg.options()[sec]?.find(([x]) => x === k)?.[1] || k;
+  const isOpen = () => $('#' + cfg.id) && !$('#' + cfg.id).classList.contains('hidden');
+  function bar(shown) {
+    const n = count(), b = $(cfg.btn);
+    b.innerHTML = `${icon('sliders-horizontal', 16)}${n ? `<b class="ct-fbadge">${n}</b>` : ''}`;
+    b.classList.toggle('on', n > 0);
+    b.setAttribute('aria-label', n ? `Filters, ${n} on` : 'Filters');
+    b.title = n ? `Filters (${n} on)` : cfg.hint;
+    const el = $(cfg.bar);
+    el.classList.toggle('hidden', !n);
+    el.innerHTML = n ? Object.entries(sets).flatMap(([sec, set]) => [...set].map((k) => `<span class="ct-chip"><span class="ct-chip-s">${esc(filters[sec].title)}:</span>${esc(optLabel(sec, k))}<button type="button" data-fp-unf="${sec}" data-k="${esc(k)}" aria-label="Remove ${esc(optLabel(sec, k))}">${icon('x', 12)}</button></span>`)).join('')
+      + `<button type="button" class="ct-clear" data-fp-unf="all">Clear all</button><span class="ct-count">${shown} of ${cfg.items().length}</span>` : '';
+    if (isOpen()) draw();
+  }
+  function open() {
+    let el = $('#' + cfg.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = cfg.id;
+      el.className = 'ct-fpanel-wrap hidden';
+      el.innerHTML = `<div class="ct-fpanel" role="dialog" aria-modal="true" aria-label="${esc(cfg.label)}"></div>`;
+      document.body.append(el);
+      el.addEventListener('click', (e) => {
+        if (e.target === el || e.target.closest('[data-fclose]')) return close();
+        if (e.target.closest('[data-fclear]')) { clear(); return cfg.onChange(); }
+        const one = e.target.closest('[data-fclearsec]');
+        if (one) { sets[one.dataset.fclearsec].clear(); return cfg.onChange(); }
+      });
+      el.addEventListener('change', (e) => {
+        const cb = e.target.closest('input[data-fsec]');
+        if (!cb) return;
+        const set = sets[cb.dataset.fsec];
+        cb.checked ? set.add(cb.value) : set.delete(cb.value);
+        cfg.onChange();
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen() && $('#modal').classList.contains('hidden')) { e.stopPropagation(); close(); } }, true);
+    }
+    draw();
+    el.classList.remove('hidden', 'closing');
+    requestAnimationFrame(() => el.querySelector('input, button')?.focus({ preventScroll: true }));
+  }
+  function close() { const el = $('#' + cfg.id); if (el) hideOverlay(el); $(cfg.btn).focus({ preventScroll: true }); }
+  function draw() {
+    const box = $(`#${cfg.id} .ct-fpanel`);
+    if (!box) return;
+    const opts = cfg.options(), all = cfg.items();
+    const results = all.filter((it) => passes(it)).length;
+    const sec = (key) => {
+      if ((opts[key] || []).length < 2 && !sets[key].size) return ''; // one option (or none) is nothing to choose between
+      const rows = opts[key].map(([k, label, lead, tip, tail]) => {
+        const n = all.filter((it) => passes(it, key) && filters[key].match(it, k)).length;
+        const on = sets[key].has(k);
+        return `<label class="fpx-opt ${on ? 'on' : ''} ${!n && !on ? 'zero' : ''}" ${tip ? `title="${esc(tip)}"` : ''}><input type="checkbox" class="cb" data-fsec="${key}" value="${esc(k)}" ${on ? 'checked' : ''} />${lead || ''}<span class="fpx-t">${esc(label)}</span>${tail || ''}<b>${n.toLocaleString()}</b></label>`;
+      }).join('');
+      const size = sets[key].size;
+      return `<section class="fpx-sec"><div class="fpx-h"><span>${filters[key].title}</span>${size ? `<span class="fpx-n">${size}</span><button type="button" class="fpx-clr" data-fclearsec="${key}" title="Clear ${esc(filters[key].title)}">Clear</button>` : ''}</div>${rows}</section>`;
+    };
+    const keep = box.querySelector('.fpx-body')?.scrollTop || 0;
+    box.innerHTML = `<header class="fpx-head"><h2>Filters</h2><button type="button" class="icon-btn" data-fclose aria-label="Close">${icon('x', 18)}</button></header>
+      <div class="fpx-body">${Object.keys(filters).map(sec).join('') || '<p class="fpx-none">Nothing to filter by yet.</p>'}</div>
+      <footer class="fpx-foot"><button type="button" class="btn quiet" data-fclear ${count() ? '' : 'disabled'}>Clear all</button><button type="button" class="btn primary" data-fclose>Show ${results.toLocaleString()} ${results === 1 ? cfg.noun[0] : cfg.noun[1]}</button></footer>`;
+    box.querySelector('.fpx-body').scrollTop = keep;
+  }
+  $(cfg.btn).addEventListener('click', open);
+  $(cfg.bar).addEventListener('click', (e) => {
+    const b = e.target.closest('[data-fp-unf]');
+    if (!b) return;
+    if (b.dataset.fpUnf === 'all') clear(); else sets[b.dataset.fpUnf].delete(b.dataset.k);
+    cfg.onChange();
+  });
+  return { count, clear, passes, bar };
 }
-// Each section's options as [key, label, leading html]: only what your templates have (and anything ticked).
+
+// Templates: what the panel filters by (TPL_FILTERS above) and its options.
+const tplSearchText = (t) => [t.name, t.language, t.category, ...(t.components || []).map((c) => c.text || '')].join(' ').toLowerCase();
 function tplFilterOptions() {
   const T = state.templates;
   const has = (sec, k) => T.some((t) => TPL_FILTERS[sec].match(t, k)) || state.tplFs[sec].has(k);
@@ -1803,77 +1878,60 @@ function tplFilterOptions() {
   return {
     status: Object.keys(TPL_STATUS).filter((k) => has('status', k)).map((k) => [k, TPL_STATUS[k], `<i class="num-dot ${tone[k] || ''}"></i>`]),
     cat: ['MARKETING', 'UTILITY', 'AUTHENTICATION'].filter((k) => has('cat', k)).map((k) => [k, catLabel(k), ic(k === 'MARKETING' ? 'sparkles' : k === 'UTILITY' ? 'settings' : 'shield-check')]),
-    num: state.senders.filter((s) => s.wabaId || state.tplFs.num.has(s.id)).map((s) => [s.id, s.verifiedName || s.label, `<span class="fpx-ph">${senderPhotoHtml(s)}</span>`, s.displayPhone]),
+    num: state.senders.filter((s) => s.wabaId || state.tplFs.num.has(s.id)).map((s) => [s.id, s.verifiedName || s.label, `<span class="fpx-ph">${senderPhotoHtml(s)}</span>`, s.displayPhone, numDotHtml(s)]),
     lang: [...new Set(T.map((t) => t.language).filter(Boolean))].sort((a, b) => langName(a).localeCompare(langName(b))).map((k) => [k, langName(k), ic('message-circle')]),
     header: [['TEXT', 'Text', 'type'], ['IMAGE', 'Image', 'image'], ['VIDEO', 'Video', 'video'], ['DOCUMENT', 'Document', 'file-text'], ['LOCATION', 'Location', 'map-pin'], ['NONE', 'No header', 'ban']].filter(([k]) => has('header', k)).map(([k, l, i]) => [k, l, ic(i)]),
     buttons: [['URL', 'Website link', 'link'], ['PHONE_NUMBER', 'Call', 'phone'], ['QUICK_REPLY', 'Quick reply', 'reply'], ['COPY_CODE', 'Copy code', 'copy'], ['OTP', 'One-time code', 'shield-check'], ['NONE', 'No buttons', 'ban']].filter(([k]) => has('buttons', k)).map(([k, l, i]) => [k, l, ic(i)]),
     more: [['vars', 'Has variables', 'square-pen'], ['novars', 'No variables', 'square'], ['moved', 'Category changed by Meta', 'triangle-alert'], ['here', 'Created in SendON', 'plus'], ['meta', 'Made in WhatsApp Manager', 'cloud-upload']].filter(([k]) => has('more', k)).map(([k, l, i]) => [k, l, ic(i)]),
   };
 }
-const tplOptLabel = (sec, k) => tplFilterOptions()[sec].find(([x]) => x === k)?.[1] || k;
-// The Filters button (with how many are ticked) and, under the header, the ticked ones as chips you can remove.
-function renderTplFilterBar(shownCount) {
-  const n = tplFilterCount(), b = $('#tplFilterBtn');
-  b.innerHTML = `${icon('sliders-horizontal', 16)}${n ? `<b class="ct-fbadge">${n}</b>` : ''}`;
-  b.classList.toggle('on', n > 0);
-  b.setAttribute('aria-label', n ? `Filters, ${n} on` : 'Filters');
-  b.title = n ? `Filters (${n} on)` : 'Filters: status, category, number, language, header, buttons and more';
-  const bar = $('#tplActive');
-  bar.classList.toggle('hidden', !n);
-  bar.innerHTML = n ? Object.entries(state.tplFs).flatMap(([sec, set]) => [...set].map((k) => `<span class="ct-chip"><span class="ct-chip-s">${esc(TPL_FILTERS[sec].title)}:</span>${esc(tplOptLabel(sec, k))}<button type="button" data-tunf="${sec}" data-k="${esc(k)}" aria-label="Remove ${esc(tplOptLabel(sec, k))}">${icon('x', 12)}</button></span>`)).join('')
-    + `<button type="button" class="ct-clear" data-tunf="all">Clear all</button><span class="ct-count">${shownCount} of ${state.templates.length}</span>` : '';
-  if ($('#tplFilters') && !$('#tplFilters').classList.contains('hidden')) drawTplFilters();
-}
-// The panel slides over the page from the right; ticks apply at once (the list behind updates).
-function openTplFilters() {
-  let el = $('#tplFilters');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'tplFilters';
-    el.className = 'ct-fpanel-wrap hidden';
-    el.innerHTML = '<div class="ct-fpanel" role="dialog" aria-modal="true" aria-label="Template filters"></div>';
-    document.body.append(el);
-    el.addEventListener('click', (e) => {
-      if (e.target === el || e.target.closest('[data-fclose]')) return closeTplFilters();
-      if (e.target.closest('[data-fclear]')) { tplClearFilters(); return renderTemplates(); }
-      const one = e.target.closest('[data-fclearsec]');
-      if (one) { state.tplFs[one.dataset.fclearsec].clear(); return renderTemplates(); }
-    });
-    el.addEventListener('change', (e) => {
-      const cb = e.target.closest('input[data-fsec]');
-      if (!cb) return;
-      const set = state.tplFs[cb.dataset.fsec];
-      cb.checked ? set.add(cb.value) : set.delete(cb.value);
-      renderTemplates();
-    });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !el.classList.contains('hidden') && $('#modal').classList.contains('hidden')) { e.stopPropagation(); closeTplFilters(); } }, true);
-  }
-  drawTplFilters();
-  el.classList.remove('hidden', 'closing');
-  requestAnimationFrame(() => el.querySelector('input, button')?.focus({ preventScroll: true }));
-}
-function closeTplFilters() { const el = $('#tplFilters'); if (el) hideOverlay(el); $('#tplFilterBtn').focus({ preventScroll: true }); }
-function drawTplFilters() {
-  const box = $('#tplFilters .ct-fpanel');
-  if (!box) return;
-  const opts = tplFilterOptions();
-  const results = state.templates.filter((t) => tplPasses(t)).length;
-  const sec = (key) => {
-    if (opts[key].length < 2 && !state.tplFs[key].size) return ''; // one option (or none) is nothing to choose between
-    const rows = opts[key].map(([k, label, lead, tip]) => {
-      const n = state.templates.filter((t) => tplPasses(t, key) && TPL_FILTERS[key].match(t, k)).length;
-      const on = state.tplFs[key].has(k);
-      return `<label class="fpx-opt ${on ? 'on' : ''} ${!n && !on ? 'zero' : ''}" ${tip ? `title="${esc(tip)}"` : ''}><input type="checkbox" class="cb" data-fsec="${key}" value="${esc(k)}" ${on ? 'checked' : ''} />${lead}<span class="fpx-t">${esc(label)}</span>${key === 'num' ? numDotHtml(state.senders.find((s) => s.id === k)) : ''}<b>${n.toLocaleString()}</b></label>`;
-    }).join('');
-    const size = state.tplFs[key].size;
-    return `<section class="fpx-sec"><div class="fpx-h"><span>${TPL_FILTERS[key].title}</span>${size ? `<span class="fpx-n">${size}</span><button type="button" class="fpx-clr" data-fclearsec="${key}" title="Clear ${esc(TPL_FILTERS[key].title)}">Clear</button>` : ''}</div>${rows}</section>`;
+const tplFP = filterPanel({
+  id: 'tplFilters', label: 'Template filters', noun: ['template', 'templates'], btn: '#tplFilterBtn', bar: '#tplActive',
+  sets: state.tplFs, filters: TPL_FILTERS, items: () => state.templates, options: tplFilterOptions,
+  search: (t) => { const q = (state.tplQ || '').trim().toLowerCase(); return !q || tplSearchText(t).includes(q); },
+  hint: 'Filters: status, category, number, language, header, buttons and more', onChange: () => renderTemplates(),
+});
+const tplFilterCount = tplFP.count, tplClearFilters = tplFP.clear, tplPasses = tplFP.passes;
+
+// Numbers: can it send, quality, display name, Meta limit, Business Account, and a few more.
+const NUM_SEND = [['ok', 'Can send', 'good'], ['locked', 'Locked by Meta', 'bad'], ['banned', 'Banned or restricted', 'bad'], ['conn', 'Not connected', 'bad'], ['rejecting', 'Rejecting messages (131037)', 'bad'], ['notoken', 'No access token', 'warn']];
+const numSendState = (s) => (s.lock ? 'locked' : BAD_NUMBER.test(s.numberStatus || '') ? 'banned' : s.connError ? 'conn' : s.nameBlockedAt ? 'rejecting' : !s.hasToken ? 'notoken' : 'ok');
+const numNameState = (s) => (s.nameStatus === 'AVAILABLE_WITHOUT_REVIEW' ? 'APPROVED' : s.nameStatus || 'UNKNOWN');
+state.numFs = { send: new Set(), quality: new Set(), name: new Set(), limit: new Set(), waba: new Set(), more: new Set() };
+const NUM_FILTERS = {
+  send: { title: 'Sending', match: (s, k) => numSendState(s) === k },
+  quality: { title: 'Quality', match: (s, k) => (QUALITY[s.qualityRating] ? s.qualityRating : 'NONE') === k },
+  name: { title: 'Display name', match: (s, k) => numNameState(s) === k },
+  limit: { title: 'Meta limit', match: (s, k) => (s.messagingLimit || 'NONE') === k },
+  waba: { title: 'Business account', match: (s, k) => (s.wabaId || 'none') === k },
+  more: { title: 'More', match: (s, k) => ({ on: s.enabled, off: !s.enabled, test: isMeta555(s), dup: Boolean(dupOf(s)) })[k] },
+};
+function numFilterOptions() {
+  const S = state.senders, F = state.numFs;
+  const has = (sec, k) => S.some((s) => NUM_FILTERS[sec].match(s, k)) || F[sec].has(k);
+  const ic = (name) => `<span class="fpx-ic">${icon(name, 14)}</span>`;
+  const dot = (tone) => `<i class="num-dot ${tone}"></i>`;
+  const tierN = (k) => Number(String(k).match(/(\d+)(K)?/)?.[1] || 0) * (/K/.test(k) ? 1000 : 1) || (/UNLIMITED/.test(k) ? 1e9 : 0);
+  return {
+    send: NUM_SEND.filter(([k]) => has('send', k)).map(([k, l, t]) => [k, l, dot(t)]),
+    quality: [['GREEN', 'High', 'good'], ['YELLOW', 'Medium', 'warn'], ['RED', 'Low', 'bad'], ['NONE', 'Not rated', '']].filter(([k]) => has('quality', k)).map(([k, l, t]) => [k, l, dot(t)]),
+    name: [...Object.keys(NAME_STATUS).filter((k) => k !== 'AVAILABLE_WITHOUT_REVIEW'), 'UNKNOWN'].filter((k) => has('name', k)).map((k) => [k, k === 'UNKNOWN' ? 'Not checked yet' : NAME_STATUS[k][1], dot(k === 'UNKNOWN' ? '' : NAME_STATUS[k][0])]),
+    limit: [...new Set(S.map((s) => s.messagingLimit || 'NONE'))].sort((a, b) => tierN(a) - tierN(b)).map((k) => [k, k === 'NONE' ? 'Not known yet' : tierText(k), ic('trending-up')]),
+    // only when some numbers share an account (one account per number would just repeat the numbers)
+    waba: (new Set(S.map((s) => s.wabaId || 'none')).size === S.length && !F.waba.size ? [] : [...new Set(S.map((s) => s.wabaId || 'none'))]).map((w) => [w, w === 'none' ? 'Not known yet' : accountLabel(w), ic('layers'), w === 'none' ? '' : `WhatsApp Business Account ${w}`]),
+    more: [['on', 'Switched on', 'circle-check'], ['off', 'Switched off', 'ban'], ['test', 'Meta test numbers (+1 555)', 'smartphone'], ['dup', 'Saved twice', 'copy']].filter(([k]) => has('more', k)).map(([k, l, i]) => [k, l, ic(i)]),
   };
-  const keep = box.querySelector('.fpx-body')?.scrollTop || 0;
-  box.innerHTML = `<header class="fpx-head"><h2>Filters</h2><button type="button" class="icon-btn" data-fclose aria-label="Close">${icon('x', 18)}</button></header>
-    <div class="fpx-body">${Object.keys(TPL_FILTERS).map(sec).join('') || '<p class="fpx-none">Nothing to filter by yet.</p>'}</div>
-    <footer class="fpx-foot"><button type="button" class="btn quiet" data-fclear ${tplFilterCount() ? '' : 'disabled'}>Clear all</button><button type="button" class="btn primary" data-fclose>Show ${results.toLocaleString()} template${results === 1 ? '' : 's'}</button></footer>`;
-  box.querySelector('.fpx-body').scrollTop = keep;
 }
+const numFP = filterPanel({
+  id: 'numFilters', label: 'Number filters', noun: ['number', 'numbers'], btn: '#numFilterBtn', bar: '#numActive',
+  sets: state.numFs, filters: NUM_FILTERS, items: () => state.senders, options: numFilterOptions,
+  search: (s) => {
+    const q = (state.numQ || '').trim().toLowerCase(), digits = q.replace(/\D/g, '');
+    return !q || `${s.label} ${s.verifiedName || ''}`.toLowerCase().includes(q) || Boolean(digits && String(s.displayPhone || '').replace(/\D/g, '').includes(digits));
+  },
+  hint: 'Filters: sending, quality, display name, Meta limit, business account and more', onChange: () => renderSenders(),
+});
+
 // One short date at the end of the card's grey line ("· Approved 4 Nov"; the year only when it isn't this year), with
 // every date in full on hover. Templates made in WhatsApp Manager show when they were first synced instead of
 // created, since Meta doesn't share that.
@@ -1985,7 +2043,7 @@ function renderTemplates() {
   $('#tplBar').classList.toggle('hidden', state.templates.length < 2);
   const q = (state.tplQ || '').trim().toLowerCase();
   const shown = state.templates.filter((t) => tplPasses(t));
-  renderTplFilterBar(shown.length);
+  tplFP.bar(shown.length);
   // Newest first: when it was made here (or first synced), else approved. Templates with no date go last, newest
   // Meta ID first (Meta's IDs grow over time).
   const when = (t) => Date.parse(t.createdAt || t.firstSeenAt || t.approvedAt || '') || 0;
@@ -2105,34 +2163,11 @@ function tplGroupHead(w, ts, pick, solo) {
   return `<header class="tpl-num-h"${toggle}><div class="tpl-num-list">${ss.map(one).join('')}</div>${right}</header>`;
 }
 
-$('#tplFilterBtn').addEventListener('click', openTplFilters);
-$('#tplActive').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-tunf]');
-  if (!b) return;
-  if (b.dataset.tunf === 'all') tplClearFilters(); else state.tplFs[b.dataset.tunf].delete(b.dataset.k);
-  renderTemplates();
-});
 $('#numSearch').addEventListener('input', (e) => { state.numQ = e.target.value; renderSenders(); });
-// The filter button inside the Numbers search: by Meta quality rating.
-const numQualityLabel = (k) => (k === 'NONE' ? 'Not rated' : QUALITY[k]?.label || 'Any');
-function drawNumFilter() {
-  const k = state.numQuality || '';
-  const b = $('#numFilter');
-  b.classList.toggle('on', Boolean(k));
-  b.innerHTML = `${icon('sliders-horizontal', 15)}${k ? `<span class="num-filter-lbl"><i class="q-dot ${k === 'NONE' ? 'none' : k}"></i>${esc(numQualityLabel(k))}</span>` : ''}`;
-  b.title = k ? `Showing ${numQualityLabel(k).toLowerCase()} quality. Click to change.` : 'Filter by quality';
-}
-$('#numFilter').addEventListener('click', (e) => {
-  e.stopPropagation();
-  const r = e.currentTarget.getBoundingClientRect();
-  const counts = (k) => state.senders.filter((s) => (QUALITY[s.qualityRating] ? s.qualityRating : 'NONE') === k).length;
-  const opt = (k, label) => ({ label, kbd: k ? String(counts(k)) : '', checked: (state.numQuality || '') === k, action: () => { state.numQuality = k; renderSenders(); } });
-  Sheet.Menu.open(r.right - 200, r.bottom + 6, [opt('', 'Any quality'), '-', opt('GREEN', 'High'), opt('YELLOW', 'Medium'), opt('RED', 'Low'), opt('NONE', 'Not rated')]);
-});
 $('#senderList').addEventListener('click', (e) => {
   if (!e.target.closest('[data-clear-num]')) return;
   e.preventDefault();
-  state.numQ = ''; state.numQuality = ''; $('#numSearch').value = '';
+  state.numQ = ''; numFP.clear(); $('#numSearch').value = '';
   renderSenders();
 });
 $('#tplSearch').addEventListener('input', (e) => { state.tplQ = e.target.value; clearTimeout(renderTemplates.q); renderTemplates.q = setTimeout(renderTemplates, 140); });

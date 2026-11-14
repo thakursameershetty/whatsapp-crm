@@ -1874,8 +1874,89 @@ function greetingVar(template) {
   return m ? 'body.' + m[2] : null;
 }
 
+// --- Before a campaign: what earlier campaigns already tell us about each person ------------------------------------
+// Meta has no way to ask whether a number has WhatsApp (the On-Premises API's /contacts check was retired in Oct 2025;
+// the Cloud API says to just send to people who opted in), so the honest signal is what happened when we sent before.
+// The Send page asks /api/send/precheck what it would skip, and the campaign is created with the same rules.
+const DAY_MS = 864e5;
+const PRECHECK = {
+  nowa: { label: 'Not on WhatsApp', skip: true },          // failed with 131026 before, and nothing ever reached them
+  experiment: { label: 'Held back by Meta’s experiment', skip: true, days: 30 }, // 130472 in the last 30 days
+  capped: { label: 'Hit Meta’s marketing limit recently', skip: false, days: 7 }, // 131049 in the last 7 days
+  recent: { label: 'Already got this template', skip: false, days: 7 },         // the same template in the last 7 days
+};
+// Per phone, from this mode's campaigns (live or demo): ever delivered, when it last failed with each of those codes,
+// and when each template last went to them.
+function sendHistory() {
+  const demo = Boolean(db.settings.demoMode);
+  const h = new Map();
+  for (const c of db.campaigns) {
+    if (Boolean(c.demo) !== demo) continue;
+    for (const r of c.recipients || []) {
+      if (!r.phone) continue;
+      let x = h.get(r.phone);
+      if (!x) h.set(r.phone, (x = { tpl: {} }));
+      if (r.status === 'delivered' || r.status === 'read') x.delivered = true;
+      if (r.status === 'failed') {
+        const code = errorCodeOf(r.error), at = Date.parse(r.failedAt || r.sentAt || c.createdAt) || 0;
+        const k = code === '131026' || (!code && /not on whatsapp/i.test(r.error || '')) ? 'nowaAt' : code === '130472' ? 'expAt' : code === '131049' ? 'capAt' : '';
+        if (k) x[k] = Math.max(x[k] || 0, at);
+      } else if (r.sentAt && c.templateId) {
+        const at = Date.parse(r.sentAt) || 0;
+        if (at > (x.tpl[c.templateId] || 0)) x.tpl[c.templateId] = at;
+      }
+    }
+  }
+  return h;
+}
+// Why this person would be flagged (a PRECHECK key), or ''.
+function precheckReason(h, phone, templateId, now = Date.now()) {
+  const x = h.get(phone);
+  if (!x) return '';
+  const within = (at, days) => at && now - at < days * DAY_MS;
+  if (x.nowaAt && !x.delivered) return 'nowa';
+  if (within(x.expAt, PRECHECK.experiment.days)) return 'experiment';
+  if (within(x.capAt, PRECHECK.capped.days)) return 'capped';
+  if (within(x.tpl[templateId], PRECHECK.recent.days)) return 'recent';
+  return '';
+}
+
+// What a campaign to these numbers would run into, without sending anything: { total, ready, invalid, duplicate,
+// groups: { key: { n, sample: [{ phone, name }] } } } (optout too, which is always skipped).
+app.post('/api/send/precheck', wrap((req, res) => {
+  const { templateId = '', phones = [] } = req.body || {};
+  if (!Array.isArray(phones)) throw fail('Send the list of numbers');
+  const hist = sendHistory();
+  const people = new Map(db.contacts.map((c) => [c.phone, c]));
+  const groups = Object.fromEntries([...Object.keys(PRECHECK), 'optout'].map((k) => [k, []]));
+  const seen = new Set();
+  let ready = 0, invalid = 0, duplicate = 0;
+  for (const raw of phones.slice(0, 200000)) {
+    const phone = normalizePhone(raw);
+    if (!phone) { invalid++; continue; }
+    if (seen.has(phone)) { duplicate++; continue; }
+    seen.add(phone);
+    if (people.get(phone)?.optOut) { groups.optout.push(phone); continue; }
+    const why = precheckReason(hist, phone, templateId);
+    if (why) groups[why].push(phone); else ready++;
+  }
+  const out = Object.fromEntries(Object.entries(groups).map(([k, list]) => [k, { n: list.length, sample: list.slice(0, 50).map((p) => ({ phone: p, name: people.get(p)?.name || '' })) }]));
+  res.json({ total: seen.size, ready, invalid, duplicate, groups: out, rules: PRECHECK, known: hist.size });
+}));
+
+// The numbers earlier campaigns showed aren't on WhatsApp (131026, never delivered), for the Send page's sheet: those
+// rows get their own "Not on WhatsApp" label and are left out unless ticked.
+app.get('/api/send/nowa', (req, res) => {
+  const phones = [];
+  if (!db.settings.demoMode) for (const [phone, x] of sendHistory()) if (x.nowaAt && !x.delivered) phones.push(phone);
+  res.json({ phones });
+});
+
 function resolveRecipients(body, template) {
   const { rows = [], phoneColumn, mapping = {} } = body;
+  // the pre-send check's groups the Send page chose to skip (Not on WhatsApp, Meta's experiment…)
+  const skipWhy = new Set((Array.isArray(body.precheckSkip) ? body.precheckSkip : []).filter((k) => PRECHECK[k]));
+  const hist = skipWhy.size ? sendHistory() : null;
   const vars = templateVariables(template.components);
   const nameCol = rows.length ? nameColumnOf(Object.keys(rows[0])) : null, greet = greetingVar(template);
   const seen = new Set();
@@ -1886,6 +1967,8 @@ function resolveRecipients(body, template) {
     if (!phone) { skipped.push({ raw: row[phoneColumn], reason: phoneRejectReason(row[phoneColumn]) }); continue; }
     if (seen.has(phone)) { skipped.push({ raw: row[phoneColumn], reason: 'Duplicate' }); continue; }
     if (contactsApi.isOptedOut(phone)) { seen.add(phone); skipped.push({ raw: row[phoneColumn], reason: 'Opted out' }); continue; }
+    const why = hist ? precheckReason(hist, phone, template.id) : '';
+    if (why && skipWhy.has(why)) { seen.add(phone); skipped.push({ raw: row[phoneColumn], reason: PRECHECK[why].label }); continue; }
     seen.add(phone);
     const values = {};
     for (const v of vars) {
