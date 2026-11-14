@@ -659,28 +659,31 @@
     const seen = new Set();
     const out = [];
     const skip = { invalid: 0, duplicate: 0, nowa: 0, unticked: 0, filtered: 0, missing: {} };
+    const skippedRows = []; // who was left out and why, kept with the campaign (its Skipped tab)
     let sheets = 0;
     for (const sh of SP.sheets) {
       if (!sh.included) continue;
       sheets++;
       const shown = new Set(sh.matching || sh.rows); // column filters limit the send; the Show filter doesn't
+      const pcol = sh.headers.indexOf(sh.phoneName), ncol = sh.headers.findIndex((h, i) => i !== pcol && /name/i.test(h));
+      const out1 = (row, reason) => skippedRows.push({ raw: String(row.cells[pcol] ?? '').trim(), phone: row.phone || '', name: ncol >= 0 ? String(row.cells[ncol] ?? '').trim() : '', reason });
       for (const row of sh.rows) {
         if (row.st === 'empty') continue;
-        if (!shown.has(row)) { skip.filtered++; continue; }
-        if (row.st === 'invalid') { skip.invalid++; continue; }
-        if (!row.on) { skip[row.st === 'nowa' ? 'nowa' : 'unticked']++; continue; }
+        if (!shown.has(row)) { skip.filtered++; out1(row, 'Hidden by column filters'); continue; }
+        if (row.st === 'invalid') { skip.invalid++; out1(row, String(row.cells[pcol] ?? '').trim() ? 'Not a valid phone number' : 'No phone number'); continue; }
+        if (!row.on) { const nw = row.st === 'nowa'; skip[nw ? 'nowa' : 'unticked']++; out1(row, nw ? 'Not on WhatsApp' : 'Left out by you'); continue; }
         const nums = row.send.filter((p) => !seen.has(p));
-        if (!nums.length) { skip.duplicate++; continue; }
+        if (!nums.length) { skip.duplicate++; out1(row, 'Duplicate'); continue; }
         const obj = {};
         sh.headers.forEach((h, i) => { obj[h] = String(row.cells[i] ?? '').trim(); });
         // A column value that's empty or a placeholder ("Not Captured") uses the variable's fallback, if it has one.
         const miss = vars.find((v) => { const m = SP.mapping[v.key]; return m?.type === 'column' && !cellValue(m, obj[m.value]) && !String(m.fallback || '').trim(); });
-        if (miss) { skip.missing[miss.key] = (skip.missing[miss.key] || 0) + 1; continue; }
+        if (miss) { skip.missing[miss.key] = (skip.missing[miss.key] || 0) + 1; out1(row, `No value for {{${miss.name || miss.key}}}`); continue; }
         // One message per chosen number (usually one: the suggested first number).
         for (const p of nums) { seen.add(p); out.push({ sheet: sh, row, obj: { ...obj, __phone: p } }); }
       }
     }
-    return { list: out, skip, sheets };
+    return { list: out, skip, sheets, skippedRows };
   }
 
   // --- Message panel ---------------------------------------------------------------------
@@ -1571,7 +1574,7 @@
     }
     return guard(async () => {
       const t = currentTemplate();
-      const { list, sheets } = recipients();
+      const { list, sheets, skippedRows } = recipients();
       const nums = state.selectedSenders.size;
       let scheduledAt = null;
       if (state.sendMode === 'schedule') {
@@ -1608,7 +1611,7 @@
       const c = await api('/campaigns', {
         method: 'POST',
         // "Send now" waits 5 seconds on the server, so it can be undone (it still goes if this page is closed)
-        body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, precheckSkip: [...skip], test: $('#spTest').checked, tz: new Date().getTimezoneOffset(), ...(scheduledAt ? {} : { hold: 5 }) },
+        body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, precheckSkip: [...skip], sheetSkipped: skippedRows, test: $('#spTest').checked, tz: new Date().getTimezoneOffset(), ...(scheduledAt ? {} : { hold: 5 }) },
       });
       SP.sending = true; // (leaving during the undo countdown isn't leaving a draft)
       const undone = !scheduledAt && !(await undoToast({ title: `Sending ${c.total.toLocaleString()} message${c.total === 1 ? '' : 's'}`, msg: t.name }).finally(() => { SP.sending = false; }));

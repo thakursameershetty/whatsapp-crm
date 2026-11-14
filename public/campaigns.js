@@ -957,7 +957,7 @@
     cx.querySelector('[data-cx-expand]').classList.toggle('hidden', !total);
     if (total) drawBar(cx.querySelector('.cx-bar'), c); else cx.querySelector('.cx-bar').innerHTML = '';
     cx.querySelector('.cx-chipwrap').innerHTML = total ? chipsHtml(n) : '<p class="sub">Nothing sent yet.</p>';
-    cx.querySelector('.cx-foot').innerHTML = c.skipped?.length ? '<p class="sub cd-foot">' + num(c.skipped.length) + ' skipped before sending (invalid, duplicate or opted out)</p>' : '';
+    cx.querySelector('.cx-foot').innerHTML = c.skipped?.length ? `<p class="sub cd-foot">${icon('ban', 13)}<b>${num(c.skipped.length)} skipped before sending:</b> ${esc(skipReasons(c).map(([why, n]) => `${num(n)} ${why.charAt(0).toLowerCase() + why.slice(1)}`).join(' · '))} <button type="button" class="link" data-show="skipped">See who</button></p>` : '';
     const hot = cx.dataset.hot && n[cx.dataset.hot] ? cx.dataset.hot : null;
     delete cx.dataset.lit;
     light(cx, hot, c);
@@ -1202,19 +1202,38 @@
 
   // Recipients in a read-only sheet: sort, filter, copy, and a Show filter by outcome.
   const SHOW = {
-    all: ['All', () => true],
+    all: ['All', (r) => r.status !== 'skipped'],
     read: ['Read', (r) => r.status === 'read'],
     delivered: ['Delivered', (r) => r.status === 'delivered'],
     sent: ['Sent', (r) => r.status === 'sent'],
     replied: ['Replied', (r) => r.replied],
     failed: ['Failed', (r) => r.status === 'failed'],
     pending: ['Pending', (r) => r.status === 'pending' || r.status === 'queued'],
+    skipped: ['Skipped', (r) => r.status === 'skipped'],
   };
+  // Who was left out before sending, by reason, most first: [[reason, count]].
+  function skipReasons(c) {
+    const by = new Map();
+    for (const s of c.skipped || []) by.set(s.reason || 'Skipped', (by.get(s.reason || 'Skipped') || 0) + 1);
+    return [...by].sort((a, b) => b[1] - a[1]);
+  }
   function renderRecipients(c, fresh) {
     const senders = Object.fromEntries(state.senders.map((x) => [x.id, x.label]));
     const t = (d) => (d ? new Date(d).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '');
     const prev = grid.sheet;
-    grid.sheet = {
+    // The Skipped tab is its own small table (nothing was sent to them, so no sent / delivered / read columns): the
+    // number as it was entered (an invalid one has nothing else), the name, and why. Switching layout starts fresh.
+    const skippedView = CP.show === 'skipped';
+    if (prev && prev.skippedView !== skippedView) fresh = true;
+    grid.sheet = skippedView ? {
+      skippedView,
+      headers: ['Number as entered', 'Name', 'Why it was skipped'],
+      widths: [190, 220, 360],
+      rows: (c.skipped || []).map((s) => ({ r: { status: 'skipped', skip: s }, on: true, cells: [s.phone ? '+' + s.phone : s.raw || '(empty)', s.name || '', s.reason || 'Skipped'] })),
+      filters: prev && !fresh ? prev.filters : {},
+      sel: prev && !fresh ? prev.sel : undefined,
+    } : {
+      skippedView,
       headers: ['Phone', 'Name', 'From', 'Status', 'Replied', 'Sent', 'Delivered', 'Read', 'Error'],
       widths: [150, 170, 130, 110, 90, 140, 140, 140, 320],
       rows: c.recipients.map((r) => ({ r, on: true, cells: ['+' + r.phone, r.name || '', senders[r.senderId] || '', STATUS_LABEL[r.status] || r.status[0].toUpperCase() + r.status.slice(1), r.replied ? 'Yes' : '', t(r.sentAt), t(r.deliveredAt), t(r.readAt), r.error ? reasonOf(r.error).label : ''] })),
@@ -1222,10 +1241,11 @@
       sel: prev && !fresh ? prev.sel : undefined,
     };
     const counts = Object.fromEntries(Object.entries(SHOW).map(([k, [, f]]) => [k, c.recipients.filter(f).length]));
+    counts.skipped = c.skipped?.length || 0;
     // The filter, with the mark each status has elsewhere (ticks, the reply arrow, a red !, a clock). Its buttons are
     // redrawn only when what they show changes: a click just moves .active, so the pill slides there (a redraw would
     // make the app's seg control snap it, as a new control).
-    const MARK = { read: () => TICK(true, 'blue'), delivered: () => TICK(true), sent: () => TICK(false), replied: () => icon('reply', 13), failed: () => '<span class="cd-x">!</span>', pending: () => icon('clock', 13) };
+    const MARK = { read: () => TICK(true, 'blue'), delivered: () => TICK(true), sent: () => TICK(false), replied: () => icon('reply', 13), failed: () => '<span class="cd-x">!</span>', pending: () => icon('clock', 13), skipped: () => icon('ban', 13) };
     const show = $('#cdShow');
     const opts = Object.keys(SHOW).filter((k) => k === 'all' || counts[k] || CP.show === k);
     const sig = opts.map((k) => k + ':' + counts[k]).join('|');
@@ -1240,9 +1260,11 @@
         readOnly: true,
         indexWidth: 56,
         rowFilter: (sh, row) => SHOW[CP.show][1](row.r),
-        cellInfo: (sh, row, col) => (col === 3 ? { cls: 'cd-st cd-st-' + row.r.status } : col === 4 && row.r.replied ? { cls: 'cd-st cd-st-replied' } : col === 8 && row.r.error ? { title: row.r.error } : null),
+        cellInfo: (sh, row, col) => (row.r.skip ? (col === 0 && !row.r.skip.phone ? { cls: 'cd-st-badphone', title: 'Not a valid phone number, as it was entered' } : null)
+          : col === 3 ? { cls: 'cd-st cd-st-' + row.r.status } : col === 4 && row.r.replied ? { cls: 'cd-st cd-st-replied' } : col === 8 && row.r.error ? { title: row.r.error } : null),
         emptyText: () => 'Nobody here.',
         open: (row) => {
+          if (row?.r.skip) return toast(`Not sent: ${row.r.skip.reason || 'skipped'}`);
           if (!row?.r.chatKey || !row.r.replied) return toast(row?.r.replied === false ? 'No reply from them yet' : 'No chat for this person');
           showTab('inbox');
           window.Inbox?.open(row.r.chatKey);
@@ -1262,7 +1284,12 @@
     const b = e.target.closest('[data-cd], [data-show]');
     if (!b) return;
     const c = CP.c;
-    if (b.dataset.show) { CP.show = b.dataset.show; return renderRecipients(c, false); }
+    if (b.dataset.show) {
+      CP.show = b.dataset.show;
+      renderRecipients(c, false);
+      if (b.closest('.cd-foot')) $('#cdGrid')?.scrollIntoView({ block: 'center', behavior: Motion.reduce() ? 'auto' : 'smooth' }); // "See who" under the results
+      return;
+    }
     const act = b.dataset.cd;
     if (act === 'back') return back();
     if (act === 'msgmore') { CP.msgOpen = !CP.msgOpen; return renderMessage(c); }

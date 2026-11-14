@@ -1952,6 +1952,16 @@ app.get('/api/send/nowa', (req, res) => {
   res.json({ phones });
 });
 
+// The rows the Send page left out before sending, as it reports them: kept with the campaign so its page can show who
+// was skipped and why. Only these fields, cut to size (it's what the browser says, so nothing more is trusted).
+function sheetSkipped(list) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, 50000).map((x) => {
+    const phone = String(x?.phone ?? '').replace(/\D/g, '').slice(0, 15), name = String(x?.name ?? '').trim().slice(0, 80);
+    return { raw: String(x?.raw ?? '').slice(0, 40), ...(phone ? { phone } : {}), ...(name ? { name } : {}), reason: String(x?.reason ?? 'Skipped').slice(0, 60) };
+  });
+}
+
 function resolveRecipients(body, template) {
   const { rows = [], phoneColumn, mapping = {} } = body;
   // the pre-send check's groups the Send page chose to skip (Not on WhatsApp, Meta's experiment…)
@@ -1964,11 +1974,13 @@ function resolveRecipients(body, template) {
   const skipped = [];
   for (const row of rows) {
     const phone = normalizePhone(row[phoneColumn]);
-    if (!phone) { skipped.push({ raw: row[phoneColumn], reason: phoneRejectReason(row[phoneColumn]) }); continue; }
-    if (seen.has(phone)) { skipped.push({ raw: row[phoneColumn], reason: 'Duplicate' }); continue; }
-    if (contactsApi.isOptedOut(phone)) { seen.add(phone); skipped.push({ raw: row[phoneColumn], reason: 'Opted out' }); continue; }
+    const who = nameCol ? String(row[nameCol.col] ?? '').trim().slice(0, 80) : '';
+    const skip = (reason, ph = phone) => skipped.push({ raw: String(row[phoneColumn] ?? '').slice(0, 40), ...(ph ? { phone: ph } : {}), ...(who ? { name: who } : {}), reason });
+    if (!phone) { skip(phoneRejectReason(row[phoneColumn]), ''); continue; }
+    if (seen.has(phone)) { skip('Duplicate'); continue; }
+    if (contactsApi.isOptedOut(phone)) { seen.add(phone); skip('Opted out'); continue; }
     const why = hist ? precheckReason(hist, phone, template.id) : '';
-    if (why && skipWhy.has(why)) { seen.add(phone); skipped.push({ raw: row[phoneColumn], reason: PRECHECK[why].label }); continue; }
+    if (why && skipWhy.has(why)) { seen.add(phone); skip(PRECHECK[why].label); continue; }
     seen.add(phone);
     const values = {};
     for (const v of vars) {
@@ -2100,7 +2112,7 @@ function createCampaign(body) {
     // "Send now" waits a few seconds first (hold), so an accidental send can be undone (POST …/undo) before anything goes
     status: scheduledAt ? 'scheduled' : hold ? 'holding' : 'queued',
     ...(hold && !scheduledAt ? { holdUntil: new Date(Date.now() + hold * 1000).toISOString() } : {}),
-    skipped: [...(body.skipped || []), ...skipped],
+    skipped: [...(body.skipped || []), ...sheetSkipped(body.sheetSkipped), ...skipped],
     recipients,
     ...(body.source ? { source: body.source } : {}),
     // a test send (to yourself or the team): tagged, and left out of the Overview's numbers unless asked for

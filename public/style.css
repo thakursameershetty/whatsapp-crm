@@ -7906,3 +7906,12 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .pc-who li { padding: 2px 0; }
 .pc-note { margin: 8px 2px 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
 .cf-warn.bad { color: var(--danger); }
+
+/* A campaign's Skipped people (campaigns.js): the line under the results, and their rows in the Recipients table. */
+.cd-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.cd-foot svg { color: var(--muted); }
+.cd-foot b { color: var(--text); font-weight: 600; }
+.cd-foot .link { padding: 0; border: 0; background: none; box-shadow: none; color: var(--info); font: inherit; font-weight: 600; cursor: pointer; }
+.cd-foot .link:hover { text-decoration: underline; }
+.cd-st-skipped { color: var(--muted); }
+.cd-st-badphone { color: var(--danger); }
