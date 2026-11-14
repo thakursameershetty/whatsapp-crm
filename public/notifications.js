@@ -38,6 +38,7 @@
   // Which new notifications also pop a toast. (Everything lands on the page either way.)
   const TOAST = new Set(['message', 'optout', 'reply_failed', 'campaign_started', 'campaign_done', 'delivery_failed', 'ai_draft', 'ai_auto', 'ai_handover', 'ai_qualified', 'ai_error', 'credits_added', 'template_approved', 'template_problem', 'template_update', 'number_ok', 'number_problem']);
   const ERROR_KINDS = new Set(['reply_failed', 'delivery_failed', 'ai_error', 'template_problem', 'number_problem']);
+  const GOOD_KINDS = new Set(['number_ok', 'template_approved', 'campaign_done', 'credits_added', 'ai_qualified']);
 
   const visible = () => !$('#tab-notifications').classList.contains('hidden');
   // One page from the server (GET /api/notifications?page=…): the kind and days are applied there, with the counts.
@@ -271,7 +272,7 @@
     if (!TOAST.has(n.kind) || n.read || visible()) return;
     // No toast for a message in the chat you're reading.
     if (n.link?.tab === 'inbox' && n.link.key && window.Inbox?.viewing() === n.link.key && (n.kind === 'message' || n.kind === 'ai_draft')) return;
-    toast(n.body || '', ERROR_KINDS.has(n.kind) ? 'error' : '', {
+    toast(n.body || '', ERROR_KINDS.has(n.kind) ? 'error' : GOOD_KINDS.has(n.kind) ? 'good' : '', {
       title: n.title,
       icon: (KIND[n.kind] || {}).icon || 'bell',
       onClick: () => { setRead([n.id]); go(n); },

@@ -1232,14 +1232,15 @@ async function autoCheckNumbers(gap = 30000) {
   list.forEach((s) => checkingNumbers.add(s.id));
   if (state.tab === 'numbers') renderSenders();
   let done = 0;
-  const progress = () => syncNote('numSync', 'busy', `Checking ${list.length === 1 ? 'your number' : `your ${list.length} numbers`} with Meta… ${done} of ${list.length} done`, { count: list.length - done, done, total: list.length });
+  const progress = () => syncNote('numSync', 'busy', `Checking ${list.length === 1 ? 'your number' : `your ${list.length} numbers`} with Meta: ${done} of ${list.length} done`, { count: list.length - done, done, total: list.length, short: `Checking ${done} of ${list.length}` });
   progress();
   await Promise.all(list.map((s) => api(`/senders/${s.id}/test`, { method: 'POST' }).catch(() => {}).finally(() => { checkingNumbers.delete(s.id); done++; progress(); })));
   await loadSenders().catch(() => {});
   const cant = state.senders.filter((s) => s.hasToken && numBlock(s));
   syncNote('numSync', cant.length ? 'warn' : 'ok', cant.length
     ? (cant.length === 1 ? `${cant[0].verifiedName || cant[0].label} can’t send right now` : `${cant.length} numbers can’t send right now`)
-    : list.length === 1 ? 'Your number is connected' : `All ${list.length} numbers are connected`, { count: cant.length });
+    : list.length === 1 ? 'Your number is connected' : `All ${list.length} numbers are connected`,
+  { label: cant.length ? `${cant.length} can’t send` : list.length === 1 ? 'Connected' : `All ${list.length} connected` });
 }
 // A number saved twice (before the server blocked it): the later copy names the first, so it can be deleted.
 const dupOf = (s) => { const first = state.senders.find((x) => x.phoneNumberId === s.phoneNumberId); return first !== s ? first : null; };
@@ -1459,22 +1460,21 @@ $('#senderList').addEventListener('click', (e) => {
 // opts: { count: the number in the ring, done / total: how far the ring is filled }
 const syncNotes = {};
 function syncNote(id, mode, text, opts = {}) {
-  const was = syncNotes[id];
   syncNotes[id] = { mode, text, at: mode === 'busy' ? 0 : Date.now(), ...opts };
-  clearTimeout(was?.fold);
-  drawSyncNote(id, mode !== 'busy');
-  if (mode !== 'busy') syncNotes[id].fold = setTimeout(() => $('#' + id)?.classList.add('mini'), 4000);
+  drawSyncNote(id);
 }
-function drawSyncNote(id, open = false) {
+function drawSyncNote(id) {
   const n = syncNotes[id], el = $('#' + id);
   if (!n || !el) return;
   const words = `${n.text}${n.at ? ` · checked ${shortAgo(new Date(n.at).toISOString())}` : ''}`;
   const busy = n.mode === 'busy', p = busy ? (n.total ? n.done / n.total : null) : 1;
-  const inner = busy || n.mode === 'warn' || n.mode === 'err' ? (n.count != null ? String(n.count) : '') : '';
-  el.className = `sync-note ${n.mode}${!busy && !open ? ' mini' : ''}${busy && p == null ? ' spin' : ''}`;
-  el.title = words;
+  const inner = busy ? (n.count != null ? String(n.count) : '') : n.mode === 'ok' ? '' : '!';
+  const label = busy ? n.short || n.text : n.label || '';
+  el.className = `sync-note ${n.mode}${busy && p == null ? ' spin' : ''}${label ? '' : ' bare'}`;
+  el.removeAttribute('title');
+  el.dataset.tip = words; // done: the details are in the tooltip
   el.setAttribute('aria-label', words);
-  el.innerHTML = `<span class="sn-ring" style="--p:${p ?? 0.3}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle class="sn-track" cx="12" cy="12" r="10"/><circle class="sn-bar" cx="12" cy="12" r="10" pathLength="100"/></svg>${inner ? `<b>${esc(inner)}</b>` : n.mode === 'ok' ? icon('check-one', 11) : ''}</span><span class="sn-text">${esc(words)}</span>`;
+  el.innerHTML = `<span class="sn-ring" style="--p:${p ?? 0.3}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle class="sn-track" cx="12" cy="12" r="10"/><circle class="sn-bar" cx="12" cy="12" r="10" pathLength="100"/></svg>${inner ? `<b>${esc(inner)}</b>` : n.mode === 'ok' ? icon('check-one', 11) : ''}</span>${label ? `<span class="sn-text">${esc(label)}</span>` : ''}`;
 }
 
 // Go to one number: its card scrolled into view and lit up for a moment (from a locked chat, or a notification).
@@ -2177,7 +2177,7 @@ async function syncTemplates({ quiet = false } = {}) {
   btn.classList.add('syncing');
   btn.setAttribute('aria-busy', 'true');
   btn.innerHTML = `${icon('refresh-cw', 16)}${quiet ? 'Checking Meta…' : 'Syncing…'}`;
-  syncNote('tplSync', 'busy', 'Checking your templates’ review status with Meta…', { count: state.templates.length || null });
+  syncNote('tplSync', 'busy', 'Checking your templates’ review status with Meta…', { count: state.templates.length || null, short: 'Checking with Meta' });
   let bar = null;
   if (!quiet) {
     bar = document.createElement('div');
@@ -2188,11 +2188,12 @@ async function syncTemplates({ quiet = false } = {}) {
     list.classList.add('tpl-syncing');
   }
   const run = async () => {
-    const r = await api('/templates/sync', { method: 'POST' }).catch((e) => { syncNote('tplSync', 'err', `Couldn’t reach Meta: ${e.message}`, { count: '!' }); throw e; });
+    const r = await api('/templates/sync', { method: 'POST' }).catch((e) => { syncNote('tplSync', 'err', `Couldn’t reach Meta: ${e.message}`, { label: 'Couldn’t sync' }); throw e; });
     await loadTemplates(); // the list as this person may see it (a member limited to some numbers sees only theirs)
     syncTemplates.at = Date.now();
     syncNote('tplSync', r.errors.length ? 'warn' : 'ok', r.errors.length ? `Up to date, but ${r.errors.length === 1 ? 'one account' : `${r.errors.length} accounts`} couldn’t be read (see Sync from Meta)`
-      : r.changed ? `Up to date · ${r.changed} change${r.changed === 1 ? '' : 's'} found (see notifications)` : 'Up to date with Meta', { count: r.errors.length || null });
+      : r.changed ? `Up to date · ${r.changed} change${r.changed === 1 ? '' : 's'} found (see notifications)` : 'Up to date with Meta',
+    { label: r.errors.length ? 'Partly synced' : r.changed ? `${r.changed} updated` : 'Up to date' });
     if (!quiet) toast(r.errors.length ? `Synced ${r.synced} template${r.synced === 1 ? '' : 's'}, with problems below` : `Up to date: ${r.synced} template${r.synced === 1 ? '' : 's'} from Meta`);
     if (!quiet || !syncTemplates.warned) r.errors.forEach((er) => toast(er, 'error'));
     if (quiet && r.errors.length) syncTemplates.warned = true; // the same problem isn't repeated on every visit

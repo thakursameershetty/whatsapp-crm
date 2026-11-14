@@ -7846,9 +7846,15 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .sf-item.sf-locked small { color: var(--danger); }
 .tag.bad svg { margin-right: 4px; vertical-align: -1px; }
 
-/* The automatic check's status at the right of the Numbers and Templates headers (syncNote in app.js): a ring with a
-   number in it and the words beside it. Done, the words fold away and only the ring stays; hover or focus opens it. */
-.sync-note { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px 0 7px; border-radius: 99px; font-size: 12.5px; font-weight: 500; color: var(--muted); background: var(--field, color-mix(in srgb, var(--muted) 9%, transparent)); box-shadow: var(--sh-sunk, none); cursor: default; outline: none; transition: padding 0.3s var(--ease-out, ease-out); }
+/* The automatic check's status at the right of the Numbers and Templates headers (syncNote in app.js). While checking:
+   a ring that fills (or spins) with a short "Checking 3 of 8" beside it. Done: just the ring in a round button the
+   height of the search box (a tick, or how many need a look); hovering it shows the details. */
+.sync-note { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 36px; min-width: 36px; padding: 0 12px 0 6px; border-radius: 99px; font: 500 12.5px Inter, sans-serif; white-space: nowrap; color: var(--muted); background: var(--field); box-shadow: var(--sh-sunk); cursor: default; outline: none; }
+.sync-note.bare { justify-content: center; padding: 0; width: 36px; }
+.sync-note:not(.busy) .sn-text { font-weight: 600; }
+.sync-note.ok .sn-text { color: var(--good-text, var(--good)); }
+.sync-note.warn .sn-text { color: var(--warn); }
+.sync-note.err .sn-text { color: var(--danger); }
 .sync-note:focus-visible { box-shadow: 0 0 0 2px var(--ring); }
 .sn-ring { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; color: var(--muted); }
 .sn-ring svg { position: absolute; inset: 0; width: 24px; height: 24px; transform: rotate(-90deg); fill: none; stroke-width: 2.4; }
@@ -7856,22 +7862,16 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .sn-bar { stroke: currentColor; stroke-linecap: round; stroke-dasharray: calc(var(--p, 0) * 100) 100; transition: stroke-dasharray 0.45s var(--ease-out, ease-out); }
 .sn-ring b { position: relative; font: 700 10.5px/1 Inter, sans-serif; color: var(--text); font-variant-numeric: tabular-nums; }
 .sn-ring > svg + svg { position: relative; inset: auto; width: 11px; height: 11px; transform: none; stroke-width: 3; }
-.sn-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px; transition: max-width 0.35s var(--ease-out, ease-out), opacity 0.25s; }
-.sync-note.busy { color: var(--text); }
+.sn-text { color: var(--text); font-variant-numeric: tabular-nums; }
 .sync-note.busy .sn-ring { color: var(--info); }
 .sync-note.spin .sn-ring svg:first-child { animation: spin 0.9s linear infinite; }
 .sync-note.ok .sn-ring { color: var(--good); }
-.sync-note.warn { color: var(--warn); }
 .sync-note.warn .sn-ring { color: var(--warn); }
-.sync-note.err { color: var(--danger); }
 .sync-note.err .sn-ring { color: var(--danger); }
-.sync-note.ok .sn-ring::before, .sync-note.warn .sn-ring::before, .sync-note.err .sn-ring::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: color-mix(in srgb, currentColor 14%, transparent); }
-.sync-note.mini { padding: 0 6px; }
-.sync-note.mini .sn-text { max-width: 0; opacity: 0; }
-.sync-note.mini:hover, .sync-note.mini:focus-visible { padding: 0 12px 0 7px; }
-.sync-note.mini:hover .sn-text, .sync-note.mini:focus-visible .sn-text { max-width: 420px; opacity: 1; }
-@media (max-width: 760px) { .sync-note:not(:hover):not(:focus-visible) { padding: 0 6px; } .sync-note:not(:hover):not(:focus-visible) .sn-text { max-width: 0; opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .sync-note.spin .sn-ring svg:first-child { animation-duration: 3s; } .sn-text, .sn-bar, .sync-note { transition: none; } }
+.sync-note:is(.ok, .warn, .err) .sn-ring::before { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: color-mix(in srgb, currentColor 14%, transparent); }
+@media (prefers-reduced-motion: reduce) { .sync-note.spin .sn-ring svg:first-child { animation-duration: 3s; } .sn-bar { transition: none; } }
+/* Good news (a number can send again, a template approved, a campaign done…) pops up green. */
+.toast.good { background: color-mix(in srgb, var(--good) 78%, #000); color: #fff; }
 /* The Templates filter button sits in the bar beside the search, like Contacts'. */
 #tplBar .ct-filterbtn { width: 36px; min-width: 36px; height: 36px; padding: 0; justify-content: center; color: var(--text); background: var(--field); box-shadow: var(--sh-sunk); border-radius: var(--r-md); }
 #tplBar .ct-filterbtn.on { background: var(--surface); box-shadow: var(--sh-raised); }

@@ -31,7 +31,7 @@ module.exports = function mountNotifications(app, ctx) {
     const demo = Boolean(fields.demo);
     let n = fields.group && db.notifications.find((x) => x.group === fields.group && !x.read && Boolean(x.demo) === demo);
     if (n) {
-      Object.assign(n, { title: fields.title, body: fields.body, link: fields.link || n.link, ts: now, count: fields.count ?? (n.count || 1) + 1 });
+      Object.assign(n, { kind: fields.kind || n.kind, category: CATEGORY[fields.kind] || n.category, title: fields.title, body: fields.body, link: fields.link || n.link, ts: now, count: fields.count ?? (n.count || 1) + 1 });
       // Move it back to the top.
       db.notifications.splice(db.notifications.indexOf(n), 1);
       db.notifications.unshift(n);
