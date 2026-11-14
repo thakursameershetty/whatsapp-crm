@@ -874,6 +874,18 @@
           </div>
         </section>
 
+        <section class="set-group owner-only-ui" data-find="api keys integration crm developer spotmies connect app">
+          <header class="set-gh"><h3>API keys</h3><p>Let another app send WhatsApp messages through this workspace, such as Spotmies CRM's workflows. It sends with the same rules as the Send page: approved templates, opt-outs, credits and daily limits.</p></header>
+          <div class="card la-host set-gc">
+            <div id="apiKeyList" class="api-keys"></div>
+            <div class="setting-row set-wide">
+              <div><div class="setting-title">New key</div><div class="sub">Name it after the app that will use it. The key is shown once.</div></div>
+              <div class="set-ctl"><div class="input-group"><input id="apiKeyName" placeholder="Spotmies CRM" maxlength="60" aria-label="Key name" /><button type="button" class="btn sm primary" id="apiKeyCreate">Create key</button></div></div>
+            </div>
+            <div id="apiKeyNew" class="api-key-new hidden" role="status"></div>
+          </div>
+        </section>
+
         <section class="set-group" data-find="api credentials permanent token system user phone number id business account setup meta app messaging limit">
           <header class="set-gh"><h3><span data-icon="rocket" data-icon-size="16"></span>Connecting to Meta</h3><p>Five steps to get your API credentials, once per business.</p></header>
           <div class="card la-host set-gc">
@@ -1032,6 +1044,7 @@
   <script src="/password-rules.js"></script>
   <script src="/app.js"></script>
   <script src="/settings.js"></script>
+  <script src="/integrations.js"></script>
   <script src="/datefilter.js"></script>
   <script src="/error-codes.js"></script>
   <script src="/inbox.js"></script>

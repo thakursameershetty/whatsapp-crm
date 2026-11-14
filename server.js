@@ -855,6 +855,10 @@ for (const [route, file] of [['/terms', 'terms.html'], ['/privacy', 'privacy.htm
 // (thinking-orb.js and its engine in public/thinking-orbs/) are public too.
 const PUBLIC_DIRS = ['/brand/clients/', '/media/', '/thinking-orbs/'];
 const isPublic = (p) => PUBLIC_FILES.has(p) || PUBLIC_DIRS.some((d) => p.startsWith(d) && !p.includes('..'));
+// Integration API (integrations.js): other apps call /api/v1/… with a workspace's API key instead of signing in.
+// Mounted before the sign-in check; its routes are added further down, once the code they use exists.
+const apiV1 = express.Router();
+app.use('/api/v1', apiV1);
 app.use((req, res, next) => (isPublic(req.path) ? next() : tenants.requireAuth(req, res, next)));
 
 // --- Live updates for everyone in a workspace --------------------------------------------------------------
@@ -964,7 +968,7 @@ const keySender = (key) => { const k = String(key || ''); const i = k.lastIndexO
 // Workspace-wide changes (settings, numbers, templates, demo data) are for owners, whichever numbers a member has.
 // Admins (ADMIN_EMAILS) may make them too, to help set a workspace up. Refreshing a number's photo isn't a change
 // anyone decides on (the Numbers page does it when a photo is missing), so it stays open.
-const OWNER_ONLY_WRITES = [/^\/api\/settings$/, /^\/api\/senders(\/|$)/, /^\/api\/templates(\/|$)/, /^\/api\/demo\/seed$/];
+const OWNER_ONLY_WRITES = [/^\/api\/settings$/, /^\/api\/senders(\/|$)/, /^\/api\/templates(\/|$)/, /^\/api\/demo\/seed$/, /^\/api\/integrations(\/|$)/];
 app.use('/api', (req, res, next) => {
   const p = req.baseUrl + req.path, write = req.method !== 'GET';
   const no = (msg) => res.status(403).json({ error: msg });
@@ -3746,6 +3750,9 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
 const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key), numberLocked: (senderId) => Boolean(lockOf(db.senders.find((s) => s.id === senderId))) });
 
 // --- AI assistant -------------------------------------------------------------
+
+// API keys and the integration API (/api/v1) for other apps, such as Spotmies CRM's workflows.
+require('./integrations')(apiV1, app, { db, save, tenants, wrap, fail, id, createCampaign, lockOf, senderName, publicTemplate, notApprovedError, broadcastTo });
 
 require('./ai')(app, { db, save, id, wsId: tenants.wsId, wrap, fail, aiConfig, credits, contacts: contactsApi, normalizePhone, templateVariables, createCampaign, computeStats, summary, publicSender });
 

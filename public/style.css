@@ -5100,6 +5100,18 @@ body.limited #addSender, body.limited #addTemplate, body.limited #syncTemplates,
 body.limited #senderList [data-edit], body.limited #senderList [data-del], body.limited #senderList [data-enable],
 body.limited #templateList [data-tedit], body.limited #templateList [data-del], body.limited #setRR,
 body.limited .sender-photo-btn, body.limited .na-gear { display: none !important; }
+body.limited .owner-only-ui { display: none !important; }
+
+/* Settings → Developer → API keys */
+.api-keys { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.api-keys-empty { margin: 0; font-size: 13px; color: var(--muted); }
+.api-key { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--sunk); }
+.api-key-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.api-key-main b { font-size: 13px; font-weight: 600; }
+.api-key-meta { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.api-key-new { margin-top: 12px; padding: 12px; border-radius: 10px; background: var(--sunk); display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.api-key-new p { margin: 0; }
+.api-key-new input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 body.limited #demoRow .toggle { pointer-events: none; opacity: 0.5; }
 .limited-note { display: flex; align-items: flex-start; gap: 8px; margin: -4px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--sunk); color: var(--muted); font-size: 13px; line-height: 1.45; }
 .limited-note svg { flex: none; margin-top: 2px; }
