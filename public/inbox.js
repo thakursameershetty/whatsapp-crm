@@ -2254,7 +2254,7 @@
       foot.innerHTML = simBar() + `<div class="ib-closed ib-locked" role="status">
         <span class="ib-locked-ico">${icon(block.icon, 18)}</span>
         <div><b>${esc(block.title)}: replies are locked</b><span>${esc(block.text)}</span></div>
-        <button class="btn sm" data-goto="numbers">${icon('phone', 14)}See number</button>
+        <button class="btn sm" data-goto="numbers/${esc(ib.key.slice(0, ib.key.lastIndexOf(':')))}">${icon('phone', 14)}See number</button>
       </div>`;
       return;
     }

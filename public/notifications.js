@@ -135,6 +135,8 @@
     if (l.whatsNew) { showTab(l.tab || 'campaigns'); return window.CampaignSetup?.whatsNew({ force: true }); } // the What's new window again
     if (l.tab === 'inbox' && l.key) { showTab('inbox'); window.Inbox?.open(l.key); }
     else if (l.tab === 'campaigns' && l.id) { showTab('campaigns'); window.openCampaign?.(l.id); }
+    else if (l.tab === 'numbers' && l.id) window.focusNumber(l.id);
+    else if (l.tab === 'templates' && l.id) window.focusTemplate(l.id);
     else if (l.tab) showTab(l.tab);
   }
 

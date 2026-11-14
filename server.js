@@ -361,13 +361,13 @@ function noteNameBlocked(sender, blocked) {
       kind: 'number_problem',
       title: `${sender.verifiedName || sender.label}: Meta is rejecting its messages`,
       body: `Messages from ${sender.displayPhone || sender.label} fail with error 131037 (display name not approved), even if WhatsApp Manager shows the name. Try Re-register on its card under Numbers; if that doesn't help, ask Meta support to review the display name.`,
-      link: { tab: 'numbers' },
+      link: { tab: 'numbers', id: sender.id },
     });
   } else {
     sender.deliveredOkAt = new Date().toISOString();
     if (!sender.nameBlockedAt) return;
     delete sender.nameBlockedAt;
-    notes?.add({ kind: 'number_ok', title: `${sender.verifiedName || sender.label}: messages are getting through again`, body: `Meta delivered a message from ${sender.displayPhone || sender.label}, so error 131037 is resolved.`, link: { tab: 'numbers' } });
+    notes?.add({ kind: 'number_ok', title: `${sender.verifiedName || sender.label}: messages are getting through again`, body: `Meta delivered a message from ${sender.displayPhone || sender.label}, so error 131037 is resolved.`, link: { tab: 'numbers', id: sender.id } });
   }
 }
 
@@ -402,11 +402,11 @@ function setLock(s, lock) {
   if (lock) {
     const now = new Date().toISOString();
     s.lock = { ...lock, at: was && lock.source === 'health' && was.source === 'health' ? was.at : now };
-    if (!was) notes?.add({ kind: 'number_problem', title: `${senderName(s)}: ${lock.title.toLowerCase()}`, body: `${lock.text} ${lock.fix} Until then its chats are locked and AI auto-reply is paused.`, link: { tab: 'numbers' }, group: 'lock:' + s.id, count: 1 });
+    if (!was) notes?.add({ kind: 'number_problem', title: `${senderName(s)}: ${lock.title.toLowerCase()}`, body: `${lock.text} ${lock.fix} Until then its chats are locked and AI auto-reply is paused.`, link: { tab: 'numbers', id: s.id }, group: 'lock:' + s.id, count: 1 });
   } else {
     if (!s.lock) return;
     delete s.lock;
-    notes?.add({ kind: 'number_ok', title: `${senderName(s)} can send again`, body: 'Meta says this number can send messages. Its chats and AI auto-reply work again.', link: { tab: 'numbers' }, group: 'lock:' + s.id, count: 1 });
+    notes?.add({ kind: 'number_ok', title: `${senderName(s)} can send again`, body: 'Meta says this number can send messages. Its chats and AI auto-reply work again.', link: { tab: 'numbers', id: s.id }, group: 'lock:' + s.id, count: 1 });
   }
   save();
   broadcast({ kind: 'changed', area: 'senders', tab: '' });
@@ -1112,7 +1112,7 @@ function applyNumberStatus(s, st) {
       kind: ok ? 'number_ok' : 'number_problem',
       title: `${s.verifiedName || s.label}: display name ${NAME_WORDS[st.nameStatus] || st.nameStatus.toLowerCase()}`,
       body: ok ? `Meta approved the display name for ${s.displayPhone || s.label}. It can send messages now.` : `Messages from ${s.displayPhone || s.label} fail (error 131037) until Meta approves its display name. Check it in WhatsApp Manager → Phone numbers.`,
-      link: { tab: 'numbers' },
+      link: { tab: 'numbers', id: s.id },
     });
   }
 }
@@ -1341,10 +1341,10 @@ async function checkNumber(s) {
     const wasOk = !s.connError;
     Object.assign(s, { connError: String(e.message || 'Meta refused the request').slice(0, 300).replace(/\.\s*$/, ''), lastCheckedAt: new Date().toISOString() });
     save();
-    if (wasOk) notes?.add({ kind: 'number_problem', title: `${s.verifiedName || s.label} can't connect to Meta`, body: `Meta said: ${s.connError}. Messages from this number will fail until it's fixed (often an expired or replaced access token: Edit the number and paste a new one).`, link: { tab: 'numbers' }, group: 'conn:' + s.id, count: 1 });
+    if (wasOk) notes?.add({ kind: 'number_problem', title: `${s.verifiedName || s.label} can't connect to Meta`, body: `Meta said: ${s.connError}. Messages from this number will fail until it's fixed (often an expired or replaced access token: Edit the number and paste a new one).`, link: { tab: 'numbers', id: s.id }, group: 'conn:' + s.id, count: 1 });
     throw e;
   }
-  if (s.connError) notes?.add({ kind: 'number_ok', title: `${info.verified_name || s.label} is connected again`, body: 'Meta accepted its access token.', link: { tab: 'numbers' }, group: 'conn:' + s.id, count: 1 });
+  if (s.connError) notes?.add({ kind: 'number_ok', title: `${info.verified_name || s.label} is connected again`, body: 'Meta accepted its access token.', link: { tab: 'numbers', id: s.id }, group: 'conn:' + s.id, count: 1 });
   delete s.connError;
   s.displayPhone = info.display_phone_number || s.displayPhone;
   s.verifiedName = info.verified_name;

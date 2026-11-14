@@ -192,7 +192,8 @@ function showTab(name) {
   if (name === 'overview') loadOverview().catch((e) => toast(e.message, 'error'));
   else stopOverviewPolling();
   if (name === 'numbers') { refreshStats().then(renderSenders).catch(() => {}); if (!state.team) loadTeam().catch(() => {}); autoCheckNumbers(); }
-  if (name === 'templates') autoSyncTemplates();
+  if (name === 'templates') { drawSyncNote('tplSync'); autoSyncTemplates(); }
+  if (name === 'numbers') drawSyncNote('numSync');
   if (name === 'report') window.MetaErrors?.render();
   if (name === 'reports') window.MetaErrors?.showReports();
   hideTip();
@@ -324,7 +325,7 @@ $('#themeCycle').addEventListener('click', (e) => {
 renderThemeSeg();
 document.addEventListener('click', (e) => {
   const go = e.target.closest('[data-goto]');
-  if (go) { e.preventDefault(); const [pg, sub] = go.dataset.goto.split('/'); if (pg === 'send') window.CampaignSetup.create(); else if (pg === 'settings' && sub) window.SettingsTabs?.open(sub); else showTab(pg); }
+  if (go) { e.preventDefault(); const [pg, sub] = go.dataset.goto.split('/'); if (pg === 'send') window.CampaignSetup.create(); else if (pg === 'settings' && sub) window.SettingsTabs?.open(sub); else if (pg === 'numbers' && sub) focusNumber(sub); else if (pg === 'templates' && sub) focusTemplate(sub); else showTab(pg); }
   const copy = e.target.closest('.copy');
   if (copy) { navigator.clipboard.writeText($('#' + copy.dataset.copy).value); toast('Copied'); }
 });
@@ -1174,7 +1175,7 @@ function renderSenders() {
   list.innerHTML = shown
     .map(
       (s) => `
-    <div class="card sender-card">
+    <div class="card sender-card" data-sid="${esc(s.id)}">
       <div class="sender-id">
         ${senderPhotoHtml(s)}
         <div class="sender-who">
@@ -1208,6 +1209,7 @@ function renderSenders() {
     .join('');
   Motion.values(list);
   askPhotos();
+  reflash(list);
 }
 // The card's Connection row: being checked now, connected (and when), or why Meta refused.
 function connRowHtml(s) {
@@ -1229,8 +1231,13 @@ async function autoCheckNumbers(gap = 30000) {
   autoCheckNumbers.at = Date.now();
   list.forEach((s) => checkingNumbers.add(s.id));
   if (state.tab === 'numbers') renderSenders();
+  syncNote('numSync', 'busy', `Checking ${list.length === 1 ? 'your number' : `your ${list.length} numbers`} with Meta…`);
   await Promise.all(list.map((s) => api(`/senders/${s.id}/test`, { method: 'POST' }).catch(() => {}).finally(() => checkingNumbers.delete(s.id))));
   await loadSenders().catch(() => {});
+  const cant = state.senders.filter((s) => s.hasToken && numBlock(s));
+  syncNote('numSync', cant.length ? 'warn' : 'ok', cant.length
+    ? `${cant.map((s) => s.verifiedName || s.label).join(', ')} can’t send right now`
+    : list.length === 1 ? 'Your number is connected' : `All ${list.length} numbers are connected`);
 }
 // A number saved twice (before the server blocked it): the later copy names the first, so it can be deleted.
 const dupOf = (s) => { const first = state.senders.find((x) => x.phoneNumberId === s.phoneNumberId); return first !== s ? first : null; };
@@ -1440,6 +1447,68 @@ $('#senderList').addEventListener('click', (e) => {
     }, b);
   if (b.dataset.register) registerNumber(state.senders.find((x) => x.id === b.dataset.register));
 });
+
+// The line under the Numbers and Templates titles: what the automatic check with Meta is doing. mode: busy (checking
+// now), ok, warn (done, but something needs a look) or err (Meta couldn't be reached). The time is redrawn when the
+// page opens, so it always says how fresh the page is.
+const syncNotes = {};
+function syncNote(id, mode, text) {
+  syncNotes[id] = { mode, text, at: mode === 'busy' ? 0 : Date.now() };
+  drawSyncNote(id);
+}
+function drawSyncNote(id) {
+  const n = syncNotes[id], el = $('#' + id);
+  if (!n || !el) return;
+  el.className = 'sync-note ' + n.mode;
+  const ico = { busy: 'refresh-cw', ok: 'circle-check', warn: 'triangle-alert', err: 'badge-alert' }[n.mode];
+  el.innerHTML = `${icon(ico, 13)}<span>${esc(n.text)}${n.at ? ` · checked ${esc(shortAgo(new Date(n.at).toISOString()))}` : ''}</span>`;
+}
+
+// Go to one number: its card scrolled into view and lit up for a moment (from a locked chat, or a notification).
+// A search or filter hiding it is cleared first.
+function focusNumber(id) {
+  showTab('numbers');
+  if (!state.senders.some((s) => s.id === id)) return;
+  if (state.numQ || state.numQuality) { state.numQ = ''; state.numQuality = ''; $('#numSearch').value = ''; renderSenders(); }
+  flashCard($(`#senderList .sender-card[data-sid="${CSS.escape(id)}"]`));
+}
+function focusTemplate(id) {
+  showTab('templates');
+  const t = state.templates.find((x) => x.id === id);
+  if (!t) return;
+  const set = tplOpen(), sec = state.senders.some((x) => x.wabaId === t.wabaId) ? t.wabaId : 'other';
+  if (!set.has(sec)) { set.add(sec); try { localStorage.setItem('tplOpen', JSON.stringify([...set])); } catch {} renderTemplates(); }
+  if (state.tplQ || state.tplCat || state.tplStatus || state.tplSender) {
+    state.tplQ = state.tplCat = state.tplStatus = state.tplSender = '';
+    $('#tplSearch').value = ''; $('#tplStatus').value = '';
+    renderTemplates();
+  }
+  flashCard($(`#templateList .tpl-card[data-tid="${CSS.escape(id)}"]`));
+}
+function flashCard(card) {
+  if (!card) return;
+  const attr = card.dataset.sid ? 'data-sid' : 'data-tid';
+  flashCard.pending = { sel: `[${attr}="${CSS.escape(card.getAttribute(attr))}"]`, until: Date.now() + 2400 };
+  requestAnimationFrame(() => {
+    card.scrollIntoView({ block: 'center', behavior: Motion.reduce() ? 'auto' : 'smooth' });
+    card.classList.remove('card-flash');
+    void card.offsetWidth;
+    card.classList.add('card-flash');
+    setTimeout(() => card.classList.remove('card-flash'), 2600);
+  });
+}
+// After a list is drawn again: the card that was being highlighted stays highlighted (without scrolling again).
+function reflash(list) {
+  const f = flashCard.pending;
+  if (!f || Date.now() > f.until) return;
+  const card = list.querySelector(f.sel);
+  if (!card) return;
+  card.classList.add('card-flash');
+  card.style.animationDelay = `-${2400 - (f.until - Date.now())}ms`; // carry on from where it was, not from the start
+  setTimeout(() => { card.classList.remove('card-flash'); card.style.animationDelay = ''; }, f.until - Date.now());
+}
+window.focusNumber = focusNumber;
+window.focusTemplate = focusTemplate;
 
 // Re-register a number with Meta (fixes error 131037 when the name shows as approved but sends still fail).
 function registerNumber(s) {
@@ -1792,7 +1861,7 @@ function renderTemplates() {
   const nums = state.senders.filter((s) => s.wabaId);
   const filt = $('#tplSender');
   filt.classList.toggle('hidden', nums.length < 2);
-  filt.innerHTML = '<option value="">All numbers</option>' + nums.map((s) => `<option value="${s.id}">${esc(s.label)}${s.displayPhone ? ' · ' + esc(s.displayPhone) : ''}</option>`).join('');
+  filt.innerHTML = '<option value="">All numbers</option>' + nums.map((s) => `<option value="${s.id}" data-sender="${s.id}">${esc(s.label)}${s.displayPhone ? ' · ' + esc(s.displayPhone) : ''}</option>`).join('');
   if (!nums.some((s) => s.id === state.tplSender)) state.tplSender = '';
   filt.value = state.tplSender;
   const pick = state.senders.find((s) => s.id === state.tplSender);
@@ -1827,7 +1896,7 @@ function renderTemplates() {
   if (filtering && !shown.length) { list.className = 'cards'; list.innerHTML = `<div class="card list-empty"><b>No templates match</b><p>Try another word, category or status. <a href="#" data-clear-tpl>Clear filters</a></p></div>`; return; }
   if (pick && !shown.length) { list.innerHTML = `<p class="sub">No templates for ${esc(pick.label)} yet. Create one, or click Sync from Meta.</p>`; return; }
   const card = (t) => `
-    <div class="card tpl-card">
+    <div class="card tpl-card" data-tid="${esc(t.id)}">
       <div class="li-head">
         <h3 class="tpl-title"><span class="tpl-name">${esc(t.name)}</span></h3>
         <span class="tpl-head-r">${t.categoryChangedFrom ? `<span class="cat-flag" tabindex="0" aria-label="Category changed by Meta" data-tip="${esc(`Submitted as ${catLabel(t.categoryChangedFrom)}, but Meta changed it to ${catLabel(t.category)}. It's charged and treated as a ${(t.category || '').toLowerCase()} message. Think that's wrong? Request a review in WhatsApp Manager → Business Support Home.`)}">${icon('triangle-alert', 16)}</span>` : ''}<span class="pill ${esc(t.status)}">${esc(TPL_STATUS[String(t.status).toUpperCase()] || t.status)}</span></span>
@@ -1846,7 +1915,7 @@ function renderTemplates() {
   // One section per WhatsApp Business Account, headed by its number(s) as WhatsApp shows them: profile photo, name,
   // number, Meta's quality rating and limit, and how its templates stand. Picking a number shows just its section.
   const accounts = pick ? [pick.wabaId] : [...new Set(nums.map((x) => x.wabaId))];
-  if (!accounts.length) { list.className = 'cards'; list.innerHTML = shown.map(card).join(''); bindTplWheel(list); return; }
+  if (!accounts.length) { list.className = 'cards'; list.innerHTML = shown.map(card).join(''); bindTplWheel(list); reflash(list); return; }
   const groups = accounts.map((w) => ({ w, ts: shown.filter((t) => t.wabaId === w) })).filter((g) => !filtering || g.ts.length);
   const other = pick ? [] : shown.filter((t) => !accounts.includes(t.wabaId));
   if (other.length) groups.push({ w: '', ts: other });
@@ -1866,6 +1935,7 @@ function renderTemplates() {
   }).join('');
   bindTplWheel(list);
   requestAnimationFrame(markStuck);
+  reflash(list);
 }
 const tplOpen = () => { try { return new Set(JSON.parse(localStorage.getItem('tplOpen') || '[]')); } catch { return new Set(); } };
 // Opening or closing touches only that section (nothing else is redrawn, so the other numbers and the header stay put):
@@ -1995,6 +2065,7 @@ async function syncTemplates({ quiet = false } = {}) {
   btn.classList.add('syncing');
   btn.setAttribute('aria-busy', 'true');
   btn.innerHTML = `${icon('refresh-cw', 16)}${quiet ? 'Checking Meta…' : 'Syncing…'}`;
+  syncNote('tplSync', 'busy', 'Checking your templates’ review status with Meta…');
   let bar = null;
   if (!quiet) {
     bar = document.createElement('div');
@@ -2005,9 +2076,11 @@ async function syncTemplates({ quiet = false } = {}) {
     list.classList.add('tpl-syncing');
   }
   const run = async () => {
-    const r = await api('/templates/sync', { method: 'POST' });
+    const r = await api('/templates/sync', { method: 'POST' }).catch((e) => { syncNote('tplSync', 'err', `Couldn’t reach Meta: ${e.message}`); throw e; });
     await loadTemplates(); // the list as this person may see it (a member limited to some numbers sees only theirs)
     syncTemplates.at = Date.now();
+    syncNote('tplSync', r.errors.length ? 'warn' : 'ok', r.errors.length ? `Up to date, but ${r.errors.length === 1 ? 'one account' : `${r.errors.length} accounts`} couldn’t be read (see Sync from Meta)`
+      : r.changed ? `Up to date · ${r.changed} change${r.changed === 1 ? '' : 's'} found (see notifications)` : 'Up to date with Meta');
     if (!quiet) toast(r.errors.length ? `Synced ${r.synced} template${r.synced === 1 ? '' : 's'}, with problems below` : `Up to date: ${r.synced} template${r.synced === 1 ? '' : 's'} from Meta`);
     if (!quiet || !syncTemplates.warned) r.errors.forEach((er) => toast(er, 'error'));
     if (quiet && r.errors.length) syncTemplates.warned = true; // the same problem isn't repeated on every visit

@@ -7849,3 +7849,17 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .sf-item.sf-locked { opacity: 0.7; cursor: not-allowed; }
 .sf-item.sf-locked small { color: var(--danger); }
 .tag.bad svg { margin-right: 4px; vertical-align: -1px; }
+
+/* The automatic check's status under the Numbers and Templates titles (syncNote in app.js). */
+.sync-note { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 4px 10px 4px 8px; border-radius: 99px; font-size: 12.5px; font-weight: 500; color: var(--muted); background: color-mix(in srgb, var(--muted) 9%, transparent); }
+.sync-note svg { flex: none; }
+.sync-note.busy { color: var(--text); }
+.sync-note.busy svg { animation: spin 0.9s linear infinite; color: var(--muted); }
+.sync-note.ok svg { color: var(--good); }
+.sync-note.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.sync-note.err { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+@media (prefers-reduced-motion: reduce) { .sync-note.busy svg { animation-duration: 3s; } }
+/* A card you were sent to (focusNumber / focusTemplate): a ring that fades. */
+.card-flash { animation: card-flash 2.4s var(--ease-out, ease-out); }
+@keyframes card-flash { 0%, 55% { box-shadow: 0 0 0 3px var(--info), 0 8px 30px color-mix(in srgb, var(--info) 25%, transparent); } 100% { box-shadow: none; } }
+@media (prefers-reduced-motion: reduce) { .card-flash { animation: none; outline: 3px solid var(--info); } }
