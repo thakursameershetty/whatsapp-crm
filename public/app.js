@@ -4927,10 +4927,12 @@ function numberModal(s) {
       <div><b>Move to another workspace</b><span>The number, its token and settings go to the workspace you pick, and new replies arrive there. Its chats, campaigns and contacts stay here.</span></div>
       <button class="btn sm" id="nmMove" aria-haspopup="menu">${icon('arrow-right', 14)}Move to…${icon('chevron-down', 13)}</button>
     </div>` : ''}
-    ${state.settings.demoMode ? '' : `<div class="nm-move">
-      <div><b>Restricted by Meta</b><span>${numRestriction(s) ? esc(numRestriction(s).text) : 'Switch on when Meta shows this Business Account as “Account restricted” (Business Support Home). Campaigns and template sends from every number in it are blocked until you switch it off. Restrictions Meta reports by webhook are marked by themselves.'}</span></div>
-      <button class="btn sm" id="nmRestrict">${numRestriction(s) ? 'Clear' : 'Mark as restricted'}</button>
-    </div>`}
+    ${state.settings.demoMode ? '' : `<div class="nm-sec-l">Sending</div>
+    <label class="nm-restrict" id="nmRestrictRow" title="Switch on when Business Support Home shows this Business Account as “Account restricted”. Every number in the account follows. Restrictions Meta reports by webhook switch on by themselves.">
+      <span class="nm-restrict-ico">${icon('lock', 16)}</span>
+      <span class="nm-restrict-txt"><b>Restricted by Meta</b><small id="nmRestrictSub"></small></span>
+      <span class="toggle sm"><input type="checkbox" id="nmRestrict" aria-label="Restricted by Meta" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span>
+    </label>`}
     <div class="nm-danger">
       <div><b>Delete this number</b><span>Removes it and its saved token from this app. Nothing changes in your Meta account.</span></div>
       <button class="btn sm danger-solid" id="nmDel">${icon('delete', 14)}Delete</button>
@@ -5038,13 +5040,26 @@ function numberModal(s) {
       toast(`Click to go to ${w.name}.`, '', { title: `Moved ${s.label} to ${w.name}`, onClick: () => switchWorkspace(w.id) });
     }) })));
   });
-  if ($('#nmRestrict', body)) $('#nmRestrict', body).onclick = (e) => guard(async () => {
-    const on = !numRestriction(s);
-    const r = await api(`/senders/${s.id}/restriction`, { method: 'POST', body: { on } });
-    closeModal();
-    await loadSenders();
-    toast(on ? `Marked as restricted${r.count > 1 ? ` (all ${r.count} numbers in its Business Account)` : ''}: campaigns from it are blocked` : 'Restriction cleared: campaigns can be sent from it again');
-  }, e.currentTarget);
+  // Restricted by Meta: a switch; the row turns red while on, with what's blocked and until when.
+  const rsBox = $('#nmRestrict', body);
+  const drawRs = () => {
+    const r = numRestriction(state.senders.find((x) => x.id === s.id) || s);
+    rsBox.checked = Boolean(r);
+    $('#nmRestrictRow', body).classList.toggle('on', Boolean(r));
+    $('#nmRestrictSub', body).textContent = !r ? 'Off: campaigns and templates can be sent'
+      : `Campaigns and templates blocked${r.until ? ` until ${new Date(r.until).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''} · ${r.source === 'manual' ? 'marked by hand' : 'reported by Meta'}`;
+  };
+  if (rsBox) {
+    drawRs();
+    rsBox.onchange = () => guard(async () => {
+      const on = rsBox.checked;
+      try {
+        const r = await api(`/senders/${s.id}/restriction`, { method: 'POST', body: { on } });
+        await loadSenders();
+        toast(on ? `Marked as restricted${r.count > 1 ? ` (all ${r.count} numbers in its Business Account)` : ''}` : 'Restriction cleared');
+      } finally { drawRs(); }
+    });
+  }
   $('#nmDel', body).onclick = () => guard(async () => {
     const ok = await confirmDialog({ title: `Delete “${esc(s.label)}”?`, message: 'The number and its saved token are removed from this app. Nothing changes in your Meta account.', confirmText: 'Delete', danger: true });
     if (!ok) return;
