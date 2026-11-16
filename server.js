@@ -354,10 +354,12 @@ async function sendTemplate(sender, template, to, values, demo = db.settings.dem
 // +1 555 number reads AVAILABLE_WITHOUT_REVIEW ("approved" by the API) yet every send fails with 131037. So a 131037
 // marks the number blocked (red on Numbers, a warning before sending), and only a delivered message clears it,
 // since Meta accepts some sends and fails them a moment later in the status webhook.
-function noteNameBlocked(sender, blocked) {
+// sentAt (clearing only): when the delivered message was sent. A message sent before the last 131037 proves nothing:
+// Meta takes a few of a campaign's first sends, then rejects the rest, and their delivered ticks arrive afterwards.
+function noteNameBlocked(sender, blocked, sentAt) {
   if (!sender) return;
   if (blocked) {
-    if (sender.nameBlockedAt) return;
+    if (sender.nameBlockedAt) { sender.nameBlockedAt = new Date().toISOString(); return; } // still failing: the latest one counts
     sender.nameBlockedAt = new Date().toISOString();
     notes?.add({
       kind: 'number_problem',
@@ -366,6 +368,7 @@ function noteNameBlocked(sender, blocked) {
       link: { tab: 'numbers', id: sender.id },
     });
   } else {
+    if (sender.nameBlockedAt && sentAt && Date.parse(sentAt) <= Date.parse(sender.nameBlockedAt)) return;
     sender.deliveredOkAt = new Date().toISOString();
     if (!sender.nameBlockedAt) return;
     delete sender.nameBlockedAt;
@@ -793,6 +796,13 @@ function lastWroteTo(workspaces, pnid, wa) {
   return best;
 }
 
+// When one of our messages was sent (a campaign's or a chat's), by its wamid, or '' if not known.
+function sentAtOf(wamid) {
+  const m = messageIndex.get(wamid);
+  if (m) return db.campaigns.find((c) => c.id === m.campaignId)?.recipients?.[m.index]?.sentAt || '';
+  return inboxIndex.get(wamid)?.ts || '';
+}
+
 function handleWebhookChange(change, opts = {}) {
   // When Meta last reached this workspace, for the Settings → Webhook status.
   const v = change.value || {};
@@ -813,7 +823,7 @@ function handleWebhookChange(change, opts = {}) {
         if (fromNumber && lockErr) lockFromSend(fromNumber, Number(lockErr.code));
         else if (fromNumber?.lock?.source === 'send' && (st.status === 'delivered' || st.status === 'read') && Number(st.timestamp) * 1000 > Date.parse(fromNumber.lock.at)) setLock(fromNumber, null);
         if (fromNumber && st.status === 'failed' && st.errors?.some((e) => Number(e.code) === 131037)) noteNameBlocked(fromNumber, true);
-        else if (fromNumber && (st.status === 'delivered' || st.status === 'read') && (fromNumber.nameBlockedAt || !fromNumber.deliveredOkAt)) noteNameBlocked(fromNumber, false);
+        else if (fromNumber && (st.status === 'delivered' || st.status === 'read') && (fromNumber.nameBlockedAt || !fromNumber.deliveredOkAt)) noteNameBlocked(fromNumber, false, sentAtOf(st.id));
         const im = inboxIndex.get(st.id);
         if (im && im.dir === 'out') {
           const was = im.status;
