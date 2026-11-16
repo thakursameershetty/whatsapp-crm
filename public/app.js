@@ -1114,6 +1114,8 @@ function numHealth(s) {
   if (!s || state.settings?.demoMode) return null;
   const l = numBlock(s);
   if (l) return ['bad', l.title, l.text];
+  const r = numRestriction(s);
+  if (r) return ['bad', 'Restricted by Meta', r.text];
   if (s.nameBlockedAt) return ['bad', NAME_BLOCKED[1], NAME_BLOCKED[2]];
   if (s.qualityRating === 'RED') return ['bad', 'Low quality', 'Meta still delivers its messages, but many people blocked or reported it. Pause marketing sends from it for a while, or Meta may lock the account (error 131031).'];
   if (s.canSend === 'LIMITED') return ['warn', 'Limited by Meta', s.healthNote || 'Meta limits what this number can send. See WhatsApp Manager → Account quality.'];
@@ -1121,6 +1123,17 @@ function numHealth(s) {
   if (nameBlocked(s) && nameInfo(s)) return ['warn', `Display name ${nameInfo(s)[1].toLowerCase()}`, nameInfo(s)[2]];
   if (!s.hasToken) return ['warn', 'No access token', 'Add its access token under Numbers to send from it.'];
   return ['good', 'Can send', `Meta delivers this number’s messages${s.lastCheckedAt ? ` (checked ${shortAgo(s.lastCheckedAt)})` : ''}.`];
+}
+// Meta restricted this number's Business Account (webhook, or marked by hand under Number settings): no campaigns
+// or templates from it until it ends; the server refuses them too. { text, until } or null.
+const RESTRICTION_WORDS = { RESTRICTED_BIZ_INITIATED_MESSAGING: 'no campaigns or templates', RESTRICTED_CUSTOMER_INITIATED_MESSAGING: 'no replies to customers', RESTRICTED_ADD_PHONE_NUMBER_ACTION: 'no new phone numbers' };
+function numRestriction(s) {
+  const r = s?.restriction;
+  if (!r || state.settings?.demoMode || (r.until && Date.parse(r.until) <= Date.now())) return null;
+  const until = r.until ? ` until ${new Date(r.until).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : '';
+  const what = (r.types || []).map((t) => RESTRICTION_WORDS[t] || t).join(', ');
+  const why = r.source === 'manual' ? 'Marked as restricted by your team (Number settings)' : 'Meta restricted this number’s Business Account';
+  return { ...r, text: `${why}${until}: ${what}. See Business Support Home → Messaging accounts.` };
 }
 // Why nothing can be sent from a number at all (Meta locked it, or refused its token), or null. Chats from it are
 // locked and AI auto-reply waits; the server refuses the same sends.
@@ -1213,6 +1226,8 @@ function renderSenders() {
 function connRowHtml(s) {
   if (checkingNumbers.has(s.id)) return `<dt>Connection</dt><dd class="dd-conn"><span class="tag">Checking…</span></dd>`;
   if (s.lock && !state.settings?.demoMode) return `<dt>Sending</dt><dd class="dd-conn" title="${esc(`${s.lock.text} ${s.lock.fix}`)}"><span class="tag bad">${icon('lock', 12)}${esc(s.lock.title)}</span><span class="tag-note">${esc(shortAgo(s.lock.at))}</span></dd>`;
+  const rs = numRestriction(s);
+  if (rs) return `<dt>Sending</dt><dd class="dd-conn" title="${esc(rs.text)}"><span class="tag bad">${icon('lock', 12)}Restricted by Meta</span><span class="tag-note">${esc(rs.until ? 'until ' + new Date(rs.until).toLocaleDateString([], { day: 'numeric', month: 'short' }) : rs.source === 'manual' ? 'marked by hand' : '')}</span></dd>`;
   if (s.connError) return `<dt>Connection</dt><dd class="dd-conn" title="${esc(`Meta said: ${s.connError}`)}"><span class="tag bad">Not connected</span><span class="tag-note">${esc(shortAgo(s.lastCheckedAt))}</span></dd>`;
   if (s.lastCheckedAt) return `<dt>Connection</dt><dd class="dd-conn" title="Last checked ${esc(new Date(s.lastCheckedAt).toLocaleString())}"><span class="tag good">Connected</span><span class="tag-note">${esc(shortAgo(s.lastCheckedAt))}</span></dd>`;
   return '';
@@ -1894,8 +1909,8 @@ const tplFP = filterPanel({
 const tplFilterCount = tplFP.count, tplClearFilters = tplFP.clear, tplPasses = tplFP.passes;
 
 // Numbers: can it send, quality, display name, Meta limit, Business Account, and a few more.
-const NUM_SEND = [['ok', 'Can send', 'good'], ['locked', 'Locked by Meta', 'bad'], ['banned', 'Banned or restricted', 'bad'], ['conn', 'Not connected', 'bad'], ['rejecting', 'Rejecting messages (131037)', 'bad'], ['notoken', 'No access token', 'warn']];
-const numSendState = (s) => (s.lock ? 'locked' : BAD_NUMBER.test(s.numberStatus || '') ? 'banned' : s.connError ? 'conn' : s.nameBlockedAt ? 'rejecting' : !s.hasToken ? 'notoken' : 'ok');
+const NUM_SEND = [['ok', 'Can send', 'good'], ['locked', 'Locked by Meta', 'bad'], ['restricted', 'Restricted by Meta', 'bad'], ['banned', 'Banned or restricted', 'bad'], ['conn', 'Not connected', 'bad'], ['rejecting', 'Rejecting messages (131037)', 'bad'], ['notoken', 'No access token', 'warn']];
+const numSendState = (s) => (s.lock ? 'locked' : numRestriction(s) ? 'restricted' : BAD_NUMBER.test(s.numberStatus || '') ? 'banned' : s.connError ? 'conn' : s.nameBlockedAt ? 'rejecting' : !s.hasToken ? 'notoken' : 'ok');
 const numNameState = (s) => (s.nameStatus === 'AVAILABLE_WITHOUT_REVIEW' ? 'APPROVED' : s.nameStatus || 'UNKNOWN');
 state.numFs = { send: new Set(), quality: new Set(), name: new Set(), limit: new Set(), waba: new Set(), more: new Set() };
 const NUM_FILTERS = {
@@ -4911,6 +4926,10 @@ function numberModal(s) {
       <div><b>Move to another workspace</b><span>The number, its token and settings go to the workspace you pick, and new replies arrive there. Its chats, campaigns and contacts stay here.</span></div>
       <button class="btn sm" id="nmMove" aria-haspopup="menu">${icon('arrow-right', 14)}Move to…${icon('chevron-down', 13)}</button>
     </div>` : ''}
+    ${state.settings.demoMode ? '' : `<div class="nm-move">
+      <div><b>Restricted by Meta</b><span>${numRestriction(s) ? esc(numRestriction(s).text) : 'Switch on when Meta shows this Business Account as “Account restricted” (Business Support Home). Campaigns and template sends from every number in it are blocked until you switch it off. Restrictions Meta reports by webhook are marked by themselves.'}</span></div>
+      <button class="btn sm" id="nmRestrict">${numRestriction(s) ? 'Clear' : 'Mark as restricted'}</button>
+    </div>`}
     <div class="nm-danger">
       <div><b>Delete this number</b><span>Removes it and its saved token from this app. Nothing changes in your Meta account.</span></div>
       <button class="btn sm danger-solid" id="nmDel">${icon('delete', 14)}Delete</button>
@@ -5018,6 +5037,13 @@ function numberModal(s) {
       toast(`Click to go to ${w.name}.`, '', { title: `Moved ${s.label} to ${w.name}`, onClick: () => switchWorkspace(w.id) });
     }) })));
   });
+  if ($('#nmRestrict', body)) $('#nmRestrict', body).onclick = (e) => guard(async () => {
+    const on = !numRestriction(s);
+    const r = await api(`/senders/${s.id}/restriction`, { method: 'POST', body: { on } });
+    closeModal();
+    await loadSenders();
+    toast(on ? `Marked as restricted${r.count > 1 ? ` (all ${r.count} numbers in its Business Account)` : ''}: campaigns from it are blocked` : 'Restriction cleared: campaigns can be sent from it again');
+  }, e.currentTarget);
   $('#nmDel', body).onclick = () => guard(async () => {
     const ok = await confirmDialog({ title: `Delete “${esc(s.label)}”?`, message: 'The number and its saved token are removed from this app. Nothing changes in your Meta account.', confirmText: 'Delete', danger: true });
     if (!ok) return;

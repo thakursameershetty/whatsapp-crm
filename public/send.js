@@ -1512,14 +1512,16 @@
   function fromHtml() {
     const list = state.senders.filter((x) => state.selectedSenders.has(x.id));
     // a number whose display name isn't approved: Meta rejects every message from it (131037), so say so before sending
-    const blocked = state.settings.demoMode ? [] : list.filter(nameBlocked);
+    const restricted = state.settings.demoMode ? [] : list.filter((x) => numRestriction(x)?.types?.includes('RESTRICTED_BIZ_INITIATED_MESSAGING'));
+    const blocked = state.settings.demoMode ? [] : list.filter((x) => nameBlocked(x) && !restricted.includes(x));
+    const restrictWarn = restricted.map((x) => `<p class="cf-warn bad">${icon('lock', 15)}<span><b>${esc(x.verifiedName || x.label)}</b>: restricted by Meta, so campaigns from it are blocked. Leave it out of this campaign, or clear it under Numbers → its settings once Meta lifts it.</span></p>`).join('');
     const warn = blocked.length ? `<p class="cf-warn">${icon('badge-alert', 15)}<span><b>${esc(blocked.map((x) => x.verifiedName || x.label).join(', '))}</b>: ${blocked.some((x) => x.nameBlockedAt) ? 'Meta is already rejecting messages from this number' : `display name ${esc(blocked.length === 1 ? nameInfo(blocked[0])[1].toLowerCase() : 'not approved')}`}. Meta will likely reject these messages (error 131037). Send one test message first, or see Numbers.</span></p>` : '';
     // locked by Meta or not connected: nothing it sends is delivered (the server won't start the campaign)
     const cant = state.settings.demoMode ? [] : list.filter((x) => window.NumStatus?.block(x.id));
     const lockWarn = cant.map((x) => `<p class="cf-warn bad">${icon('lock', 15)}<span><b>${esc(x.verifiedName || x.label)}</b>: ${esc(window.NumStatus.block(x.id).title.toLowerCase())}, so nothing it sends is delivered. Leave it out of this campaign.</span></p>`).join('');
     const low = state.settings.demoMode ? [] : list.filter((x) => !window.NumStatus?.block(x.id) && x.qualityRating === 'RED');
     const lowWarn = low.length ? `<p class="cf-warn">${icon('triangle-alert', 15)}<span><b>${esc(low.map((x) => x.verifiedName || x.label).join(', '))}</b>: quality is low. A big marketing send from it can get the account locked; send to people who opted in, or a smaller batch.</span></p>` : '';
-    return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}${numDotHtml(x)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>${lockWarn}${warn}${lowWarn}`;
+    return `<div class="cf-from"><span class="cf-from-l">From</span>${list.map((x) => `<span class="cf-num">${senderPhotoHtml(x)}<span><b>${esc(x.verifiedName || x.label)}${numDotHtml(x)}</b><small>${esc(x.displayPhone || '')}</small></span></span>`).join('')}</div>${lockWarn}${restrictWarn}${warn}${lowWarn}`;
   }
 
   // --- The pre-send check (server: /api/send/precheck) --------------------------------------------------------------

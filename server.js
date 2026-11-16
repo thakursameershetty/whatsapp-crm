@@ -88,7 +88,7 @@ const maskWaToken = (t) => (t ? '••••' + t.slice(-8) : '');
 
 function publicSender(s) {
   const { accessToken, ...rest } = s;
-  return { ...rest, lock: lockOf(s) || undefined, accessTokenMasked: maskWaToken(accessToken), hasToken: Boolean(accessToken) };
+  return { ...rest, lock: lockOf(s) || undefined, restriction: restrictionOf(s) || undefined, accessTokenMasked: maskWaToken(accessToken), hasToken: Boolean(accessToken) };
 }
 
 // A number someone typed in a form: digits with optional +, spaces, dashes or brackets, and either
@@ -335,6 +335,8 @@ async function sendTemplate(sender, template, to, values, demo = db.settings.dem
     if (Math.random() < 0.04) throw new Error('(demo) Simulated failure: recipient not on WhatsApp');
     return 'wamid.DEMO' + id();
   }
+  // Every template send (campaigns, test sends, the Inbox's "send a template") stops here while Meta restricts it.
+  if (restrictsCampaigns(sender)) throw fail(restrictionText(sender), 423);
   const body = {
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
@@ -441,6 +443,43 @@ function applyHealth(s, h) {
       text: h.text || known?.text || 'Meta says this number can’t send messages right now.', fix: h.fix || known?.fix || 'Open WhatsApp Manager → Account quality to see why.' });
   } else if (s.lock && !(s.lock.source === 'send' && Date.now() - Date.parse(s.lock.at) < SEND_LOCK_TRUST_MS)) setLock(s, null);
 }
+// --- A Business Account Meta has restricted (Business Support Home → "Account restricted") ---------------------------
+// Unlike a lock, Meta's health check can still say AVAILABLE: a restriction usually stops only messages the business
+// starts (templates, so campaigns), while replies inside the 24-hour window go through. Two sources: Meta's
+// account_update webhook (event ACCOUNT_RESTRICTION, with restriction_info: each type and when it ends), which
+// marks every number in that Business Account, and a person switching it on for a number by hand (Number settings)
+// for a restriction from before this existed. While restricted: no campaigns or template sends; replies too only
+// for RESTRICTED_CUSTOMER_INITIATED_MESSAGING. It clears by itself when Meta's expiry passes.
+const BIZ_RESTRICT = 'RESTRICTED_BIZ_INITIATED_MESSAGING', REPLY_RESTRICT = 'RESTRICTED_CUSTOMER_INITIATED_MESSAGING';
+const RESTRICTION_WORDS = { [BIZ_RESTRICT]: 'no campaigns or templates', [REPLY_RESTRICT]: 'no replies to customers', RESTRICTED_ADD_PHONE_NUMBER_ACTION: 'no new phone numbers' };
+function restrictionOf(s) {
+  const r = s?.restriction;
+  if (!r || db.settings.demoMode) return null;
+  if (r.until && Date.parse(r.until) <= Date.now()) return null;
+  return r;
+}
+const restrictsCampaigns = (s) => { const r = restrictionOf(s); return r && (r.types || []).includes(BIZ_RESTRICT) ? r : null; };
+const restrictsReplies = (s) => { const r = restrictionOf(s); return r && (r.types || []).includes(REPLY_RESTRICT) ? r : null; };
+const untilWords = (r) => (r.until ? ` until ${new Date(r.until).toUTCString().replace(/:\d\d GMT$/, ' UTC')}` : '');
+const restrictionText = (s, r = restrictionOf(s)) => `${senderName(s)} is restricted by Meta${untilWords(r)} (${(r.types || []).map((t) => RESTRICTION_WORDS[t] || t).join(', ')}). See Business Support Home → Messaging accounts.`;
+// Meta's expiration: unix seconds (as a number or a string) or a date.
+const expiryIso = (v) => { if (v == null || v === '') return null; const n = Number(v); const d = Number.isFinite(n) ? new Date(n < 1e12 ? n * 1000 : n) : new Date(v); return Number.isNaN(d.getTime()) ? null : d.toISOString(); };
+// restriction: { source: 'meta' | 'manual', types, until }, or null to clear. A notification when it starts or ends.
+function setRestriction(s, r) {
+  const was = restrictionOf(s);
+  if (r) {
+    if (was && JSON.stringify([was.source, was.types, was.until]) === JSON.stringify([r.source, r.types, r.until])) return;
+    s.restriction = { ...r, at: new Date().toISOString() };
+    if (!was) notes?.add({ kind: 'number_problem', title: `${senderName(s)}: restricted by Meta`, body: `${restrictionText(s)} Campaigns from it are blocked until then.`, link: { tab: 'numbers', id: s.id }, group: 'restrict:' + s.id, count: 1 });
+  } else {
+    if (!s.restriction) return;
+    delete s.restriction;
+    if (was) notes?.add({ kind: 'number_ok', title: `${senderName(s)}: restriction lifted`, body: 'Campaigns can be sent from this number again.', link: { tab: 'numbers', id: s.id }, group: 'restrict:' + s.id, count: 1 });
+  }
+  save();
+  broadcast({ kind: 'changed', area: 'senders', tab: '' });
+}
+
 // Everything Meta says about a number (what Test connection does), in the background: at most every 2 minutes each.
 const recheckedAt = new Map(); // sender id → when it was last checked in the background
 function recheckNumber(s, { now = false } = {}) {
@@ -506,6 +545,15 @@ async function runCampaign(campaign) {
     notes?.add({ kind: 'number_problem', group: 'lockcamp:' + campaign.id, title: `“${campaign.name}” didn’t start: ${senderName(lockedNum)} is locked`, body: campaign.pausedReason, link: { tab: 'campaigns', id: campaign.id } });
     return;
   }
+  // A Business Account Meta restricted from starting conversations: same, until the restriction ends.
+  const restrictedNum = db.senders.find((s) => (campaign.senderIds || []).includes(s.id) && restrictsCampaigns(s));
+  if (restrictedNum && !campaign.demo) {
+    campaign.status = 'stopped';
+    campaign.pausedReason = `Not sent: ${restrictionText(restrictedNum)} Resume once it’s lifted.`;
+    save();
+    notes?.add({ kind: 'number_problem', group: 'lockcamp:' + campaign.id, title: `“${campaign.name}” didn’t start: ${senderName(restrictedNum)} is restricted`, body: campaign.pausedReason, link: { tab: 'campaigns', id: campaign.id } });
+    return;
+  }
   const control = { stop: false };
   running.set(campaign.id, control);
   campaign.status = 'running';
@@ -532,6 +580,12 @@ async function runCampaign(campaign) {
 
   const worker = async (sender, queue) => {
     while (queue.length && !control.stop) {
+      // Meta restricted the account part-way (webhook, or switched on by hand): stop; the rest wait for a resume.
+      if (!campaign.demo && restrictsCampaigns(sender)) {
+        control.stop = true;
+        campaign.pausedReason = `Paused: ${restrictionText(sender)} Resume once it’s lifted.`;
+        break;
+      }
       const i = queue.shift();
       const r = campaign.recipients[i];
       // Credits for this message (credits.js). Run out part-way: stop here; the rest stay waiting for a resume.
@@ -664,6 +718,16 @@ app.post('/webhook', express.json({ limit: '2mb' }), (req, res) => {
       }
       // Something changed on the Business Account (locked, unlocked, restricted…) or a number's quality / limit
       // (subscribe to "account_update" and "phone_number_quality_update"): check those numbers again with Meta.
+      if (change.field === 'account_update' && String(change.value?.event || '').toUpperCase() === 'ACCOUNT_RESTRICTION') {
+        // The entry is the Business Account: every number in it, in every workspace. An empty list means lifted.
+        const info = Array.isArray(change.value.restriction_info) ? change.value.restriction_info : [];
+        const types = [...new Set(info.map((x) => String(x.restriction_type || '').toUpperCase()).filter(Boolean))];
+        const ends = info.map((x) => expiryIso(x.expiration)).filter(Boolean).sort();
+        const until = ends.length === info.length && ends.length ? ends[ends.length - 1] : null; // one without an end: no end
+        for (const ws of tenants.allWorkspaces().filter((w) => w.db.senders.some((x) => x.wabaId === String(entry.id)))) {
+          tenants.forWorkspace(ws, () => db.senders.filter((x) => x.wabaId === String(entry.id)).forEach((x) => setRestriction(x, types.length ? { source: 'meta', types, until } : null)));
+        }
+      }
       if (change.field === 'account_update' || change.field === 'phone_number_quality_update') {
         const digits = String(change.value?.display_phone_number || change.value?.phone_number || '').replace(/\D/g, '');
         const mine = (x) => (digits && change.field === 'phone_number_quality_update' ? String(x.displayPhone || '').replace(/\D/g, '') === digits : x.wabaId === String(entry.id));
@@ -1322,6 +1386,16 @@ app.post('/api/senders/:id/move', wrap(async (req, res) => {
   save();
   tenants.forWorkspace(target, () => { db.senders.push(s); save(); });
   res.json({ ok: true, workspace: { id: target.meta.id, name: target.meta.name } });
+}));
+
+// Mark a number restricted by hand (Meta restricted its Business Account before the webhook could say so), or clear
+// it. Every number in the same Business Account follows, as Meta restricts the whole account.
+app.post('/api/senders/:id/restriction', wrap((req, res) => {
+  const s = db.senders.find((x) => x.id === req.params.id);
+  if (!s) throw fail('Not found', 404);
+  const same = s.wabaId ? db.senders.filter((x) => x.wabaId === s.wabaId) : [s];
+  for (const x of same) setRestriction(x, req.body?.on ? { source: 'manual', types: [BIZ_RESTRICT], until: null } : null);
+  res.json({ ok: true, count: same.length });
 }));
 
 app.delete('/api/senders/:id', (req, res) => {
@@ -2153,6 +2227,8 @@ app.post('/api/campaigns', wrap((req, res) => {
   if (body.consent !== true && !db.settings.demoMode) throw fail('Confirm that these contacts agreed to receive messages from you');
   const locked = db.senders.filter((s) => (body.senderIds || []).includes(s.id) && lockOf(s));
   if (locked.length) throw fail(`${locked.map(senderName).join(', ')}: ${lockOf(locked[0]).title.toLowerCase()}, so nothing would be delivered. Choose other numbers, or wait until Meta unlocks it.`, 423);
+  const restricted = db.settings.demoMode ? [] : db.senders.filter((s) => (body.senderIds || []).includes(s.id) && restrictsCampaigns(s));
+  if (restricted.length) throw fail(`${restrictionText(restricted[0])} Choose other numbers, or wait until it’s lifted.`, 423);
   res.json(summary(createCampaign(body)));
 }));
 
@@ -2821,8 +2897,10 @@ app.get('/api/inbox/:key', wrap((req, res) => {
 
 // Replies, reactions, resends, media and stickers: not from a number Meta has locked (they'd only fail).
 app.post(/^\/api\/inbox\/([^/]+)\/(send|react|resend|media|sticker)$/, (req, res, next) => {
-  const l = lockOf(db.senders.find((s) => s.id === splitKey(decodeURIComponent(req.params[0])).senderId));
+  const s = db.senders.find((x) => x.id === splitKey(decodeURIComponent(req.params[0])).senderId);
+  const l = lockOf(s);
   if (l) return res.status(423).json({ error: `${l.title}: nothing can be sent from this number until Meta unlocks it. ${l.fix}` });
+  if (restrictsReplies(s)) return res.status(423).json({ error: restrictionText(s) });
   next();
 });
 
