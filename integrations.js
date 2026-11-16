@@ -13,6 +13,12 @@
 //                                        recipients: [{ phone, name?, values: { "body.1": "Ravi", … } }], externalId? }
 //                                        externalId makes retries safe: the same id returns the campaign already made.
 //   GET  /api/v1/campaigns/:id           progress, counts, and each recipient's status
+//   GET  /api/v1/messages?after=<cursor> every WhatsApp message in and out (Inbox chats, campaign sends, test sends),
+//                                        oldest change first, for keeping a copy in sync: each item comes again
+//                                        whenever it changes (sent → delivered → read). Pass back `next` as `after`.
+//   POST /api/v1/messages                reply: { senderId, phone, text } inside WhatsApp's 24-hour window, or
+//                                        { senderId, phone, templateId, values } any time
+//   GET  /api/v1/media/:id               a photo, video, voice note or document from a message
 
 const crypto = require('crypto');
 
@@ -23,6 +29,7 @@ const tidy = (v, max) => String(v ?? '').replace(/\s+/g, ' ').replace(/[\u0000-\
 
 module.exports = function mountIntegrations(apiV1, app, ctx) {
   const { db, save, tenants, wrap, fail, id, createCampaign, lockOf, senderName, publicTemplate, notApprovedError, broadcastTo } = ctx;
+  const { chatKey, sendInboxText, sendInboxTemplate, ensureMedia, normalizeTypedPhone, contacts, WINDOW_MS } = ctx;
 
   // --- Keys (managed by the owner while signed in) ---------------------------------------------------------------
   const keysOf = () => (db.apiKeys ||= []);
@@ -193,6 +200,135 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
       skipped: (c.skipped || []).map((s) => ({ phone: s.phone || s.raw || '', name: s.name || '', reason: s.reason })),
     };
   }
+  // --- Conversations (the Inbox) ----------------------------------------------------------------------------------
+  // One feed of every message, newest change last. Inbox messages live in db.messages; campaign sends live on each
+  // campaign's recipients (as the Inbox thread shows them). Each item's `updatedAt` is when it last changed, so an
+  // item comes back in the feed after a status change. The last 2 seconds are held back: anything that changes
+  // later is stamped after the cursor, so a cursor never skips a change.
+  const SETTLE_MS = 2000;
+  const FEED_MAX = 500;
+  const maxIso = (...xs) => xs.filter(Boolean).sort().at(-1) || '';
+  const fill = (text, values = {}, where = 'body') => String(text || '').replace(/{{\s*(\w+)\s*}}/g, (m, k) => values[`${where}.${k}`] ?? m);
+  const bodyOf = (templateId) => (db.templates.find((t) => t.id === templateId)?.components || []).find((c) => String(c.type).toUpperCase() === 'BODY')?.text || '';
+  const live = (x) => db.settings.demoMode || !x.demo;
+  const nameFor = (key, wa) => db.chats[key]?.name || contacts.byPhone(wa)?.name || '';
+  const senderLabel = (sid) => { const s = db.senders.find((x) => x.id === sid); return s ? `${s.label}${s.displayPhone ? ` · ${s.displayPhone}` : ''}` : ''; };
+
+  function inboxItem(m) {
+    const template = m.type === 'template' ? { id: m.templateId, name: m.templateName, values: m.values || {} } : null;
+    return {
+      id: m.id,
+      wamid: m.wamid || null,
+      senderId: m.senderId,
+      sender: senderLabel(m.senderId),
+      phone: m.wa,
+      name: nameFor(m.key, m.wa),
+      direction: m.dir,
+      type: m.type,
+      text: template ? fill(bodyOf(m.templateId), m.values) : m.text || '',
+      template,
+      media: m.media ? { id: m.media.id, mime: m.media.mime || '', filename: m.media.filename || '', voice: Boolean(m.media.voice) } : null,
+      location: m.location || null,
+      reaction: m.reaction || null,
+      replyTo: m.context || null,
+      status: m.dir === 'out' ? m.status || 'sent' : null,
+      error: m.error || null,
+      auto: Boolean(m.auto), // written and sent by SendON's AI
+      campaign: m.campaign ? { id: null, name: m.campaign } : null,
+      at: m.ts,
+      updatedAt: maxIso(m.updatedAt, m.ts),
+    };
+  }
+
+  function campaignItem(c, r) {
+    return {
+      id: `c:${c.id}:${r.phone}`,
+      wamid: r.messageId || null,
+      senderId: r.senderId,
+      sender: senderLabel(r.senderId),
+      phone: r.phone,
+      name: r.name || nameFor(chatKey(r.senderId, r.phone), r.phone),
+      direction: 'out',
+      type: 'template',
+      text: fill(bodyOf(c.templateId), r.values),
+      template: { id: c.templateId, name: c.templateName, values: r.values || {} },
+      media: null,
+      location: null,
+      reaction: null,
+      replyTo: null,
+      status: r.status,
+      error: r.error || null,
+      auto: false,
+      campaign: { id: c.id, name: c.name },
+      at: r.sentAt || r.failedAt,
+      updatedAt: maxIso(r.updatedAt, r.sentAt, r.deliveredAt, r.readAt, r.failedAt),
+    };
+  }
+
+  const encodeCursor = (it) => Buffer.from(`${it.updatedAt}|${it.id}`).toString('base64url');
+  const decodeCursor = (c) => { const [at = '', itemId = ''] = Buffer.from(String(c || ''), 'base64url').toString().split('|'); return { at, itemId }; };
+
+  apiV1.get('/messages', (req, res) => {
+    const after = req.query.after ? decodeCursor(req.query.after) : null;
+    const limit = Math.max(1, Math.min(FEED_MAX, Number(req.query.limit) || FEED_MAX));
+    const until = new Date(Date.now() - SETTLE_MS).toISOString();
+    const out = [];
+    const keep = (it) => {
+      if (!it.at || !it.updatedAt || it.updatedAt >= until) return;
+      if (after && (it.updatedAt < after.at || (it.updatedAt === after.at && it.id <= after.itemId))) return;
+      out.push(it);
+    };
+    for (const m of db.messages) if (live(m) && (m.dir === 'in' || m.dir === 'out')) keep(inboxItem(m));
+    for (const c of db.campaigns) {
+      if (!live(c)) continue;
+      for (const r of c.recipients) if (r.sentAt || r.failedAt) keep(campaignItem(c, r));
+    }
+    out.sort((a, b) => (a.updatedAt === b.updatedAt ? (a.id < b.id ? -1 : 1) : a.updatedAt < b.updatedAt ? -1 : 1));
+    const page = out.slice(0, limit);
+    res.json({
+      messages: page,
+      // Keep asking from here; with no new messages it stays where it was.
+      next: page.length ? encodeCursor(page.at(-1)) : req.query.after || null,
+      hasMore: out.length > page.length,
+    });
+  });
+
+  // Replying. Same rules as replying in SendON's Inbox: text only inside the 24-hour window, templates any time,
+  // nothing from a number Meta has locked, nobody who opted out.
+  apiV1.post('/messages', wrap(async (req, res) => {
+    const b = req.body || {};
+    const sender = db.senders.find((s) => s.id === String(b.senderId || ''));
+    if (!sender) throw fail('Unknown senderId: list numbers with GET /api/v1/senders');
+    const lock = lockOf(sender);
+    if (lock) throw fail(`${lock.title}: nothing can be sent from ${senderName(sender)} until Meta unlocks it.`, 423);
+    const wa = normalizeTypedPhone(b.phone);
+    if (!wa) throw fail('That phone number isn’t valid');
+    if (contacts.byPhone(wa)?.optOut) throw fail('This person opted out of WhatsApp messages from you', 409);
+    const key = chatKey(sender.id, wa);
+    const msg = b.templateId
+      ? await sendInboxTemplate(key, String(b.templateId), b.values && typeof b.values === 'object' ? b.values : {})
+      : await sendInboxText(key, b.text);
+    res.status(201).json(inboxItem(msg));
+  }));
+
+  // Is the 24-hour window open with this person on this number (and until when)?
+  apiV1.get('/conversations/window', (req, res) => {
+    const wa = normalizeTypedPhone(req.query.phone);
+    const sid = String(req.query.senderId || '');
+    const lastIn = wa && db.messages.filter((m) => m.dir === 'in' && m.wa === wa && (!sid || m.senderId === sid) && live(m)).at(-1);
+    const until = lastIn ? new Date(Date.parse(lastIn.ts) + WINDOW_MS).toISOString() : null;
+    res.json({ open: Boolean(until && Date.parse(until) > Date.now()), until, senderId: lastIn?.senderId || null });
+  });
+
+  apiV1.get('/media/:mid', wrap(async (req, res) => {
+    // Only media that belongs to a message in this workspace.
+    if (!db.messages.some((m) => m.media?.id === req.params.mid)) throw fail('No such media in this workspace', 404);
+    const { file, meta } = await ensureMedia(req.params.mid);
+    res.type(meta.mime || 'application/octet-stream');
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.sendFile(file);
+  }));
+
   // Anything else under /api/v1 is a JSON 404, not the sign-in page.
   apiV1.use((req, res) => res.status(404).json({ error: `No such endpoint: ${req.method} /api/v1${req.path}` }));
 

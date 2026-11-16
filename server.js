@@ -783,9 +783,11 @@ function handleWebhookChange(change, opts = {}) {
           r.status = 'failed';
           r.failedAt = new Date(Number(st.timestamp) * 1000).toISOString();
           r.error = st.errors?.map((e) => `${e.code}: ${e.title}${e.error_data?.details ? ' — ' + e.error_data.details : ''}`).join('; ');
+          r.updatedAt = new Date().toISOString();
         } else if ((rank[st.status] ?? -1) > (rank[r.status] ?? -1)) {
           r.status = st.status;
           r[st.status + 'At'] = new Date(Number(st.timestamp) * 1000).toISOString();
+          r.updatedAt = new Date().toISOString();
         }
         contactsApi.noteDelivery(c, r);
         recount(c);
@@ -2493,13 +2495,17 @@ function broadcast(data) {
 setInterval(() => { for (const res of listeners) res.write(': ping\n\n'); }, 25000);
 
 const STATUS_RANK = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 };
+// updatedAt: when anything about a message last changed (server time), so the integration API's message feed
+// (integrations.js, GET /api/v1/messages) can hand other apps every change since they last asked.
 function applyStatus(m, st) {
+  const was = `${m.status}|${m.error || ''}`;
   if (st.status === 'failed') {
     m.status = 'failed';
     m.error = st.errors?.map((e) => `${e.code}: ${e.title}${e.error_data?.details ? ' — ' + e.error_data.details : ''}`).join('; ');
   } else if ((STATUS_RANK[st.status] ?? -1) > (STATUS_RANK[m.status] ?? -1)) {
     m.status = st.status;
   }
+  if (`${m.status}|${m.error || ''}` !== was) m.updatedAt = new Date().toISOString();
 }
 
 // Normalise one webhook message into what the inbox stores.
@@ -2578,7 +2584,7 @@ function ingestMessages(value, { silentAi } = {}) {
     const key = chatKey(senderId, m.from);
     const chat = (db.chats[key] ||= { lastReadAt: null });
     if (names[m.from]) chat.name = names[m.from];
-    const msg = { id: id(), wamid: m.id, key, senderId, wa: m.from, dir: 'in', ts: new Date(Number(m.timestamp) * 1000).toISOString(), context: m.context?.id, ...parseIncoming(m) };
+    const msg = { id: id(), wamid: m.id, key, senderId, wa: m.from, dir: 'in', ts: new Date(Number(m.timestamp) * 1000).toISOString(), updatedAt: new Date().toISOString(), context: m.context?.id, ...parseIncoming(m) };
     db.messages.push(msg);
     if (!inboxIndex.has(m.id) || !silentAi?.(m)) inboxIndex.set(m.id, msg);
     // Everyone who writes in becomes a contact; STOP opts them out straight away.
@@ -3176,7 +3182,8 @@ function recordOut(key, msg) {
   if ((db.settings.readReceipts || 'open') !== 'off') sendReadReceipt(key);
   const { senderId, wa } = splitKey(key);
   const demo = db.settings.demoMode;
-  Object.assign(msg, { id: id(), key, senderId, wa, dir: 'out', ts: new Date().toISOString(), status: 'sent', ...(demo ? { demo: true } : {}) });
+  const now = new Date().toISOString();
+  Object.assign(msg, { id: id(), key, senderId, wa, dir: 'out', ts: now, updatedAt: now, status: 'sent', ...(demo ? { demo: true } : {}) });
   db.messages.push(msg);
   if (msg.wamid) inboxIndex.set(msg.wamid, msg);
   db.chats[key] ||= { lastReadAt: new Date().toISOString() };
@@ -3752,7 +3759,11 @@ const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiA
 // --- AI assistant -------------------------------------------------------------
 
 // API keys and the integration API (/api/v1) for other apps, such as Spotmies CRM's workflows.
-require('./integrations')(apiV1, app, { db, save, tenants, wrap, fail, id, createCampaign, lockOf, senderName, publicTemplate, notApprovedError, broadcastTo });
+require('./integrations')(apiV1, app, {
+  db, save, tenants, wrap, fail, id, createCampaign, lockOf, senderName, publicTemplate, notApprovedError, broadcastTo,
+  // the conversation feed and replies (Inbox)
+  chatKey, splitKey, sendInboxText, sendInboxTemplate, ensureMedia, normalizeTypedPhone, contacts: contactsApi, WINDOW_MS,
+});
 
 require('./ai')(app, { db, save, id, wsId: tenants.wsId, wrap, fail, aiConfig, credits, contacts: contactsApi, normalizePhone, templateVariables, createCampaign, computeStats, summary, publicSender });
 
