@@ -3850,7 +3850,7 @@ const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiA
 require('./integrations')(apiV1, app, {
   db, save, tenants, wrap, fail, id, createCampaign, lockOf, senderName, publicTemplate, notApprovedError, broadcastTo,
   // the conversation feed and replies (Inbox)
-  chatKey, splitKey, sendInboxText, sendInboxTemplate, sendOutMedia, outKind, OUT_MEDIA, MIME_ALIAS, ensureMedia, normalizeTypedPhone, contacts: contactsApi, WINDOW_MS,
+  readProfilePhoto, chatKey, splitKey, sendInboxText, sendInboxTemplate, sendOutMedia, outKind, OUT_MEDIA, MIME_ALIAS, ensureMedia, normalizeTypedPhone, contacts: contactsApi, WINDOW_MS,
 });
 
 require('./ai')(app, { db, save, id, wsId: tenants.wsId, wrap, fail, aiConfig, credits, contacts: contactsApi, normalizePhone, templateVariables, createCampaign, computeStats, summary, publicSender });

@@ -21,6 +21,7 @@
 //   POST /api/v1/messages/media          send a file (raw body) inside the window: ?senderId=&phone=, headers
 //                                        X-File-Type, X-File-Name, X-Caption, X-Reply-To, X-As-Document: 1
 //   GET  /api/v1/media/:id               a photo, video, voice note or document from a message
+//   GET  /api/v1/senders/:id/photo       a number's WhatsApp profile photo (what customers see on the chat)
 
 const crypto = require('crypto');
 
@@ -31,6 +32,7 @@ const tidy = (v, max) => String(v ?? '').replace(/\s+/g, ' ').replace(/[\u0000-\
 
 module.exports = function mountIntegrations(apiV1, app, ctx) {
   const { db, save, tenants, wrap, fail, id, createCampaign, lockOf, senderName, publicTemplate, notApprovedError, broadcastTo } = ctx;
+  const { readProfilePhoto } = ctx;
   const { chatKey, sendInboxText, sendInboxTemplate, sendOutMedia, outKind, OUT_MEDIA, MIME_ALIAS, ensureMedia, normalizeTypedPhone, contacts, WINDOW_MS } = ctx;
   const express = require('express');
 
@@ -107,6 +109,9 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
         wabaId: s.wabaId || '',
         enabled: Boolean(s.enabled),
         quality: s.quality || '',
+        // Its WhatsApp profile photo, at GET /api/v1/senders/:id/photo (photoVersion changes when it does).
+        hasPhoto: Boolean(s.photoUrl),
+        photoVersion: s.photoCheckedAt || '',
         // Why it can't send right now, or '' when it can.
         problem: !s.enabled ? 'Turned off in SendON' : lock ? lock.title : !db.settings.demoMode && !s.accessToken ? 'No access token' : '',
       };
@@ -367,6 +372,20 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
     res.type(meta.mime || 'application/octet-stream');
     res.set('Cache-Control', 'private, max-age=86400');
     res.sendFile(file);
+  }));
+
+  // The number's profile photo, as SendON's Numbers page shows it. Meta's link to it expires after a while; then it's
+  // read again from Meta once and retried.
+  apiV1.get('/senders/:id/photo', wrap(async (req, res) => {
+    const s = db.senders.find((x) => x.id === req.params.id);
+    if (!s) throw fail('Unknown sender', 404);
+    const get = () => (s.photoUrl ? fetch(s.photoUrl).catch(() => null) : null);
+    let r = await get();
+    if (!r?.ok && s.accessToken && !db.settings.demoMode) { await readProfilePhoto(s); save(); r = await get(); }
+    if (!r?.ok) throw fail('This number has no profile photo yet', 404);
+    res.type(r.headers.get('content-type') || 'image/jpeg');
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(Buffer.from(await r.arrayBuffer()));
   }));
 
   // Anything else under /api/v1 is a JSON 404, not the sign-in page.
