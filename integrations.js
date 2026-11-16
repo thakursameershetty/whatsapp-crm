@@ -302,6 +302,8 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
       // Keep asking from here; with no new messages it stays where it was.
       next: page.length ? encodeCursor(page.at(-1)) : req.query.after || null,
       hasMore: out.length > page.length,
+      // How many changes are still waiting after this page, so an importing app can show real progress.
+      remaining: out.length - page.length,
     });
   });
 
