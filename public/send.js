@@ -1354,24 +1354,11 @@
   });
 
 
-  // "This is a test": suggested (switched on) for a handful of people or a name with "test" in it, until you set it
-  let testTouched = false;
-  function suggestTest(count) {
-    const name = $('#campaignName').value, few = count > 0 && count <= 5, named = /test/i.test(name);
-    if (!testTouched) $('#spTest').checked = few || named;
-    // (the switch sits in the top bar; its tooltip says what a test is, and why it was switched on for you)
-    const why = !testTouched && (few || named) ? `Switched on for you: ${named ? 'the name says test' : `only ${count} ${count === 1 ? 'person' : 'people'}`}. ` : '';
-    $('#spTestWrap').title = `${why}A test send is tagged “Test” and left out of the Overview’s numbers, so trying a template on yourself or your team doesn’t skew your stats. It still really sends.`;
-    $('#spTestWrap').classList.toggle('suggested', Boolean(why));
-  }
-  $('#spTest').addEventListener('change', () => { testTouched = true; suggestTest(recipients().list.length); });
-  $('#campaignName').addEventListener('input', () => suggestTest(recipients().list.length));
 
   function renderSummary() {
     Draft.save();
     const { list, skip, sheets } = recipients();
     const count = list.length;
-    suggestTest(count);
     const nums = state.selectedSenders.size;
     const t = currentTemplate();
     const emptyFixed = t?.variables.find((v) => { const m = SP.mapping[v.key]; return !m || (m.type === 'fixed' && !String(m.value).trim()); });
@@ -1611,7 +1598,7 @@
       const c = await api('/campaigns', {
         method: 'POST',
         // "Send now" waits 5 seconds on the server, so it can be undone (it still goes if this page is closed)
-        body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, precheckSkip: [...skip], sheetSkipped: skippedRows, test: $('#spTest').checked, tz: new Date().getTimezoneOffset(), ...(scheduledAt ? {} : { hold: 5 }) },
+        body: { draftId: SP.campaign?.id, name: $('#campaignName').value.trim(), templateId: t.id, senderIds: [...state.selectedSenders], rows: list.map((x) => x.obj), phoneColumn: '__phone', mapping: SP.mapping, scheduledAt, consent: true, precheckSkip: [...skip], sheetSkipped: skippedRows, tz: new Date().getTimezoneOffset(), ...(scheduledAt ? {} : { hold: 5 }) },
       });
       SP.sending = true; // (leaving during the undo countdown isn't leaving a draft)
       const undone = !scheduledAt && !(await undoToast({ title: `Sending ${c.total.toLocaleString()} message${c.total === 1 ? '' : 's'}`, msg: t.name }).finally(() => { SP.sending = false; }));
@@ -1643,8 +1630,6 @@
     if (!keepCampaign) { $('#templateSelect').value = ''; $('#campaignName').value = ''; }
     $('#scheduleAt').value = '';
     $('#sendMode [data-mode=now]')?.click();
-    $('#spTest').checked = false;
-    testTouched = false;
     closeTest();
     setPane('compose');
     if (keepCampaign) onTemplateChange();
@@ -1840,8 +1825,6 @@
       grid.clearHistory();
       $('#scheduleAt').value = '';
       $('#sendMode [data-mode=now]')?.click();
-      $('#spTest').checked = false;
-      testTouched = false;
       closeTest();
       setPane('compose');
       useCampaign(d);

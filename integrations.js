@@ -16,8 +16,10 @@
 //   GET  /api/v1/messages?after=<cursor> every WhatsApp message in and out (Inbox chats, campaign sends, test sends),
 //                                        oldest change first, for keeping a copy in sync: each item comes again
 //                                        whenever it changes (sent → delivered → read). Pass back `next` as `after`.
-//   POST /api/v1/messages                reply: { senderId, phone, text } inside WhatsApp's 24-hour window, or
-//                                        { senderId, phone, templateId, values } any time
+//   POST /api/v1/messages                reply: { senderId, phone, text, replyTo? } inside WhatsApp's 24-hour window,
+//                                        or { senderId, phone, templateId, values } any time
+//   POST /api/v1/messages/media          send a file (raw body) inside the window: ?senderId=&phone=, headers
+//                                        X-File-Type, X-File-Name, X-Caption, X-Reply-To, X-As-Document: 1
 //   GET  /api/v1/media/:id               a photo, video, voice note or document from a message
 
 const crypto = require('crypto');
@@ -29,7 +31,8 @@ const tidy = (v, max) => String(v ?? '').replace(/\s+/g, ' ').replace(/[\u0000-\
 
 module.exports = function mountIntegrations(apiV1, app, ctx) {
   const { db, save, tenants, wrap, fail, id, createCampaign, lockOf, senderName, publicTemplate, notApprovedError, broadcastTo } = ctx;
-  const { chatKey, sendInboxText, sendInboxTemplate, ensureMedia, normalizeTypedPhone, contacts, WINDOW_MS } = ctx;
+  const { chatKey, sendInboxText, sendInboxTemplate, sendOutMedia, outKind, OUT_MEDIA, MIME_ALIAS, ensureMedia, normalizeTypedPhone, contacts, WINDOW_MS } = ctx;
+  const express = require('express');
 
   // --- Keys (managed by the owner while signed in) ---------------------------------------------------------------
   const keysOf = () => (db.apiKeys ||= []);
@@ -110,7 +113,8 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
     }));
   });
 
-  const bodyText = (t) => (t.components || []).find((c) => String(c.type).toUpperCase() === 'BODY')?.text || '';
+  const comp = (t, type) => (t.components || []).find((c) => String(c.type).toUpperCase() === type);
+  const bodyText = (t) => comp(t, 'BODY')?.text || '';
   apiV1.get('/templates', (req, res) => {
     res.json(db.templates.map((t) => {
       const p = publicTemplate(t);
@@ -122,6 +126,10 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
         status: t.status || '',
         wabaId: t.wabaId || '',
         body: bodyText(t),
+        // The rest of the layout, to draw the message as WhatsApp shows it.
+        header: (() => { const h = comp(t, 'HEADER'); return h ? { format: h.format, text: h.text || '' } : null; })(),
+        footer: comp(t, 'FOOTER')?.text || '',
+        buttons: (comp(t, 'BUTTONS')?.buttons || []).map((b) => ({ type: b.type, text: b.text })),
         // '' when it can be sent; otherwise why not (still in review, rejected…).
         problem: db.settings.demoMode ? '' : notApprovedError(t),
         variables: (p.variables || []).map((v) => ({ key: v.key, name: v.name, where: v.where, ...(v.media ? { media: v.media } : {}), ...(v.example ? { example: v.example } : {}) })),
@@ -227,8 +235,10 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
       type: m.type,
       text: template ? fill(bodyOf(m.templateId), m.values) : m.text || '',
       template,
-      media: m.media ? { id: m.media.id, mime: m.media.mime || '', filename: m.media.filename || '', voice: Boolean(m.media.voice) } : null,
+      media: m.media ? { id: m.media.id, mime: m.media.mime || '', filename: m.media.filename || '', voice: Boolean(m.media.voice), size: m.media.size || null, animated: Boolean(m.media.animated) } : null,
       location: m.location || null,
+      contacts: m.contacts || null, // shared contact cards: [{ name, phones: [{ phone, wa, type }], org, email }]
+      unsupported: m.unsupported || null, // what WhatsApp didn't share (view-once, poll…): { kind, reason, code }
       reaction: m.reaction || null,
       replyTo: m.context || null,
       status: m.dir === 'out' ? m.status || 'sent' : null,
@@ -254,6 +264,8 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
       template: { id: c.templateId, name: c.templateName, values: r.values || {} },
       media: null,
       location: null,
+      contacts: null,
+      unsupported: null,
       reaction: null,
       replyTo: null,
       status: r.status,
@@ -307,7 +319,33 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
     const key = chatKey(sender.id, wa);
     const msg = b.templateId
       ? await sendInboxTemplate(key, String(b.templateId), b.values && typeof b.values === 'object' ? b.values : {})
-      : await sendInboxText(key, b.text);
+      : await sendInboxText(key, b.text, { replyTo: b.replyTo ? String(b.replyTo) : undefined });
+    res.status(201).json(inboxItem(msg));
+  }));
+
+  // A photo, video, audio file or document, as SendON's Inbox sends one (only inside the 24-hour window).
+  apiV1.post('/messages/media', express.raw({ type: () => true, limit: '100mb' }), wrap(async (req, res) => {
+    const sender = db.senders.find((s) => s.id === String(req.query.senderId || ''));
+    if (!sender) throw fail('Unknown senderId: list numbers with GET /api/v1/senders');
+    const lock = lockOf(sender);
+    if (lock) throw fail(`${lock.title}: nothing can be sent from ${senderName(sender)} until Meta unlocks it.`, 423);
+    const wa = normalizeTypedPhone(req.query.phone);
+    if (!wa) throw fail('That phone number isn’t valid');
+    if (contacts.byPhone(wa)?.optOut) throw fail('This person opted out of WhatsApp messages from you', 409);
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || !buf.length) throw fail('The file is empty');
+    const dec = (h) => { try { return decodeURIComponent(String(req.get(h) || '')); } catch { return ''; } };
+    const raw = String(req.get('X-File-Type') || req.get('content-type') || '').split(';')[0].trim().toLowerCase() || 'application/octet-stream';
+    const mime = MIME_ALIAS[raw] || raw;
+    const filename = dec('X-File-Name').replace(/[\\/\r\n"]/g, '_').slice(0, 200) || 'file';
+    const type = outKind(mime, req.get('X-As-Document') === '1');
+    const rule = OUT_MEDIA[type];
+    if (buf.length > rule.mb * 1024 * 1024) {
+      throw fail(type === 'document'
+        ? `WhatsApp sends files up to 100 MB. This one is ${(buf.length / 1048576).toFixed(1)} MB.`
+        : `${rule.label} can be up to ${rule.mb} MB on WhatsApp. This one is ${(buf.length / 1048576).toFixed(1)} MB. Send it as a document instead (up to 100 MB).`, 413);
+    }
+    const msg = await sendOutMedia(chatKey(sender.id, wa), { buf, mime, type, filename, caption: dec('X-Caption').trim().slice(0, 1024), replyTo: dec('X-Reply-To') || undefined });
     res.status(201).json(inboxItem(msg));
   }));
 

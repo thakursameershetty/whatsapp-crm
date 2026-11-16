@@ -3039,7 +3039,7 @@ button.fp-hint:hover { filter: brightness(0.96); }
 .fp-hint svg.la { margin: 0; flex: none; }
 
 /* Send page: Message button always available; panel split into Compose / Preview */
-#spTools.no-data > :not(#spTestWrap) { display: none; }
+#spTools.no-data > * { display: none; }
 .sp-panel { display: flex; flex-direction: column; padding-top: 0; }
 .sp-panel-head { position: sticky; top: 0; z-index: 2; padding: 14px 0 10px; background: var(--surface); box-shadow: 0 1px 0 var(--hair); }
 .sp-pane-seg { display: flex; width: 100%; }
@@ -7132,10 +7132,6 @@ input[data-af-guard][readonly], textarea[data-af-guard][readonly] { color: var(-
 .f-tests { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
 .f-tests.hidden { display: none; }
 .f-tests .opt { font-size: 11.5px; color: var(--faint); margin-left: -4px; }
-.sp-testtop { display: inline-flex; align-items: center; gap: 8px; margin: 0 4px 0 0; padding: 0 4px 0 10px; height: 34px; border-radius: 10px; font: 600 13px Inter, sans-serif; color: var(--muted); cursor: help; white-space: nowrap; }
-.sp-testtop:hover { background: var(--sunk); color: var(--text); }
-.sp-testtop .toggle { cursor: pointer; }
-.sp-testtop.suggested > span:first-child::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--warn, #d97706); vertical-align: 2px; }
 .cd-ev.is-test { opacity: 0.8; }
 .head-tip .cps-note { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line, color-mix(in srgb, var(--text) 10%, transparent)); font-size: 12px; color: var(--faint); }
 /* New campaign → AI replies: the chosen playbook, read-only, with this campaign's additions under it */
