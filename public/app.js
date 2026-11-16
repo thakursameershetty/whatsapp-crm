@@ -1153,6 +1153,7 @@ window.NumStatus = {
   dot: (id) => numDotHtml(state.senders?.find((x) => x.id === id)),
   block: (id) => numBlock(state.senders?.find((x) => x.id === id)),
   health: (id) => numHealth(state.senders?.find((x) => x.id === id)),
+  restriction: (id) => numRestriction(state.senders?.find((x) => x.id === id)), // { text, types, until } or null
   opened: () => autoCheckNumbers(10 * 60000), // a number list was opened: check again if the last check is 10+ min old
 };
 // Card rows: the number itself, when it isn't simply connected (the display name is the dot by the name).

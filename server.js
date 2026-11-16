@@ -3832,7 +3832,7 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
   const r = contactsApi.recheckPhones();
   if (r.fixed || r.flagged) console.log(`Contacts in ${ws.meta.name}: ${r.fixed} number(s) cleaned, ${r.flagged} newly flagged (${r.problems} need fixing).`);
 });
-const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key), numberLocked: (senderId) => Boolean(lockOf(db.senders.find((s) => s.id === senderId))) });
+const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key), numberLocked: (senderId) => { const s = db.senders.find((x) => x.id === senderId); return Boolean(lockOf(s) || restrictsReplies(s)); } });
 
 // --- AI assistant -------------------------------------------------------------
 

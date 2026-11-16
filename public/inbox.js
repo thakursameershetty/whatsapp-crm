@@ -298,7 +298,7 @@
                 <span class="ib-prev">${c.ai?.busy ? '<span class="ib-prev-typing">AI is typing…</span>' : `${l.dir === 'out' ? ticks(l.status) : ''}${previewHtml(l)}`}</span>
                 ${c.unread ? `<span class="ib-count">${c.unread}</span>` : ''}
               </span>
-              ${multi ? `<span class="ib-via" title="via ${esc(c.senderLabel)}">via ${esc(c.senderLabel)}</span>` : ''}
+              ${multi || chatRestricted(c.key) ? `<span class="ib-via" title="${esc(chatRestricted(c.key)?.text || `via ${c.senderLabel}`)}">${multi ? `via ${esc(c.senderLabel)}` : ''}${chatRestricted(c.key) ? `<span class="ib-restricted">${multi ? ' · ' : ''}Restricted by Meta</span>` : ''}</span>` : ''}
             </span>
           </button>`;
         })
@@ -522,7 +522,8 @@
       watchScroll(pane);
     }
     $('#ibName').textContent = displayName(c);
-    $('#ibSub').textContent = `${c.name ? fmtPhone(c.wa) + ' · ' : ''}via ${c.senderLabel}`;
+    const rsHead = chatRestricted(ib.key);
+    $('#ibSub').innerHTML = `${esc(`${c.name ? fmtPhone(c.wa) + ' · ' : ''}via ${c.senderLabel}`)}${rsHead ? `<span class="ib-restricted" title="${esc(rsHead.text)}"> · Restricted by Meta</span>` : ''}`;
     const chip = $('#ibWindow');
     chip.className = 'ib-window ' + (w.open ? 'open' : 'closed');
     chip.innerHTML = icon(w.open ? 'clock' : 'file-text', 13) + esc(w.label);
@@ -2239,13 +2240,20 @@
     guard(() => api('/demo/inbound', { method: 'POST', body: { key: ib.key, text } }), $('#ibSimSend'));
   });
 
+  // A chat's number restricted by Meta (Numbers → its settings, or Meta's webhook): { text, types, until } or null.
+  function chatRestricted(key) { return (key ? window.NumStatus?.restriction?.(key.slice(0, key.lastIndexOf(':'))) : null) || null; }
   // The open chat's number: why nothing can be sent from it (Meta locked it, or refused its token), or null.
   const chatBlock = () => (ib.key ? window.NumStatus?.block(ib.key.slice(0, ib.key.lastIndexOf(":"))) : null);
   const chatHealth = () => (ib.key ? window.NumStatus?.health(ib.key.slice(0, ib.key.lastIndexOf(":"))) : null);
   function renderFoot(open) {
     const foot = $('#ibFoot');
-    const block = chatBlock(), low = !block && chatHealth()?.[1] === 'Low quality';
-    const mode = (block ? 'locked:' + block.title : open ? 'open' + (low ? ':low' : '') : 'closed') + (state.settings.demoMode ? ':sim' : '');
+    // Meta restricted this number's Business Account: templates are blocked (so a closed chat can't be restarted),
+    // and replies too when the restriction covers customer conversations.
+    const rs = chatRestricted(ib.key);
+    const rsTpl = rs?.types?.includes('RESTRICTED_BIZ_INITIATED_MESSAGING'), rsReply = rs?.types?.includes('RESTRICTED_CUSTOMER_INITIATED_MESSAGING');
+    const block = chatBlock() || (rsReply || (rsTpl && !open) ? { title: 'Restricted by Meta', text: rs.text, icon: 'lock' } : null);
+    const low = !block && chatHealth()?.[1] === 'Low quality';
+    const mode = (block ? 'locked:' + block.title + (open ? ':open' : '') : open ? 'open' + (low ? ':low' : '') + (rsTpl ? ':rs' : '') : 'closed') + (state.settings.demoMode ? ':sim' : '');
     if (foot.dataset.mode === mode && foot.dataset.key === ib.key) return renderReplyBar();
     foot.dataset.mode = mode;
     foot.dataset.key = ib.key;
@@ -2253,7 +2261,7 @@
       // Nothing from this number gets delivered: no reply box, just why and what to do (the server refuses too).
       foot.innerHTML = simBar() + `<div class="ib-closed ib-locked" role="status">
         <span class="ib-locked-ico">${icon(block.icon, 18)}</span>
-        <div><b>${esc(block.title)}: replies are locked</b><span>${esc(block.text)}</span></div>
+        <div><b>${esc(block.title)}: ${rs && !rsReply && !chatBlock() ? 'the reply window is closed and templates are blocked' : 'replies are locked'}</b><span>${esc(block.text)}</span></div>
         <button class="btn sm" data-goto="numbers/${esc(ib.key.slice(0, ib.key.lastIndexOf(':')))}">${icon('phone', 14)}See number</button>
       </div>`;
       return;
@@ -2268,12 +2276,13 @@
       return;
     }
     foot.innerHTML = simBar() + `<div class="ib-compose">
+      ${rsTpl ? `<div class="ib-qwarn bad" title="${esc(rs.text)}">${icon('lock', 14)}<span><b>Restricted by Meta.</b> Replies still go through until the 24-hour window closes, but templates can’t be sent from this number.</span></div>` : ''}
       ${low ? `<div class="ib-qwarn" title="${esc(chatHealth()[2])}">${icon('badge-alert', 14)}<span><b>This number’s quality is low.</b> Replies still go through: answer what they asked and avoid promotional messages.</span></div>` : ''}
       <div class="ib-replybar hidden" id="ibReplyBar"></div>
       <div class="ib-compose-row">
         <button class="icon-btn la-host" id="ibAttachBtn" title="Attach a photo, video, document or audio" aria-label="Attach" aria-haspopup="menu">${icon('paperclip', 18)}</button>
         <button class="icon-btn" id="ibStickerBtn" title="Stickers" aria-label="Stickers" aria-haspopup="dialog">${STICKER_SVG}</button>
-        <button class="icon-btn la-host" id="ibTplBtn" title="Send a template" aria-label="Send a template">${icon('file-text', 18)}</button>
+        <button class="icon-btn la-host" id="ibTplBtn" title="${rsTpl ? 'Templates are blocked: this number is restricted by Meta' : 'Send a template'}" aria-label="Send a template"${rsTpl ? ' disabled' : ''}>${icon('file-text', 18)}</button>
         <textarea id="ibText" rows="1" placeholder="Type a message" aria-label="Message"></textarea>
         <button class="ib-send" id="ibSendBtn" aria-label="Send" title="Send (Enter)">${icon('send', 18)}</button>
       </div>
