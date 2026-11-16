@@ -119,14 +119,17 @@ function syncToastClear() {
   }
 }
 
-async function guard(fn, btn) {
-  if (btn) btn.disabled = true;
+// Run an action, showing any error. With a button: disabled while it runs, with a spinner (aria-busy) and, when
+// busyText is given, that label ("Re-registering…") until it's done.
+async function guard(fn, btn, busyText) {
+  const label = btn && busyText ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); if (busyText) btn.textContent = busyText; }
   try {
     return await fn();
   } catch (e) {
     toast(e.message, 'error');
   } finally {
-    if (btn) btn.disabled = false;
+    if (btn) { btn.disabled = false; btn.removeAttribute('aria-busy'); if (label != null) btn.innerHTML = label; }
   }
 }
 
@@ -1559,7 +1562,7 @@ function registerNumber(s) {
       closeModal();
       toast('✓ Re-registered with Meta. Send one test message to check it works.');
       await loadSenders();
-    }, form.querySelector('.btn.primary'));
+    }, form.querySelector('.btn.primary'), 'Re-registering…');
   });
 }
 

@@ -3775,6 +3775,12 @@ h1, h2, h3, h4, p, li, dd, blockquote, code, .sub { overflow-wrap: anywhere; }
 .sf-field-err { display: block; margin-top: 6px; font-size: 12px; font-weight: 400; color: var(--danger); }
 .sf-spin { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: sf-spin 0.7s linear infinite; }
 @keyframes sf-spin { to { transform: rotate(360deg); } }
+/* A button whose action is running (guard() in app.js): a spinner in place of its icon */
+.btn[aria-busy="true"] { cursor: progress; }
+.btn[aria-busy="true"] > svg { display: none; }
+.btn[aria-busy="true"]::before { content: ''; display: inline-block; flex: none; width: 13px; height: 13px; margin-right: 7px; vertical-align: -2px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: sf-spin 0.7s linear infinite; }
+.btn.icon-only[aria-busy="true"]::before { margin-right: 0; }
+@media (prefers-reduced-motion: reduce) { .btn[aria-busy="true"]::before { animation-duration: 2s; } }
 .kv-ok { color: var(--good-text); }
 /* Templates: how to add one in Meta — four steps on a thin line */
 .tg-lead { margin: -4px 0 20px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
