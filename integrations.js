@@ -24,6 +24,7 @@
 //   GET  /api/v1/senders/:id/photo       a number's WhatsApp profile photo (what customers see on the chat)
 
 const crypto = require('crypto');
+const { normalizeLead } = require('./lead');
 
 const KEY_PREFIX = 'sk_sendon_';
 const KEYS_MAX = 10;
@@ -140,6 +141,14 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
         variables: (p.variables || []).map((v) => ({ key: v.key, name: v.name, where: v.where, ...(v.media ? { media: v.media } : {}), ...(v.example ? { example: v.example } : {}) })),
       };
     }));
+  });
+
+  // The Inbox lead assistant's playbooks (read-only), so another app can offer the same setups instead of asking
+  // for the business details again.
+  apiV1.get('/playbooks', (req, res) => {
+    res.json(normalizeLead(db.settings.leadAgent || {}).playbooks.map((p) => ({
+      id: p.id, name: p.name, when: p.when || '', business: p.business || '', qualified: p.qualified || '', nextStep: p.nextStep || '', tone: p.tone || '',
+    })));
   });
 
   // --- Sending --------------------------------------------------------------------------------------------------------
