@@ -380,6 +380,8 @@ Draft the next reply to the customer's latest message(s).`;
 
   // Called by the webhook for each conversation with new messages from the customer.
   function onInbound(key) {
+    const ai = db.chats[key]?.ai;
+    if (ai?.error) ai.error = null; // a new message: the old failure was about an earlier one
     if (numberLocked(splitKey(key).senderId)) return; // Meta locked the number: a reply couldn't be sent, so none is written
     const chosen = resolveSync(key)?.pb;
     if (!masterOn() || aiOf(key).off || !(chosen?.draft || forChat(splitKey(key).senderId).some((p) => p.draft))) return;
@@ -417,6 +419,7 @@ Draft the next reply to the customer's latest message(s).`;
   function onSent(key) {
     const ai = db.chats[key]?.ai;
     if (ai?.draft) ai.draft = null;
+    if (ai?.error) ai.error = null; // someone replied, so an earlier AI failure no longer matters
   }
 
   // --- Routes --------------------------------------------------------------
