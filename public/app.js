@@ -973,10 +973,11 @@ function renderAiSettings() {
   $('#removeAiKey').classList.toggle('hidden', !(shown === 'gemini' ? s.geminiKeyMasked : s.aiKeyMasked));
   $('#saveAiKey').textContent = shown === s.aiProvider ? 'Save' : `Save and use ${shown === 'gemini' ? 'Gemini' : 'Claude'}`;
   LA.hydrate($('.ai-settings'));
-  // The Assistant header shows the model with its maker's logo.
+  // The Assistant header shows our own name; the real model is in the tooltip (and in Settings).
   if ($('#asProvider')) {
-    const gem = s.aiProvider === 'gemini';
-    $('#asProvider').innerHTML = `<img class="prov-logo" src="/brand/${gem ? 'gemini' : 'claude'}.svg" alt="" /><span>${esc(gem ? s.geminiModel : 'Claude Opus 5.5')}</span>`;
+    const model = s.aiProvider === 'gemini' ? s.geminiModel : 'Claude Opus 5.5';
+    $('#asProvider').innerHTML = `<img class="prov-logo" src="/brand/logo-small.svg" alt="" /><span>SendON-AI</span>`;
+    $('#asProvider').title = `SendON-AI · powered by ${model} · change in Settings → AI assistant`;
   }
 }
 $('#aiProviderSeg').addEventListener('click', (e) => {

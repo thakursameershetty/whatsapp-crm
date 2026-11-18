@@ -1320,7 +1320,10 @@ module.exports = function mountAi(app, ctx) {
       if (e.status === 403) return "This Gemini API key doesn't have access. Check it in Google AI Studio.";
       if (e.status === 404) return `Gemini doesn't know the model "${aiConfig().geminiModel}". Pick another in Settings → AI assistant.`;
       if (e.status === 429) return /per.?day/i.test(m) ? "You've used today's free Gemini quota. It resets daily, or switch to Claude in Settings." : 'Gemini is rate limited right now (free tier). Wait a minute and try again.';
-      return `Gemini returned an error (${e.status ?? 'unknown'}). Try again.`;
+      console.error('Gemini error:', e.status, m.slice(0, 600));
+      // Google's own words for a bad request (no keys or customer data in them) so the cause is visible.
+      const why = e.status === 400 ? (() => { try { return JSON.parse(m)?.error?.message || m; } catch { return m; } })().replace(/\s+/g, ' ').slice(0, 220) : '';
+      return `Gemini returned an error (${e.status ?? 'unknown'})${why ? `: ${why}` : '. Try again.'}`;
     }
     if (e instanceof Anthropic.AuthenticationError) return 'The Anthropic API key was rejected. Check it in Settings → AI assistant.';
     if (e instanceof Anthropic.PermissionDeniedError) return "This API key doesn't have access to the model. Check your Anthropic account.";

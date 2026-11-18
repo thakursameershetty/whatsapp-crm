@@ -277,7 +277,7 @@ Draft the next reply to the customer's latest message(s).`;
   }
 
   function explain(e) {
-    if (e instanceof GeminiError) return e.status === 429 ? 'The AI is rate limited (free tier). Try again in a minute.' : e.status === 402 ? 'Gemini billing ran out for this key: add billing to its Google project, or remove the key in Settings.' : e.status === 400 && /api key/i.test(e.message) ? 'The Gemini API key was rejected.' : `The AI returned an error (${e.status}).`;
+    if (e instanceof GeminiError) return e.status === 429 ? 'The AI is rate limited (free tier). Try again in a minute.' : e.status === 402 ? 'Gemini billing ran out for this key: add billing to its Google project, or remove the key in Settings.' : e.status === 400 && /api key/i.test(e.message) ? 'The Gemini API key was rejected.' : `The AI returned an error (${e.status})${e.status === 400 ? ': ' + (() => { try { return JSON.parse(e.message)?.error?.message || e.message; } catch { return e.message; } })().replace(/\s+/g, ' ').slice(0, 220) : '.'}`;
     if (e instanceof Anthropic.AuthenticationError) return 'The Anthropic API key was rejected.';
     if (e instanceof Anthropic.RateLimitError) return 'The AI is rate limited right now. Try again in a minute.';
     if (e instanceof Anthropic.APIError) return `The AI returned an error (${e.status}).`;
