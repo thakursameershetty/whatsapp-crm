@@ -469,6 +469,8 @@ const restrictionText = (s, r = restrictionOf(s)) => `${senderName(s)} is restri
 const expiryIso = (v) => { if (v == null || v === '') return null; const n = Number(v); const d = Number.isFinite(n) ? new Date(n < 1e12 ? n * 1000 : n) : new Date(v); return Number.isNaN(d.getTime()) ? null : d.toISOString(); };
 // restriction: { source: 'meta' | 'manual', types, until }, or null to clear. A notification when it starts or ends.
 function setRestriction(s, r) {
+  // A restriction that has already ended (a late or replayed webhook) is the same as lifted.
+  if (r?.until && Date.parse(r.until) <= Date.now()) r = null;
   const was = restrictionOf(s);
   if (r) {
     if (was && JSON.stringify([was.source, was.types, was.until]) === JSON.stringify([r.source, r.types, r.until])) return;
@@ -1004,7 +1006,7 @@ const platformAi = () => tenants.isLegacy() || tenants.meta()?.billing === 'unli
 function aiConfig() {
   const env = platformAi() ? process.env : {};
   const own = { claude: db.settings.anthropicApiKey || '', gemini: db.settings.geminiApiKey || '' };
-  const keys = { claude: own.claude || env.ANTHROPIC_API_KEY || '', gemini: own.gemini || env.GEMINI_API_KEY || '' };
+  const keys = { claude: own.claude || env.ANTHROPIC_API_KEY || '', gemini: own.gemini || (env.GOOGLE_CREDENTIALS_JSON ? 'vertex' : env.GEMINI_API_KEY) || '' };
   // Until one is picked, use whichever has a key (Gemini first: it has a free tier).
   const provider = AI_PROVIDERS.includes(db.settings.aiProvider) ? db.settings.aiProvider : keys.gemini || !keys.claude ? 'gemini' : 'claude';
   return { provider, key: keys[provider], keys, geminiModel: db.settings.geminiModel || DEFAULT_GEMINI_MODEL, platform: !own[provider] && Boolean(keys[provider]) };
@@ -1031,7 +1033,7 @@ function publicSettings(req) {
     aiKeyFromEnv: !anthropicApiKey && platformAi() && Boolean(process.env.ANTHROPIC_API_KEY),
     hasGeminiKey: Boolean(ai.keys.gemini),
     geminiKeyMasked: maskToken(geminiApiKey),
-    geminiKeyFromEnv: !geminiApiKey && platformAi() && Boolean(process.env.GEMINI_API_KEY),
+    geminiKeyFromEnv: !geminiApiKey && platformAi() && Boolean(process.env.GOOGLE_CREDENTIALS_JSON || process.env.GEMINI_API_KEY),
   };
 }
 

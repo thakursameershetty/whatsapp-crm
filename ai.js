@@ -433,8 +433,21 @@ const geminiTools = (tools) => [{ functionDeclarations: tools.map((t) => ({ name
 const GEMINI_BLOCKED = new Set(['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION']);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// key 'vertex' = our platform Gemini through Vertex AI, signed in with the service account in GOOGLE_CREDENTIALS_JSON.
+// Anything else is a Gemini API key (a workspace's own, or GEMINI_API_KEY).
+function geminiClient(key) {
+  if (key !== 'vertex') return new GoogleGenAI({ apiKey: key });
+  const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+  return new GoogleGenAI({
+    vertexai: true,
+    project: process.env.GOOGLE_CLOUD_PROJECT || credentials.project_id,
+    location: process.env.GOOGLE_CLOUD_LOCATION || 'global',
+    googleAuthOptions: { credentials, scopes: ['https://www.googleapis.com/auth/cloud-platform'] },
+  });
+}
+
 function geminiProvider(key, model, newId, { system = SYSTEM, tools = TOOLS } = {}) {
-  const ai = new GoogleGenAI({ apiKey: key });
+  const ai = geminiClient(key);
   const config = { systemInstruction: system, tools: geminiTools(tools), automaticFunctionCalling: { disable: true } };
   const unnamed = new Set(); // calls Gemini sent without an id: their responses go back without one too
   const asObject = (content) => {
@@ -1842,7 +1855,7 @@ module.exports = function mountAi(app, ctx) {
     if (!cfg.key) throw fail(`Add your ${PROVIDER_NAMES[cfg.provider]} API key first`);
     try {
       if (cfg.provider === 'gemini') {
-        const m = await new GoogleGenAI({ apiKey: cfg.key }).models.get({ model: cfg.geminiModel });
+        const m = await geminiClient(cfg.key).models.get({ model: cfg.geminiModel });
         res.json({ ok: true, provider: 'gemini', model: m.displayName || cfg.geminiModel });
       } else {
         const m = await new Anthropic({ apiKey: cfg.key }).models.retrieve(CLAUDE_MODEL);

@@ -6,3 +6,7 @@ sample-excel sheets/
 *.log
 exports/
 public/Audio.mp3
+
+# Google service-account keys
+sendon-*.json
+*-service-account*.json
