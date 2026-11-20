@@ -72,7 +72,7 @@
     catch (err) { c.checked = !c.checked; toast(err.message, 'error'); }
   });
 
-  api('/alerts').then((s) => { st = s; render(); }).catch(() => {});
+  const loaded = api('/alerts').then((s) => { st = s; render(); }).catch(() => {});
   // keep this browser's subscription fresh (browsers rotate them now and then)
   if (supported && Notification.permission === 'granted') thisBrowser().then((sub) => sub && api('/alerts/push', { method: 'POST', body: { subscription: sub.toJSON() } }).catch(() => {})).catch(() => {});
 
@@ -87,4 +87,44 @@
       else if (++tries > 50) clearInterval(t);
     }, 200);
   }
+
+  // Asking on the Inbox: a browser without alerts gets a pop-up (the screen behind it blurred) the first time the Inbox
+  // opens. "Not now" waits ASK_AGAIN_MS before asking again in this browser; once on, it never shows.
+  const ASK_AGAIN_MS = 3 * 24 * 3600 * 1000;
+  const ASK_KEY = 'sendon.alertsAsked';
+  const askedAt = () => { try { return Number(localStorage.getItem(ASK_KEY)) || 0; } catch { return 0; } };
+  const markAsked = () => { try { localStorage.setItem(ASK_KEY, String(Date.now())); } catch {} };
+  let askedThisVisit = false;
+  async function maybeAsk() {
+    const tab = document.getElementById('tab-inbox');
+    if (askedThisVisit || !supported || !st || !tab || tab.classList.contains('hidden')) return;
+    if (!document.getElementById('modal')?.classList.contains('hidden')) return; // another pop-up is open
+    if (Date.now() - askedAt() < ASK_AGAIN_MS) return;
+    const blocked = Notification.permission === 'denied';
+    if (!blocked && Notification.permission === 'granted' && await thisBrowser().catch(() => null)) return; // already on
+    askedThisVisit = true;
+    const body = openModal('Turn on notifications', `
+      <div class="al-ask">
+        <div class="al-ask-icon">${icon('bell', 26)}</div>
+        <p><b>Know the moment a customer needs you.</b> SendON tells you when a chat is waiting for a reply, even when this tab is closed.</p>
+        <ul>
+          <li>${icon('message-circle', 15)}A customer asks about a meeting, pricing, or thanks you, and the AI waits for you</li>
+          <li>${icon('users', 15)}A chat needs a person and no one on the team is online</li>
+        </ul>
+        ${blocked ? `<p class="al-ask-blocked">${icon('triangle-alert', 15)}<span>Notifications are blocked for SendON in this browser. Click the icon left of the address bar, set <b>Notifications</b> to <b>Allow</b>, then reload the page.</span></p>` : ''}
+      </div>
+      <div class="modal-actions"><button type="button" class="btn quiet" data-ask="later">Not now</button>${blocked ? '' : `<button type="button" class="btn primary" data-ask="allow" data-icon="bell" data-icon-size="15">Allow notifications</button>`}</div>`);
+    LA.hydrate(body);
+    markAsked(); // closing the pop-up any way counts as "not now"
+    body.querySelector('[data-ask="later"]').addEventListener('click', () => closeModal());
+    body.querySelector('[data-ask="allow"]')?.addEventListener('click', async (e) => {
+      e.currentTarget.disabled = true;
+      try { await turnOn(); } catch (err) { toast(err.message, 'error'); }
+      closeModal();
+    });
+  }
+  // when the Inbox opens (now, or later from the sidebar)
+  const inboxTab = document.getElementById('tab-inbox');
+  if (inboxTab) new MutationObserver(() => setTimeout(maybeAsk, 600)).observe(inboxTab, { attributes: true, attributeFilter: ['class'] });
+  loaded.then(() => setTimeout(maybeAsk, 1200));
 })();

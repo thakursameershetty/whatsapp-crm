@@ -7952,3 +7952,12 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .nt-alerts-text .sub { font-size: 12.5px; }
 .nt-alerts-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .nt-alerts-mail { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+/* "Turn on notifications" pop-up on the Inbox (public/alerts.js) */
+.al-ask { text-align: left; }
+.al-ask-icon { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; margin-bottom: 14px; background: var(--violet-soft); color: var(--violet); }
+.al-ask p { margin: 0 0 12px; line-height: 1.5; }
+.al-ask ul { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
+.al-ask li { display: flex; gap: 9px; align-items: flex-start; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+.al-ask li svg { flex: none; margin-top: 2px; color: var(--violet); }
+.al-ask-blocked { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); font-size: 13px; }
+.al-ask-blocked svg { flex: none; margin-top: 2px; color: var(--warn); }
