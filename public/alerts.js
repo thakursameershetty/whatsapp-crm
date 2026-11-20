@@ -188,7 +188,7 @@
   const ua = navigator.userAgent;
   const browser = /Edg\//.test(ua) ? 'edge' : /Firefox\//.test(ua) ? 'firefox' : /Chrome\//.test(ua) ? 'chrome' : /Safari\//.test(ua) ? 'safari' : 'other';
   const SITE_ICON = {
-    chrome: { svg: icon('sliders-horizontal', 15), name: 'the settings icon' },
+    chrome: { svg: '<span class="material-symbols-outlined al-ms" aria-hidden="true">page_info</span>', name: 'the page info icon' }, // Chrome's own icon (Material Symbols)
     edge: { svg: icon('lock', 15), name: 'the lock icon' },
     firefox: { svg: icon('bell-off', 15), name: 'the crossed-out bell' },
   };
@@ -205,7 +205,7 @@
       <ol class="al-steps">
         <li>Click ${ic.name} <span class="al-inline-icon">${ic.svg}</span> at the left of the address bar, at the top of this window</li>
         <li>${browser === 'firefox' ? 'Next to <b>Send notifications</b>, click the <b>×</b> to remove the block' : 'Find <b>Notifications</b> and switch it to <b>Allow</b>'}</li>
-        <li>Come back here: alerts turn on by themselves (or reload the page)</li></ol>`;
+        <li>${browser === 'firefox' ? 'Reload the page' : 'Click <b>Reload</b> in the bar the browser shows at the top (or <b>Reload page</b> below)'}</li></ol>`;
   }
 
   // An arrow over the page, pointing up at the browser's site-settings icon (the page can't draw on the browser itself).
