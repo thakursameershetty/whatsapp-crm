@@ -2959,7 +2959,7 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
   const aiWritten = draft && String(text || '').trim() === String(draft.text || '').trim();
   const ch = aiWritten ? credits.charge(credits.AI_RATE, credits.keys.aiReply()) : null;
   if (ch === false) throw fail('Out of credits: sending the AI’s suggested reply uses 1 credit. Add credits on the Credits page, or edit the reply and send it as your own.', 402);
-  try { res.json(await sendInboxText(key, text, { replyTo, ...(ch ? { credit: ch } : {}) })); } catch (e) { credits.refund(ch); throw e; }
+  try { res.json(await sendInboxText(key, text, { replyTo, aiDraft: Boolean(aiWritten), ...(ch ? { credit: ch } : {}) })); } catch (e) { credits.refund(ch); throw e; }
 }));
 
 // The person behind a chat: their contact, and every chat they have with our numbers that you can see (a member limited
@@ -3108,8 +3108,9 @@ app.post('/api/demo/inbound', wrap((req, res) => {
 }));
 
 // A free-form text reply in a conversation (only inside WhatsApp's 24-hour window). Used by the
-// Inbox and by the lead assistant's auto-reply (auto: true marks the message as sent by the AI).
-async function sendInboxText(key, text, { replyTo, auto = false, credit } = {}) {
+// Inbox and by the lead assistant's auto-reply (auto: true marks the message as sent by the AI; aiDraft: true, the
+// AI's suggested reply sent unchanged by a person).
+async function sendInboxText(key, text, { replyTo, auto = false, aiDraft = false, credit } = {}) {
   const { senderId, wa } = splitKey(key);
   const sender = db.senders.find((s) => s.id === senderId);
   if (!sender) throw fail('This WhatsApp number is no longer connected');
@@ -3126,7 +3127,7 @@ async function sendInboxText(key, text, { replyTo, auto = false, credit } = {}) 
     if (replyTo) payload.context = { message_id: replyTo };
     wamid = (await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify(payload) })).messages?.[0]?.id;
   }
-  return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : {}), ...(credit ? { credit } : {}) });
+  return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : aiDraft ? { aiDraft: true } : {}), ...(credit ? { credit } : {}) });
 }
 
 // ---------- Sending a photo, video, document or audio in the 24-hour window ----------

@@ -637,7 +637,7 @@
       ${ct ? ct.tags.map(tagOf).filter(Boolean).slice(0, 3).map((x) => `<span class="tag-chip tag-${esc(x.color)}" title="${esc(x.name)}">${esc(x.name)}</span>`).join('') : ''}
       ${ai?.playbook ? pbChip(ai) : ''}
       ${ai?.locked ? `<span class="ib-ai-paused" title="Meta locked this number, so the AI can’t send replies. It starts again by itself once Meta unlocks it.">${icon('lock', 12)}AI paused · number locked</span>` : ''}
-      ${ai && !ai.locked ? `<label class="ib-ai-switch ${ai.on ? 'on' : ''}" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Switch off to stop for this chat.' : ai.on ? 'The AI drafts a reply when they write. Switch off to stop for this chat.' : ai.off ? 'AI is off for this chat. Switch on to let it help.' : ai.master === false ? 'The lead assistant is off for the whole workspace (Settings → Lead assistant).' : 'This chat’s playbook only drafts when you ask. Turn on “Draft automatically” for it in Settings → Lead assistant.'}"><span class="ibx-l">${ai.playbook?.auto ? 'AI auto-reply' : 'AI drafts'}</span>${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm', knob: '<svg class="orb-icon" data-orb-icon="14"></svg>' })}</label>` : ''}` : '';
+      ${ai && !ai.locked ? `<label class="ib-ai-switch ${ai.on ? 'on' : ''}" title="${ai.auto ? 'The AI replies on its own when they write (within the guardrails). Switch off to stop for this chat.' : ai.on && ai.autoPaused ? `Auto-reply is paused here (${ai.autoPaused}): the AI only drafts, and a person sends. Switch off to stop drafting too.` : ai.on ? 'The AI drafts a reply when they write. Switch off to stop for this chat.' : ai.off ? 'AI is off for this chat. Switch on to let it help.' : ai.master === false ? 'The lead assistant is off for the whole workspace (Settings → Lead assistant).' : 'This chat’s playbook only drafts when you ask. Turn on “Draft automatically” for it in Settings → Lead assistant.'}"><span class="ibx-l">${ai.auto ? 'AI auto-reply' : 'AI drafts'}</span>${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm', knob: '<svg class="orb-icon" data-orb-icon="14"></svg>' })}</label>` : ''}` : '';
     Orb.hydrate(hx);
     // This chat's own notes (the server keeps them per chat: the same person may talk to several of our numbers).
     const lead = t?.chatLead || {};
@@ -700,7 +700,7 @@
       </div>` : ''}
       ${ai ? `<label class="ibs-ai">
         <svg class="orb-icon" data-orb-icon="18"></svg>
-        <span><b>${ai.playbook?.auto ? 'AI auto-reply' : 'AI drafts'}</b><small>${ai.auto ? 'Replies on its own when they write, within the guardrails.' : ai.on ? 'Drafts a reply when they write, for you to send.' : ai.off ? 'Off for this chat.' : 'Drafts only when you ask (this playbook doesn’t draft on its own).'}</small></span>
+        <span><b>${ai.auto ? 'AI auto-reply' : 'AI drafts'}</b><small>${ai.auto ? 'Replies on its own when they write, within the guardrails.' : ai.on && ai.autoPaused ? `Auto-reply paused: ${esc(ai.autoPaused)}. Drafts a reply for you to send.` : ai.on ? 'Drafts a reply when they write, for you to send.' : ai.off ? 'Off for this chat.' : 'Drafts only when you ask (this playbook doesn’t draft on its own).'}</small></span>
         ${toggleHtml({ checked: ai.on, attrs: 'data-ai-switch aria-label="AI for this chat"', size: 'sm' })}
       </label>` : ''}
       <button class="btn ibs-contact" data-media-grid="media">${icon('image', 15)}Media, audio and docs</button>
@@ -1200,6 +1200,7 @@
     let textInside = true;
     if (m.elsewhere && m.dir === 'out') h += `<div class="ib-label" title="Sent from another workspace that uses this number">${icon('layers', 11)}From “${esc(m.elsewhere)}”</div>`;
     if (m.auto) h += `<div class="ib-label ib-auto"><svg class="orb-icon" data-orb-icon="11"></svg>Auto-reply · AI</div>`;
+    else if (m.aiDraft) h += `<div class="ib-label ib-auto" title="The AI wrote this; a person on the team checked it and sent it"><svg class="orb-icon" data-orb-icon="11"></svg>AI draft · sent by your team</div>`;
     switch (m.type) {
       case 'template': {
         const t = state.templates.find((x) => x.id === m.templateId);
