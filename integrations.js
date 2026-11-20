@@ -335,7 +335,7 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
     const key = chatKey(sender.id, wa);
     const msg = b.templateId
       ? await sendInboxTemplate(key, String(b.templateId), b.values && typeof b.values === 'object' ? b.values : {})
-      : await sendInboxText(key, b.text, { replyTo: b.replyTo ? String(b.replyTo) : undefined });
+      : await sendInboxText(key, b.text, { replyTo: b.replyTo ? String(b.replyTo) : undefined, by: { api: req.apiKey?.name || 'API key' } });
     res.status(201).json(inboxItem(msg));
   }));
 

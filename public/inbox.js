@@ -938,16 +938,15 @@
     // While the AI writes: a typing bubble on the reply side, like WhatsApp's "typing…".
     if (ai.busy) html += `<div class="ib-typing" role="status" aria-label="AI is typing"><span class="ib-typing-bubble"><i></i><i></i><i></i></span><span class="ib-typing-label"><svg class="orb" id="ibAiOrb"></svg>AI is typing…</span></div>`;
     else if (ai.draft) html += `<div class="ib-draft">
-        <div class="ib-draft-head"><svg class="orb-icon" data-orb-icon="14"></svg><span>Suggested reply</span>${ai.draft.stale ? '<span class="warn-text">They wrote again since this. Regenerate?</span>' : ai.autoHeld ? `<span class="ib-held" title="Auto-reply is on, but this one waits for you">Not sent automatically: ${esc(ai.autoHeld)}</span>` : ''}</div>
+        <div class="ib-draft-head"><svg class="orb-icon" data-orb-icon="14"></svg><span>Suggested reply</span>${ai.draft.answered ? '<span class="warn-text">Already answered since this was written. Check before sending it too.</span>' : ai.draft.stale ? '<span class="warn-text">They wrote again since this. Regenerate?</span>' : ai.autoHeld ? `<span class="ib-held" title="Auto-reply is on, but this one waits for you">Not sent automatically: ${esc(ai.autoHeld)}</span>` : ''}</div>
         <div class="ib-draft-text">${fmtText(ai.draft.text)}</div>
         <div class="ib-draft-actions">
           ${w.open ? `<button class="btn sm primary" data-ai="send" data-icon="send" data-icon-size="13">Send</button><button class="btn sm" data-ai="edit">Edit</button>` : '<span class="sub">The reply window has closed, so only a template can be sent.</span>'}
           <button class="btn sm quiet" data-ai="regen" title="Regenerate">${icon('refresh-cw', 14)}<span class="bl">Regenerate</span></button><button class="btn sm quiet" data-ai="opts" title="Pick a playbook or add instructions, then regenerate" aria-expanded="${optsOpen()}">${icon('sliders-horizontal', 14)}<span class="bl">Playbook & notes</span></button><button class="btn sm quiet" data-ai="dismiss" title="Dismiss">${icon('x', 14)}<span class="bl">Dismiss</span></button>
         </div>
       </div>`;
-    else if (w.open && last?.dir === 'in' && !t.contact?.optOut) html += `<div class="ib-ai-row">${ai.auto
-      ? `<button class="ib-ai-ask" data-ai="reply" title="The AI writes and sends a reply now"><svg class="orb-icon" data-orb-icon="14"></svg>Let AI reply</button>`
-      : `<button class="ib-ai-ask" data-ai="regen"><svg class="orb-icon" data-orb-icon="14"></svg>Draft a reply with AI</button>`}<button class="ib-ai-ask ib-ai-more" data-ai="opts" aria-expanded="${optsOpen()}" title="Pick a playbook or add instructions on top of it">${icon('sliders-horizontal', 14)}<span>Playbook & notes</span></button></div>`;
+    // Any chat that can still get a reply: the AI drafts it, and a person decides whether to send (never sent from here).
+    else if (w.open && !t.contact?.optOut) html += `<div class="ib-ai-row"><button class="ib-ai-ask" data-ai="regen" title="The AI writes a reply for you to check, edit and send"><svg class="orb-icon" data-orb-icon="14"></svg>${last?.dir === 'out' ? 'Draft a follow-up with AI' : 'Draft a reply with AI'}</button><button class="ib-ai-ask ib-ai-more" data-ai="opts" aria-expanded="${optsOpen()}" title="Pick a playbook or add instructions on top of it">${icon('sliders-horizontal', 14)}<span>Playbook & notes</span></button></div>`;
     if (!ai.busy && ai.extra && !optsOpen()) html += `<button type="button" class="ib-ai-extra" data-ai="opts" title="Your instructions for this chat, added on top of the playbook. Click to change.">${icon('square-pen', 13)}<span><b>Added for this chat:</b> ${esc(ai.extra)}</span></button>`;
     if (!ai.busy && optsOpen()) html += optsPanel(ai);
     if (ai.error && !ai.busy && !ai.draft) html += `<div class="ib-ai-err">${esc(ai.error)}</div>`;
@@ -998,7 +997,11 @@
       if (!ta) return;
       ta.value = ib.thread.ai.draft.text;
       autosize();
-      if (act === 'send') return sendText();
+      if (act === 'send') {
+        // someone (or the AI) already replied to this message: sending the draft too would answer twice
+        if (ib.thread.ai.draft.answered && !confirm('This message was already answered since the AI wrote this draft. Send it anyway?')) { ta.value = ''; autosize(); return; }
+        return sendText();
+      }
       ta.focus();
       return;
     }
@@ -1200,7 +1203,8 @@
     let textInside = true;
     if (m.elsewhere && m.dir === 'out') h += `<div class="ib-label" title="Sent from another workspace that uses this number">${icon('layers', 11)}From “${esc(m.elsewhere)}”</div>`;
     if (m.auto) h += `<div class="ib-label ib-auto"><svg class="orb-icon" data-orb-icon="11"></svg>Auto-reply · AI</div>`;
-    else if (m.aiDraft) h += `<div class="ib-label ib-auto" title="The AI wrote this; a person on the team checked it and sent it"><svg class="orb-icon" data-orb-icon="11"></svg>AI draft · sent by your team</div>`;
+    else if (m.aiDraft) h += `<div class="ib-label ib-auto" title="The AI wrote this; a person on the team checked it and sent it"><svg class="orb-icon" data-orb-icon="11"></svg>AI draft · sent by ${esc(m.by?.name || 'your team')}</div>`;
+    else if (m.by?.api && m.dir === 'out') h += `<div class="ib-label" title="Sent by another app through SendON’s API">${icon('link', 11)}Sent via API · ${esc(m.by.api)}</div>`;
     switch (m.type) {
       case 'template': {
         const t = state.templates.find((x) => x.id === m.templateId);

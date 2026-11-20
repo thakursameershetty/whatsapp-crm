@@ -126,4 +126,13 @@ module.exports = {
     button: 'Accept invite', url,
     footer: "If you weren't expecting this, you can ignore it.",
   })),
+
+  // A chat is waiting for a person: the AI held its reply (a meeting, pricing, appreciation) or asked for a person.
+  replyWaiting: (to, { name, reason, draft, workspace }, url) => quietly(send({
+    to, subject: `${name} is waiting for a reply`,
+    heading: `${name} is waiting for a reply`,
+    body: `The AI didn’t send its reply on its own: <b>${esc(reason)}</b>. Someone on the team should check it and reply.${draft ? `<br><br>The AI’s suggested reply:<br><i>“${esc(draft)}”</i>` : ''}`,
+    button: 'Open the chat', url,
+    footer: `You get this because you’re in the ${esc(workspace)} workspace on SendON and no one answered it in time. You can turn these emails off on the Notifications page.`,
+  })),
 };

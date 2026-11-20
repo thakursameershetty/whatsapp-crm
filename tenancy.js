@@ -658,6 +658,8 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
         if (user && checkPassword(raw.slice(raw.indexOf(':') + 1), user.password)) { userId = user.id; wsId = user.lastWsId || membershipsOf(user.id)[0]?.wsId; }
       }
     }
+    // A link from an alert names its workspace (/inbox?ws=…&chat=…): open that one if this person is in it.
+    if (userId && req.method === 'GET' && !req.path.startsWith('/api/') && typeof req.query?.ws === 'string' && roleIn(userId, req.query.ws)) wsId = req.query.ws;
     if (userId && wsId && !roleIn(userId, wsId)) wsId = membershipsOf(userId)[0]?.wsId || null; // removed from that workspace
     const ws = wsId && loaded.get(wsId);
     if (!userId || !ws) {
@@ -1317,6 +1319,15 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     // The AI features too (the Assistant and the Inbox lead assistant). Pages and APIs check
     // req.ai (per person); this is for work with no one signed in, like drafting a reply to a webhook.
     aiAllowed: (ws = current()) => aiOn(ws),
+    // For alerts (alerts.js): a workspace's team (each person's numbers: null = all), a person by id, and server-wide
+    // values kept with the accounts (the push keys).
+    team: (wsId) => accounts.members.filter((m) => m.wsId === wsId).map((m) => {
+      const u = accounts.users.find((x) => x.id === m.userId);
+      return u ? { user: u, role: m.role, senders: m.role !== 'owner' && Array.isArray(m.senders) ? m.senders : null } : null;
+    }).filter(Boolean),
+    userById: (userId) => accounts.users.find((u) => u.id === userId) || null,
+    platformValue: (k, v) => { accounts.platform ||= {}; if (v !== undefined) { accounts.platform[k] = v; saveAccounts(); } return accounts.platform[k]; },
+    saveAccounts: () => saveAccounts(),
     async flush() { // write everything now (used on shutdown)
       if (accTimer) { clearTimeout(accTimer); accTimer = null; }
       await store.saveAccounts(accounts);

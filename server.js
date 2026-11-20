@@ -2750,6 +2750,7 @@ app.get('/api/events', (req, res) => {
   res.write('retry: 3000\n\n');
   res.write(`event: inbox\ndata: ${JSON.stringify({ kind: 'hello', build: BUILD_ID })}\n\n`);
   res.wsId = tenants.wsId();
+  res.userId = req.user?.id; // who has SendON open (alerts.js: no one online → alert by push and email)
   listeners.add(res);
   req.on('close', () => listeners.delete(res));
 });
@@ -2959,7 +2960,7 @@ app.post('/api/inbox/:key/send', wrap(async (req, res) => {
   const aiWritten = draft && String(text || '').trim() === String(draft.text || '').trim();
   const ch = aiWritten ? credits.charge(credits.AI_RATE, credits.keys.aiReply()) : null;
   if (ch === false) throw fail('Out of credits: sending the AI’s suggested reply uses 1 credit. Add credits on the Credits page, or edit the reply and send it as your own.', 402);
-  try { res.json(await sendInboxText(key, text, { replyTo, aiDraft: Boolean(aiWritten), ...(ch ? { credit: ch } : {}) })); } catch (e) { credits.refund(ch); throw e; }
+  try { res.json(await sendInboxText(key, text, { replyTo, aiDraft: Boolean(aiWritten), by: { id: req.user?.id, name: req.user?.name || req.user?.email || '' }, ...(ch ? { credit: ch } : {}) })); } catch (e) { credits.refund(ch); throw e; }
 }));
 
 // The person behind a chat: their contact, and every chat they have with our numbers that you can see (a member limited
@@ -3110,7 +3111,7 @@ app.post('/api/demo/inbound', wrap((req, res) => {
 // A free-form text reply in a conversation (only inside WhatsApp's 24-hour window). Used by the
 // Inbox and by the lead assistant's auto-reply (auto: true marks the message as sent by the AI; aiDraft: true, the
 // AI's suggested reply sent unchanged by a person).
-async function sendInboxText(key, text, { replyTo, auto = false, aiDraft = false, credit } = {}) {
+async function sendInboxText(key, text, { replyTo, auto = false, aiDraft = false, by, credit } = {}) {
   const { senderId, wa } = splitKey(key);
   const sender = db.senders.find((s) => s.id === senderId);
   if (!sender) throw fail('This WhatsApp number is no longer connected');
@@ -3127,7 +3128,7 @@ async function sendInboxText(key, text, { replyTo, auto = false, aiDraft = false
     if (replyTo) payload.context = { message_id: replyTo };
     wamid = (await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify(payload) })).messages?.[0]?.id;
   }
-  return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : aiDraft ? { aiDraft: true } : {}), ...(credit ? { credit } : {}) });
+  return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : aiDraft ? { aiDraft: true } : {}), ...(by && !auto ? { by } : {}), ...(credit ? { credit } : {}) });
 }
 
 // ---------- Sending a photo, video, document or audio in the 24-hour window ----------
@@ -3845,7 +3846,8 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
   const r = contactsApi.recheckPhones();
   if (r.fixed || r.flagged) console.log(`Contacts in ${ws.meta.name}: ${r.fixed} number(s) cleaned, ${r.flagged} newly flagged (${r.problems} need fixing).`);
 });
-const leadApi = require('./lead')(app, { db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key), numberLocked: (senderId) => { const s = db.senders.find((x) => x.id === senderId); return Boolean(lockOf(s) || restrictsReplies(s)); } });
+const alerts = require('./alerts')(app, { tenants, listeners, wrap, fail, mail: require('./mail') });
+const leadApi = require('./lead')(app, { alertHeld: (key, info) => alerts.held(key, info), db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key), numberLocked: (senderId) => { const s = db.senders.find((x) => x.id === senderId); return Boolean(lockOf(s) || restrictsReplies(s)); } });
 
 // --- AI assistant -------------------------------------------------------------
 

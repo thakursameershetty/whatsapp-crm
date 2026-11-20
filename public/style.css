@@ -7942,3 +7942,13 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .cd-foot .link:hover { text-decoration: underline; }
 .cd-st-skipped { color: var(--muted); }
 .cd-st-badphone { color: var(--danger); }
+
+/* Alerts outside the app (Notifications page; public/alerts.js) */
+.nt-alerts { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--surface); box-shadow: var(--sh-card); }
+.nt-alerts.hidden { display: none; }
+.nt-alerts-text { display: flex; gap: 10px; align-items: flex-start; min-width: 0; flex: 1 1 320px; }
+.nt-alerts-text > svg { flex: none; margin-top: 2px; color: var(--violet); }
+.nt-alerts-text b { display: block; font-size: 14px; }
+.nt-alerts-text .sub { font-size: 12.5px; }
+.nt-alerts-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nt-alerts-mail { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
