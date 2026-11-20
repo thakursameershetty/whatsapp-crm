@@ -13,6 +13,13 @@
     return Uint8Array.from(raw, (c) => c.charCodeAt(0));
   };
   const reg = () => navigator.serviceWorker.register('/sw.js');
+  // The browser's notification permission: 'granted', 'denied' or 'default'. Chrome's PermissionStatus follows the
+  // site-settings switch right away; Notification.permission can lag until a reload, so the status wins when we have it.
+  let permStatus = null;
+  const permReady = supported && navigator.permissions?.query
+    ? navigator.permissions.query({ name: 'notifications' }).then((p) => { permStatus = p; }).catch(() => {})
+    : Promise.resolve();
+  const perm = () => (permStatus ? (permStatus.state === 'prompt' ? 'default' : permStatus.state) : supported ? Notification.permission : 'default');
   async function thisBrowser() {
     if (!supported) return null;
     const r = await navigator.serviceWorker.getRegistration('/');
@@ -23,7 +30,7 @@
   async function turnOn() {
     if (turning) return;
     turning = true;
-    try { await turnOnNow(); } finally { turning = false; lastPerm = supported ? Notification.permission : null; }
+    try { await turnOnNow(); } finally { turning = false; lastPerm = supported ? perm() : null; }
   }
   async function turnOnNow() {
     if (!supported) return toast(/iPhone|iPad/.test(navigator.userAgent) ? 'On iPhone, add SendON to your Home Screen first (Share → Add to Home Screen), then open it from there and turn alerts on.' : 'This browser can’t show notifications.', 'error', { duration: 8000 });
@@ -47,7 +54,7 @@
   async function render() {
     const el = box();
     if (!el || !st) return;
-    const on = Boolean(await thisBrowser().catch(() => null)) && Notification.permission === 'granted';
+    const on = Boolean(await thisBrowser().catch(() => null)) && perm() === 'granted';
     el.classList.remove('hidden');
     el.innerHTML = `
       <div class="nt-alerts-text">${icon('bell', 16)}<div><b>Alerts when a chat waits for you</b>
@@ -80,7 +87,7 @@
 
   const loaded = api('/alerts').then((s) => { st = s; render(); }).catch(() => {});
   // keep this browser's subscription fresh (browsers rotate them now and then)
-  if (supported && Notification.permission === 'granted') thisBrowser().then((sub) => sub && api('/alerts/push', { method: 'POST', body: { subscription: sub.toJSON() } }).catch(() => {})).catch(() => {});
+  if (supported && perm() === 'granted') thisBrowser().then((sub) => sub && api('/alerts/push', { method: 'POST', body: { subscription: sub.toJSON() } }).catch(() => {})).catch(() => {});
 
   // Opened from an alert: show that chat, then tidy the address.
   const q = new URLSearchParams(location.search);
@@ -95,19 +102,17 @@
   }
 
   // Asking on the Inbox: a browser without alerts gets a pop-up (the screen behind it blurred) the first time the Inbox
-  // opens. "Not now" waits ASK_AGAIN_MS before asking again in this browser; once on, it never shows.
-  const ASK_AGAIN_MS = 3 * 24 * 3600 * 1000;
-  const ASK_KEY = 'sendon.alertsAsked';
-  const askedAt = () => { try { return Number(localStorage.getItem(ASK_KEY)) || 0; } catch { return 0; } };
-  const markAsked = () => { try { localStorage.setItem(ASK_KEY, String(Date.now())); } catch {} };
+  // opens while alerts are off in this browser. "Not now" lasts until the page is reloaded or opened again; once
+  // alerts are on, it never shows.
   let askedThisVisit = false;
+  const markAsked = () => { askedThisVisit = true; };
   async function maybeAsk() {
     const tab = document.getElementById('tab-inbox');
     if (askedThisVisit || !supported || !st || !tab || tab.classList.contains('hidden')) return;
     if (!document.getElementById('modal')?.classList.contains('hidden')) return; // another pop-up is open
-    if (Date.now() - askedAt() < ASK_AGAIN_MS) return;
-    const blocked = Notification.permission === 'denied';
-    if (!blocked && Notification.permission === 'granted' && await thisBrowser().catch(() => null)) return; // already on
+    await permReady;
+    const blocked = perm() === 'denied';
+    if (!blocked && perm() === 'granted' && await thisBrowser().catch(() => null)) return; // already on
     askedThisVisit = true;
     openAsk(blocked);
   }
@@ -154,11 +159,11 @@
   // the pop-up goes and alerts turn on; switched off or reset → the pop-up comes straight back (whatever "Not now" said).
   // Browsers don't always fire the change event for the site-settings toggle, so it's also checked every second and
   // when the window gets focus again.
-  let lastPerm = supported ? Notification.permission : null;
+  let lastPerm = null; // set once the permission status is known (permReady)
   let askOpen = false;
   async function permissionChanged() {
-    if (!supported || turning) return;
-    const now = Notification.permission;
+    if (!supported || turning || lastPerm === null) return;
+    const now = perm();
     if (now === lastPerm) return;
     const was = lastPerm;
     lastPerm = now;
@@ -178,7 +183,7 @@
     if (askOpen || document.getElementById('modal')?.classList.contains('hidden')) openAsk(now === 'denied');
   }
   if (supported) {
-    navigator.permissions?.query({ name: 'notifications' }).then((p) => { p.onchange = permissionChanged; }).catch(() => {});
+    permReady.then(() => { lastPerm = perm(); if (permStatus) permStatus.onchange = permissionChanged; });
     setInterval(permissionChanged, 1000);
     addEventListener('focus', permissionChanged);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) permissionChanged(); });
@@ -211,13 +216,13 @@
       // the browser's own question appears under the address bar, top left
       showArrow('Your browser is asking up here: click Allow');
       try { await turnOn(); } catch (err) { toast(err.message, 'error'); }
-      lastPerm = Notification.permission;
+      lastPerm = perm();
       hideArrow();
-      if (Notification.permission === 'denied') return openAsk(true); // they clicked Block: show how to undo it
+      if (perm() === 'denied') return openAsk(true); // they clicked Block: show how to undo it
       closeModal();
     });
   }
-  window.Alerts = { ask: () => openAsk(Notification.permission === 'denied') };
+  window.Alerts = { ask: () => openAsk(perm() === 'denied') };
   // when the Inbox opens (now, or later from the sidebar)
   const inboxTab = document.getElementById('tab-inbox');
   if (inboxTab) new MutationObserver(() => setTimeout(maybeAsk, 600)).observe(inboxTab, { attributes: true, attributeFilter: ['class'] });

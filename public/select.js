@@ -9,6 +9,13 @@
   const TICK = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
   const SEARCH = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
   const SEARCH_FROM = 9; // options before a search box appears
+  // WhatsApp numbers that can't send at all (Meta locked or banned them, or refused their token): hidden from every
+  // number list until the eye button beside the search shows them. Low quality alone isn't a reason (they still send).
+  // The current choice always shows. The choice to show them lasts until the page is reloaded.
+  let showBlocked = false;
+  const EYE = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_OFF = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>';
+  const unusable = (o) => Boolean(o.dataset.sender && window.NumStatus?.block(o.dataset.sender));
 
   function open(sel) {
     if (sel.disabled || !window.Sheet) return;
@@ -24,7 +31,10 @@
     const tags = 'chips' in sel.dataset ? [...new Set(opts.map((x) => x.o.dataset.tag).filter(Boolean))] : [];
     let tag = '';
     const chips = tags.length > 1 ? `<div class="ss-chips" role="tablist">${['', ...tags].map((t) => `<button type="button" class="ss-chip ${t ? '' : 'on'}" data-tag="${esc(t)}">${esc(t || 'All')} <span>${opts.filter((x) => (t ? x.o.dataset.tag === t : x.o.dataset.tag)).length}</span></button>`).join('')}</div>` : '';
-    const searchBox = opts.length >= SEARCH_FROM || chips ? `<div class="search-wrap ss-search">${SEARCH}<input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" placeholder="Search" autocomplete="off" aria-label="Search options" /></div>` : '';
+    const nBlocked = opts.filter((x) => unusable(x.o) && !x.o.selected).length;
+    const eyeBtn = () => `<button type="button" class="ss-eye ${showBlocked ? 'on' : ''}" aria-pressed="${showBlocked}" title="${showBlocked ? 'Hide' : 'Show'} ${nBlocked} number${nBlocked === 1 ? '' : 's'} that can’t send (locked or banned by Meta)">${showBlocked ? EYE : EYE_OFF}<small>${nBlocked}</small></button>`;
+    const searchBox = opts.length - (showBlocked ? 0 : nBlocked) >= SEARCH_FROM || chips || nBlocked
+      ? `<div class="ss-search-row"><div class="search-wrap ss-search">${SEARCH}<input data-1p-ignore data-lpignore="true" data-form-type="other" class="search" placeholder="Search" autocomplete="off" aria-label="Search options" /></div>${nBlocked ? eyeBtn() : ''}</div>` : '';
     const el = Sheet.Menu.panel(r.left, r.bottom + 6, `${searchBox}${chips}<div class="ss-list" role="listbox"></div>`);
     el.classList.add('ss-pop');
     el.style.minWidth = Math.max(180, r.width) + 'px';
@@ -33,7 +43,7 @@
       const term = (q?.value || '').trim().toLowerCase();
       // Groups (<optgroup>) are sections: a heading with how many of its options are showing, pinned while you
       // scroll through it, and a line between one section and the next.
-      const shown = (o) => !(term && !o.textContent.toLowerCase().includes(term)) && !(tag && o.dataset.tag !== tag);
+      const shown = (o) => !(term && !o.textContent.toLowerCase().includes(term)) && !(tag && o.dataset.tag !== tag) && (showBlocked || o.selected || !unusable(o));
       const counts = [];
       for (const it of items) { if (it.group != null) counts.push(0); else if (counts.length && shown(it.o)) counts[counts.length - 1]++; }
       let html = '', pendingGroup = null, gi = -1;
@@ -50,9 +60,9 @@
           : '';
         // A WhatsApp number (data-sender="its id"): a dot for its standing with Meta, explained on hover.
         const dot = d.sender ? window.NumStatus?.dot(d.sender) || '' : '';
-        html += `<button type="button" role="option" class="ss-opt ${on ? 'on' : ''} ${pic ? 'has-av' : ''}" data-i="${o.index}" aria-selected="${on}" ${o.disabled ? 'disabled' : ''}><i class="ss-check">${on ? TICK : ''}</i>${pic}<span>${esc(o.textContent)}</span>${dot}${d.count ? `<small class="ss-count">${esc(d.count)}</small>` : ''}</button>`;
+        html += `<button type="button" role="option" class="ss-opt ${on ? 'on' : ''} ${pic ? 'has-av' : ''} ${unusable(o) ? 'ss-unusable' : ''}" data-i="${o.index}" aria-selected="${on}" ${o.disabled ? 'disabled' : ''}><i class="ss-check">${on ? TICK : ''}</i>${pic}<span>${esc(o.textContent)}</span>${dot}${d.count ? `<small class="ss-count">${esc(d.count)}</small>` : ''}</button>`;
       }
-      list.innerHTML = html || '<p class="ss-none">Nothing matches.</p>';
+      list.innerHTML = html || `<p class="ss-none">${nBlocked && !showBlocked && !term ? 'Only numbers that can’t send. Click the eye to show them.' : 'Nothing matches.'}</p>`;
     };
     draw();
     // Keep it on screen: open upward when there's no room below.
@@ -72,6 +82,14 @@
     };
     list.addEventListener('click', (e) => { const b = e.target.closest('.ss-opt'); if (b && !b.disabled) pick(Number(b.dataset.i)); });
     q?.addEventListener('input', draw);
+    el.querySelector('.ss-search-row')?.addEventListener('click', (e) => {
+      const b = e.target.closest('.ss-eye');
+      if (!b) return;
+      showBlocked = !showBlocked;
+      b.outerHTML = eyeBtn(); // the row's listener keeps working for the new button
+      draw();
+      q?.focus({ preventScroll: true });
+    });
     el.querySelector('.ss-chips')?.addEventListener('click', (e) => {
       const c = e.target.closest('.ss-chip');
       if (!c) return;
