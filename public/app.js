@@ -33,6 +33,8 @@ async function api(path, options = {}) {
 // A toast in the top-right corner. opts: { title, icon, onClick, duration }.
 // Every toast has a × to dismiss it, and hovering pauses its timer.
 function toast(msg, type = '', opts = {}) {
+  // a sound for it (sounds.js): opts.sound names one, or false for none; otherwise by type
+  if (opts.sound !== false) window.Sound?.play(opts.sound || (type === 'error' ? 'error' : type === 'good' ? 'success' : 'tick'));
   const el = document.createElement('div');
   el.className = 'toast ' + type + (opts.onClick ? ' clickable' : '');
   el.setAttribute('role', type === 'error' ? 'alert' : 'status');

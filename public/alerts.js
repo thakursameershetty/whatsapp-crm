@@ -65,13 +65,13 @@
         <p>You’ll get an alert in this browser when a chat is waiting for a reply, even with SendON closed. Click it to go straight to the chat.</p>
         <div class="al-actions">
           <button type="button" class="al-btn" data-ok="test">Send test notification</button>
-          <button type="button" class="al-btn dark" data-ok="done">Done</button>
+          <button type="button" class="al-btn dark" data-ok="reload">Reload page</button>
         </div>
       </div>`);
     body.closest('.modal-box')?.classList.add('al-box');
     askOpen = true; // switching notifications off in the browser turns this back into the "blocked" card
     body.querySelector('[data-ok="test"]').addEventListener('click', (e) => sendTest(e.currentTarget));
-    body.querySelector('[data-ok="done"]').addEventListener('click', () => closeModal());
+    body.querySelector('[data-ok="reload"]').addEventListener('click', () => location.reload()); // some browsers apply the new setting only after a reload
   }
   async function turnOff() {
     const sub = await thisBrowser();
@@ -92,6 +92,7 @@
         ${on ? `<span class="pill read" style="text-transform:none;gap:5px">${icon('circle-check', 12)}On in this browser</span><button class="btn sm quiet" data-al="test">Test</button><button class="btn sm quiet" data-al="off">Turn off</button>`
              : `<button class="btn sm primary" data-al="on" data-icon="bell" data-icon-size="13">Turn on browser alerts</button>`}
         <label class="nt-alerts-mail" title="${st.emailWorks ? '' : 'Email isn’t set up on this server yet, so nothing is emailed for now.'}"><input type="checkbox" data-al="email" ${st.email ? 'checked' : ''}> Email me too</label>
+        <label class="nt-alerts-mail" title="SendON’s own sounds for new notifications, alerts and errors, while SendON is open in this browser"><input type="checkbox" data-al="sound" ${window.Sound?.enabled() ? 'checked' : ''}> Play sounds</label>
       </div>`;
     window.LA?.hydrate?.(el);
   }
@@ -108,6 +109,8 @@
     b.disabled = false;
   });
   document.addEventListener('change', async (e) => {
+    const snd = e.target.closest('#ntAlerts [data-al="sound"]');
+    if (snd) { window.Sound?.set(snd.checked); toast(snd.checked ? 'Sounds on' : 'Sounds off', '', { sound: false }); return; }
     const c = e.target.closest('#ntAlerts [data-al="email"]');
     if (!c) return;
     try { st = await api('/alerts/email', { method: 'POST', body: { on: c.checked } }); toast(c.checked ? 'You’ll get an email too' : 'No alert emails'); }

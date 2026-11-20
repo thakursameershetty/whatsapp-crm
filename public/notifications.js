@@ -262,12 +262,15 @@
     if (ev.kind !== 'notification') return;
     if (typeof ev.unread === 'number') NT.unread = ev.unread;
     const n = ev.notification;
-    if (n) { NT.fresh.add(n.id); popToast(n); }
+    if (n) { NT.fresh.add(n.id); if (!n.read) window.Sound?.play(soundOf(n)); popToast(n); }
     badge();
     // the page you're looking at asks again (newest first, so a new one lands on page 1); not open: only the badge
     if (visible()) { clearTimeout(liveT); liveT = setTimeout(reload, 300); }
   });
 
+  // Which sound a notification makes (sounds.js): a chat waiting for you, a failure, good news, or anything else.
+  const WAITING_KINDS = new Set(['ai_draft', 'ai_handover']);
+  const soundOf = (n) => (ERROR_KINDS.has(n.kind) ? 'error' : WAITING_KINDS.has(n.kind) ? 'alert' : GOOD_KINDS.has(n.kind) ? 'success' : 'message');
   function popToast(n) {
     if (!TOAST.has(n.kind) || n.read || visible()) return;
     // No toast for a message in the chat you're reading.
@@ -275,6 +278,7 @@
     toast(n.body || '', ERROR_KINDS.has(n.kind) ? 'error' : GOOD_KINDS.has(n.kind) ? 'good' : '', {
       title: n.title,
       icon: (KIND[n.kind] || {}).icon || 'bell',
+      sound: false, // already played when it arrived
       onClick: () => { setRead([n.id]); go(n); },
     });
   }

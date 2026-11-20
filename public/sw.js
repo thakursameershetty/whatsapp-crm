@@ -7,10 +7,13 @@ self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data?.text() || '' }; }
+  // SendON open somewhere: it plays our own sound (the system's notification sound depends on the computer's settings)
+  self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((ws) => ws.forEach((w) => w.postMessage({ kind: 'sendon-sound', sound: d.sound || 'alert' }))).catch(() => {});
   e.waitUntil(self.registration.showNotification(d.title || 'SendON', {
     body: d.body || '',
     tag: d.tag || undefined,
     renotify: Boolean(d.tag),
+    silent: false, // the computer's notification sound, when its settings allow one for the browser
     requireInteraction: true, // stays on screen until someone looks
     icon: '/brand/logo-small.svg',
     badge: '/brand/logo-small.svg',
