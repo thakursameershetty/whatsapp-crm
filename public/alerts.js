@@ -40,9 +40,38 @@
     await navigator.serviceWorker.ready;
     const sub = (await r.pushManager.getSubscription()) || await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(st.publicKey) });
     st = await api('/alerts/push', { method: 'POST', body: { subscription: sub.toJSON() } });
-    toast('Browser alerts are on. Sending a test…');
-    await api('/alerts/test', { method: 'POST' }).catch((e) => toast(e.message, 'error'));
     render();
+    showOn();
+    announceOnce().catch(() => {});
+  }
+
+  // Alerts just turned on: the pop-up becomes a green "Notifications are on" card, with a test button. (Over another
+  // pop-up, like a campaign being edited, it's a toast instead.)
+  async function sendTest(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    try { await api('/alerts/test', { method: 'POST' }); toast('Test sent: it should appear in a moment'); }
+    catch (e) { toast(e.message, 'error'); }
+    if (btn) { btn.disabled = false; btn.textContent = 'Send test notification'; }
+  }
+  function showOn() {
+    hideArrow();
+    const modal = document.getElementById('modal');
+    if (!askOpen && !modal?.classList.contains('hidden')) return toast('Browser alerts are on');
+    const body = openModal('Notifications are on', `
+      <div class="al-card al-ok">
+        <div class="al-glow" aria-hidden="true"></div>
+        <div class="al-chip">${icon('check-check', 20)}</div>
+        <h3>Notifications are on</h3>
+        <p>You’ll get an alert in this browser when a chat is waiting for a reply, even with SendON closed. Click it to go straight to the chat.</p>
+        <div class="al-actions">
+          <button type="button" class="al-btn" data-ok="test">Send test notification</button>
+          <button type="button" class="al-btn dark" data-ok="done">Done</button>
+        </div>
+      </div>`);
+    body.closest('.modal-box')?.classList.add('al-box');
+    askOpen = true; // switching notifications off in the browser turns this back into the "blocked" card
+    body.querySelector('[data-ok="test"]').addEventListener('click', (e) => sendTest(e.currentTarget));
+    body.querySelector('[data-ok="done"]').addEventListener('click', () => closeModal());
   }
   async function turnOff() {
     const sub = await thisBrowser();
@@ -74,7 +103,7 @@
     try {
       if (b.dataset.al === 'on') await turnOn();
       if (b.dataset.al === 'off') await turnOff();
-      if (b.dataset.al === 'test') { await api('/alerts/test', { method: 'POST' }); toast('Test alert sent'); }
+      if (b.dataset.al === 'test') await sendTest();
     } catch (err) { toast(err.message, 'error'); }
     b.disabled = false;
   });
@@ -106,6 +135,26 @@
     else location.href = u.href;
   });
   navigator.serviceWorker?.startMessages?.(); // deliver them now, in a tab this worker doesn't control too
+
+  // Once alerts are on in this browser: one notification saying so, right then (not on every reload). Remembered by
+  // the browser's subscription, so switching notifications off and on again (a new subscription) shows it once more.
+  const ANNOUNCED_KEY = 'sendon.alertsAnnounced';
+  async function announceOnce() {
+    if (!supported || perm() !== 'granted') return;
+    const sub = await thisBrowser().catch(() => null);
+    if (!sub) return;
+    try { if (localStorage.getItem(ANNOUNCED_KEY) === sub.endpoint) return; } catch { return; } // storage blocked: don't risk repeating it
+    const r = await navigator.serviceWorker.getRegistration('/');
+    await r?.showNotification('SendON notifications are on', {
+      body: 'You’ll be alerted here when a chat is waiting for a reply.',
+      tag: 'sendon-active',
+      icon: '/brand/logo-small.svg',
+      data: { url: location.pathname },
+    });
+    try { localStorage.setItem(ANNOUNCED_KEY, sub.endpoint); } catch {}
+  }
+  // alerts that were turned on before this was added (or on another page) get theirs on the next load, once
+  if (supported) Promise.all([loaded, permReady]).then(() => announceOnce()).catch(() => {});
 
   // Opened from an alert: show that chat, then tidy the address.
   const q = new URLSearchParams(location.search);
@@ -187,8 +236,7 @@
     lastPerm = now;
     if (now === 'granted') {
       hideArrow();
-      if (askOpen) closeModal();
-      try { await turnOn(); } catch (err) { toast(err.message, 'error'); }
+      try { await turnOn(); } catch (err) { toast(err.message, 'error'); } // shows the "Notifications are on" card
       return;
     }
     if (was === 'granted') { // turned off: this browser's subscription no longer works
@@ -237,7 +285,7 @@
       lastPerm = perm();
       hideArrow();
       if (perm() === 'denied') return openAsk(true); // they clicked Block: show how to undo it
-      closeModal();
+      if (perm() !== 'granted') closeModal(); // they closed the browser's question without answering
     });
   }
   window.Alerts = { ask: () => openAsk(perm() === 'denied') };
