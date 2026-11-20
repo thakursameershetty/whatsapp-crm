@@ -438,7 +438,7 @@ ${error ? `<p class="login-error">${esc(error)}</p>` : ''}<p class="login-error 
     // The landing page's contact form. Public (no sign-in), so: same-origin only (server-wide check), a size cap,
     // a hidden field bots fill in (accepted and dropped), and at most 10 sends per address in 15 minutes.
     // Each enquiry is kept for the admin panel (Enquiries) and emailed to everyone in ADMIN_EMAILS.
-    const CONTACT_TOPICS = ['Starter pack', 'Growth pack', 'Scale pack', 'Enterprise', 'A demo', 'Something else'];
+    const CONTACT_TOPICS = ['Starter pack', 'Growth pack', 'Scale pack', 'Enterprise', 'A demo', 'Email early access', 'Something else'];
     app.post('/api/contact', express.json({ limit: '32kb' }), (req, res) => {
       const b = req.body || {};
       const key = `${req.ip}|contact`;

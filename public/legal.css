@@ -12,10 +12,19 @@
 .lg-main { max-width: 920px; margin: 0 auto; padding: 40px 24px 80px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 48px; align-items: start; }
 .lg-toc { position: sticky; top: 84px; font-size: 13.5px; }
 .lg-toc b { display: block; margin-bottom: 8px; font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); }
-.lg-toc ol { margin: 0; padding-left: 18px; color: var(--faint); }
-.lg-toc li { margin: 4px 0; }
-.lg-toc a { color: var(--muted); text-decoration: none; }
-.lg-toc a:hover { color: var(--text); text-decoration: underline; }
+/* The contents list follows your reading (legal.js): the sections on screen are marked, and an ink bar on the rail
+   covers exactly the part of the document in view, moving with the scroll. */
+.lg-toc ol { position: relative; list-style: none; margin: 0; padding: 0; counter-reset: toc; border-left: 2px solid var(--hair); }
+.lg-toc li { margin: 0; counter-increment: toc; }
+.lg-toc a { display: flex; gap: 6px; padding: 4px 0 4px 12px; color: var(--muted); text-decoration: none; line-height: 1.45; transition: color .25s; }
+.lg-toc a::before { content: counter(toc) "."; flex: none; min-width: 1.7em; color: var(--faint); font-variant-numeric: tabular-nums; transition: color .25s; }
+.lg-toc a:hover { color: var(--text); }
+.lg-toc a.on { color: var(--text); }
+.lg-toc a.on::before { color: var(--muted); }
+.lg-toc-ink { position: absolute; left: -2px; top: 0; width: 2px; height: 0; border-radius: 2px; background: var(--text); will-change: transform, height; pointer-events: none; }
+.lg-rail { display: none; }
+html:has(.lg-body) { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html:has(.lg-body) { scroll-behavior: auto; } }
 .lg-doc h1 { margin: 0 0 6px; font-size: 34px; line-height: 1.2; letter-spacing: -0.02em; }
 .lg-meta { margin: 0 0 28px; color: var(--muted); font-size: 14px; }
 .lg-lead { padding: 16px 18px; margin: 0 0 28px; border-radius: 14px; background: var(--surface); box-shadow: var(--sh-card); font-size: 15px; }
@@ -33,10 +42,40 @@
 .lg-doc th { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); border-top: 0; }
 .lg-foot { max-width: 920px; margin: 0 auto; padding: 24px; border-top: 1px solid var(--hair); display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; color: var(--muted); }
 .lg-foot a { color: var(--muted); }
+/* Phones: the side list gives way to a row of section chips in the sticky header. A dark pill glides between chips
+   with the scroll (a dark copy of the chips is clipped to the pill, so text changes colour exactly at its edge), and
+   a hairline under the row shows how far through the page you are. */
 @media (max-width: 760px) {
-  .lg-main { grid-template-columns: 1fr; gap: 20px; padding-top: 24px; }
-  .lg-toc { position: static; }
+  .lg-body { font-size: 15px; }
+  .lg-top-in { padding: 0 16px; height: 56px; }
+  .lg-brand { font-size: 16px; }
+  .lg-nav { gap: 2px; }
+  .lg-nav a { padding: 6px 9px; font-size: 13px; }
+  .lg-main { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 16px 56px; }
+  .lg-toc { position: static; margin-top: 20px; }
+  .lg-toc.js { display: none; }
+  .lg-rail { display: block; position: relative; border-top: 1px solid var(--hair); }
+  .lg-rail-scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent); mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 20px), transparent); }
+  .lg-rail-scroll::-webkit-scrollbar { display: none; }
+  .lg-rail-track { position: relative; display: flex; gap: 2px; width: max-content; padding: 7px 16px; }
+  .lg-chip { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px; border-radius: 99px; color: var(--muted); font-size: 13.5px; font-weight: 500; white-space: nowrap; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+  .lg-chip b { font-weight: 600; font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .lg-rail-pill { position: absolute; inset: 0; display: flex; gap: 2px; padding: 7px 16px; pointer-events: none; background: var(--text);
+    clip-path: inset(7px calc(100% - var(--l, 16px) - var(--w, 0px)) 7px var(--l, 16px) round 99px); will-change: clip-path; }
+  .lg-rail-pill .lg-chip { color: var(--bg); }
+  .lg-rail-pill .lg-chip b { color: color-mix(in srgb, var(--bg) 62%, transparent); }
+  .lg-rail-prog { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--text); transform: scaleX(0); transform-origin: 0 50%; will-change: transform; }
+  .lg-doc { padding-top: 24px; }
   .lg-doc h1 { font-size: 28px; }
-  .lg-top-in { padding: 0 16px; }
-  .lg-nav a { padding: 6px 8px; font-size: 13px; }
+  .lg-meta { margin-bottom: 20px; }
+  .lg-lead { padding: 14px 16px; margin-bottom: 20px; font-size: 14.5px; }
+  .lg-doc h2 { margin-top: 30px; font-size: 19px; scroll-margin-top: 116px; }
+  .lg-doc ul { padding-left: 20px; }
+  .lg-doc table { font-size: 13.5px; }
+  .lg-doc th, .lg-doc td { padding: 9px 8px 9px 0; }
+  .lg-body .lg-doc table td:first-child { width: 38%; }
+  .lg-foot { padding: 20px 16px 32px; font-size: 13px; }
+  .lg-foot span { flex-basis: 100%; }
 }
+@media (max-width: 380px) { .lg-brand img { width: 24px; height: 24px; } .lg-nav a { padding: 6px 7px; } }
