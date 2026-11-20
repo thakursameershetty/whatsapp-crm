@@ -89,6 +89,24 @@
   // keep this browser's subscription fresh (browsers rotate them now and then)
   if (supported && perm() === 'granted') thisBrowser().then((sub) => sub && api('/alerts/push', { method: 'POST', body: { subscription: sub.toJSON() } }).catch(() => {})).catch(() => {});
 
+  // An alert was clicked while SendON is open here (sw.js asks this window): the chat opens right here when it's in
+  // this workspace; another workspace's chat loads its link (the server switches workspace on the way).
+  navigator.serviceWorker?.addEventListener('message', (e) => {
+    if (e.data?.kind !== 'sendon-open') return;
+    let u;
+    try { u = new URL(e.data.url, location.origin); } catch { return; }
+    if (u.origin !== location.origin) return;
+    const chat = u.searchParams.get('chat'), ws = u.searchParams.get('ws');
+    const app = typeof state !== 'undefined' ? state : null; // app.js's state (a global const, not on window)
+    const here = !ws || ws === app?.me?.workspace?.id;
+    if (chat && here && window.Inbox?.open) {
+      if (app?.tab !== 'inbox') showTab('inbox');
+      window.Inbox.open(chat);
+    } else if (u.pathname === location.pathname && !chat) window.focus();
+    else location.href = u.href;
+  });
+  navigator.serviceWorker?.startMessages?.(); // deliver them now, in a tab this worker doesn't control too
+
   // Opened from an alert: show that chat, then tidy the address.
   const q = new URLSearchParams(location.search);
   const chat = q.get('chat');

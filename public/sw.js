@@ -18,13 +18,20 @@ self.addEventListener('push', (e) => {
   }));
 });
 
+// Clicking an alert opens what it's about (a chat: /inbox?ws=…&chat=…). A SendON window that's already open is asked
+// to show it (it switches without reloading, or loads the link when it's another workspace); only with none open
+// does a new window open. A window opened before alerts were on isn't controlled by this worker, so it can't be
+// redirected from here: asking it (postMessage) works either way.
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const url = e.notification.data?.url || '/inbox';
+  const url = new URL(e.notification.data?.url || '/inbox', self.location.origin).href;
   e.waitUntil((async () => {
-    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const here = wins.find((w) => new URL(w.url).origin === self.location.origin);
-    if (here) { await here.navigate(url).catch(() => {}); return here.focus(); }
-    return self.clients.openWindow(url);
+    const wins = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
+      .filter((w) => new URL(w.url).origin === self.location.origin);
+    // the one in front, else the most recently used
+    const win = wins.find((w) => w.focused) || wins.find((w) => w.visibilityState === 'visible') || wins[0];
+    if (!win) return self.clients.openWindow(url);
+    win.postMessage({ kind: 'sendon-open', url });
+    return win.focus().catch(() => self.clients.openWindow(url));
   })());
 });
