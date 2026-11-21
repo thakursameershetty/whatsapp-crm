@@ -1202,7 +1202,7 @@
     const src = m.media?.local || (m.media?.id ? `/api/media/${enc(m.media.id)}` : '');
     let textInside = true;
     if (m.elsewhere && m.dir === 'out') h += `<div class="ib-label" title="Sent from another workspace that uses this number">${icon('layers', 11)}From “${esc(m.elsewhere)}”</div>`;
-    if (m.auto) h += `<div class="ib-label ib-auto"><svg class="orb-icon" data-orb-icon="11"></svg>Auto-reply · AI</div>`;
+    if (m.auto) h += `<div class="ib-label ib-auto"><svg class="orb-icon" data-orb-icon="11"></svg>Auto-reply · AI${m.by?.api ? ` · ${esc(m.by.api)}` : ''}</div>`;
     else if (m.aiDraft) h += `<div class="ib-label ib-auto" title="The AI wrote this; a person on the team checked it and sent it"><svg class="orb-icon" data-orb-icon="11"></svg>AI draft · sent by ${esc(m.by?.name || 'your team')}</div>`;
     else if (m.by?.api && m.dir === 'out') h += `<div class="ib-label" title="Sent by another app through SendON’s API">${icon('link', 11)}Sent via API · ${esc(m.by.api)}</div>`;
     switch (m.type) {

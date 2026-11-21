@@ -7945,14 +7945,35 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .cd-st-badphone { color: var(--danger); }
 
 /* Alerts outside the app (Notifications page; public/alerts.js) */
-.nt-alerts { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--surface); box-shadow: var(--sh-card); }
+/* Alerts when a chat waits: a header, then one tile per way of being told (this browser, email, sounds). */
+.nt-alerts { margin: 0 0 18px; padding: 18px 18px 16px; border-radius: 16px; background: var(--surface); box-shadow: var(--sh-card); display: grid; gap: 14px; }
 .nt-alerts.hidden { display: none; }
-.nt-alerts-text { display: flex; gap: 10px; align-items: flex-start; min-width: 0; flex: 1 1 320px; }
-.nt-alerts-text > svg { flex: none; margin-top: 2px; color: var(--violet); }
-.nt-alerts-text b { display: block; font-size: 14px; }
-.nt-alerts-text .sub { font-size: 12.5px; }
-.nt-alerts-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.nt-alerts-mail { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.nta-head { display: flex; align-items: flex-start; gap: 12px; }
+.nta-chip { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; color: var(--violet); background: color-mix(in srgb, var(--violet) 12%, transparent); }
+.nta-title { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.nta-title b { font-size: 15px; letter-spacing: -0.01em; }
+.nta-title span { font-size: 12.5px; line-height: 1.5; color: var(--muted); max-width: 70ch; }
+.nta-state { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 99px; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--sunk); }
+.nta-state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: 0.55; }
+.nta-state.on { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.nta-state.on i { opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
+.nta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.nta-tile { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 11px 12px; border-radius: 12px; background: var(--sunk); cursor: pointer; transition: background 0.2s, box-shadow 0.2s; }
+.nta-tile:hover { box-shadow: inset 0 0 0 1px var(--border); }
+.nta-tile.on { background: color-mix(in srgb, var(--violet) 7%, var(--sunk)); }
+.nta-ico { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; color: var(--muted); background: var(--surface); box-shadow: var(--sh-card); }
+.nta-tile.on .nta-ico { color: var(--violet); }
+.nta-txt { min-width: 0; flex: 1; display: grid; gap: 1px; }
+.nta-txt b { font-size: 13px; }
+.nta-txt small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nta-foot { display: flex; justify-content: flex-end; margin-top: -4px; }
+.nta-link { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 2px; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.nta-link:hover { color: var(--text); }
+@media (max-width: 860px) {
+  .nta-grid { grid-template-columns: 1fr; }
+  .nta-head { flex-wrap: wrap; }
+  .nta-state { margin-left: 50px; }
+}
 /* "Turn on notifications" pop-up on the Inbox (public/alerts.js): a soft glow at the top, a round icon chip,
    centred title and text, pill buttons. Violet when asking, amber when the browser has blocked notifications. */
 .modal-box.al-box { max-width: 420px; padding: 0; border-radius: 22px; overflow: hidden; }

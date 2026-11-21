@@ -3128,7 +3128,7 @@ async function sendInboxText(key, text, { replyTo, auto = false, aiDraft = false
     if (replyTo) payload.context = { message_id: replyTo };
     wamid = (await graph(sender, `${sender.phoneNumberId}/messages`, { method: 'POST', body: JSON.stringify(payload) })).messages?.[0]?.id;
   }
-  return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : aiDraft ? { aiDraft: true } : {}), ...(by && !auto ? { by } : {}), ...(credit ? { credit } : {}) });
+  return recordOut(key, { type: 'text', text: body, wamid, context: replyTo || undefined, ...(auto ? { auto: true } : aiDraft ? { aiDraft: true } : {}), ...(by && (!auto || by.api) ? { by } : {}), ...(credit ? { credit } : {}) });
 }
 
 // ---------- Sending a photo, video, document or audio in the 24-hour window ----------
@@ -3846,8 +3846,18 @@ for (const ws of tenants.allWorkspaces()) tenants.forWorkspace(ws, () => {
   const r = contactsApi.recheckPhones();
   if (r.fixed || r.flagged) console.log(`Contacts in ${ws.meta.name}: ${r.fixed} number(s) cleaned, ${r.flagged} newly flagged (${r.problems} need fixing).`);
 });
+// Who answers WhatsApp chats with AI when Spotmies CRM is connected: one of the two, never both. The CRM's assistant
+// answers only while someone has the CRM open (with its auto-reply on) and no one has SendON open; otherwise SendON's
+// assistant does. The CRM reports its presence every ~30s (POST /api/v1/presence) and claims each message before its
+// AI answers (POST /api/v1/ai/claim); SendON's assistant claims the message too, so only one side ever answers it.
+const crmPresence = new Map(); // workspace id → { at, aiOn }
+const CRM_ONLINE_MS = 90 * 1000;
+const sendonOnline = (wsId = tenants.wsId()) => { for (const r of listeners) if (r.wsId === wsId && r.userId) return true; return false; };
+const crmOnline = (wsId = tenants.wsId()) => { const p = crmPresence.get(wsId); return Boolean(p?.aiOn && Date.now() - p.at < CRM_ONLINE_MS); };
+const aiHandler = () => (crmOnline() && !sendonOnline() ? 'crm' : 'sendon');
+
 const alerts = require('./alerts')(app, { tenants, listeners, wrap, fail, mail: require('./mail') });
-const leadApi = require('./lead')(app, { alertHeld: (key, info) => alerts.held(key, info), db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key), numberLocked: (senderId) => { const s = db.senders.find((x) => x.id === senderId); return Boolean(lockOf(s) || restrictsReplies(s)); } });
+const leadApi = require('./lead')(app, { aiHandler, alertHeld: (key, info) => alerts.held(key, info), db, save, id, wrap, fail, aiConfig, aiAllowed: tenants.aiAllowed, broadcast, contacts: contactsApi, notes, credits, sendText: (key, text, opts) => sendInboxText(key, text, opts), shared: (key) => sharedMessages(key), numberLocked: (senderId) => { const s = db.senders.find((x) => x.id === senderId); return Boolean(lockOf(s) || restrictsReplies(s)); } });
 
 // --- AI assistant -------------------------------------------------------------
 
@@ -3855,6 +3865,8 @@ const leadApi = require('./lead')(app, { alertHeld: (key, info) => alerts.held(k
 require('./integrations')(apiV1, app, {
   db, save, tenants, wrap, fail, id, createCampaign, lockOf, senderName, publicTemplate, notApprovedError, broadcastTo,
   // the conversation feed and replies (Inbox)
+  aiHandler, sendonOnline: () => sendonOnline(), crmHeartbeat: (aiOn) => crmPresence.set(tenants.wsId(), { at: Date.now(), aiOn: Boolean(aiOn) }),
+  wouldAnswer: (key) => leadApi.wouldAnswer(key),
   readProfilePhoto, chatKey, splitKey, sendInboxText, sendInboxTemplate, sendOutMedia, outKind, OUT_MEDIA, MIME_ALIAS, ensureMedia, normalizeTypedPhone, contacts: contactsApi, WINDOW_MS,
 });
 

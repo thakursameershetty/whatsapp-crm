@@ -85,36 +85,56 @@
     if (!el || !st) return;
     const on = Boolean(await thisBrowser().catch(() => null)) && perm() === 'granted';
     el.classList.remove('hidden');
+    const email = Boolean(st.email && st.emailWorks);
+    const sound = Boolean(window.Sound?.enabled());
+    const sw = (key, checked, label, disabled = false) =>
+      `<span class="toggle sm"><input type="checkbox" data-al="${key}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} aria-label="${label}" /><span class="track"><span class="lbl on">ON</span><span class="lbl off">OFF</span><span class="knob"></span></span></span>`;
+    const tile = (cls, ico, title, note, control) =>
+      `<label class="nta-tile ${cls}"><span class="nta-ico">${icon(ico, 16)}</span><span class="nta-txt"><b>${title}</b><small>${note}</small></span>${control}</label>`;
+    const live = on || email;
     el.innerHTML = `
-      <div class="nt-alerts-text">${icon('bell', 16)}<div><b>Alerts when a chat waits for you</b>
-        <span class="sub">When the AI holds a reply (a meeting, pricing, appreciation) or asks for a person, and no one on the team has SendON open, or no one replies within 5 minutes.</span></div></div>
-      <div class="nt-alerts-ctl">
-        ${on ? `<span class="pill read" style="text-transform:none;gap:5px">${icon('circle-check', 12)}On in this browser</span><button class="btn sm quiet" data-al="test">Test</button><button class="btn sm quiet" data-al="off">Turn off</button>`
-             : `<button class="btn sm primary" data-al="on" data-icon="bell" data-icon-size="13">Turn on browser alerts</button>`}
-        <label class="nt-alerts-mail" title="${st.emailWorks ? '' : 'Email isn’t set up on this server yet, so nothing is emailed for now.'}"><input type="checkbox" data-al="email" ${st.email ? 'checked' : ''}> Email me too</label>
-        <label class="nt-alerts-mail" title="SendON’s own sounds for new notifications, alerts and errors, while SendON is open in this browser"><input type="checkbox" data-al="sound" ${window.Sound?.enabled() ? 'checked' : ''}> Play sounds</label>
-      </div>`;
+      <div class="nta-head">
+        <span class="nta-chip">${icon('message-circle', 18)}</span>
+        <div class="nta-title">
+          <b>Alerts when a chat waits for you</b>
+          <span>When the AI holds a reply (a meeting, pricing, a thank-you) or asks for a person: right away if no one on the team has SendON open, otherwise after 5 minutes without a reply.</span>
+        </div>
+        <span class="nta-state ${live ? 'on' : ''}"><i></i>${live ? 'Alerts on' : 'Alerts off'}</span>
+      </div>
+      <div class="nta-grid">
+        ${tile(on ? 'on' : '', 'bell', 'This browser', on ? 'Pops up even with SendON closed' : supported ? 'Off: turn on to get pop-ups here' : 'This browser can’t show alerts', sw('browser', on, 'Browser alerts', !supported))}
+        ${tile(email ? 'on' : '', 'mail', 'Email', !st.emailWorks ? 'Email isn’t set up on this server yet' : st.email ? 'Sent to the email you sign in with' : 'Off', sw('email', email, 'Email alerts', !st.emailWorks))}
+        ${tile(sound ? 'on' : '', 'headphones', 'Sounds', sound ? 'For new notifications while SendON is open' : 'Off', sw('sound', sound, 'Sounds'))}
+      </div>
+      ${on ? `<div class="nta-foot"><button type="button" class="nta-link" data-al="test">${icon('send', 13)}Send a test alert</button></div>` : ''}`;
     window.LA?.hydrate?.(el);
   }
 
   document.addEventListener('click', async (e) => {
-    const b = e.target.closest('#ntAlerts [data-al]');
-    if (!b || b.type === 'checkbox') return;
+    const b = e.target.closest('#ntAlerts button[data-al]');
+    if (!b) return;
     b.disabled = true;
     try {
-      if (b.dataset.al === 'on') await turnOn();
-      if (b.dataset.al === 'off') await turnOff();
       if (b.dataset.al === 'test') await sendTest();
     } catch (err) { toast(err.message, 'error'); }
     b.disabled = false;
   });
   document.addEventListener('change', async (e) => {
+    const br = e.target.closest('#ntAlerts [data-al="browser"]');
+    if (br) {
+      br.disabled = true;
+      try { if (br.checked) await turnOn(); else await turnOff(); }
+      catch (err) { toast(err.message, 'error'); }
+      render(); // shows what really happened (the browser may have said no)
+      return;
+    }
     const snd = e.target.closest('#ntAlerts [data-al="sound"]');
-    if (snd) { window.Sound?.set(snd.checked); toast(snd.checked ? 'Sounds on' : 'Sounds off', '', { sound: false }); return; }
+    if (snd) { window.Sound?.set(snd.checked); toast(snd.checked ? 'Sounds on' : 'Sounds off', '', { sound: false }); render(); return; }
     const c = e.target.closest('#ntAlerts [data-al="email"]');
     if (!c) return;
     try { st = await api('/alerts/email', { method: 'POST', body: { on: c.checked } }); toast(c.checked ? 'You’ll get an email too' : 'No alert emails'); }
     catch (err) { c.checked = !c.checked; toast(err.message, 'error'); }
+    render();
   });
 
   const loaded = api('/alerts').then((s) => { st = s; render(); }).catch(() => {});

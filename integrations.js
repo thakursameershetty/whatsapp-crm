@@ -35,6 +35,7 @@ const tidy = (v, max) => String(v ?? '').replace(/\s+/g, ' ').replace(/[\u0000-\
 module.exports = function mountIntegrations(apiV1, app, ctx) {
   const { db, save, tenants, wrap, fail, id, createCampaign, lockOf, senderName, publicTemplate, notApprovedError, broadcastTo } = ctx;
   const { readProfilePhoto } = ctx;
+  const { aiHandler, sendonOnline, crmHeartbeat, wouldAnswer, splitKey } = ctx;
   const { chatKey, sendInboxText, sendInboxTemplate, sendOutMedia, outKind, OUT_MEDIA, MIME_ALIAS, ensureMedia, normalizeTypedPhone, contacts, WINDOW_MS } = ctx;
   const express = require('express');
 
@@ -337,7 +338,8 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
     const key = chatKey(sender.id, wa);
     const msg = b.templateId
       ? await sendInboxTemplate(key, String(b.templateId), b.values && typeof b.values === 'object' ? b.values : {})
-      : await sendInboxText(key, b.text, { replyTo: b.replyTo ? String(b.replyTo) : undefined, by: { api: req.apiKey?.name || 'API key' } });
+      // auto: the calling app's AI wrote and sent it on its own (shown as an auto-reply, not a person's message).
+      : await sendInboxText(key, b.text, { replyTo: b.replyTo ? String(b.replyTo) : undefined, auto: b.auto === true, by: { api: req.apiKey?.name || 'API key' } });
     res.status(201).json(inboxItem(msg));
   }));
 
@@ -368,6 +370,56 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
   }));
 
   // Is the 24-hour window open with this person on this number (and until when)?
+  // --- One AI per message: Spotmies CRM's assistant or SendON's (see aiHandler in server.js) ---
+  // The calling app says it's open (someone is using it) and whether its auto-reply is on; it learns who answers now.
+  apiV1.post('/presence', (req, res) => {
+    crmHeartbeat(req.body?.aiOn === true);
+    res.json({ sendonOnline: sendonOnline(), handler: aiHandler() });
+  });
+
+  // Before its AI answers a customer's latest message, the calling app claims it. Only one claim per message wins,
+  // and SendON's own assistant claims it too when it starts, so a message is never answered twice.
+  apiV1.post('/ai/claim', wrap((req, res) => {
+    const b = req.body || {};
+    const wa = normalizeTypedPhone(b.phone);
+    const sid = String(b.senderId || '');
+    if (!wa || !sid) throw fail('senderId and phone are required');
+    const key = chatKey(sid, wa);
+    const lastIn = db.messages.filter((m) => m.key === key && m.dir === 'in' && live(m)).at(-1);
+    if (!lastIn) return res.json({ ok: false, reason: 'Nothing to answer in this chat' });
+    const basedOn = lastIn.id || lastIn.ts;
+    const ai = ((db.chats[key] ||= { lastReadAt: null }).ai ||= {});
+    const no = (reason) => res.json({ ok: false, reason });
+    if (ai.claim?.basedOn === basedOn) return ai.claim.by === 'crm' ? res.json({ ok: true }) : no("SendON's assistant is answering this message");
+    if (ai.busy) return no("SendON's assistant is answering this message");
+    if (db.messages.some((m) => m.key === key && m.dir === 'out' && m.ts > lastIn.ts)) return no('Already answered');
+    if (aiHandler() === 'sendon' && wouldAnswer(key)) return no(sendonOnline() ? "Someone has SendON open, so SendON's assistant answers" : "No one is in Spotmies CRM, so SendON's assistant answers");
+    ai.claim = { by: 'crm', basedOn, at: new Date().toISOString() };
+    save();
+    res.json({ ok: true });
+  }));
+
+  // SendON's AI drafts waiting for a person (not answered yet, still about the customer's latest message), so the
+  // calling app can show the same draft in its own inbox.
+  apiV1.get('/drafts', (req, res) => {
+    const lastIn = new Map(), lastOut = new Map();
+    for (const m of db.messages) {
+      if (!live(m) || m.type === 'reaction') continue;
+      if (m.dir === 'in') lastIn.set(m.key, m);
+      else if (m.dir === 'out') lastOut.set(m.key, m.ts);
+    }
+    const drafts = [];
+    for (const [key, chat] of Object.entries(db.chats || {})) {
+      const d = chat?.ai?.draft;
+      const li = lastIn.get(key);
+      if (!d?.text || !li || (li.id || li.ts) !== d.basedOn) continue;
+      if ((lastOut.get(key) || '') > (d.inAt || d.at)) continue; // answered since
+      const { senderId, wa } = splitKey(key);
+      drafts.push({ senderId, phone: wa, text: d.text, at: d.at, held: chat.ai.alert?.reason || null });
+    }
+    res.json({ drafts });
+  });
+
   apiV1.get('/conversations/window', (req, res) => {
     const wa = normalizeTypedPhone(req.query.phone);
     const sid = String(req.query.senderId || '');
