@@ -338,12 +338,24 @@
         <select id="ntPer" aria-label="Notifications per page" title="How many notifications a page shows"></select>
       </div>
         <div class="row tight">
+          <button class="btn quiet" data-goto="notification-settings" data-icon="settings">Notification settings</button>
           <button class="btn quiet" id="ntReadAll" data-icon="check-check">Mark all as read</button>
           <button class="btn quiet" id="ntClear" data-icon="delete">Clear</button>
         </div>
       </div>
-      <div id="ntAlerts" class="nt-alerts hidden"></div>
       <div id="ntList" class="nt-list" data-skel="notif:6"></div>
+    </section>
+
+    <!-- NOTIFICATION SETTINGS (opened from the Notifications page) ------->
+    <section id="tab-notification-settings" class="tab hidden">
+      <div class="section-head">
+        <div>
+          <a href="/notifications" class="icon-btn head-back" data-goto="notifications" title="Back to Notifications" aria-label="Back to Notifications" data-icon="arrow-left" data-icon-size="22"></a>
+          <h1>Notification settings</h1>
+          <p class="sub">Choose how you’re alerted when a chat is waiting for you.</p>
+        </div>
+      </div>
+      <div id="ntAlerts" class="nt-alerts hidden"></div>
     </section>
 
     <!-- REPORT AN ISSUE ----------------------------------------------------->
