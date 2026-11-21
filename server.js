@@ -3328,6 +3328,7 @@ function mp4HasAudio(buf) {
 app.get('/api/media/:mid', wrap(async (req, res) => {
   const { file, meta } = await ensureMedia(req.params.mid);
   res.type(meta.mime || 'application/octet-stream');
+  res.set('X-Frame-Options', 'SAMEORIGIN'); // the app's PDF preview shows these in a frame (security.js sends DENY otherwise)
   if (req.query.name) res.attachment(String(req.query.name));
   res.sendFile(file);
 }));
