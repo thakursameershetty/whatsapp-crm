@@ -8024,3 +8024,9 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .ss-eye:hover { color: var(--text); }
 .ss-eye.on { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 .ss-opt.ss-unusable > span:not(.ss-av), .ss-opt.ss-unusable .ss-av { opacity: 0.5; }
+
+/* Open a Google Sheet (Send page, Contacts import): the link box and what went wrong. */
+#gsLink { width: 100%; margin-top: 10px; }
+.gs-err { margin: 8px 0 0; color: var(--danger); font-size: 12.5px; line-height: 1.4; }
+.ci-gs { margin-top: 10px; }
+.ci-gs input { flex: 1; min-width: 0; }

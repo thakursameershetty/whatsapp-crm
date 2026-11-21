@@ -119,6 +119,51 @@
     toast(`Opened ${added} sheet${added > 1 ? 's' : ''} · ${rows.toLocaleString()} rows`);
   }
 
+  // --- Google Sheets shared as "Anyone with the link can view" ------------------------
+  // The server fetches the sheet's CSV export (gsheet.js); it then opens like a CSV file. The link is the tab's "file",
+  // so opening the same link again refreshes that tab with the sheet's latest rows.
+  async function readGoogleSheet(link) {
+    const r = await api('/import/google-sheet', { method: 'POST', body: { url: link } });
+    return { name: r.name || 'Google Sheet', grid: parseCsv(r.csv) };
+  }
+  async function openSheetLink(link) {
+    const book = await readGoogleSheet(link);
+    const t = toTable(book.grid);
+    if (!t.rows.length) throw new Error('That sheet has no rows.');
+    const open = SP.sheets.findIndex((sh) => sh.file === link);
+    const sh = makeSheet({ name: book.name, file: link, ...t });
+    if (open >= 0) {
+      if (SP.sheets[open].dirty && !(await confirmDialog({ title: `Refresh ${esc(book.name)}?`, message: 'Your edits to this tab will be replaced by the sheet’s latest rows.', confirmText: 'Refresh' }))) return;
+      grid.clearHistory();
+      SP.sheets[open] = sh;
+      activate(open);
+      return toast(`Refreshed from Google Sheets · ${t.rows.length.toLocaleString()} rows`);
+    }
+    SP.sheets.push(sh);
+    activate(SP.sheets.length - 1);
+    toast(`Opened ${book.name} · ${t.rows.length.toLocaleString()} rows`);
+  }
+  // A small window to paste the link; `take(link)` does the opening (the Send page's tab, or Contacts' import list).
+  function askSheetLink(take, { title = 'Open a Google Sheet', action = 'Open sheet' } = {}) {
+    const body = openModal(title, `
+      <p class="sub ib-modal-sub">Paste the sheet’s link. It must be shared as <b>Anyone with the link can view</b> (Share → General access). The first tab opens, or the tab the link points at.</p>
+      <input id="gsLink" placeholder="https://docs.google.com/spreadsheets/d/…" autocomplete="off" spellcheck="false" />
+      <p class="gs-err hidden" id="gsErr"></p>
+      <div class="modal-actions"><button class="btn quiet" id="gsCancel">Cancel</button><button class="btn primary" id="gsGo" disabled>${esc(action)}</button></div>`);
+    const input = $('#gsLink', body), go = $('#gsGo', body), err = $('#gsErr', body);
+    input.focus();
+    input.addEventListener('input', () => { go.disabled = !input.value.trim(); err.classList.add('hidden'); });
+    $('#gsCancel', body).addEventListener('click', () => closeModal());
+    const run = async () => {
+      if (!input.value.trim() || go.disabled) return;
+      go.disabled = true; go.textContent = 'Reading the sheet…';
+      try { await take(input.value.trim()); closeModal(); }
+      catch (e) { err.textContent = e.message; err.classList.remove('hidden'); go.disabled = false; go.textContent = action; }
+    };
+    go.addEventListener('click', run);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+  }
+
   // --- Phone checks ----------------------------------------------------------------
 
   // Numbers earlier campaigns showed aren't on WhatsApp (failed with 131026, never delivered), from the server
@@ -400,10 +445,12 @@
       Sheet.Menu.open(r.left, r.top - 8, [
         { label: 'Blank sheet', action: () => $('#spBlank').click() },
         { label: 'Upload a file…', action: () => $('#spTabFile').click() },
+        { label: 'From a Google Sheets link…', action: () => askSheetLink(openSheetLink) },
       ]);
     }
   });
 
+  $('#spGsheet')?.addEventListener('click', () => guard(() => askSheetLink(openSheetLink)));
   $('#spBlank').addEventListener('click', () => {
     const headers = ['phone', 'name'];
     const sh = makeSheet({ name: `Sheet ${SP.sheets.length + 1}`, headers, rows: Array.from({ length: 40 }, () => ['', '']) });
@@ -1897,6 +1944,8 @@
   const thenNew = (fn, opts = {}) => window.CampaignSetup.create({ ...opts, then: fn });
 
   window.SendPage = {
+    readGoogleSheet,
+    askSheetLink,
     // At start-up: /send?c=<draft> opens that draft again (a sent one shows on Campaigns).
     async restoreDraft() {
       const cid = location.pathname.replace(/\/+$/, '') === '/send' && new URLSearchParams(location.search).get('c');

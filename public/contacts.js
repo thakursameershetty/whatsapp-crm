@@ -1126,6 +1126,8 @@
       <p class="sub ib-modal-sub">CSV or Excel. Every sheet of a workbook is listed; people are matched by phone number, so importing again updates them instead of making duplicates.</p>
       <label class="ci-drop" id="ciDrop">${icon('cloud-upload', 22)}<span><b>Choose files</b> or drop them here</span>
         <input type="file" id="ciFiles" multiple hidden accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" /></label>
+      <div class="row tight ci-gs"><input id="ciGsLink" placeholder="…or paste a Google Sheets link (anyone with the link can view)" autocomplete="off" spellcheck="false" /><button type="button" class="btn sm" id="ciGsGo" disabled>Add sheet</button></div>
+      <p class="gs-err hidden" id="ciGsErr"></p>
       <div id="ciSheets" class="ci-sheets"></div>
       <div id="ciOptions" class="ci-opts hidden">
         <label class="ci-check"><input type="checkbox" class="cb" id="ciExtra" checked /> Keep other columns as extra details</label>
@@ -1181,16 +1183,14 @@
       }).join('');
       summary();
     }
-    async function addFiles(list) {
-      for (const file of [...list]) {
-        try {
-          const book = (await SendPage.readWorkbook(file)).filter((b) => b.grid.some((r) => r.some((c) => String(c).trim())));
+    // One file's (or Google Sheet's) sheets into the list, each with its columns guessed.
+    function addBook(fileName, book) {
           for (const b of book) {
             const t = SendPage.toTable(b.grid);
             if (!t.headers.length) continue;
             const phone = guessPhoneColumn(t.headers, t.rows);
             const s = {
-              label: book.length > 1 ? `${file.name} · ${b.name}` : file.name, headers: t.headers, rows: t.rows, include: true, fix: true,
+              label: book.length > 1 ? `${fileName} · ${b.name}` : fileName, headers: t.headers, rows: t.rows, include: true, fix: true,
               map: {
                 phone,
                 name: guessCol(t.headers, /^(full[ _-]?)?name$|contact name|customer|^name\b/i) || guessCol(t.headers, /name/i, /company|business|file|user ?name|campaign|ad|form/i),
@@ -1201,6 +1201,11 @@
             s.groups = detectShiftedRows(s.headers, s.rows, s.headers.indexOf(phone));
             IM.sheets.push(s);
           }
+    }
+    async function addFiles(list) {
+      for (const file of [...list]) {
+        try {
+          addBook(file.name, (await SendPage.readWorkbook(file)).filter((b) => b.grid.some((r) => r.some((c) => String(c).trim()))));
         } catch (e) {
           toast(`Couldn't read ${file.name}: ${e.message}`, 'error');
         }
@@ -1209,6 +1214,23 @@
     }
 
     $('#ciFiles', body).addEventListener('change', (e) => { addFiles(e.target.files); e.target.value = ''; });
+    // A Google Sheet shared as "Anyone with the link can view": read by the server, then listed like a file.
+    const gsLink = $('#ciGsLink', body), gsGo = $('#ciGsGo', body), gsErr = $('#ciGsErr', body);
+    gsLink.addEventListener('input', () => { gsGo.disabled = !gsLink.value.trim(); gsErr.classList.add('hidden'); });
+    const addSheet = async () => {
+      if (!gsLink.value.trim() || gsGo.disabled) return;
+      gsGo.disabled = true; gsGo.textContent = 'Reading…';
+      try {
+        const b = await SendPage.readGoogleSheet(gsLink.value.trim());
+        if (!b.grid.some((r) => r.some((c) => String(c).trim()))) throw new Error('That sheet has no rows.');
+        addBook(b.name, [b]);
+        renderSheets();
+        gsLink.value = '';
+      } catch (e) { gsErr.textContent = e.message; gsErr.classList.remove('hidden'); }
+      gsGo.textContent = 'Add sheet'; gsGo.disabled = !gsLink.value.trim();
+    };
+    gsGo.addEventListener('click', addSheet);
+    gsLink.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addSheet(); } });
     const drop = $('#ciDrop', body);
     drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
     drop.addEventListener('dragleave', () => drop.classList.remove('over'));

@@ -2038,6 +2038,9 @@ app.post('/api/send/precheck', wrap((req, res) => {
 
 // The numbers earlier campaigns showed aren't on WhatsApp (131026, never delivered), for the Send page's sheet: those
 // rows get their own "Not on WhatsApp" label and are left out unless ticked.
+// Google Sheets shared as "Anyone with the link can view", opened like a CSV (gsheet.js).
+require('./gsheet')(app, { wrap, fail });
+
 app.get('/api/send/nowa', (req, res) => {
   const phones = [];
   if (!db.settings.demoMode) for (const [phone, x] of sendHistory()) if (x.nowaAt && !x.delivered) phones.push(phone);
