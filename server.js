@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { normalizeLead, sanitizeLead } = require('./lead'); // the lead assistant's playbooks (lead.js)
+const PickWords = require('./public/pick.js'); // "a word from my list" variables (also loaded by the Send page)
 
 const PORT = process.env.PORT || 3000;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
@@ -2080,7 +2081,7 @@ function resolveRecipients(body, template) {
     const values = {};
     for (const v of vars) {
       const m = mapping[v.key] || {};
-      values[v.key] = m.type === 'column' ? (m.keepFiller ? String(row[m.value] ?? '').trim() : cleanCell(row[m.value])) || String(m.fallback ?? '').trim() : m.type === 'same' ? '' : String(m.value ?? '');
+      values[v.key] = m.type === 'column' ? (m.keepFiller ? String(row[m.value] ?? '').trim() : cleanCell(row[m.value])) || String(m.fallback ?? '').trim() : m.type === 'same' || m.type === 'pick' ? '' : String(m.value ?? '');
     }
     // "Same as another variable" (a button reusing the message's link) once the others are filled.
     for (const v of vars) if (mapping[v.key]?.type === 'same') values[v.key] = values[mapping[v.key].value] ?? '';
@@ -2088,6 +2089,15 @@ function resolveRecipients(body, template) {
     const fromCol = nameCol ? [row[nameCol.col], nameCol.last && row[nameCol.last]].filter(Boolean).join(' ').trim() : '';
     Object.assign(values, withLinkDefaults(template, values)); // website buttons: the template's own link unless the campaign chose one
     recipients.push({ phone, values, name: String(fromCol || (greet && values[greet]) || '').trim().slice(0, 120) });
+  }
+  // "A word from my list" (public/pick.js): spread evenly over everyone being sent to, then "same as" variables again.
+  for (const v of vars) {
+    const m = mapping[v.key];
+    if (m?.type !== 'pick') continue;
+    const words = PickWords.clean(m.words);
+    const chosen = PickWords.assign(words, recipients.map((r) => r.phone));
+    for (const r of recipients) r.values[v.key] = chosen.get(r.phone) || '';
+    for (const x of vars) if (mapping[x.key]?.type === 'same' && mapping[x.key].value === v.key) for (const r of recipients) r.values[x.key] = r.values[v.key];
   }
   return { recipients, skipped, vars };
 }

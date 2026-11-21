@@ -4,6 +4,9 @@
 // duplicate numbers removed. Edits change what gets sent, never the original file.
 
 (function () {
+  // "A word from my list" variables (pick.js): where the person's words are remembered, and the even spread per list.
+  const PICK_KEY = 'sendon.pickWords';
+  const pickCache = new Map();
   const SP = {
     sheets: [], // { id, name, file, headers, rows: [{ cells, on, st, phone }], widths, filters, phoneName, included, dirty }
     active: -1,
@@ -1015,8 +1018,10 @@
         <select class="m-src" aria-label="Value for ${esc(varLabel(v))}">
           ${sameOpts}
           ${cols.length ? `<optgroup label="Column">${cols.map((c) => `<option value="c:${esc(c)}" ${m.type === 'column' && c === m.value ? 'selected' : ''}>${esc(c)}</option>`).join('')}</optgroup>` : ''}
+          ${v.media || go ? '' : `<option value="pick" ${m.type === 'pick' ? 'selected' : ''}>A word from my list… (Friend, Champion…)</option>`}
           <option value="fixed" ${fixed ? 'selected' : ''}>${go ? 'Paste a link for everyone…' : 'Same text for everyone…'}</option>
         </select>
+        ${m.type === 'pick' ? pickHtml(m) : ''}
         ${fixed ? `<input class="m-val" value="${esc(m.value)}" placeholder="${v.media ? MEDIA_EXAMPLE[v.media] || 'https://…' : go ? 'https://… (any full link)' : 'Type the text'}" aria-label="Text for ${esc(varLabel(v))}" />` : ''}
         ${fixed && v.media ? `<div class="m-upload-row"><label class="btn sm m-upload" title="Upload a ${esc(v.media)} from this computer">${icon('upload', 14)}${uploadedName(m.value) ? 'Replace' : 'Upload'} ${esc(v.media)}<input type="file" hidden accept="${esc(UPLOAD_ACCEPT[v.media] || '')}" /></label>${m.value ? `<button type="button" class="btn sm quiet m-unupload" title="Take this ${esc(v.media)} out of the message">${icon('delete', 14)}Remove</button>` : ''}</div>` : ''}
         ${m.type === 'column' && !v.media ? fallbackHtml(v, m) : ''}
@@ -1052,6 +1057,17 @@
   }
   // "Show": jump to the next row with no value in that column and select the cell (each click goes to the next one).
   const blankAt = {};
+  // "Use the 20 defaults" under a word list.
+  $('#mapping').addEventListener('click', (e) => {
+    const r = e.target.closest('.m-words-reset');
+    if (!r) return;
+    const key = r.closest('.sp-map').dataset.key;
+    SP.mapping[key] = { type: 'pick', words: [...PickWords.DEFAULTS] };
+    try { localStorage.setItem(PICK_KEY, JSON.stringify(PickWords.DEFAULTS)); } catch {}
+    renderMapping();
+    renderPreview();
+    renderSummary();
+  });
   $('#mapping').addEventListener('click', (e) => {
     const b = e.target.closest('[data-show-blank]');
     if (!b) return;
@@ -1131,14 +1147,20 @@
     const row = e.target.closest('.sp-map');
     if (!row) return;
     const key = row.dataset.key;
-    if (e.target.classList.contains('m-fb')) {
+    if (e.target.classList.contains('m-words')) {
+      // Typing the words: kept (and remembered for next time) without redrawing, so the cursor stays put.
+      const words = PickWords.clean(e.target.value);
+      if (words.length) { SP.mapping[key].words = words; try { localStorage.setItem(PICK_KEY, JSON.stringify(words)); } catch {} }
+      const hint = row.querySelector('.m-words-hint');
+      if (hint) hint.firstChild.textContent = `${words.length} word${words.length === 1 ? '' : 's'} · spread evenly over everyone, at random. Used for everyone, names or not. `;
+    } else if (e.target.classList.contains('m-fb')) {
       SP.mapping[key].fallback = e.target.value;
       const hint = e.target.nextElementSibling;
       const what = hint?.querySelector('.m-fb-what');
       if (what) what.textContent = e.target.value.trim() ? 'They get the text above.' : 'Without text above, they’re left out.';
     } else if (e.target.classList.contains('m-src')) {
       const v = e.target.value;
-      SP.mapping[key] = v === 'fixed' ? { type: 'fixed', value: '' } : v.startsWith('s:') ? { type: 'same', value: v.slice(2) } : { type: 'column', value: v.slice(2) };
+      SP.mapping[key] = v === 'fixed' ? { type: 'fixed', value: '' } : v === 'pick' ? { type: 'pick', words: savedPickWords() } : v.startsWith('s:') ? { type: 'same', value: v.slice(2) } : { type: 'column', value: v.slice(2) };
       renderMapping();
       if (v === 'fixed') $(`.sp-map[data-key="${CSS.escape(key)}"] .m-val`)?.focus();
     } else { SP.mapping[key].value = e.target.value; markLinks(); }
@@ -1147,11 +1169,32 @@
     renderSummary();
   });
 
+  // "A word from my list" (pick.js): the words spread evenly over everyone this campaign sends to, as the server does.
+  const savedPickWords = () => {
+    try { const w = JSON.parse(localStorage.getItem(PICK_KEY) || 'null'); if (Array.isArray(w) && w.length) return PickWords.clean(w); } catch {}
+    return [...PickWords.DEFAULTS];
+  };
+  function pickWordFor(m, phone) {
+    const words = PickWords.clean(m.words);
+    if (!words.length) return '';
+    if (!phone) return `[${words.slice(0, 3).join(' / ')}${words.length > 3 ? ' / …' : ''}]`;
+    const phones = recipients().list.map((x) => x.obj.__phone);
+    const k = words.join('\n') + '|' + phones.length + '|' + (phones[0] || '') + '|' + (phones.at(-1) || '');
+    if (!pickCache.has(k)) { pickCache.clear(); pickCache.set(k, PickWords.assign(words, phones)); }
+    return pickCache.get(k).get(phone) || words[0];
+  }
+  function pickHtml(m) {
+    const words = PickWords.clean(m.words);
+    const n = recipients().list.length, each = words.length ? n / words.length : 0;
+    return `<textarea class="m-words" rows="5" aria-label="Words to use, one per line" placeholder="Friend\nChampion\nExplorer">${esc(words.join('\n'))}</textarea>
+      <small class="m-hint m-words-hint">${words.length} word${words.length === 1 ? '' : 's'}${n && words.length ? ` · each used for about ${each < 1 ? '1 person' : `${Math.floor(each)}${each % 1 ? `–${Math.ceil(each)}` : ''} people`}, at random` : ''}. Used for everyone, names or not. <button type="button" class="link m-words-reset">Use the 20 defaults</button></small>`;
+  }
+
   const valuesFor = (obj) => {
     const out = {};
     for (const v of currentTemplate()?.variables || []) {
       const m = SP.mapping[v.key] || {};
-      out[v.key] = m.type === 'column' ? cellValue(m, obj?.[m.value]) || String(m.fallback || '').trim() : m.type === 'same' ? '' : m.value || '';
+      out[v.key] = m.type === 'column' ? cellValue(m, obj?.[m.value]) || String(m.fallback || '').trim() : m.type === 'same' ? '' : m.type === 'pick' ? pickWordFor(m, obj?.__phone) : m.value || '';
     }
     for (const v of currentTemplate()?.variables || []) if (SP.mapping[v.key]?.type === 'same') out[v.key] = out[SP.mapping[v.key].value] ?? '';
     if (SP.mapping['header.filename']?.value) out['header.filename'] = SP.mapping['header.filename'].value;

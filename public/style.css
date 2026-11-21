@@ -8030,3 +8030,8 @@ html.mv-lock, html.mv-lock body { overflow: hidden; }
 .gs-err { margin: 8px 0 0; color: var(--danger); font-size: 12.5px; line-height: 1.4; }
 .ci-gs { margin-top: 10px; }
 .ci-gs input { flex: 1; min-width: 0; }
+
+/* "A word from my list" under a Send page variable: the words box and how they spread. */
+.sp-map .m-words { grid-column: 2; width: 100%; min-height: 96px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.45; }
+.sp-map .m-words-hint { grid-column: 2; }
+.sp-map .m-words-hint .link { font-size: inherit; }
