@@ -12,6 +12,7 @@
 //   POST /api/v1/campaigns               send a template to people: { name, templateId, senderIds, consent: true,
 //                                        recipients: [{ phone, name?, values: { "body.1": "Ravi", … } }], externalId? }
 //                                        externalId makes retries safe: the same id returns the campaign already made.
+//                                        app? names the calling app ("Spotmies CRM"): the campaign shows "via <app>" in SendON.
 //   GET  /api/v1/campaigns/:id           progress, counts, and each recipient's status
 //   GET  /api/v1/messages?after=<cursor> every WhatsApp message in and out (Inbox chats, campaign sends, test sends),
 //                                        oldest change first, for keeping a copy in sync: each item comes again
@@ -189,7 +190,8 @@ module.exports = function mountIntegrations(apiV1, app, ctx) {
       mapping,
       source: 'api',
     });
-    c.api = { keyId: req.apiKey.id, keyName: req.apiKey.name };
+    // Which app started it ("Spotmies CRM"), shown on the campaign in SendON; the key's own name otherwise.
+    c.api = { keyId: req.apiKey.id, keyName: req.apiKey.name, ...(tidy(b.app, 60) ? { app: tidy(b.app, 60) } : {}) };
     if (externalId) c.externalId = externalId;
     save();
     // Open SendON pages show the new campaign straight away.

@@ -122,6 +122,8 @@
     ['stopped', 'Stopped', (c) => c.status === 'stopped' || c.status === 'cancelled'],
     ['tests', 'Tests', (c) => Boolean(c.test)], // shown only when there are some
   ];
+  // Campaigns another app started through the API (the CRM's workflows): which app, on the list, cards and page.
+  const viaPill = (c) => (c.api ? `<span class="pill via" title="${esc(`Started from ${c.api.app || c.api.keyName || 'another app'} through SendON’s API`)}">via ${esc(c.api.app || c.api.keyName || 'API')}</span>` : '');
   const TEST_PILL = '<span class="pill test" title="A test send: left out of the Overview’s numbers">Test</span>';
   const SORTS = {
     new: ['Newest', (a, b) => String(b.startedAt || b.createdAt).localeCompare(String(a.startedAt || a.createdAt))],
@@ -494,7 +496,7 @@
     return `<div class="cp-pin ${isLive ? 'is-live' : 'is-scheduled'}" data-open="${c.id}" style="--c:${colorOf(c)}">
       ${miniFolder(c)}
       <div class="cp-pin-main">
-        <span class="cp-pin-state">${isLive ? '<span class="cp-dot"></span>Sending now' : `${icon('clock', 12)}Scheduled`}${c.demo ? '<span class="pill demo">demo</span>' : ''}${c.test ? TEST_PILL : ''}</span>
+        <span class="cp-pin-state">${isLive ? '<span class="cp-dot"></span>Sending now' : `${icon('clock', 12)}Scheduled`}${c.demo ? '<span class="pill demo">demo</span>' : ''}${c.test ? TEST_PILL : ''}${viaPill(c)}</span>
         <b title="${esc(c.name)}">${esc(c.name)}</b>
         <span class="cp-pin-sub">${icon('file-text', 13)}<span title="${esc(c.templateName)}">${esc(c.templateName)}</span></span>
       </div>
@@ -533,7 +535,7 @@
     const sent = sentOf(s), del = deliveredOf(s);
     return `<button type="button" class="cp-folder" data-open="${c.id}" style="--c:${colorOf(c)};--vt:cp-${c.id}" title="${esc(c.name)}">
       <span class="cf-tab"></span><span class="cf-paper"></span><span class="cf-body"></span>
-      <span class="cp-folder-top">${c.status !== 'completed' ? `<span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>` : ''}${c.demo ? '<span class="pill demo">demo</span>' : ''}${c.test ? TEST_PILL : ''}${c.leads ? `<span class="cp-folder-leads">${c.leads} lead${c.leads > 1 ? 's' : ''}</span>` : ''}</span>
+      <span class="cp-folder-top">${c.status !== 'completed' ? `<span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>` : ''}${c.demo ? '<span class="pill demo">demo</span>' : ''}${c.test ? TEST_PILL : ''}${viaPill(c)}${c.leads ? `<span class="cp-folder-leads">${c.leads} lead${c.leads > 1 ? 's' : ''}</span>` : ''}</span>
       <span class="cp-folder-body">
         <b>${esc(displayName(c))}</b>
         <small>${esc(c.templateName)} · ${esc(shortDate(c.startedAt || c.createdAt))}</small>
@@ -611,7 +613,7 @@
     const s = c.stats || {};
     const sent = sentOf(s), del = deliveredOf(s), tried = sent + (s.failed || 0); // delivered out of everyone tried: failures count
     return `<tr data-open="${c.id}" style="--vt:cp-${c.id};--c:${colorOf(c)}">
-      <td><div class="cp-who"><span class="cp-ficon" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span><div class="cp-name"><b title="${esc(c.name)}">${esc(displayName(c))}</b><span>${esc(c.templateName)}${c.demo ? ' · <span class="pill demo">demo</span>' : ''}${c.test ? ' · ' + TEST_PILL : ''}${c.status !== 'completed' ? ` · <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>` : ''}</span></div></div></td>
+      <td><div class="cp-who"><span class="cp-ficon" aria-hidden="true"><i class="cf-tab"></i><i class="cf-paper"></i><i class="cf-body"></i></span><div class="cp-name"><b title="${esc(c.name)}">${esc(displayName(c))}</b><span>${esc(c.templateName)}${c.demo ? ' · <span class="pill demo">demo</span>' : ''}${c.test ? ' · ' + TEST_PILL : ''}${c.api ? ' · ' + viaPill(c) : ''}${c.status !== 'completed' ? ` · <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>` : ''}</span></div></div></td>
       <td class="num">${c.total.toLocaleString()}</td>
       <td><div class="cp-bar" title="${del.toLocaleString()} of ${tried.toLocaleString()} delivered${s.failed ? ` · ${s.failed.toLocaleString()} failed` : ''}"><span><i style="width:${pctOf(del, tried)}%"></i></span><b>${tried ? pctOf(del, tried) + '%' : '—'}</b></div></td>
       <td class="num">${del ? pctOf(s.read || 0, del) + '%' : '—'}</td>
@@ -831,7 +833,7 @@
     const why = c.status === 'stopped' && c.pausedReason ? `<div class="cd-why">${icon('badge-alert', 16)}<div><b>Why it stopped</b><span>${esc(c.pausedReason)}</span></div></div>` : '';
     $('#cdHead').innerHTML = `
       <div class="cd-title">
-        <div class="cd-name"><button type="button" class="icon-btn cd-back" data-cd="back" title="Back to campaigns" aria-label="Back to campaigns">${icon('arrow-left', 22)}</button>${miniFolder(c)}<div><h1>${esc(c.name)} <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${c.demo ? ' <span class="pill demo">demo</span>' : ''}${c.test ? ' ' + TEST_PILL : ''}</h1>
+        <div class="cd-name"><button type="button" class="icon-btn cd-back" data-cd="back" title="Back to campaigns" aria-label="Back to campaigns">${icon('arrow-left', 22)}</button>${miniFolder(c)}<div><h1>${esc(c.name)} <span class="pill ${c.status}">${esc(STATUS_LABEL[c.status] || c.status)}</span>${c.demo ? ' <span class="pill demo">demo</span>' : ''}${c.test ? ' ' + TEST_PILL : ''}${c.api ? ' ' + viaPill(c) : ''}</h1>
           ${c.description ? `<p class="sub cd-desc">${esc(c.description)}</p>` : ''}<p class="sub">Template <code>${esc(c.templateName)}</code> · ${nums.length ? esc(nums.join(', ')) : `${c.senderIds.length} number(s)`} · ${esc(when)}</p></div></div>
         <div class="cd-actions">${primary}
           <button class="btn" data-cd="follow" ${sentOf(s) || s.failed ? '' : 'disabled'}>Follow up ${icon('chevron-down', 14)}</button>

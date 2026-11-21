@@ -509,6 +509,7 @@ main { max-width: 1600px; margin: 0 auto; padding: 24px 28px 40px; } /* wide eno
 .pill.read { background: var(--good); color: #fff; }
 .pill.failed, .pill.REJECTED, .pill.invalid { background: var(--danger-soft); color: var(--danger); }
 .pill.stopped, .pill.PENDING, .pill.MANUAL, .pill.duplicate, .pill.cancelled, .pill.demo { background: var(--warn-soft); color: var(--warn); }
+.pill.via { background: var(--info-soft); color: var(--info); text-transform: none; }
 .pill.scheduled { background: var(--violet-soft); color: var(--violet); }
 
 .progress { display: flex; height: 10px; border-radius: 99px; overflow: hidden; background: var(--sunk); margin: 12px 0; box-shadow: var(--sh-sunk); }
